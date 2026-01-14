@@ -44,6 +44,9 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/updateUser", a.updateUser)
 	g.POST("/restartPanel", a.restartPanel)
 	g.GET("/getDefaultJsonConfig", a.getDefaultXrayConfig)
+
+	// Initialize migration controller
+	NewMigrationController(g)
 }
 
 // getAllSetting retrieves all current settings.

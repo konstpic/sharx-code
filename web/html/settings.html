@@ -89,6 +89,13 @@
                     </template>
                     {{ template "settings/panel/subscription/json" . }}
                   </a-tab-pane>
+                  <a-tab-pane key="6" :style="{ paddingTop: '20px' }">
+                    <template #tab>
+                      <a-icon type="database"></a-icon>
+                      <span>{{ i18n "pages.settings.migration" }}</span>
+                    </template>
+                    {{ template "settings/panel/migration" . }}
+                  </a-tab-pane>
                 </a-tabs>
               </a-col>
             </a-row>
@@ -269,7 +276,14 @@
       },
       goToNodes() {
         window.location.href = basePath + 'panel/nodes';
-      }
+      },
+      // Migration data
+      migrationFile: null,
+      migrationFileList: [],
+      migrationPreview: null,
+      migrationPreviewing: false,
+      migrationExecuting: false,
+      migrationResult: null
     },
     methods: {
       loading(spinning = true) {
@@ -490,6 +504,120 @@
         const updatedNoises = [...this.noisesArray];
         updatedNoises[index] = { ...updatedNoises[index], applyTo: value };
         this.noisesArray = updatedNoises;
+      },
+      // Migration methods
+      beforeUpload(file) {
+        // Only allow .db files
+        const isDB = file.name.toLowerCase().endsWith('.db');
+        if (!isDB) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.invalidFile" }}');
+          return false;
+        }
+        
+        // Check file size (100MB max)
+        const isLt100M = file.size / 1024 / 1024 < 100;
+        if (!isLt100M) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.fileTooLarge" }}');
+          return false;
+        }
+        
+        this.migrationFile = file;
+        this.migrationFileList = [file];
+        this.migrationPreview = null;
+        this.migrationResult = null;
+        return false; // Prevent auto upload
+      },
+      handleRemove() {
+        this.migrationFile = null;
+        this.migrationFileList = [];
+        this.migrationPreview = null;
+        this.migrationResult = null;
+      },
+      async previewMigration() {
+        if (!this.migrationFile) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.noFile" }}');
+          return;
+        }
+        
+        this.migrationPreviewing = true;
+        this.migrationPreview = null;
+        
+        try {
+          const formData = new FormData();
+          formData.append('file', this.migrationFile);
+          
+          const msg = await HttpUtil.post('/panel/setting/migration/preview', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            }
+          });
+          
+          if (msg.success) {
+            this.migrationPreview = msg.obj;
+            Vue.prototype.$message.success('{{ i18n "pages.settings.migration.preview.success" }}');
+          } else {
+            Vue.prototype.$message.error(msg.msg || '{{ i18n "pages.settings.migration.error.preview" }}');
+          }
+        } catch (error) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.preview" }}');
+          console.error('Preview migration error:', error);
+        } finally {
+          this.migrationPreviewing = false;
+        }
+      },
+      async executeMigration() {
+        if (!this.migrationFile) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.noFile" }}');
+          return;
+        }
+        
+        if (!this.migrationPreview) {
+          Vue.prototype.$message.warning('{{ i18n "pages.settings.migration.error.noPreview" }}');
+          return;
+        }
+        
+        await new Promise(resolve => {
+          this.$confirm({
+            title: '{{ i18n "pages.settings.migration.executeConfirm.title" }}',
+            content: '{{ i18n "pages.settings.migration.executeConfirm.content" }}',
+            class: themeSwitcher.currentTheme,
+            okText: '{{ i18n "sure" }}',
+            cancelText: '{{ i18n "cancel" }}',
+            onOk: () => resolve(),
+          });
+        });
+        
+        this.migrationExecuting = true;
+        this.migrationResult = null;
+        
+        try {
+          const formData = new FormData();
+          formData.append('file', this.migrationFile);
+          
+          const msg = await HttpUtil.post('/panel/setting/migration/execute', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            }
+          });
+          
+          if (msg.success && msg.obj) {
+            this.migrationResult = msg.obj;
+            if (msg.obj.success) {
+              Vue.prototype.$message.success('{{ i18n "pages.settings.migration.success" }}');
+            } else {
+              Vue.prototype.$message.error(msg.msg || '{{ i18n "pages.settings.migration.error.execute" }}');
+            }
+          } else {
+            this.migrationResult = { success: false, errors: [msg.msg || '{{ i18n "pages.settings.migration.error.execute" }}'] };
+            Vue.prototype.$message.error(msg.msg || '{{ i18n "pages.settings.migration.error.execute" }}');
+          }
+        } catch (error) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.migration.error.execute" }}');
+          console.error('Execute migration error:', error);
+          this.migrationResult = { success: false, errors: [error.message || '{{ i18n "pages.settings.migration.error.execute" }}'] };
+        } finally {
+          this.migrationExecuting = false;
+        }
       },
     },
     computed: {
