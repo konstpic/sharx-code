@@ -19,6 +19,16 @@ import (
 // ClientHWIDService provides business logic for managing client HWIDs.
 type ClientHWIDService struct{}
 
+// getMoscowTime returns current time in Moscow timezone (UTC+3)
+func (s *ClientHWIDService) getMoscowTime() time.Time {
+	moscow, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		// Fallback to UTC+3 if location not found
+		moscow = time.FixedZone("MSK", 3*60*60)
+	}
+	return time.Now().In(moscow)
+}
+
 // GetHWIDsForClient retrieves all HWIDs associated with a client.
 func (s *ClientHWIDService) GetHWIDsForClient(clientId int) ([]*model.ClientHWID, error) {
 	db := database.GetDB()
@@ -61,11 +71,22 @@ func (s *ClientHWIDService) AddHWIDForClient(clientId int, hwid string, deviceOS
 	var existingHWID model.ClientHWID
 	err = tx.Where("client_id = ? AND hwid = ?", clientId, hwid).First(&existingHWID).Error
 	if err == nil {
-		// HWID exists - update last seen and IP
-		now := time.Now().Unix()
+		// HWID exists - update last seen and IP with Moscow time
+		now := s.getMoscowTime().Unix()
+		// Fix timestamps if they're incorrect (less than year 2000, which is 946684800)
+		// This handles cases where old records have wrong timestamps
+		year2000Timestamp := int64(946684800) // January 1, 2000 00:00:00 UTC
 		updates := map[string]interface{}{
 			"last_seen_at": now,
 			"ip_address":   ipAddress,
+		}
+		// Fix first_seen_at if it's incorrect (only fix, don't update if it's correct)
+		if existingHWID.FirstSeenAt < year2000Timestamp {
+			updates["first_seen_at"] = now
+		}
+		// Fix last_seen_at if it's incorrect (shouldn't happen, but just in case)
+		if existingHWID.LastSeenAt < year2000Timestamp {
+			updates["last_seen_at"] = now
 		}
 		if userAgent != "" {
 			updates["user_agent"] = userAgent
@@ -113,8 +134,8 @@ func (s *ClientHWIDService) AddHWIDForClient(clientId int, hwid string, deviceOS
 		}
 	}
 
-	// Create new HWID record
-	now := time.Now().Unix()
+	// Create new HWID record with Moscow time
+	now := s.getMoscowTime().Unix()
 	newHWID := &model.ClientHWID{
 		ClientId:    clientId,
 		HWID:        hwid,
@@ -205,8 +226,8 @@ func (s *ClientHWIDService) CheckHWIDAllowed(clientId int, hwid string) (bool, e
 		var hwidRecord model.ClientHWID
 		err = db.Where("client_id = ? AND hwid = ? AND is_active = ?", clientId, hwid, true).First(&hwidRecord).Error
 		if err == nil {
-			// HWID exists and is active - update last seen
-			db.Model(&hwidRecord).Update("last_seen_at", time.Now().Unix())
+			// HWID exists and is active - update last seen with Moscow time
+			db.Model(&hwidRecord).Update("last_seen_at", s.getMoscowTime().Unix())
 			return true, nil
 		} else if err == gorm.ErrRecordNotFound {
 			// HWID not found - check if we're under limit (allows registration)
@@ -236,8 +257,8 @@ func (s *ClientHWIDService) CheckHWIDAllowed(clientId int, hwid string) (bool, e
 		var hwidRecord model.ClientHWID
 		err = db.Where("client_id = ? AND hwid = ? AND is_active = ?", clientId, hwid, true).First(&hwidRecord).Error
 		if err == nil {
-			// HWID exists and is active - update last seen
-			db.Model(&hwidRecord).Update("last_seen_at", time.Now().Unix())
+			// HWID exists and is active - update last seen with Moscow time
+			db.Model(&hwidRecord).Update("last_seen_at", s.getMoscowTime().Unix())
 			return true, nil
 		} else if err == gorm.ErrRecordNotFound {
 			// HWID not found - check limit
@@ -320,9 +341,49 @@ func (s *ClientHWIDService) UpdateHWIDLastSeen(clientId int, hwid string, ipAddr
 	return db.Model(&model.ClientHWID{}).
 		Where("client_id = ? AND hwid = ?", clientId, hwid).
 		Updates(map[string]interface{}{
-			"last_seen_at": time.Now().Unix(),
+			"last_seen_at": s.getMoscowTime().Unix(),
 			"ip_address":   ipAddress,
 		}).Error
+}
+
+// FixAllIncorrectTimestamps fixes all HWID records with incorrect timestamps (before year 2000).
+// This is a one-time migration function to fix existing records in the database.
+func (s *ClientHWIDService) FixAllIncorrectTimestamps() (int, error) {
+	db := database.GetDB()
+	year2000Timestamp := int64(946684800) // January 1, 2000 00:00:00 UTC
+	// Note: We don't fix timestamps here with current time to avoid setting same time for all records
+	// Instead, timestamps will be fixed automatically when records are updated on next connection
+	// This function is kept for potential future use or manual fixes
+	now := s.getMoscowTime().Unix()
+
+	// Find all HWIDs with incorrect timestamps
+	var hwids []*model.ClientHWID
+	err := db.Where("first_seen_at < ? OR last_seen_at < ?", year2000Timestamp, year2000Timestamp).Find(&hwids).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to find HWIDs with incorrect timestamps: %w", err)
+	}
+
+	fixedCount := 0
+	for _, hwid := range hwids {
+		updates := make(map[string]interface{})
+		if hwid.FirstSeenAt < year2000Timestamp {
+			updates["first_seen_at"] = now
+		}
+		if hwid.LastSeenAt < year2000Timestamp {
+			updates["last_seen_at"] = now
+		}
+		if len(updates) > 0 {
+			err = db.Model(hwid).Updates(updates).Error
+			if err != nil {
+				logger.Warningf("Failed to fix timestamps for HWID %d: %v", hwid.Id, err)
+			} else {
+				fixedCount++
+			}
+		}
+	}
+
+	logger.Infof("Fixed timestamps for %d HWID records", fixedCount)
+	return fixedCount, nil
 }
 
 // GenerateFingerprintHWID generates a fingerprint-based HWID from connection parameters.

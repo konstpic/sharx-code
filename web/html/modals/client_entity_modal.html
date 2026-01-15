@@ -102,6 +102,16 @@
                 <template slot="lastSeen" slot-scope="text, record">
                     [[ clientEntityModal.formatTimestamp(record.lastSeenAt || record.lastSeen) ]]
                 </template>
+                <template slot="ipAddress" slot-scope="text, record">
+                    <span v-if="record.ipAddress">[[ record.ipAddress ]]</span>
+                    <span v-else style="color: #999;">-</span>
+                </template>
+                <template slot="userAgent" slot-scope="text, record">
+                    <a-tooltip v-if="record.userAgent" :title="record.userAgent">
+                        <span style="max-width: 150px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">[[ record.userAgent ]]</span>
+                    </a-tooltip>
+                    <span v-else style="color: #999;">-</span>
+                </template>
                 <template slot="actions" slot-scope="text, record">
                     <a-button type="danger" size="small" @click="clientEntityModal.removeHwid(record.id)">{{ i18n "delete" }}</a-button>
                 </template>
@@ -212,10 +222,15 @@
         },
         formatTimestamp(timestamp) {
             if (!timestamp) return '-';
+            // Convert seconds to milliseconds if timestamp is in seconds (less than year 2100 in seconds)
+            // Timestamp in seconds: 1768489162 (year 2026)
+            // Timestamp in milliseconds: 1768489162000 (year 2026)
+            // If timestamp is less than 10^10, it's in seconds, need to multiply by 1000
+            const timestampMs = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
             if (typeof IntlUtil !== 'undefined' && IntlUtil.formatDate) {
-                return IntlUtil.formatDate(timestamp);
+                return IntlUtil.formatDate(timestampMs);
             }
-            return new Date(timestamp * 1000).toLocaleString();
+            return new Date(timestampMs).toLocaleString();
         },
         async removeHwid(hwidId) {
             if (!confirm('{{ i18n "pages.clients.confirmDeleteHwid" }}')) {
@@ -292,6 +307,18 @@
                         align: 'left',
                         width: 150,
                         scopedSlots: { customRender: 'lastSeen' }
+                    },
+                    {
+                        title: 'IP Address',
+                        align: 'left',
+                        width: 120,
+                        scopedSlots: { customRender: 'ipAddress' }
+                    },
+                    {
+                        title: 'User Agent',
+                        align: 'left',
+                        width: 200,
+                        scopedSlots: { customRender: 'userAgent' }
                     },
                     {
                         title: '{{ i18n "pages.clients.actions" }}',

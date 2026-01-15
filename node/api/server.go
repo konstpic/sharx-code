@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/logger"
@@ -16,12 +17,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// try executes a function and recovers from panics, logging them as warnings
+func try(fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warningf("Non-critical operation failed (recovered): %v", r)
+		}
+	}()
+	fn()
+}
+
 // Server provides REST API for managing the node.
 type Server struct {
 	port       int
 	apiKey     string
 	xrayManager *xray.Manager
 	httpServer *http.Server
+	certFile   string
+	keyFile    string
 }
 
 // NewServer creates a new API server instance.
@@ -33,11 +46,31 @@ func NewServer(port int, apiKey string, xrayManager *xray.Manager) *Server {
 	}
 }
 
+// SetTLS sets TLS certificate files for HTTPS.
+func (s *Server) SetTLS(certFile, keyFile string) {
+	s.certFile = certFile
+	s.keyFile = keyFile
+}
+
 // Start starts the HTTP server.
 func (s *Server) Start() error {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Recovery())
+	
+	// Add request logging middleware
+	router.Use(func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		method := c.Request.Method
+		
+		c.Next()
+		
+		latency := time.Since(start)
+		status := c.Writer.Status()
+		logger.Debugf("%s %s - %d - %v", method, path, status, latency)
+	})
+	
 	router.Use(s.authMiddleware())
 
 	// Health check endpoint (no auth required)
@@ -52,6 +85,7 @@ func (s *Server) Start() error {
 		api.POST("/apply-config", s.applyConfig)
 		api.POST("/reload", s.reload)
 		api.POST("/force-reload", s.forceReload)
+		api.POST("/install-xray/:version", s.installXray)
 		api.GET("/status", s.status)
 		api.GET("/stats", s.stats)
 		api.GET("/logs", s.getLogs)
@@ -61,10 +95,16 @@ func (s *Server) Start() error {
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.port),
 		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  30 * time.Second,  // Increased for large configs
+		WriteTimeout: 30 * time.Second,  // Increased for large responses
+		IdleTimeout:  120 * time.Second, // Keep connections alive longer
 	}
 
+	if s.certFile != "" && s.keyFile != "" {
+		logger.Infof("API server listening on port %d with HTTPS (cert: %s, key: %s)", s.port, s.certFile, s.keyFile)
+		return s.httpServer.ListenAndServeTLS(s.certFile, s.keyFile)
+	}
+	
 	logger.Infof("API server listening on port %d", s.port)
 	return s.httpServer.ListenAndServe()
 }
@@ -86,8 +126,12 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Log incoming request for debugging
+		logger.Debugf("Incoming request: %s %s from %s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			logger.Warningf("Request to %s rejected: missing Authorization header", c.Request.URL.Path)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header"})
 			c.Abort()
 			return
@@ -100,13 +144,24 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 
 		if apiKey != s.apiKey {
+			logger.Warningf("Request to %s rejected: invalid API key (received: %s..., expected: %s...)", 
+				c.Request.URL.Path, apiKey[:min(8, len(apiKey))], s.apiKey[:min(8, len(s.apiKey))])
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid API key"})
 			c.Abort()
 			return
 		}
 
+		logger.Debugf("Request to %s authenticated successfully", c.Request.URL.Path)
 		c.Next()
 	}
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // health returns the health status of the node.
@@ -119,11 +174,16 @@ func (s *Server) health(c *gin.Context) {
 
 // applyConfig applies a new XRAY configuration.
 func (s *Server) applyConfig(c *gin.Context) {
+	logger.Infof("Apply config request received")
+	
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		logger.Errorf("Failed to read request body: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
+
+	logger.Infof("Request body read, size: %d bytes", len(body))
 
 	// Try to parse as JSON with optional panelUrl field
 	var requestData struct {
@@ -134,25 +194,34 @@ func (s *Server) applyConfig(c *gin.Context) {
 	// First try to parse as new format with panelUrl
 	if err := json.Unmarshal(body, &requestData); err == nil && requestData.PanelURL != "" {
 		// New format: { "config": {...}, "panelUrl": "http://..." }
+		logger.Infof("Parsed request with panelUrl: %s", requestData.PanelURL)
 		body = requestData.Config
-		// Set panel URL for log pusher
-		nodeLogs.SetPanelURL(requestData.PanelURL)
+		// Set panel URL for log pusher in background to avoid blocking
+		go try(func() {
+			nodeLogs.SetPanelURL(requestData.PanelURL)
+			logger.Infof("Panel URL updated in log pusher: %s", requestData.PanelURL)
+		})
 	} else {
 		// Old format: just JSON config, validate it
+		logger.Infof("Parsing as old format (no panelUrl)")
 		var configJSON json.RawMessage
 		if err := json.Unmarshal(body, &configJSON); err != nil {
+			logger.Errorf("Invalid JSON: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 			return
 		}
 	}
 
+	logger.Infof("Applying XRAY configuration...")
 	if err := s.xrayManager.ApplyConfig(body); err != nil {
 		logger.Errorf("Failed to apply config: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	logger.Infof("Configuration applied successfully, sending response")
 	c.JSON(http.StatusOK, gin.H{"message": "Configuration applied successfully"})
+	logger.Infof("Apply config response sent")
 }
 
 // reload reloads XRAY configuration.
@@ -185,8 +254,11 @@ func (s *Server) status(c *gin.Context) {
 
 // stats returns traffic and online clients statistics from XRAY.
 func (s *Server) stats(c *gin.Context) {
+	logger.Infof("Stats request received")
+	
 	// Get reset parameter (default: false)
 	reset := c.DefaultQuery("reset", "false") == "true"
+	logger.Infof("Getting stats (reset=%v)", reset)
 
 	stats, err := s.xrayManager.GetStats(reset)
 	if err != nil {
@@ -195,7 +267,9 @@ func (s *Server) stats(c *gin.Context) {
 		return
 	}
 
+	logger.Infof("Stats retrieved successfully, sending response")
 	c.JSON(http.StatusOK, stats)
+	logger.Infof("Stats response sent")
 }
 
 // getLogs returns XRAY access logs from the node.
@@ -249,12 +323,18 @@ func (s *Server) register(c *gin.Context) {
 
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Errorf("Registration failed: invalid request: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
 		return
 	}
 
+	logger.Infof("Registration request received: API key length=%d, PanelURL=%s, NodeAddress=%s", 
+		len(req.ApiKey), req.PanelURL, req.NodeAddress)
+
 	// Check if node is already registered
+	logger.Infof("Checking if node is already registered...")
 	existingConfig := nodeConfig.GetConfig()
+	logger.Infof("Existing config check complete. API key present: %v", existingConfig.ApiKey != "")
 	if existingConfig.ApiKey != "" {
 		logger.Warningf("Node is already registered. Rejecting registration attempt to prevent overwriting existing API key")
 		c.JSON(http.StatusConflict, gin.H{
@@ -265,39 +345,99 @@ func (s *Server) register(c *gin.Context) {
 	}
 
 	// Save API key to config file (only if not already registered)
+	logger.Infof("Saving API key to config file...")
 	if err := nodeConfig.SetApiKey(req.ApiKey, false); err != nil {
 		logger.Errorf("Failed to save API key: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save API key: " + err.Error()})
 		return
 	}
+	logger.Infof("API key saved to config file")
 
 	// Update API key in server (for immediate use)
 	s.apiKey = req.ApiKey
+	logger.Infof("API key updated in server")
 
-	// Save panel URL if provided
+	// Save panel URL to config if provided
 	if req.PanelURL != "" {
+		logger.Infof("Saving panel URL to config: %s", req.PanelURL)
 		if err := nodeConfig.SetPanelURL(req.PanelURL); err != nil {
 			logger.Warningf("Failed to save panel URL: %v", err)
 		} else {
-			// Update log pusher with new panel URL and API key
-			nodeLogs.SetPanelURL(req.PanelURL)
-			nodeLogs.UpdateApiKey(req.ApiKey) // Update API key in log pusher
+			logger.Infof("Panel URL saved to config file")
 		}
-	} else {
-		// Even if panel URL is not provided, update API key in log pusher
-		nodeLogs.UpdateApiKey(req.ApiKey)
 	}
 
 	// Save node address if provided
 	if req.NodeAddress != "" {
+		logger.Infof("Saving node address to config: %s", req.NodeAddress)
 		if err := nodeConfig.SetNodeAddress(req.NodeAddress); err != nil {
 			logger.Warningf("Failed to save node address: %v", err)
+		} else {
+			logger.Infof("Node address saved to config file")
 		}
 	}
 
+	logger.Infof("All registration steps completed, preparing response...")
 	logger.Infof("Node registered successfully with API key (length: %d)", len(req.ApiKey))
-	c.JSON(http.StatusOK, gin.H{
+	
+	// Send response immediately (before initializing pusher to avoid any blocking)
+	response := gin.H{
 		"message": "Node registered successfully",
 		"apiKey":  req.ApiKey, // Return API key for confirmation
+	}
+	logger.Infof("Sending registration response: %+v", response)
+	
+	// Use c.JSON to send response
+	c.JSON(http.StatusOK, response)
+	
+	// Flush response to ensure it's sent
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	
+	logger.Infof("Registration response sent successfully")
+	
+	// Initialize/update log pusher with API key and panel URL AFTER sending response
+	// This ensures response is sent immediately without any blocking
+	logger.Infof("Starting log pusher initialization in background...")
+	go try(func() {
+		// First, ensure API key is set in pusher (this initializes pusher if needed)
+		nodeLogs.UpdateApiKey(req.ApiKey)
+		logger.Infof("Log pusher API key updated")
+		
+		if req.PanelURL != "" {
+			// Set panel URL (pusher should be initialized now with API key)
+			nodeLogs.SetPanelURL(req.PanelURL)
+			logger.Infof("Log pusher enabled: sending logs to %s", req.PanelURL)
+		} else {
+			logger.Infof("Log pusher API key set (panel URL will be set when config is applied)")
+		}
+	})
+	logger.Infof("Log pusher initialization started (non-blocking)")
+}
+
+// installXray installs or updates Xray to the specified version.
+func (s *Server) installXray(c *gin.Context) {
+	version := c.Param("version")
+	if version == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Version parameter is required"})
+		return
+	}
+
+	// Remove 'v' prefix if present
+	if strings.HasPrefix(version, "v") {
+		version = version[1:]
+	}
+
+	logger.Infof("Installing Xray version %s", version)
+	if err := s.xrayManager.InstallXrayVersion(version); err != nil {
+		logger.Errorf("Failed to install Xray version %s: %v", version, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Xray version %s installed successfully", version),
+		"version": version,
 	})
 }

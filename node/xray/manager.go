@@ -2,18 +2,22 @@
 package xray
 
 import (
+	"archive/zip"
 	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v2/config"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/util/json_util"
 	"github.com/mhsanaei/3x-ui/v2/xray"
@@ -538,4 +542,173 @@ func (m *Manager) GetLogs(count int, filter string) ([]string, error) {
 	}
 
 	return lines, nil
+}
+
+// InstallXrayVersion downloads and installs a specific version of Xray.
+func (m *Manager) InstallXrayVersion(version string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// 1. Stop xray before doing anything
+	if m.process != nil && m.process.IsRunning() {
+		if err := m.process.Stop(); err != nil {
+			logger.Warningf("Failed to stop XRAY before update: %v", err)
+		}
+		// Wait a bit for process to stop
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// 2. Download the zip
+	zipFileName, err := m.downloadXRay(version)
+	if err != nil {
+		return fmt.Errorf("failed to download Xray: %w", err)
+	}
+	defer os.Remove(zipFileName)
+
+	// 3. Extract the binary
+	zipFile, err := os.Open(zipFileName)
+	if err != nil {
+		return fmt.Errorf("failed to open zip file: %w", err)
+	}
+	defer zipFile.Close()
+
+	stat, err := zipFile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat zip file: %w", err)
+	}
+	reader, err := zip.NewReader(zipFile, stat.Size())
+	if err != nil {
+		return fmt.Errorf("failed to create zip reader: %w", err)
+	}
+
+	// Helper to extract files
+	copyZipFile := func(zipName string, fileName string) error {
+		zipFile, err := reader.Open(zipName)
+		if err != nil {
+			return err
+		}
+		defer zipFile.Close()
+		os.MkdirAll(filepath.Dir(fileName), 0755)
+		os.Remove(fileName)
+		file, err := os.OpenFile(fileName, os.O_CREATE|os.O_RDWR|os.O_TRUNC, fs.ModePerm)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(file, zipFile)
+		return err
+	}
+
+	// 4. Extract correct binary
+	binPath := config.GetBinFolderPath()
+	if binPath == "" {
+		binPath = "bin"
+	}
+	
+	var targetBinary string
+	if runtime.GOOS == "windows" {
+		targetBinary = filepath.Join(binPath, "xray-windows-amd64.exe")
+		err = copyZipFile("xray.exe", targetBinary)
+	} else {
+		targetBinary = xray.GetBinaryPath()
+		err = copyZipFile("xray", targetBinary)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to extract binary: %w", err)
+	}
+
+	logger.Infof("Xray version %s installed successfully to %s", version, targetBinary)
+
+	// 5. Make binary executable (important for Linux/Unix)
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(targetBinary, 0755); err != nil {
+			logger.Warningf("Failed to set executable permissions on %s: %v", targetBinary, err)
+		}
+	}
+
+	// 6. Restart xray if config exists (whether it was running or not)
+	// If it was running, restart it. If it wasn't running but config exists, start it.
+	if m.config != nil {
+		wasRunning := m.process != nil && m.process.IsRunning()
+		m.process = xray.NewProcess(m.config)
+		if err := m.process.Start(); err != nil {
+			logger.Warningf("Failed to start XRAY after update: %v", err)
+			// Don't return error - installation was successful, just start failed
+		} else {
+			if wasRunning {
+				logger.Infof("XRAY restarted successfully after version update")
+			} else {
+				logger.Infof("XRAY started successfully with new version")
+			}
+		}
+	} else {
+		logger.Info("No config available, XRAY will start when config is applied")
+	}
+
+	return nil
+}
+
+// downloadXRay downloads the Xray binary zip file for the specified version.
+func (m *Manager) downloadXRay(version string) (string, error) {
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+
+	switch osName {
+	case "darwin":
+		osName = "macos"
+	case "windows":
+		osName = "windows"
+	}
+
+	switch arch {
+	case "amd64":
+		arch = "64"
+	case "arm64":
+		arch = "arm64-v8a"
+	case "armv7":
+		arch = "arm32-v7a"
+	case "armv6":
+		arch = "arm32-v6"
+	case "armv5":
+		arch = "arm32-v5"
+	case "386":
+		arch = "32"
+	case "s390x":
+		arch = "s390x"
+	}
+
+	fileName := fmt.Sprintf("Xray-%s-%s.zip", osName, arch)
+	
+	// Ensure version has 'v' prefix for GitHub releases
+	versionTag := version
+	if !strings.HasPrefix(versionTag, "v") {
+		versionTag = "v" + versionTag
+	}
+	
+	url := fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/%s", versionTag, fileName)
+	
+	logger.Infof("Downloading Xray %s from %s", versionTag, url)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed with status %d", resp.StatusCode)
+	}
+
+	os.Remove(fileName)
+	file, err := os.Create(fileName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return fileName, nil
 }

@@ -49,6 +49,39 @@ cd node
 NODE_API_KEY=your-secure-api-key docker-compose up -d --build
 ```
 
+#### HTTPS Configuration
+
+To enable HTTPS for the node API:
+
+1. Create a `cert` directory in the `node` folder:
+   ```bash
+   mkdir -p node/cert
+   ```
+
+2. Place your TLS certificate files in `node/cert/`:
+   - Certificate file: `cert.pem` (or `fullchain.pem`)
+   - Private key file: `key.pem` (or `privkey.pem`)
+
+3. Uncomment and configure environment variables in `docker-compose.yml`:
+   ```yaml
+   environment:
+     - NODE_TLS_CERT_FILE=/app/cert/cert.pem
+     - NODE_TLS_KEY_FILE=/app/cert/key.pem
+   ```
+
+4. Uncomment the HTTPS port mapping:
+   ```yaml
+   ports:
+     - "8080:8080"  # HTTP (optional, can be removed if using HTTPS only)
+     - "8443:8443"  # HTTPS
+   ```
+
+5. Restart the container:
+   ```bash
+   docker-compose down
+   docker-compose up -d
+   ```
+
 **Note:** XRAY Core is automatically downloaded during Docker image build for your architecture. Docker BuildKit automatically detects the host architecture. To explicitly specify the architecture, use:
 
 ```bash
@@ -64,6 +97,8 @@ go run node/main.go -port 8080 -api-key your-secure-api-key
 ## Environment Variables
 
 - `NODE_API_KEY` - API key for authentication (required)
+- `NODE_TLS_CERT_FILE` - Path to TLS certificate file (optional, enables HTTPS)
+- `NODE_TLS_KEY_FILE` - Path to TLS private key file (optional, enables HTTPS)
 
 ## Structure
 

@@ -358,8 +358,9 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	}
 	// Update HWID settings - GORM converts field names to snake_case automatically
 	// HWIDEnabled -> hwid_enabled, MaxHWID -> max_hwid
-	// But we need to check if columns exist first, or use direct field assignment
+	// Always update HWID settings (they should always be present when updating from the UI)
 	updates["hwid_enabled"] = client.HWIDEnabled
+	// Always update max_hwid, including 0 (which means unlimited)
 	updates["max_hwid"] = client.MaxHWID
 	updates["updated_at"] = client.UpdatedAt
 

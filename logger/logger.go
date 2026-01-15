@@ -212,14 +212,11 @@ func addToBuffer(level string, newLog string) {
 	})
 
 	// If running on node, push log to panel in real-time
-	// Check if we're in node mode by checking for NODE_API_KEY environment variable
-	if os.Getenv("NODE_API_KEY") != "" {
-		// Format log line as "timestamp level - message" for panel
-		logLine := fmt.Sprintf("%s %s - %s", t.Format(timeFormat), strings.ToUpper(level), newLog)
-		// Use build tag or lazy initialization to avoid circular dependency
-		// For now, we'll use a simple check - if node/logs package is available
-		pushLogToPanel(logLine)
-	}
+	// pushLogToPanel is set by node package if log pusher is initialized
+	// Always call it - it will check internally if pusher is enabled
+	// Format log line as "timestamp level - message" for panel
+	logLine := fmt.Sprintf("%s %s - %s", t.Format(timeFormat), strings.ToUpper(level), newLog)
+	pushLogToPanel(logLine)
 }
 
 // pushLogToPanel pushes a log line to the panel (called from node mode only).

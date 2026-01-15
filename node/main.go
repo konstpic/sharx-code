@@ -98,6 +98,14 @@ func main() {
 	xrayManager := xray.NewManager()
 	server := api.NewServer(port, apiKey, xrayManager)
 
+	// Get TLS certificate paths from environment variables
+	certFile := os.Getenv("NODE_TLS_CERT_FILE")
+	keyFile := os.Getenv("NODE_TLS_KEY_FILE")
+	if certFile != "" && keyFile != "" {
+		server.SetTLS(certFile, keyFile)
+		log.Printf("HTTPS enabled: cert=%s, key=%s", certFile, keyFile)
+	}
+
 	log.Printf("Starting 3x-ui Node Service on port %d", port)
 	if err := server.Start(); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

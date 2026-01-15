@@ -96,7 +96,11 @@ func (s *SubService) GetSubs(subId string, host string, c *gin.Context) ([]strin
 	
 	// Register HWID from headers if context is provided and client is found
 	if c != nil && clientEntity != nil {
-		s.registerHWIDFromRequest(c, clientEntity)
+		err := s.registerHWIDFromRequest(c, clientEntity)
+		if err != nil {
+			// HWID limit exceeded - block subscription
+			return nil, 0, xray.ClientTraffic{}, fmt.Errorf("HWID limit exceeded: %w", err)
+		}
 	} else if c != nil {
 		logger.Debugf("GetSubs: Skipping HWID registration - client not found or context is nil (subId: %s)", subId)
 	}
@@ -2281,7 +2285,8 @@ func (s *SubService) extractNodeHost(nodeAddress string) string {
 
 // registerHWIDFromRequest registers HWID from HTTP headers in the request context.
 // This method reads HWID and device metadata from headers and calls RegisterHWIDFromHeaders.
-func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model.ClientEntity) {
+// Returns error if HWID limit is exceeded (should block subscription).
+func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model.ClientEntity) error {
 	logger.Debugf("registerHWIDFromRequest called for client %d (subId: %s, email: %s, hwidEnabled: %v)", 
 		clientEntity.Id, clientEntity.SubID, clientEntity.Email, clientEntity.HWIDEnabled)
 	
@@ -2290,7 +2295,7 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 	hwidMode, err := settingService.GetHwidMode()
 	if err != nil {
 		logger.Debugf("Failed to get hwidMode setting: %v", err)
-		return
+		return nil
 	}
 	logger.Debugf("Current hwidMode: %s", hwidMode)
 
@@ -2298,14 +2303,14 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 	if hwidMode != "client_header" {
 		logger.Debugf("HWID registration skipped: hwidMode is '%s' (not 'client_header') for client %d (subId: %s)", 
 			hwidMode, clientEntity.Id, clientEntity.SubID)
-		return
+		return nil
 	}
 
 	// Check if client has HWID tracking enabled
 	if !clientEntity.HWIDEnabled {
 		logger.Debugf("HWID registration skipped: HWID tracking disabled for client %d (subId: %s, email: %s)", 
 			clientEntity.Id, clientEntity.SubID, clientEntity.Email)
-		return
+		return nil
 	}
 
 	// Read HWID from headers (required)
@@ -2319,7 +2324,7 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 		// In client_header mode, we don't auto-generate HWID
 		logger.Debugf("No x-hwid header provided for client %d (subId: %s, email: %s) - HWID not registered", 
 			clientEntity.Id, clientEntity.SubID, clientEntity.Email)
-		return
+		return nil
 	}
 
 	// Read device metadata from headers (optional)
@@ -2344,21 +2349,22 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 	if err != nil {
 		// Check if error is HWID limit exceeded
 		if strings.Contains(err.Error(), "HWID limit exceeded") {
-			// Log as warning - this is an expected error when limit is reached
-			logger.Warningf("HWID limit exceeded for client %d (subId: %s, email: %s): %v", 
+			// Log as error - this should block subscription access
+			logger.Errorf("HWID limit exceeded for client %d (subId: %s, email: %s): %v - BLOCKING subscription", 
 				clientEntity.Id, clientEntity.SubID, clientEntity.Email, err)
-			// Note: We still allow the subscription request to proceed
-			// The client application should handle this error and inform the user
-			// that they need to remove an existing device or contact admin to increase limit
+			// Return error to block subscription - this will prevent the subscription from being returned
+			// The calling function should handle this error and return appropriate response to client
+			return fmt.Errorf("HWID limit exceeded: %w", err)
 		} else {
-			// Other errors - log as warning but don't fail subscription
+			// Other errors - log as warning but don't fail subscription (HWID registration is optional)
 			logger.Warningf("Failed to register HWID for client %d (subId: %s): %v", clientEntity.Id, clientEntity.SubID, err)
 		}
-		// HWID registration failure should not block subscription access
+		// For non-limit errors, HWID registration failure should not block subscription access
 		// The subscription will still be returned, but HWID won't be registered
 	} else if hwidRecord != nil {
 		// Successfully registered HWID
 		logger.Debugf("Successfully registered HWID for client %d (subId: %s, email: %s, hwid: %s, hwidId: %d)", 
 			clientEntity.Id, clientEntity.SubID, clientEntity.Email, hwid, hwidRecord.Id)
 	}
+	return nil
 }

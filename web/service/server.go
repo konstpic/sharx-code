@@ -605,6 +605,10 @@ func (s *ServerService) GetXrayVersions() ([]string, error) {
 }
 
 func (s *ServerService) StopXrayService() error {
+	// Check if Xray is running before trying to stop it
+	if !s.xrayService.IsXrayRunning() {
+		return nil // Xray is not running, nothing to stop
+	}
 	err := s.xrayService.StopXray()
 	if err != nil {
 		logger.Error("stop xray failed:", err)
@@ -674,9 +678,12 @@ func (s *ServerService) downloadXRay(version string) (string, error) {
 }
 
 func (s *ServerService) UpdateXray(version string) error {
-	// 1. Stop xray before doing anything
-	if err := s.StopXrayService(); err != nil {
-		logger.Warning("failed to stop xray before update:", err)
+	// 1. Stop xray before doing anything (only if it's running)
+	wasRunning := s.xrayService.IsXrayRunning()
+	if wasRunning {
+		if err := s.StopXrayService(); err != nil {
+			logger.Warning("failed to stop xray before update:", err)
+		}
 	}
 
 	// 2. Download the zip
@@ -730,10 +737,14 @@ func (s *ServerService) UpdateXray(version string) error {
 		return err
 	}
 
-	// 5. Restart xray
-	if err := s.xrayService.RestartXray(true); err != nil {
-		logger.Error("start xray failed:", err)
-		return err
+	// 5. Restart xray only if it was running before (in multi-node mode, xray may not be running)
+	if wasRunning {
+		if err := s.xrayService.RestartXray(true); err != nil {
+			logger.Error("start xray failed:", err)
+			return err
+		}
+	} else {
+		logger.Info("Xray was not running, skipping restart (multi-node mode)")
 	}
 
 	return nil

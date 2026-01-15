@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -244,6 +245,40 @@ func (p *process) Start() (err error) {
 	}
 
 	configPath := GetConfigPath()
+	// Check if configPath exists and is a directory (can happen with Docker volume mounts)
+	// If it's a directory, we can't remove it (it's mounted), so use an alternative path
+	if stat, err := os.Stat(configPath); err == nil && stat.IsDir() {
+		logger.Warningf("Config path %s is a directory (likely a Docker volume mount), using alternative path", configPath)
+		// Try alternative paths in order of preference
+		alternativePaths := []string{
+			config.GetBinFolderPath() + "/xray-config.json",
+			"/app/config/config.json",
+			"/tmp/xray-config.json",
+		}
+		foundAlternative := false
+		for _, altPath := range alternativePaths {
+			// Check if this path is available (doesn't exist or is a file, not a directory)
+			if stat, err := os.Stat(altPath); err != nil {
+				// Path doesn't exist, we can use it
+				configPath = altPath
+				foundAlternative = true
+				break
+			} else if !stat.IsDir() {
+				// Path exists and is a file, we can use it
+				configPath = altPath
+				foundAlternative = true
+				break
+			}
+		}
+		if !foundAlternative {
+			return common.NewErrorf("Failed to find alternative config path: all paths are directories")
+		}
+		logger.Infof("Using alternative config path: %s", configPath)
+	}
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o770); err != nil {
+		return common.NewErrorf("Failed to create config directory: %v", err)
+	}
 	err = os.WriteFile(configPath, data, fs.ModePerm)
 	if err != nil {
 		return common.NewErrorf("Failed to write configuration file: %v", err)

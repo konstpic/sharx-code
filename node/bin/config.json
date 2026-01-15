@@ -47,89 +47,14 @@
     },
     {
       "listen": null,
-      "port": 8443,
+      "port": 10231,
       "protocol": "vless",
       "settings": {
         "clients": [
           {
-            "email": "admin",
+            "email": "dfdhe",
             "flow": "xtls-rprx-vision",
-            "id": "7b361c18-b137-4913-bec8-0d12069caf56"
-          },
-          {
-            "email": "nosiksanya",
-            "flow": "",
-            "id": "da8dea35-d4b1-40e2-b4f7-5a73ff59d421"
-          },
-          {
-            "email": "vpn-flow",
-            "flow": "xtls-rprx-vision",
-            "id": "302c8696-0cbd-4b3e-b4f5-49dcf5f019f7"
-          },
-          {
-            "email": "svetik",
-            "flow": "xtls-rprx-vision",
-            "id": "9106b4ab-f72d-43d2-b372-a551dc632da9"
-          },
-          {
-            "email": "muzh-svetika",
-            "flow": "xtls-rprx-vision",
-            "id": "ae199a90-083a-49d1-9794-83859a423665"
-          },
-          {
-            "email": "svetlana",
-            "flow": "xtls-rprx-vision",
-            "id": "562e0369-e82e-4b0b-a673-2c92a7a0ad05"
-          },
-          {
-            "email": "krisz",
-            "flow": "xtls-rprx-vision",
-            "id": "1a415517-bacf-4b6f-b5ac-22c4bb8b7190"
-          },
-          {
-            "email": "evgeniyz",
-            "flow": "xtls-rprx-vision",
-            "id": "a82fd19f-643d-4edb-8ac7-5bf7fc5abca9"
-          },
-          {
-            "email": "pavelslave",
-            "flow": "xtls-rprx-vision",
-            "id": "35107019-0a8f-42a5-85a0-931eaddae493"
-          },
-          {
-            "email": "vpnflow",
-            "flow": "xtls-rprx-vision",
-            "id": "bcb63456-1aeb-42c3-a3c3-0df1540bfc77"
-          },
-          {
-            "email": "vanoss",
-            "flow": "xtls-rprx-vision",
-            "id": "6ca17565-db6f-41b6-8924-ce0113c5f6c3"
-          },
-          {
-            "email": "vpin",
-            "flow": "xtls-rprx-vision",
-            "id": "592ca47e-7f7e-4a41-8107-473154c8c778"
-          },
-          {
-            "email": "vpn.pro",
-            "flow": "xtls-rprx-vision",
-            "id": "3f19e596-6115-439e-b320-c45031b89e35"
-          },
-          {
-            "email": "veronika",
-            "flow": "xtls-rprx-vision",
-            "id": "279dba0d-63a6-407d-98eb-e8fd71113e88"
-          },
-          {
-            "email": "seregan",
-            "flow": "xtls-rprx-vision",
-            "id": "d420b6b9-ab84-4e69-b01a-41b899d10434"
-          },
-          {
-            "email": "marinan",
-            "flow": "xtls-rprx-vision",
-            "id": "f74168e1-f419-4049-96ee-b1f2b4a627a5"
+            "id": "eea45765-3726-46d0-ad23-8741f7cb53fb"
           }
         ],
         "decryption": "none",
@@ -148,35 +73,36 @@
           "maxTimediff": 0,
           "minClientVer": "",
           "mldsa65Seed": "",
-          "privateKey": "4DLSMU7c15vzn4iS-yv0YhJ8fQI_M1HFGRjWPe3JbGE",
+          "privateKey": "mIYGw5PKvYWslj8Cx4o9y0WwRj2FOTSV6uanHZyjjks",
           "serverNames": [
-            "sub.stariymelnik.online"
+            "www.apple.com",
+            "apple.com"
           ],
           "shortIds": [
-            "d5ee651ed3ce306f",
-            "1dade60958861a4d",
-            "c44b6daa9e4d01d3",
-            "8779c9d0e9676fe7",
-            "05ab6e0c92fa17c9",
-            "b9f07747cd729ce8",
-            "a0a3861a07c37028",
-            "7025aae7725482b7"
+            "b445",
+            "ea4681517b4785",
+            "8188aa66556de9fc",
+            "d9",
+            "fa1f734b98",
+            "a30127485a2f",
+            "2ac972",
+            "4aa14488"
           ],
           "show": false,
-          "target": "sub.stariymelnik.online:9443",
+          "target": "www.apple.com:443",
           "xver": 0
         },
         "security": "reality",
         "tcpSettings": {
-          "acceptProxyProtocol": true,
+          "acceptProxyProtocol": false,
           "header": {
             "type": "none"
           }
         }
       },
-      "tag": "inbound-8443",
+      "tag": "inbound-10231",
       "sniffing": {
-        "enabled": false,
+        "enabled": true,
         "destOverride": [
           "http",
           "tls",

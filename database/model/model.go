@@ -230,8 +230,8 @@ type ClientHWID struct {
 	DeviceOS    string `json:"deviceOs" form:"deviceOs" gorm:"column:device_os"`                             // Device operating system (from x-device-os header)
 	DeviceModel string `json:"deviceModel" form:"deviceModel" gorm:"column:device_model"`                       // Device model (from x-device-model header)
 	OSVersion   string `json:"osVersion" form:"osVersion" gorm:"column:os_version"`                           // OS version (from x-ver-os header)
-	FirstSeenAt int64  `json:"firstSeenAt" gorm:"column:first_seen_at;autoCreateTime"`                    // First time this HWID was seen (timestamp)
-	LastSeenAt  int64  `json:"lastSeenAt" gorm:"column:last_seen_at;autoUpdateTime"`                     // Last time this HWID was used (timestamp)
+	FirstSeenAt int64  `json:"firstSeenAt" gorm:"column:first_seen_at"`                    // First time this HWID was seen (timestamp)
+	LastSeenAt  int64  `json:"lastSeenAt" gorm:"column:last_seen_at"`                     // Last time this HWID was used (timestamp)
 	FirstSeenIP string `json:"firstSeenIp" form:"firstSeenIp" gorm:"column:first_seen_ip"`                       // IP address when first seen
 	IsActive    bool   `json:"isActive" form:"isActive" gorm:"column:is_active;default:true"`          // Whether this HWID is currently active
 	IPAddress   string `json:"ipAddress" form:"ipAddress" gorm:"column:ip_address"`                             // Last known IP address for this HWID

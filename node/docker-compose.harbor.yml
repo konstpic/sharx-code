@@ -1,8 +1,7 @@
 services:
   node:
-    build:
-      context: ..
-      dockerfile: node/Dockerfile
+    # Используем образ из Harbor вместо локальной сборки
+    image: registry.konstpic.ru/3x-ui/node:latest
     container_name: 3x-ui-node
     restart: unless-stopped
     #environment:
@@ -13,15 +12,16 @@ services:
      # - "44000:44000" # Xray ports = Inbound port
      # - "8443:8443"  # HTTPS API port (uncomment if using HTTPS)
     volumes:
-      - ./bin/config.json:/app/bin/config.json
+      - ./bin:/app/bin
       - ./logs:/app/logs
       - ./cert:/app/cert  # Mount directory for TLS certificates
-      # Note: config.json is mounted directly for persistence
-      # If the file doesn't exist, it will be created when XRAY config is first applied
+      # Note: bin directory is mounted for persistence
+      # If config.json doesn't exist, it will be created when XRAY config is first applied
+      # If ./bin/config.json on host is a directory, XRAY will use an alternative path automatically
       # Place your TLS certificates in ./cert/ directory:
       #   - cert.pem (or fullchain.pem)
       #   - key.pem (or privkey.pem)
-    #environment:
+    environment:
       # Uncomment and set paths to enable HTTPS:
       # - NODE_TLS_CERT_FILE=/app/cert/cert.pem
       # - NODE_TLS_KEY_FILE=/app/cert/key.pem

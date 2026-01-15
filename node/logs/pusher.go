@@ -3,7 +3,9 @@ package logs
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -185,37 +187,72 @@ func SetPanelURL(url string) {
 		// Start periodic push if it wasn't running
 		pusher.pushTicker = time.NewTicker(2 * time.Second)
 		go pusher.run()
-		logger.Debugf("Log pusher enabled: sending logs to %s", url)
+		// Don't log here to avoid recursion - log will be sent via pusher
 	} else if wasEnabled && pusher.panelURL != url {
-		logger.Debugf("Log pusher panel URL updated: %s", url)
+		// Don't log here to avoid recursion
 	}
 }
 
 // UpdateApiKey updates the API key in the log pusher.
 // This is called after node registration to enable log pushing.
+// If pusher is not initialized, it will be initialized with the API key.
 func UpdateApiKey(apiKey string) {
 	pusherMu.Lock()
 	defer pusherMu.Unlock()
 
 	if pusher == nil {
-		logger.Debug("Cannot update API key: log pusher not initialized")
-		return
-	}
+		// Initialize pusher if it doesn't exist yet
+		// Get node address from environment first (fastest)
+		nodeAddress := os.Getenv("NODE_ADDRESS")
+		if nodeAddress == "" {
+			// Try to get from config, but use default if not found (don't block)
+			// Use a quick read without blocking
+			cfg := getNodeConfig()
+			if cfg != nil && cfg.NodeAddress != "" {
+				nodeAddress = cfg.NodeAddress
+			}
+		}
+		if nodeAddress == "" {
+			// Default node address (will be updated later)
+			nodeAddress = "http://127.0.0.1:8080"
+		}
 
-	pusher.apiKey = apiKey
-	logger.Debugf("Log pusher API key updated (length: %d)", len(apiKey))
+		pusher = &LogPusher{
+			apiKey:      apiKey,
+			nodeAddress: nodeAddress,
+			logBuffer:   make([]string, 0, 10),
+			client: &http.Client{
+				Timeout: 5 * time.Second,
+			},
+			stopCh:  make(chan struct{}),
+			enabled: false, // Will be enabled when panel URL is set
+		}
+	} else {
+		pusher.apiKey = apiKey
+	}
 	
 	// If pusher is enabled but wasn't running, start it
+	// Do this in a goroutine to avoid blocking
 	if pusher.enabled && pusher.pushTicker == nil && pusher.panelURL != "" {
 		pusher.pushTicker = time.NewTicker(2 * time.Second)
 		go pusher.run()
-		logger.Debugf("Log pusher started after API key update")
+		// Don't log here to avoid recursion - log will be sent via pusher
 	}
 }
 
 // PushLog adds a log entry to the buffer for sending to panel.
 func PushLog(logLine string) {
-	if pusher == nil || !pusher.enabled {
+	pusherMu.RLock()
+	pusherLocal := pusher
+	pusherMu.RUnlock()
+	
+	if pusherLocal == nil {
+		// Don't log here to avoid infinite loop
+		return
+	}
+	
+	if !pusherLocal.enabled {
+		// Don't log here to avoid infinite loop
 		return
 	}
 
@@ -226,18 +263,21 @@ func PushLog(logLine string) {
 	}
 
 	// Skip logs about log pushing itself to avoid infinite loop
-	if strings.Contains(logLine, "Logs pushed:") || strings.Contains(logLine, "Failed to push logs") {
+	if strings.Contains(logLine, "Logs pushed:") || 
+	   strings.Contains(logLine, "Failed to push logs") ||
+	   strings.Contains(logLine, "Log pusher") ||
+	   strings.Contains(logLine, "Panel URL") {
 		return
 	}
 
-	pusher.bufferMu.Lock()
-	defer pusher.bufferMu.Unlock()
+	pusherLocal.bufferMu.Lock()
+	defer pusherLocal.bufferMu.Unlock()
 
-	pusher.logBuffer = append(pusher.logBuffer, logLine)
+	pusherLocal.logBuffer = append(pusherLocal.logBuffer, logLine)
 
 	// If buffer is getting large, push immediately
-	if len(pusher.logBuffer) >= 10 {
-		go pusher.push()
+	if len(pusherLocal.logBuffer) >= 10 {
+		go pusherLocal.push()
 	}
 }
 
@@ -292,8 +332,7 @@ func (lp *LogPusher) pushLogs(logs []string) {
 	}
 	panelEndpoint += "panel/api/node/push-logs"
 
-	// Log push attempt (DEBUG level to avoid sending this log back to panel)
-	logger.Debugf("Logs pushed: %d log entries to %s", len(logs), panelEndpoint)
+	// Don't log here to avoid recursion - this function is called from logger
 
 	// Prepare request
 	reqBody := map[string]interface{}{
@@ -307,28 +346,38 @@ func (lp *LogPusher) pushLogs(logs []string) {
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		logger.Errorf("Failed to marshal log push request to %s: %v", panelEndpoint, err)
+		// Don't log here to avoid recursion - use fmt.Printf or os.Stderr
+		fmt.Fprintf(os.Stderr, "Failed to marshal log push request: %v\n", err)
 		return
 	}
 
 	req, err := http.NewRequest("POST", panelEndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
-		logger.Errorf("Failed to create log push request to %s: %v", panelEndpoint, err)
+		// Don't log here to avoid recursion
+		fmt.Fprintf(os.Stderr, "Failed to create log push request: %v\n", err)
 		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
+	// Use context with timeout to avoid blocking forever
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
+
 	resp, err := lp.client.Do(req)
 	if err != nil {
-		logger.Errorf("Failed to push logs to panel at %s: %v (check if panel URL is correct and accessible)", panelEndpoint, err)
+		// Don't log here to avoid recursion - errors are expected if panel is unreachable
+		// Silently fail - this is non-critical
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		logger.Errorf("Panel at %s returned non-OK status %d for log push: %s", panelEndpoint, resp.StatusCode, string(body))
+		// Don't log here to avoid recursion
+		// Silently fail - this is non-critical
+		_ = body // Suppress unused variable warning
 		return
 	}
 

@@ -324,6 +324,11 @@
       <a-collapse-panel key="1" header='Xray'>
         <a-alert type="warning" class="mb-12 w-100" message='{{ i18n "pages.index.xraySwitchClickDesk" }}'
           show-icon></a-alert>
+        <div v-if="multiNodeMode" class="mb-12">
+          <a-checkbox-group v-model="versionModal.selectedNodeIds" :options="versionModal.nodeOptions" />
+          <a-button type="link" size="small" @click="versionModal.selectAllNodes" class="ml-8">Select All</a-button>
+          <a-button type="link" size="small" @click="versionModal.deselectAllNodes">Deselect All</a-button>
+        </div>
         <a-list class="ant-version-list w-100" bordered>
           <a-list-item class="ant-version-list-item" v-for="version, index in versionModal.versions">
             <a-tag :color="index % 2 == 0 ? 'purple' : 'green'">[[ version ]]</a-tag>
@@ -777,12 +782,38 @@
   const versionModal = {
     visible: false,
     versions: [],
+    selectedNodeIds: [],
+    nodeOptions: [],
     show(versions) {
       this.visible = true;
       this.versions = versions;
+      // Load nodes if in multi-node mode
+      if (app.multiNodeMode) {
+        this.loadNodes();
+      }
     },
     hide() {
       this.visible = false;
+      this.selectedNodeIds = [];
+    },
+    async loadNodes() {
+      try {
+        const msg = await HttpUtil.get('/panel/node/list');
+        if (msg && msg.success && msg.obj) {
+          this.nodeOptions = msg.obj.map(node => ({
+            label: `${node.name || 'Node'} (${node.address})`,
+            value: node.id
+          }));
+        }
+      } catch (e) {
+        console.error("Failed to load nodes:", e);
+      }
+    },
+    selectAllNodes() {
+      this.selectedNodeIds = this.nodeOptions.map(opt => opt.value);
+    },
+    deselectAllNodes() {
+      this.selectedNodeIds = [];
     },
   };
 
@@ -1045,17 +1076,84 @@
         }
         versionModal.show(msg.obj);
       },
-      switchV2rayVersion(version) {
+      async switchV2rayVersion(version) {
+        // Save selectedNodeIds BEFORE any operations that might clear it
+        const savedNodeIds = [...versionModal.selectedNodeIds];
+        
+        // Check if we should install on nodes
+        const installOnNodes = this.multiNodeMode && savedNodeIds.length > 0;
+        
+        console.log("switchV2rayVersion:", {
+          version,
+          multiNodeMode: this.multiNodeMode,
+          selectedNodeIds: savedNodeIds,
+          installOnNodes
+        });
+        
+        let content = '{{ i18n "pages.index.xraySwitchVersionDialogDesc"}}'.replace('#version#', version);
+        if (installOnNodes) {
+          content += `\n\nThis will also install version ${version} on ${savedNodeIds.length} selected node(s).`;
+        }
+        
         this.$confirm({
           title: '{{ i18n "pages.index.xraySwitchVersionDialog"}}',
-          content: '{{ i18n "pages.index.xraySwitchVersionDialogDesc"}}'.replace('#version#', version),
+          content: content,
           okText: '{{ i18n "confirm"}}',
           class: themeSwitcher.currentTheme,
           cancelText: '{{ i18n "cancel"}}',
           onOk: async () => {
             versionModal.hide();
             this.loading(true, '{{ i18n "pages.index.dontRefresh"}}');
+            
+            // Install on panel first
             await HttpUtil.post(`/panel/api/server/installXray/${version}`);
+            
+            // Install on selected nodes if any (use savedNodeIds, not versionModal.selectedNodeIds)
+            if (installOnNodes) {
+              // Ensure nodeIds are numbers, not strings
+              const nodeIds = savedNodeIds.map(id => {
+                const numId = typeof id === 'string' ? parseInt(id, 10) : id;
+                return isNaN(numId) ? null : numId;
+              }).filter(id => id !== null);
+              
+              console.log("Sending install request to nodes:", {
+                url: `/panel/api/server/installXrayOnNodes/${version}`,
+                originalNodeIds: savedNodeIds,
+                convertedNodeIds: nodeIds,
+                nodeIdsType: typeof nodeIds[0],
+                nodeIdsLength: nodeIds.length
+              });
+              
+              if (nodeIds.length === 0) {
+                console.error("No valid node IDs to send!");
+                this.$message.warning("No valid node IDs selected");
+                this.loading(false);
+                return;
+              }
+              
+              try {
+                const response = await HttpUtil.post(`/panel/api/server/installXrayOnNodes/${version}`, {
+                  nodeIds: nodeIds
+                });
+                console.log("Node installation response:", response);
+                if (response && response.msg) {
+                  if (response.success) {
+                    this.$message.success(response.msg);
+                  } else {
+                    this.$message.warning(response.msg);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to install on some nodes:", e);
+                this.$message.error("Failed to install on some nodes. Check console for details.");
+              }
+            } else {
+              console.log("Skipping node installation:", {
+                multiNodeMode: this.multiNodeMode,
+                selectedCount: savedNodeIds.length
+              });
+            }
+            
             this.loading(false);
           },
         });

@@ -274,10 +274,15 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if hwidEnabled, ok := updateData["hwidEnabled"].(bool); ok {
 				client.HWIDEnabled = hwidEnabled
 			}
-			if maxHwid, ok := updateData["maxHwid"].(float64); ok {
-				client.MaxHWID = int(maxHwid)
-			} else if maxHwid, ok := updateData["maxHwid"].(int); ok {
-				client.MaxHWID = maxHwid
+			// Handle maxHwid - can be 0 (unlimited), so check if key exists, not just value
+			if maxHwidVal, exists := updateData["maxHwid"]; exists {
+				if maxHwid, ok := maxHwidVal.(float64); ok {
+					client.MaxHWID = int(maxHwid)
+				} else if maxHwid, ok := maxHwidVal.(int); ok {
+					client.MaxHWID = maxHwid
+				} else if maxHwid, ok := maxHwidVal.(int64); ok {
+					client.MaxHWID = int(maxHwid)
+				}
 			}
 		}
 	} else {
@@ -325,6 +330,21 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			}
 			if updateClient.Reset > 0 {
 				client.Reset = updateClient.Reset
+			}
+			// Always update hwidEnabled if it's in the request (even if false)
+			hwidEnabledStr := c.PostForm("hwidEnabled")
+			if hwidEnabledStr != "" {
+				client.HWIDEnabled = hwidEnabledStr == "true" || hwidEnabledStr == "1"
+			}
+			// Always update maxHwid if it's in the request (including 0 for unlimited)
+			maxHwidStr := c.PostForm("maxHwid")
+			if maxHwidStr != "" {
+				if maxHwid, err := strconv.Atoi(maxHwidStr); err == nil {
+					client.MaxHWID = maxHwid
+				}
+			} else if updateClient.MaxHWID >= 0 {
+				// If maxHwid is explicitly set in the form (including 0), use it
+				client.MaxHWID = updateClient.MaxHWID
 			}
 		}
 	}

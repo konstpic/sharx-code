@@ -426,7 +426,9 @@ func (s *XrayService) StopXray() error {
 	if s.IsXrayRunning() {
 		return p.Stop()
 	}
-	return errors.New("xray is not running")
+	// Xray is not running, nothing to stop - this is not an error
+	logger.Debug("Xray is not running, nothing to stop")
+	return nil
 }
 
 // SetToNeedRestart marks that Xray needs to be restarted.

@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,6 +37,7 @@ func (a *ClientHWIDController) initRouter(g *gin.RouterGroup) {
 		g.POST("/deactivate/:id", a.deactivateHWID)
 		g.POST("/check", a.checkHWID)
 		g.POST("/register", a.registerHWID)
+		g.POST("/fix-timestamps", a.fixAllTimestamps) // Fix all incorrect timestamps
 	}
 }
 
@@ -221,4 +223,22 @@ func (a *ClientHWIDController) registerHWID(c *gin.Context) {
 	}
 
 	jsonObj(c, hwidRecord, nil)
+}
+
+// fixAllTimestamps fixes all HWID records with incorrect timestamps (before year 2000).
+// This is a one-time migration endpoint to fix existing records in the database.
+func (a *ClientHWIDController) fixAllTimestamps(c *gin.Context) {
+	fixedCount, err := a.clientHWIDService.FixAllIncorrectTimestamps()
+	if err != nil {
+		jsonMsg(c, "Failed to fix timestamps", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"msg":     fmt.Sprintf("Fixed timestamps for %d HWID records", fixedCount),
+		"obj": gin.H{
+			"fixedCount": fixedCount,
+		},
+	})
 }

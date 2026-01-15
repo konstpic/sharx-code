@@ -15,6 +15,45 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// getRequestPanelURL extracts the panel URL from the HTTP request.
+// This is the URL the user is accessing the panel from (e.g., http://192.168.0.7:2053).
+func getRequestPanelURL(c *gin.Context) string {
+	req := c.Request
+	scheme := "http"
+	if req.TLS != nil {
+		scheme = "https"
+	} else if req.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	
+	host := req.Host
+	if host == "" {
+		host = req.Header.Get("Host")
+	}
+	if host == "" {
+		// Fallback: try to get from X-Forwarded-Host (for reverse proxies)
+		host = req.Header.Get("X-Forwarded-Host")
+	}
+	
+	if host == "" {
+		return ""
+	}
+	
+	// Get base path from context if available
+	basePath := c.GetString("base_path")
+	if basePath == "" {
+		basePath = "/"
+	}
+	
+	return fmt.Sprintf("%s://%s%s", scheme, host, basePath)
+}
+
+// isNodeReregistrationError checks if the error indicates that node needs re-registration.
+func isNodeReregistrationError(err error) bool {
+	_, ok := err.(*service.ErrNodeNeedsReregistration)
+	return ok
+}
+
 // NodeController handles HTTP requests related to node management.
 type NodeController struct {
 	nodeService service.NodeService
@@ -103,7 +142,9 @@ func (a *NodeController) addNode(c *gin.Context) {
 	// to avoid CORS issues. Here we proceed directly to registration.
 
 	// Generate API key and register node
-	apiKey, err := a.nodeService.RegisterNode(node)
+	// Get panel URL from request (the URL user is accessing panel from)
+	panelURL := getRequestPanelURL(c)
+	apiKey, err := a.nodeService.RegisterNode(node, panelURL)
 	if err != nil {
 		logger.Errorf("[Node: %s] Registration failed: %v", node.Name, err)
 		jsonMsg(c, "Failed to register node: "+err.Error(), err)
@@ -271,7 +312,11 @@ func (a *NodeController) checkNode(c *gin.Context) {
 
 	err = a.nodeService.CheckNodeHealth(node)
 	if err != nil {
-		jsonMsg(c, "Node health check failed", err)
+		if isNodeReregistrationError(err) {
+			jsonMsg(c, "Node was recreated and needs to be re-registered. Please delete this node and add it again, or contact administrator to re-register it.", err)
+		} else {
+			jsonMsg(c, "Node health check failed", err)
+		}
 		return
 	}
 
@@ -308,7 +353,11 @@ func (a *NodeController) getNodeStatus(c *gin.Context) {
 
 	status, err := a.nodeService.GetNodeStatus(node)
 	if err != nil {
-		jsonMsg(c, "Failed to get node status", err)
+		if isNodeReregistrationError(err) {
+			jsonMsg(c, "Node was recreated and needs to be re-registered. Please delete this node and add it again, or contact administrator to re-register it.", err)
+		} else {
+			jsonMsg(c, "Failed to get node status", err)
+		}
 		return
 	}
 
@@ -332,7 +381,11 @@ func (a *NodeController) reloadNode(c *gin.Context) {
 	// Use force reload to handle hung nodes
 	err = a.nodeService.ForceReloadNode(node)
 	if err != nil {
-		jsonMsg(c, "Failed to reload node", err)
+		if isNodeReregistrationError(err) {
+			jsonMsg(c, "Node was recreated and needs to be re-registered. Please delete this node and add it again, or contact administrator to re-register it.", err)
+		} else {
+			jsonMsg(c, "Failed to reload node", err)
+		}
 		return
 	}
 
@@ -375,7 +428,11 @@ func (a *NodeController) getNodeLogs(c *gin.Context) {
 	// Get raw logs from node
 	rawLogs, err := a.nodeService.GetNodeLogs(node, countInt, filter)
 	if err != nil {
-		jsonMsg(c, "Failed to get logs from node", err)
+		if isNodeReregistrationError(err) {
+			jsonMsg(c, "Node was recreated and needs to be re-registered. Please delete this node and add it again, or contact administrator to re-register it.", err)
+		} else {
+			jsonMsg(c, "Failed to get logs from node", err)
+		}
 		return
 	}
 
