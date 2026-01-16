@@ -13,6 +13,8 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/database"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
+	"github.com/mhsanaei/3x-ui/v2/web/cache"
+	"github.com/mhsanaei/3x-ui/v2/web/websocket"
 	"gorm.io/gorm"
 )
 
@@ -158,6 +160,11 @@ func (s *ClientHWIDService) AddHWIDForClient(clientId int, hwid string, deviceOS
 	}
 
 	logger.Debugf("Successfully created HWID record: clientId=%d, hwid=%s, hwidId=%d", clientId, hwid, newHWID.Id)
+	
+	// Broadcast clients update via WebSocket for real-time UI refresh
+	// Note: We broadcast nil to signal that clients should be reloaded
+	websocket.BroadcastClients(nil)
+	
 	return newHWID, nil
 }
 
@@ -400,4 +407,80 @@ func (s *ClientHWIDService) GenerateFingerprintHWID(email string, ipAddress stri
 	// when IP addresses change or clients reconnect from different networks
 	hash := sha256.Sum256([]byte(fingerprint))
 	return hex.EncodeToString(hash[:])[:32] // Use first 32 chars of hash
+}
+
+// ClearHWIDsForClient removes all HWIDs for a specific client.
+func (s *ClientHWIDService) ClearHWIDsForClient(clientId int) error {
+	db := database.GetDB()
+	
+	// Get userId for cache invalidation
+	var client model.ClientEntity
+	if err := db.Select("user_id").First(&client, clientId).Error; err == nil {
+		cache.InvalidateClients(client.UserId)
+	}
+	
+	result := db.Where("client_id = ?", clientId).Delete(&model.ClientHWID{})
+	if result.Error != nil {
+		return result.Error
+	}
+	logger.Infof("Cleared %d HWIDs for client %d", result.RowsAffected, clientId)
+	return nil
+}
+
+// ClearAllHWIDs removes all HWIDs for all clients of a specific user.
+func (s *ClientHWIDService) ClearAllHWIDs(userId int) (int64, error) {
+	db := database.GetDB()
+	
+	// Get all client IDs for this user
+	var clientIds []int
+	err := db.Model(&model.ClientEntity{}).Where("user_id = ?", userId).Pluck("id", &clientIds).Error
+	if err != nil {
+		return 0, err
+	}
+	
+	if len(clientIds) == 0 {
+		return 0, nil
+	}
+	
+	// Delete all HWIDs for these clients
+	result := db.Where("client_id IN ?", clientIds).Delete(&model.ClientHWID{})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	
+	// Invalidate cache for this user's clients
+	cache.InvalidateClients(userId)
+	
+	logger.Infof("Cleared %d HWIDs for user %d (%d clients)", result.RowsAffected, userId, len(clientIds))
+	return result.RowsAffected, nil
+}
+
+// SetHWIDLimitForAllClients sets the HWID limit for all clients of a specific user.
+func (s *ClientHWIDService) SetHWIDLimitForAllClients(userId int, maxHwid int, enabled bool) (int64, error) {
+	db := database.GetDB()
+	
+	result := db.Model(&model.ClientEntity{}).
+		Where("user_id = ?", userId).
+		Updates(map[string]interface{}{
+			"hwid_enabled": enabled,
+			"max_hwid":     maxHwid,
+		})
+	
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	
+	// Invalidate cache for this user's clients
+	cache.InvalidateClients(userId)
+	
+	logger.Infof("Set HWID limit (enabled=%v, max=%d) for %d clients of user %d", enabled, maxHwid, result.RowsAffected, userId)
+	return result.RowsAffected, nil
+}
+
+// GetHWIDCountForClient returns the number of active HWIDs for a client.
+func (s *ClientHWIDService) GetHWIDCountForClient(clientId int) (int64, error) {
+	db := database.GetDB()
+	var count int64
+	err := db.Model(&model.ClientHWID{}).Where("client_id = ? AND is_active = ?", clientId, true).Count(&count).Error
+	return count, err
 }

@@ -88,3 +88,11 @@ func BroadcastNodes(nodes any) {
 		hub.Broadcast(MessageTypeNodes, nodes)
 	}
 }
+
+// BroadcastClients broadcasts clients list update to all connected clients
+func BroadcastClients(clients any) {
+	hub := GetHub()
+	if hub != nil {
+		hub.Broadcast(MessageTypeClients, clients)
+	}
+}

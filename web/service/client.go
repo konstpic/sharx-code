@@ -24,68 +24,60 @@ type ClientService struct{}
 
 // GetClients retrieves all clients for a specific user.
 // Also loads traffic statistics and last online time for each client.
-// Results are cached in Redis for 30 seconds.
+// NOTE: No caching - data should be real-time (traffic, HWID, online status change frequently).
 func (s *ClientService) GetClients(userId int) ([]*model.ClientEntity, error) {
-	key := fmt.Sprintf("%s%d", cache.KeyClientsPrefix, userId)
+	db := database.GetDB()
 	var clients []*model.ClientEntity
-	
-	err := cache.GetOrSet(key, &clients, cache.TTLClients, func() (interface{}, error) {
-		// Cache miss - fetch from database
-		db := database.GetDB()
-		var result []*model.ClientEntity
-		err := db.Where("user_id = ?", userId).Find(&result).Error
-		if err != nil {
-			return nil, err
+	err := db.Where("user_id = ?", userId).Find(&clients).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Load inbound assignments, traffic statistics, and HWIDs for each client
+	for _, client := range clients {
+		// Load inbound assignments
+		inboundIds, err := s.GetInboundIdsForClient(client.Id)
+		if err == nil {
+			client.InboundIds = inboundIds
 		}
 
-		// Load inbound assignments, traffic statistics, and HWIDs for each client
-		for _, client := range result {
-			// Load inbound assignments
-			inboundIds, err := s.GetInboundIdsForClient(client.Id)
-			if err == nil {
-				client.InboundIds = inboundIds
+		// Traffic statistics are now stored directly in ClientEntity table
+		// No need to load from client_traffics - fields are already loaded from DB
+		
+		// Check if client exceeded limits and update status if needed (but keep Enable = true)
+		now := time.Now().Unix() * 1000
+		totalUsed := client.Up + client.Down
+		trafficLimit := int64(client.TotalGB * 1024 * 1024 * 1024)
+		trafficExceeded := client.TotalGB > 0 && totalUsed >= trafficLimit
+		timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= now
+		
+		// Update status if expired, but don't change Enable
+		if trafficExceeded || timeExpired {
+			status := "expired_traffic"
+			if timeExpired {
+				status = "expired_time"
 			}
-
-			// Traffic statistics are now stored directly in ClientEntity table
-			// No need to load from client_traffics - fields are already loaded from DB
-			
-			// Check if client exceeded limits and update status if needed (but keep Enable = true)
-			now := time.Now().Unix() * 1000
-			totalUsed := client.Up + client.Down
-			trafficLimit := int64(client.TotalGB * 1024 * 1024 * 1024)
-			trafficExceeded := client.TotalGB > 0 && totalUsed >= trafficLimit
-			timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= now
-			
-			// Update status if expired, but don't change Enable
-			if trafficExceeded || timeExpired {
-				status := "expired_traffic"
-				if timeExpired {
-					status = "expired_time"
+			// Only update if status changed
+			if client.Status != status {
+				client.Status = status
+				err = db.Model(&model.ClientEntity{}).Where("id = ?", client.Id).Update("status", status).Error
+				if err != nil {
+					logger.Warningf("Failed to update status for client %s: %v", client.Email, err)
 				}
-				// Only update if status changed
-				if client.Status != status {
-					client.Status = status
-					err = db.Model(&model.ClientEntity{}).Where("id = ?", client.Id).Update("status", status).Error
-					if err != nil {
-						logger.Warningf("Failed to update status for client %s: %v", client.Email, err)
-					}
-				}
-			}
-
-			// Load HWIDs for this client
-			hwidService := ClientHWIDService{}
-			hwids, err := hwidService.GetHWIDsForClient(client.Id)
-			if err == nil {
-				client.HWIDs = hwids
-			} else {
-				logger.Warningf("Failed to load HWIDs for client %d: %v", client.Id, err)
 			}
 		}
 
-		return result, nil
-	})
-	
-	return clients, err
+		// Load HWIDs for this client
+		hwidService := ClientHWIDService{}
+		hwids, err := hwidService.GetHWIDsForClient(client.Id)
+		if err == nil {
+			client.HWIDs = hwids
+		} else {
+			logger.Warningf("Failed to load HWIDs for client %d: %v", client.Id, err)
+		}
+	}
+
+	return clients, nil
 }
 
 // GetClient retrieves a client by ID.
@@ -330,32 +322,16 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	if client.Flow != "" {
 		updates["flow"] = client.Flow
 	}
-	if client.LimitIP > 0 {
-		updates["limit_ip"] = client.LimitIP
-	}
-	// Always update TotalGB if it's different (including setting to 0 to remove limit)
-	if client.TotalGB != existing.TotalGB {
-		updates["total_gb"] = client.TotalGB
-	}
-	if client.ExpiryTime != 0 {
-		updates["expiry_time"] = client.ExpiryTime
-	}
+	// Always update these fields - they can be 0 (unlimited/disabled) or empty
+	updates["limit_ip"] = client.LimitIP
+	updates["total_gb"] = client.TotalGB
+	updates["expiry_time"] = client.ExpiryTime
 	updates["enable"] = client.Enable
-	if client.Status != "" {
-		updates["status"] = client.Status
-	}
-	if client.TgID > 0 {
-		updates["tg_id"] = client.TgID
-	}
-	if client.SubID != "" {
-		updates["sub_id"] = client.SubID
-	}
-	if client.Comment != "" {
-		updates["comment"] = client.Comment
-	}
-	if client.Reset > 0 {
-		updates["reset"] = client.Reset
-	}
+	updates["status"] = client.Status
+	updates["tg_id"] = client.TgID
+	updates["sub_id"] = client.SubID
+	updates["comment"] = client.Comment
+	updates["reset"] = client.Reset
 	// Update HWID settings - GORM converts field names to snake_case automatically
 	// HWIDEnabled -> hwid_enabled, MaxHWID -> max_hwid
 	// Always update HWID settings (they should always be present when updating from the UI)

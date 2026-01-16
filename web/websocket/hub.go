@@ -23,6 +23,7 @@ const (
 	MessageTypeXrayState    MessageType = "xray_state"   // Xray state change
 	MessageTypeOutbounds    MessageType = "outbounds"    // Outbounds list update
 	MessageTypeNodes        MessageType = "nodes"        // Nodes list update
+	MessageTypeClients      MessageType = "clients"      // Clients list update
 )
 
 // Message represents a WebSocket message
@@ -274,7 +275,7 @@ func (h *Hub) Broadcast(messageType MessageType, payload any) {
 	}
 
 	// Throttle frequent updates (except for critical messages)
-	if messageType == MessageTypeInbounds || messageType == MessageTypeTraffic {
+	if messageType == MessageTypeInbounds || messageType == MessageTypeTraffic || messageType == MessageTypeClients {
 		h.throttleMu.Lock()
 		lastTime, exists := h.throttleMap[messageType]
 		if exists && time.Since(lastTime) < h.throttleInterval {

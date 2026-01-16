@@ -25,6 +25,14 @@
                       <a-icon type="file-done"></a-icon>
                       {{ i18n "pages.inbounds.resetAllClientTraffics" }}
                     </a-menu-item>
+                    <a-menu-item key="clearAllHwids">
+                      <a-icon type="mobile"></a-icon>
+                      {{ i18n "pages.clients.clearAllHwids" }}
+                    </a-menu-item>
+                    <a-menu-item key="setHwidLimitAll">
+                      <a-icon type="setting"></a-icon>
+                      {{ i18n "pages.clients.setHwidLimitAll" }}
+                    </a-menu-item>
                     <a-menu-item key="delDepletedClients" :style="{ color: '#FF4D4F' }">
                       <a-icon type="rest"></a-icon>
                       {{ i18n "pages.inbounds.delDepletedClients" }}
@@ -73,6 +81,7 @@
                   <a-radio-button value="depleted">{{ i18n "depleted" }}</a-radio-button>
                   <a-radio-button value="expiring">{{ i18n "depletingSoon" }}</a-radio-button>
                   <a-radio-button value="online">{{ i18n "online" }}</a-radio-button>
+                  <a-radio-button value="hwidExceeded">HWID !</a-radio-button>
                 </a-radio-group>
               </div>
               <a-table :columns="isMobile ? mobileColumns : columns" :row-key="client => client.id"
@@ -98,6 +107,10 @@
                     <a-menu-item key="resetTraffic">
                       <a-icon type="reload"></a-icon>
                       {{ i18n "pages.inbounds.resetTraffic" }}
+                    </a-menu-item>
+                    <a-menu-item key="clearHwid" v-if="client.hwidEnabled || (client.hwids && client.hwids.length > 0)">
+                      <a-icon type="mobile"></a-icon>
+                      {{ i18n "pages.clients.clearHwid" }}
                     </a-menu-item>
                     <a-menu-item key="delete" :style="{ color: '#FF4D4F' }">
                       <a-icon type="delete"></a-icon>
@@ -151,6 +164,23 @@
                   </a-tag>
                 </a-popover>
               </template>
+              <template slot="hwid" slot-scope="text, client">
+                <a-popover v-if="client.hwids && client.hwids.length > 0" :overlay-class-name="themeSwitcher.currentTheme">
+                  <template slot="content">
+                    <div v-for="hwid in client.hwids" :key="hwid.id" :style="{ marginBottom: '4px' }">
+                      <a-icon type="mobile" :style="{ marginRight: '4px' }"></a-icon>
+                      <span>[[ hwid.deviceOs || 'Unknown' ]] - [[ hwid.deviceModel || hwid.hwid.substring(0, 8) + '...' ]]</span>
+                    </div>
+                  </template>
+                  <a-tag :color="isHwidExceeded(client) ? 'red' : (client.hwidEnabled ? 'blue' : 'default')">
+                    [[ client.hwids.length ]]/[[ client.maxHwid || '∞' ]]
+                  </a-tag>
+                </a-popover>
+                <a-tag v-else-if="client.hwidEnabled" color="default">
+                  0/[[ client.maxHwid || '∞' ]]
+                </a-tag>
+                <span v-else style="color: #999;">-</span>
+              </template>
               <template slot="expiryTime" slot-scope="text, client">
                 <a-popover v-if="client.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
                   <template slot="content">
@@ -203,45 +233,62 @@
     align: 'right',
     dataIndex: "id",
     width: 50,
+    sorter: (a, b) => a.id - b.id,
+    defaultSortOrder: 'ascend',
   }, {
     title: '{{ i18n "pages.clients.operate" }}',
     align: 'center',
-    width: 60,
+    width: 80,
     scopedSlots: { customRender: 'action' },
   }, {
     title: '{{ i18n "pages.clients.email" }}',
     align: 'left',
     width: 200,
+    dataIndex: "email",
+    sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
     scopedSlots: { customRender: 'email' },
   }, {
     title: '{{ i18n "pages.clients.inbounds" }}',
     align: 'left',
     width: 250,
+    sorter: (a, b) => (a.inbounds?.length || 0) - (b.inbounds?.length || 0),
     scopedSlots: { customRender: 'inbounds' },
   }, {
     title: '{{ i18n "status" }}',
     align: 'center',
     width: 100,
+    sorter: (a, b) => (a.enable === b.enable ? 0 : a.enable ? -1 : 1),
     scopedSlots: { customRender: 'status' },
   }, {
     title: '{{ i18n "pages.clients.traffic" }}',
     align: 'left',
     width: 150,
+    sorter: (a, b) => ((a.up || 0) + (a.down || 0)) - ((b.up || 0) + (b.down || 0)),
     scopedSlots: { customRender: 'traffic' },
+  }, {
+    title: 'HWID',
+    align: 'center',
+    width: 100,
+    sorter: (a, b) => (a.hwids?.length || 0) - (b.hwids?.length || 0),
+    scopedSlots: { customRender: 'hwid' },
   }, {
     title: '{{ i18n "pages.clients.expiryTime" }}',
     align: 'left',
     width: 120,
+    sorter: (a, b) => (a.expiryTime || 0) - (b.expiryTime || 0),
     scopedSlots: { customRender: 'expiryTime' },
   }, {
     title: '{{ i18n "pages.clients.comment" }}',
     align: 'left',
     width: 150,
+    dataIndex: "comment",
+    sorter: (a, b) => (a.comment || '').localeCompare(b.comment || ''),
     scopedSlots: { customRender: 'comment' },
   }, {
     title: '{{ i18n "pages.clients.enable" }}',
     align: 'center',
-    width: 80,
+    width: 95,
+    sorter: (a, b) => (a.enable === b.enable ? 0 : a.enable ? -1 : 1),
     scopedSlots: { customRender: 'enable' },
   }];
 
@@ -250,6 +297,8 @@
     align: 'right',
     dataIndex: "id",
     width: 30,
+    sorter: (a, b) => a.id - b.id,
+    defaultSortOrder: 'ascend',
   }, {
     title: '{{ i18n "pages.clients.operate" }}',
     align: 'center',
@@ -259,11 +308,14 @@
     title: '{{ i18n "pages.clients.email" }}',
     align: 'left',
     width: 150,
+    dataIndex: "email",
+    sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
     scopedSlots: { customRender: 'email' },
   }, {
     title: '{{ i18n "pages.clients.enable" }}',
     align: 'center',
     width: 60,
+    sorter: (a, b) => (a.enable === b.enable ? 0 : a.enable ? -1 : 1),
     scopedSlots: { customRender: 'enable' },
   }];
 
@@ -299,6 +351,7 @@
         subJsonEnable: false,
       },
       remarkModel: '-ieo',
+      hwidLimitValue: 3,
     },
     methods: {
       loading(spinning = true) {
@@ -435,10 +488,39 @@
           case 'resetTraffic':
             this.resetClientTraffic(client);
             break;
+          case 'clearHwid':
+            this.clearClientHWIDs(client);
+            break;
           case 'delete':
             this.deleteClient(client.id);
             break;
         }
+      },
+      isHwidExceeded(client) {
+        if (!client.hwidEnabled || !client.maxHwid) return false;
+        return (client.hwids?.length || 0) >= client.maxHwid;
+      },
+      async clearClientHWIDs(client) {
+        this.$confirm({
+          title: '{{ i18n "pages.clients.clearHwidTitle" }}',
+          content: `{{ i18n "pages.clients.clearHwidContent" }} ${client.email}?`,
+          okText: '{{ i18n "sure" }}',
+          cancelText: '{{ i18n "close" }}',
+          onOk: async () => {
+            try {
+              const msg = await HttpUtil.post(`/panel/client/clearHwid/${client.id}`);
+              if (msg.success) {
+                app.$message.success('{{ i18n "pages.clients.hwidCleared" }}');
+                await this.loadClients();
+              } else {
+                app.$message.error(msg.msg || '{{ i18n "somethingWentWrong" }}');
+              }
+            } catch (e) {
+              console.error("Failed to clear HWIDs:", e);
+              app.$message.error('{{ i18n "somethingWentWrong" }}');
+            }
+          }
+        });
       },
       showQrcode(client) {
         // Show QR codes for all inbounds assigned to this client
@@ -718,7 +800,12 @@
       toggleRefresh() {
         localStorage.setItem("isRefreshEnabled", this.isRefreshEnabled);
         if (this.isRefreshEnabled) {
-          this.startDataRefreshLoop();
+          // Connect WebSocket if available, otherwise use polling
+          if (window.wsClient && !window.wsClient.isConnected) {
+            window.wsClient.connect();
+          } else if (!window.wsClient) {
+            this.startDataRefreshLoop();
+          }
         }
       },
       changeRefreshInterval() {
@@ -768,6 +855,9 @@
               case 'online':
                 shouldInclude = this.isClientOnline(client.email);
                 break;
+              case 'hwidExceeded':
+                shouldInclude = this.isHwidExceeded(client);
+                break;
             }
             if (shouldInclude) {
               this.searchedClients.push(client);
@@ -800,10 +890,73 @@
           case "resetClients":
             this.resetAllClientTraffics();
             break;
+          case "clearAllHwids":
+            this.clearAllHwids();
+            break;
+          case "setHwidLimitAll":
+            this.showSetHwidLimitModal();
+            break;
           case "delDepletedClients":
             this.delDepletedClients();
             break;
         }
+      },
+      clearAllHwids() {
+        this.$confirm({
+          title: '{{ i18n "pages.clients.clearAllHwidsTitle" }}',
+          content: '{{ i18n "pages.clients.clearAllHwidsContent" }}',
+          class: themeSwitcher.currentTheme,
+          okText: '{{ i18n "sure" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          onOk: async () => {
+            try {
+              const msg = await HttpUtil.post('/panel/client/clearAllHwids');
+              if (msg.success) {
+                app.$message.success(msg.msg || '{{ i18n "pages.clients.hwidCleared" }}');
+                await this.loadClients();
+              } else {
+                app.$message.error(msg.msg || '{{ i18n "somethingWentWrong" }}');
+              }
+            } catch (e) {
+              console.error("Failed to clear all HWIDs:", e);
+              app.$message.error('{{ i18n "somethingWentWrong" }}');
+            }
+          }
+        });
+      },
+      showSetHwidLimitModal() {
+        const _this = this;
+        this.$confirm({
+          title: '{{ i18n "pages.clients.setHwidLimitAllTitle" }}',
+          content: h => {
+            return h('div', [
+              h('p', '{{ i18n "pages.clients.setHwidLimitAllContent" }}'),
+              h('a-input-number', {
+                props: { min: 0, max: 100, defaultValue: 3 },
+                style: { width: '100%', marginTop: '10px' },
+                on: { change: val => { _this.hwidLimitValue = val; } }
+              })
+            ]);
+          },
+          class: themeSwitcher.currentTheme,
+          okText: '{{ i18n "sure" }}',
+          cancelText: '{{ i18n "cancel" }}',
+          onOk: async () => {
+            try {
+              const limit = _this.hwidLimitValue || 3;
+              const msg = await HttpUtil.post('/panel/client/setHwidLimitAll', { maxHwid: limit, enabled: limit > 0 });
+              if (msg.success) {
+                app.$message.success(msg.msg || '{{ i18n "pages.clients.hwidLimitSet" }}');
+                await this.loadClients();
+              } else {
+                app.$message.error(msg.msg || '{{ i18n "somethingWentWrong" }}');
+              }
+            } catch (e) {
+              console.error("Failed to set HWID limit:", e);
+              app.$message.error('{{ i18n "somethingWentWrong" }}');
+            }
+          }
+        });
       },
       resetAllClientTraffics() {
         this.$confirm({
@@ -889,12 +1042,15 @@
         this.searchedClients = this.clients.slice();
       });
 
-      // Setup WebSocket for real-time updates
-      if (window.wsClient) {
+      // Setup WebSocket for real-time updates (only if auto-refresh is enabled)
+      if (window.wsClient && this.isRefreshEnabled) {
         window.wsClient.connect();
         
         // Listen for inbounds updates (contains full client traffic data)
         window.wsClient.on('inbounds', (payload) => {
+          // Only update if auto-refresh is enabled
+          if (!this.isRefreshEnabled) return;
+          
           if (payload && Array.isArray(payload)) {
             // Update traffic for clients from inbounds data
             // This is more efficient than reloading all clients
@@ -910,6 +1066,9 @@
         
         // Listen for traffic updates
         window.wsClient.on('traffic', (payload) => {
+          // Only update if auto-refresh is enabled
+          if (!this.isRefreshEnabled) return;
+          
           // Update online clients list in real-time
           if (payload && Array.isArray(payload.onlineClients)) {
             this.onlineClients = payload.onlineClients;
@@ -922,6 +1081,20 @@
           
           // Note: Traffic updates (up/down) are handled via 'inbounds' event
           // which contains full accumulated traffic data from database
+        });
+
+        // Listen for clients updates (HWID changes, etc.)
+        window.wsClient.on('clients', (payload) => {
+          // Only update if auto-refresh is enabled
+          if (!this.isRefreshEnabled) return;
+          
+          // Reload clients to get updated data (HWID, traffic, etc.)
+          if (!this.refreshing) {
+            this.refreshing = true;
+            this.loadClients().finally(() => {
+              this.refreshing = false;
+            });
+          }
         });
 
         // Fallback to polling if WebSocket fails
@@ -940,11 +1113,9 @@
             }
           }
         });
-      } else {
+      } else if (this.isRefreshEnabled) {
         // Fallback to polling if WebSocket is not available
-        if (this.isRefreshEnabled) {
-          this.startDataRefreshLoop();
-        }
+        this.startDataRefreshLoop();
       }
     },
     watch: {

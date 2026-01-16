@@ -4,6 +4,7 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strconv"
 
@@ -41,6 +42,10 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/resetAllTraffics", a.resetAllClientTraffics)
 	g.POST("/resetTraffic/:id", a.resetClientTraffic)
 	g.POST("/delDepletedClients", a.delDepletedClients)
+	// HWID operations
+	g.POST("/clearHwid/:id", a.clearClientHWIDs)
+	g.POST("/clearAllHwids", a.clearAllClientHWIDs)
+	g.POST("/setHwidLimitAll", a.setHWIDLimitForAllClients)
 }
 
 // getClients retrieves the list of all clients for the current user.
@@ -235,22 +240,33 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if flow, ok := updateData["flow"].(string); ok && flow != "" {
 				client.Flow = flow
 			}
-			if limitIP, ok := updateData["limitIp"].(float64); ok {
-				client.LimitIP = int(limitIP)
-			} else if limitIP, ok := updateData["limitIp"].(int); ok {
-				client.LimitIP = limitIP
+			// Handle limitIp - can be 0 (unlimited), so check if key exists
+			if limitIPVal, exists := updateData["limitIp"]; exists {
+				if limitIP, ok := limitIPVal.(float64); ok {
+					client.LimitIP = int(limitIP)
+				} else if limitIP, ok := limitIPVal.(int); ok {
+					client.LimitIP = limitIP
+				}
 			}
-			if totalGB, ok := updateData["totalGB"].(float64); ok {
-				client.TotalGB = totalGB
-			} else if totalGB, ok := updateData["totalGB"].(int); ok {
-				client.TotalGB = float64(totalGB)
-			} else if totalGB, ok := updateData["totalGB"].(int64); ok {
-				client.TotalGB = float64(totalGB)
+			// Handle totalGB - can be 0 (unlimited), so check if key exists
+			if totalGBVal, exists := updateData["totalGB"]; exists {
+				if totalGB, ok := totalGBVal.(float64); ok {
+					client.TotalGB = totalGB
+				} else if totalGB, ok := totalGBVal.(int); ok {
+					client.TotalGB = float64(totalGB)
+				} else if totalGB, ok := totalGBVal.(int64); ok {
+					client.TotalGB = float64(totalGB)
+				}
 			}
-			if expiryTime, ok := updateData["expiryTime"].(float64); ok {
-				client.ExpiryTime = int64(expiryTime)
-			} else if expiryTime, ok := updateData["expiryTime"].(int64); ok {
-				client.ExpiryTime = expiryTime
+			// Handle expiryTime - can be 0 (never expires), so check if key exists
+			if expiryTimeVal, exists := updateData["expiryTime"]; exists {
+				if expiryTime, ok := expiryTimeVal.(float64); ok {
+					client.ExpiryTime = int64(expiryTime)
+				} else if expiryTime, ok := expiryTimeVal.(int64); ok {
+					client.ExpiryTime = expiryTime
+				} else if expiryTime, ok := expiryTimeVal.(int); ok {
+					client.ExpiryTime = int64(expiryTime)
+				}
 			}
 			if enable, ok := updateData["enable"].(bool); ok {
 				client.Enable = enable
@@ -260,16 +276,25 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			} else if tgID, ok := updateData["tgId"].(int64); ok {
 				client.TgID = tgID
 			}
-			if subID, ok := updateData["subId"].(string); ok && subID != "" {
-				client.SubID = subID
+			// Handle subId - check if key exists (can be empty to clear)
+			if subIDVal, exists := updateData["subId"]; exists {
+				if subID, ok := subIDVal.(string); ok {
+					client.SubID = subID
+				}
 			}
-			if comment, ok := updateData["comment"].(string); ok && comment != "" {
-				client.Comment = comment
+			// Handle comment - check if key exists (can be empty to clear)
+			if commentVal, exists := updateData["comment"]; exists {
+				if comment, ok := commentVal.(string); ok {
+					client.Comment = comment
+				}
 			}
-			if reset, ok := updateData["reset"].(float64); ok {
-				client.Reset = int(reset)
-			} else if reset, ok := updateData["reset"].(int); ok {
-				client.Reset = reset
+			// Handle reset - can be 0 (disabled), so check if key exists
+			if resetVal, exists := updateData["reset"]; exists {
+				if reset, ok := resetVal.(float64); ok {
+					client.Reset = int(reset)
+				} else if reset, ok := resetVal.(int); ok {
+					client.Reset = reset
+				}
 			}
 			if hwidEnabled, ok := updateData["hwidEnabled"].(bool); ok {
 				client.HWIDEnabled = hwidEnabled
@@ -302,35 +327,57 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if updateClient.Password != "" {
 				client.Password = updateClient.Password
 			}
-			if updateClient.Flow != "" {
-				client.Flow = updateClient.Flow
+		if updateClient.Flow != "" {
+			client.Flow = updateClient.Flow
+		}
+		// Handle limitIp - can be 0 (unlimited)
+		limitIpStr := c.PostForm("limitIp")
+		if limitIpStr != "" {
+			if limitIp, err := strconv.Atoi(limitIpStr); err == nil {
+				client.LimitIP = limitIp
 			}
-			if updateClient.LimitIP > 0 {
-				client.LimitIP = updateClient.LimitIP
+		}
+		// Handle totalGB - can be 0 (unlimited)
+		totalGBStr := c.PostForm("totalGB")
+		if totalGBStr != "" {
+			if totalGB, err := strconv.ParseFloat(totalGBStr, 64); err == nil {
+				client.TotalGB = totalGB
 			}
-			if updateClient.TotalGB > 0 {
-				client.TotalGB = updateClient.TotalGB
+		}
+		// Handle expiryTime - can be 0 (never expires)
+		expiryTimeStr := c.PostForm("expiryTime")
+		if expiryTimeStr != "" {
+			if expiryTime, err := strconv.ParseInt(expiryTimeStr, 10, 64); err == nil {
+				client.ExpiryTime = expiryTime
 			}
-			if updateClient.ExpiryTime != 0 {
-				client.ExpiryTime = updateClient.ExpiryTime
+		}
+		// Always update enable if it's in the request (even if false)
+		enableStr := c.PostForm("enable")
+		if enableStr != "" {
+			client.Enable = enableStr == "true" || enableStr == "1"
+		}
+		// Handle tgId - can be 0
+		tgIdStr := c.PostForm("tgId")
+		if tgIdStr != "" {
+			if tgId, err := strconv.ParseInt(tgIdStr, 10, 64); err == nil {
+				client.TgID = tgId
 			}
-			// Always update enable if it's in the request (even if false)
-			enableStr := c.PostForm("enable")
-			if enableStr != "" {
-				client.Enable = enableStr == "true" || enableStr == "1"
+		}
+		// Handle subId - can be empty to clear
+		if subIdVal, exists := c.GetPostForm("subId"); exists {
+			client.SubID = subIdVal
+		}
+		// Handle comment - can be empty to clear
+		if commentVal, exists := c.GetPostForm("comment"); exists {
+			client.Comment = commentVal
+		}
+		// Handle reset - can be 0 (disabled)
+		resetStr := c.PostForm("reset")
+		if resetStr != "" {
+			if reset, err := strconv.Atoi(resetStr); err == nil {
+				client.Reset = reset
 			}
-			if updateClient.TgID > 0 {
-				client.TgID = updateClient.TgID
-			}
-			if updateClient.SubID != "" {
-				client.SubID = updateClient.SubID
-			}
-			if updateClient.Comment != "" {
-				client.Comment = updateClient.Comment
-			}
-			if updateClient.Reset > 0 {
-				client.Reset = updateClient.Reset
-			}
+		}
 			// Always update hwidEnabled if it's in the request (even if false)
 			hwidEnabledStr := c.PostForm("hwidEnabled")
 			if hwidEnabledStr != "" {
@@ -484,4 +531,71 @@ func (a *ClientController) delDepletedClients(c *gin.Context) {
 	} else {
 		jsonMsg(c, "No depleted clients found", nil)
 	}
+}
+
+// clearClientHWIDs clears all HWIDs for a specific client.
+func (a *ClientController) clearClientHWIDs(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		jsonMsg(c, "Invalid client ID", err)
+		return
+	}
+
+	user := session.GetLoginUser(c)
+	// Verify client belongs to user
+	client, err := a.clientService.GetClient(id)
+	if err != nil || client == nil || client.UserId != user.Id {
+		jsonMsg(c, "Client not found or access denied", nil)
+		return
+	}
+
+	hwidService := service.ClientHWIDService{}
+	err = hwidService.ClearHWIDsForClient(id)
+	if err != nil {
+		logger.Errorf("Failed to clear HWIDs for client %d: %v", id, err)
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+
+	jsonMsg(c, "HWIDs cleared successfully", nil)
+}
+
+// clearAllClientHWIDs clears all HWIDs for all clients of the current user.
+func (a *ClientController) clearAllClientHWIDs(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	
+	hwidService := service.ClientHWIDService{}
+	count, err := hwidService.ClearAllHWIDs(user.Id)
+	if err != nil {
+		logger.Errorf("Failed to clear all HWIDs: %v", err)
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+
+	jsonMsg(c, fmt.Sprintf("Cleared %d HWIDs successfully", count), nil)
+}
+
+// setHWIDLimitForAllClients sets HWID limit for all clients of the current user.
+func (a *ClientController) setHWIDLimitForAllClients(c *gin.Context) {
+	var req struct {
+		MaxHwid int  `json:"maxHwid" form:"maxHwid"`
+		Enabled bool `json:"enabled" form:"enabled"`
+	}
+	
+	if err := c.ShouldBind(&req); err != nil {
+		jsonMsg(c, "Invalid request", err)
+		return
+	}
+
+	user := session.GetLoginUser(c)
+	
+	hwidService := service.ClientHWIDService{}
+	count, err := hwidService.SetHWIDLimitForAllClients(user.Id, req.MaxHwid, req.Enabled)
+	if err != nil {
+		logger.Errorf("Failed to set HWID limit for all clients: %v", err)
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+
+	jsonMsg(c, fmt.Sprintf("Updated HWID limit for %d clients", count), nil)
 }
