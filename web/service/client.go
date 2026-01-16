@@ -890,6 +890,9 @@ func (s *ClientService) ResetAllClientTraffics(userId int) (bool, error) {
 		return false, result.Error
 	}
 	
+	// Invalidate cache for this user's clients
+	cache.InvalidateClients(userId)
+	
 	// Reset status to "active" for clients expired due to traffic
 	// This will allow clients to be re-added to Xray if they were removed
 	db.Model(&model.ClientEntity{}).
@@ -1020,6 +1023,9 @@ func (s *ClientService) ResetClientTraffic(userId int, clientId int) (bool, erro
 	if result.Error != nil {
 		return false, result.Error
 	}
+	
+	// Invalidate cache for this user's clients
+	cache.InvalidateClients(userId)
 	
 	// Reset status to "active" if client was expired due to traffic
 	if wasExpired {

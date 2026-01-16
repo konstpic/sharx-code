@@ -778,9 +778,15 @@
       toggleFilter() {
         if (this.enableFilter) {
           this.searchKey = '';
+          this.filterClients();
         } else {
           this.filterBy = '';
-          this.searchedClients = this.clients.slice();
+          // Apply current search if searchKey is not empty
+          if (this.searchKey && this.searchKey.trim()) {
+            this.searchClients(this.searchKey);
+          } else {
+            this.searchedClients = this.clients.slice();
+          }
         }
       },
       isClientDepleted(client) {
