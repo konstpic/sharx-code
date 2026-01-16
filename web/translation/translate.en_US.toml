@@ -808,6 +808,11 @@ responseTime = "Response Time"
 "addError" = "Failed to add host"
 "editHostNotImplemented" = "Edit host functionality will be implemented soon"
 
+[pages.hosts.toasts]
+"hostCreateSuccess" = "Host created successfully"
+"hostUpdateSuccess" = "Host updated successfully"
+"hostDeleteSuccess" = "Host deleted successfully"
+
 [menu]
 "theme" = "Theme"
 "dark" = "Dark"

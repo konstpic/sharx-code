@@ -808,6 +808,11 @@ responseTime = "Время ответа"
 "addError" = "Не удалось добавить хост"
 "editHostNotImplemented" = "Функция редактирования хоста будет реализована в ближайшее время"
 
+[pages.hosts.toasts]
+"hostCreateSuccess" = "Хост успешно создан"
+"hostUpdateSuccess" = "Хост успешно обновлен"
+"hostDeleteSuccess" = "Хост успешно удален"
+
 [menu]
 "theme" = "Тема"
 "dark" = "Темная"
