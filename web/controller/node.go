@@ -82,6 +82,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 	g.GET("/status/:id", a.getNodeStatus)
 	g.POST("/logs/:id", a.getNodeLogs)
 	g.POST("/check-connection", a.checkNodeConnection) // Check node connection without API key
+	g.POST("/resetTraffic/:id", a.resetNodeTraffic)   // Reset node traffic
 	// push-logs endpoint moved to APIController to bypass session auth
 }
 
@@ -226,6 +227,10 @@ func (a *NodeController) updateNode(c *gin.Context) {
 			if insecureTlsVal, ok := jsonData["insecureTls"].(bool); ok {
 				node.InsecureTLS = insecureTlsVal
 			}
+			// Traffic limit
+			if trafficLimitGBVal, ok := jsonData["trafficLimitGB"].(float64); ok {
+				node.TrafficLimitGB = trafficLimitGBVal
+			}
 		}
 	} else {
 		// Parse as form data (default for web UI)
@@ -248,6 +253,12 @@ func (a *NodeController) updateNode(c *gin.Context) {
 			node.KeyPath = keyPath
 		}
 		node.InsecureTLS = c.PostForm("insecureTls") == "true" || c.PostForm("insecureTls") == "on"
+		// Traffic limit
+		if trafficLimitGBStr := c.PostForm("trafficLimitGB"); trafficLimitGBStr != "" {
+			if trafficLimitGB, err := strconv.ParseFloat(trafficLimitGBStr, 64); err == nil {
+				node.TrafficLimitGB = trafficLimitGB
+			}
+		}
 	}
 
 	// Validate API key if it was changed
@@ -595,28 +606,52 @@ func (a *NodeController) checkNodeConnection(c *gin.Context) {
 
 // broadcastNodesUpdate broadcasts the current nodes list to all WebSocket clients
 func (a *NodeController) broadcastNodesUpdate() {
-	// Get all nodes with their inbounds
+	// Get all nodes with their inbounds and profiles
 	nodes, err := a.nodeService.GetAllNodes()
 	if err != nil {
 		logger.Warningf("Failed to get nodes for WebSocket broadcast: %v", err)
 		return
 	}
 
-	// Enrich nodes with assigned inbounds information
+	// Enrich nodes with assigned inbounds and profiles information
 	type NodeWithInbounds struct {
 		*model.Node
-		Inbounds []*model.Inbound `json:"inbounds,omitempty"`
+		Inbounds []*model.Inbound                    `json:"inbounds,omitempty"`
+		Profiles []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
 	}
 
+	profileService := service.XrayCoreConfigProfileService{}
 	result := make([]NodeWithInbounds, 0, len(nodes))
 	for _, node := range nodes {
 		inbounds, _ := a.nodeService.GetInboundsForNode(node.Id)
+		profiles, _ := profileService.GetProfilesForNode(node.Id)
 		result = append(result, NodeWithInbounds{
 			Node:     node,
 			Inbounds: inbounds,
+			Profiles: profiles,
 		})
 	}
 
 	// Broadcast via WebSocket
 	websocket.BroadcastNodes(result)
+}
+
+// resetNodeTraffic resets traffic statistics for a specific node.
+func (a *NodeController) resetNodeTraffic(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		jsonMsg(c, "Invalid node ID", err)
+		return
+	}
+
+	err = a.nodeService.ResetNodeTraffic(id)
+	if err != nil {
+		jsonMsg(c, "Failed to reset node traffic", err)
+		return
+	}
+
+	// Broadcast nodes update via WebSocket
+	a.broadcastNodesUpdate()
+
+	jsonMsg(c, "Node traffic reset successfully", nil)
 }

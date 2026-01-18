@@ -13,6 +13,17 @@
       <a-form-item label='{{ i18n "pages.nodes.nodePort" }}'>
         <a-input-number v-model.number="nodeModal.formData.port" :min="1" :max="65535" :style="{ width: '100%' }"></a-input-number>
       </a-form-item>
+      <a-form-item label='{{ i18n "pages.nodes.trafficLimitGB" }}' v-if="nodeModal.isEdit">
+        <a-input-number 
+          v-model.number="nodeModal.formData.trafficLimitGB" 
+          :min="0" 
+          :precision="2" 
+          :style="{ width: '100%' }">
+        </a-input-number>
+        <div style="margin-top: 4px; color: #999; font-size: 12px;">
+          {{ i18n "pages.nodes.trafficLimitGBHint" }}
+        </div>
+      </a-form-item>
       <!-- API key is now auto-generated during registration, no need for user input -->
     </a-form>
   </div>
@@ -66,7 +77,8 @@
     formData: {
       name: '',
       address: '',
-      port: 8080
+      port: 8080,
+      trafficLimitGB: 0
       // apiKey is now auto-generated during registration
     },
     ok() {
@@ -186,14 +198,16 @@
         this.formData = {
           name: node.name || '',
           address: address,
-          port: port
+          port: port,
+          trafficLimitGB: node.trafficLimitGB || 0
           // apiKey is not shown in edit mode (it's managed by the system)
         };
       } else {
         this.formData = {
           name: '',
           address: '',
-          port: 8080
+          port: 8080,
+          trafficLimitGB: 0
           // apiKey is auto-generated during registration
         };
       }

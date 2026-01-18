@@ -155,6 +155,11 @@ func (s *NodeService) UpdateNode(node *model.Node) error {
 	}
 	updates["insecure_tls"] = node.InsecureTLS
 	
+	// Update traffic limit if provided (can be 0 for unlimited)
+	if node.TrafficLimitGB >= 0 && node.TrafficLimitGB != existingNode.TrafficLimitGB {
+		updates["traffic_limit_gb"] = node.TrafficLimitGB
+	}
+	
 	// Update status, response_time, and last_check if provided (these are usually set by health checks, not user edits)
 	if node.Status != "" && node.Status != existingNode.Status {
 		updates["status"] = node.Status
@@ -433,8 +438,70 @@ func (s *NodeService) GetNodeStats(node *model.Node, reset bool) (*NodeStatsResp
 	return &stats, nil
 }
 
+// UpdateNodeTraffic updates traffic statistics for a node and checks traffic limit.
+// Returns true if traffic limit is exceeded.
+func (s *NodeService) UpdateNodeTraffic(nodeId int, up int64, down int64) (bool, error) {
+	db := database.GetDB()
+	
+	var node model.Node
+	if err := db.First(&node, nodeId).Error; err != nil {
+		return false, fmt.Errorf("failed to get node: %w", err)
+	}
+
+	// Update traffic
+	newUp := node.Up + up
+	newDown := node.Down + down
+	newAllTime := node.AllTime + up + down
+
+	// Check traffic limit (if TrafficLimitGB > 0)
+	trafficExceeded := false
+	if node.TrafficLimitGB > 0 {
+		trafficLimitBytes := int64(node.TrafficLimitGB * 1024 * 1024 * 1024)
+		currentTotal := newUp + newDown
+		if currentTotal >= trafficLimitBytes {
+			trafficExceeded = true
+			logger.Warningf("[Node: %s] Traffic limit exceeded: %d >= %d bytes (%.2f GB >= %.2f GB)",
+				node.Name, currentTotal, trafficLimitBytes,
+				float64(currentTotal)/(1024*1024*1024), node.TrafficLimitGB)
+		}
+	}
+
+	// Update node traffic in database
+	err := db.Model(&node).Updates(map[string]interface{}{
+		"up":       newUp,
+		"down":     newDown,
+		"all_time": newAllTime,
+	}).Error
+
+	if err != nil {
+		return false, fmt.Errorf("failed to update node traffic: %w", err)
+	}
+
+	return trafficExceeded, nil
+}
+
+// ResetNodeTraffic resets traffic statistics for a node.
+func (s *NodeService) ResetNodeTraffic(nodeId int) error {
+	db := database.GetDB()
+	
+	err := db.Model(&model.Node{}).Where("id = ?", nodeId).
+		Updates(map[string]interface{}{
+			"up":       0,
+			"down":     0,
+			"all_time": 0,
+		}).Error
+
+	if err != nil {
+		return fmt.Errorf("failed to reset node traffic: %w", err)
+	}
+
+	return nil
+}
+
 // CollectNodeStats collects statistics from all nodes and aggregates them into the database.
 // This should be called periodically (e.g., via cron job).
+// New logic: collects traffic from nodes, calculates node traffic (sum of all inbounds on node),
+// and client traffic (sum from all nodes through all inbounds).
 func (s *NodeService) CollectNodeStats() error {
 	// Check if multi-node mode is enabled
 	settingService := SettingService{}
@@ -466,8 +533,22 @@ func (s *NodeService) CollectNodeStats() error {
 		return nil // No nodes with assigned inbounds
 	}
 
-	// Import inbound service to aggregate traffic
+	// Get all inbounds to build tag->inboundId map
+	db := database.GetDB()
+	var allInbounds []*model.Inbound
+	if err := db.Model(model.Inbound{}).Select("id, tag").Find(&allInbounds).Error; err != nil {
+		return fmt.Errorf("failed to get inbounds: %w", err)
+	}
+
+	// Build tag -> inboundId map
+	tagToInboundId := make(map[string]int)
+	for _, inbound := range allInbounds {
+		tagToInboundId[inbound.Tag] = inbound.Id
+	}
+
+	// Import services
 	inboundService := &InboundService{}
+	clientService := &ClientService{}
 
 	// Collect stats from nodes with assigned inbounds concurrently
 	type nodeStatsResult struct {
@@ -484,9 +565,16 @@ func (s *NodeService) CollectNodeStats() error {
 		}(node)
 	}
 
-	// Aggregate all traffic
-	allTraffics := make([]*xray.Traffic, 0)
-	allClientTraffics := make([]*xray.ClientTraffic, 0)
+	// Process results: calculate node traffic and client traffic
+	nodeTrafficMap := make(map[int]struct {
+		Up   int64
+		Down int64
+	}) // nodeId -> traffic
+
+	// Map to collect client traffic by email (aggregated across all nodes)
+	// email -> traffic
+	clientTrafficMap := make(map[string]*xray.ClientTraffic)
+
 	onlineClientsMap := make(map[string]bool)
 
 	for i := 0; i < len(nodesWithInbounds); i++ {
@@ -510,24 +598,73 @@ func (s *NodeService) CollectNodeStats() error {
 			continue
 		}
 
-		// Convert node traffic to xray.Traffic
-		for _, nt := range result.stats.Traffic {
-			allTraffics = append(allTraffics, &xray.Traffic{
-				IsInbound:  nt.IsInbound,
-				IsOutbound: nt.IsOutbound,
-				Tag:        nt.Tag,
-				Up:         nt.Up,
-				Down:       nt.Down,
-			})
+		// Get inbounds assigned to this node
+		nodeInbounds, err := s.GetInboundsForNode(result.node.Id)
+		if err != nil {
+			logger.Warningf("[Node: %s] Failed to get inbounds: %v", result.node.Name, err)
+			continue
 		}
 
-		// Convert node client traffic to xray.ClientTraffic
+		// Build set of inbound IDs for this node
+		nodeInboundIds := make(map[int]bool)
+		for _, inbound := range nodeInbounds {
+			nodeInboundIds[inbound.Id] = true
+		}
+
+		// Calculate node traffic: sum of all inbound traffic on this node
+		var nodeUp int64
+		var nodeDown int64
+
+		// Process traffic by tag (inbound traffic)
+		for _, nt := range result.stats.Traffic {
+			if !nt.IsInbound {
+				continue // Skip outbound traffic
+			}
+
+			// Map tag to inboundId
+			inboundId, ok := tagToInboundId[nt.Tag]
+			if !ok {
+				logger.Debugf("[Node: %s] Unknown tag in traffic: %s", result.node.Name, nt.Tag)
+				continue
+			}
+
+			// Check if this inbound is assigned to this node
+			if !nodeInboundIds[inboundId] {
+				logger.Debugf("[Node: %s] Tag %s (inboundId %d) not assigned to this node, skipping", 
+					result.node.Name, nt.Tag, inboundId)
+				continue
+			}
+
+			// Add to node traffic
+			nodeUp += nt.Up
+			nodeDown += nt.Down
+		}
+
+		// Update node traffic
+		if nodeUp > 0 || nodeDown > 0 {
+			nodeTraffic := nodeTrafficMap[result.node.Id]
+			nodeTraffic.Up += nodeUp
+			nodeTraffic.Down += nodeDown
+			nodeTrafficMap[result.node.Id] = nodeTraffic
+		}
+
+		// Process client traffic: aggregate by email across all nodes
+		// API returns client traffic by email (sum of all inbounds on this node for that client)
 		for _, nct := range result.stats.ClientTraffic {
-			allClientTraffics = append(allClientTraffics, &xray.ClientTraffic{
-				Email: nct.Email,
-				Up:    nct.Up,
-				Down:  nct.Down,
-			})
+			email := strings.ToLower(nct.Email)
+
+			// Initialize or update client traffic map
+			if clientTrafficMap[email] == nil {
+				clientTrafficMap[email] = &xray.ClientTraffic{
+					Email: nct.Email,
+					Up:    0,
+					Down:  0,
+				}
+			}
+
+			// Sum traffic from this node
+			clientTrafficMap[email].Up += nct.Up
+			clientTrafficMap[email].Down += nct.Down
 		}
 
 		// Collect online clients
@@ -536,16 +673,51 @@ func (s *NodeService) CollectNodeStats() error {
 		}
 	}
 
-	// Aggregate traffic into database
-	if len(allTraffics) > 0 || len(allClientTraffics) > 0 {
-		_, needRestart := inboundService.AddTraffic(allTraffics, allClientTraffics)
-		if needRestart {
-			logger.Info("Traffic aggregation triggered client renewal/disabling, restart may be needed")
+	// Update node traffic in database
+	for nodeId, traffic := range nodeTrafficMap {
+		trafficExceeded, err := s.UpdateNodeTraffic(nodeId, traffic.Up, traffic.Down)
+		if err != nil {
+			logger.Warningf("Failed to update traffic for node %d: %v", nodeId, err)
+		} else if trafficExceeded {
+			logger.Warningf("Node %d traffic limit exceeded", nodeId)
+			// TODO: Handle traffic limit exceeded (disable node or inbounds)
 		}
 	}
 
-	logger.Debugf("Collected stats from nodes: %d traffics, %d client traffics, %d online clients",
-		len(allTraffics), len(allClientTraffics), len(onlineClientsMap))
+	// Convert client traffic map to slice
+	allClientTraffics := make([]*xray.ClientTraffic, 0, len(clientTrafficMap))
+	for _, traffic := range clientTrafficMap {
+		allClientTraffics = append(allClientTraffics, traffic)
+	}
+
+	// Update client traffic in database
+	if len(allClientTraffics) > 0 {
+		db := database.GetDB()
+		tx := db.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		clientsToDisable, _, err := clientService.AddClientTraffic(tx, allClientTraffics, inboundService)
+		if err != nil {
+			tx.Rollback()
+			logger.Warningf("Failed to add client traffic: %v", err)
+		} else {
+			if err := tx.Commit().Error; err != nil {
+				logger.Warningf("Failed to commit client traffic: %v", err)
+			} else {
+				// Handle clients that need to be disabled
+				if len(clientsToDisable) > 0 {
+					logger.Infof("Traffic limit exceeded for %d clients, restart may be needed", len(clientsToDisable))
+				}
+			}
+		}
+	}
+
+	logger.Debugf("Collected stats from nodes: %d node traffics updated, %d client traffics, %d online clients",
+		len(nodeTrafficMap), len(allClientTraffics), len(onlineClientsMap))
 
 	return nil
 }

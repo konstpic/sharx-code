@@ -179,6 +179,12 @@ type Node struct {
 	InsecureTLS bool   `json:"insecureTls" form:"insecureTls" gorm:"column:insecure_tls;default:false"` // Skip certificate verification (not recommended)
 	CreatedAt    int64  `json:"createdAt" gorm:"autoCreateTime"`  // Creation timestamp
 	UpdatedAt   int64  `json:"updatedAt" gorm:"autoUpdateTime"`   // Last update timestamp
+	
+	// Traffic statistics
+	Up           int64   `json:"up" gorm:"default:0"`                    // Upload traffic in bytes
+	Down         int64   `json:"down" gorm:"default:0"`                  // Download traffic in bytes
+	AllTime      int64   `json:"allTime" gorm:"default:0"`              // All-time traffic usage in bytes
+	TrafficLimitGB float64 `json:"trafficLimitGB" form:"trafficLimitGB" gorm:"column:traffic_limit_gb;default:0"` // Traffic limit in GB (0 = unlimited)
 }
 
 // InboundNodeMapping maps inbounds to nodes in multi-node mode.

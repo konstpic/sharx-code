@@ -16,14 +16,15 @@ Complete API reference for the 3x-ui panel. This documentation covers all endpoi
 - [4. Settings](#4-settings)
 - [5. Migration](#5-migration)
 - [6. Xray Settings](#6-xray-settings)
-- [7. Nodes (Multi-Node Mode)](#7-nodes-multi-node-mode)
-- [8. Clients](#8-clients)
-- [9. Client Groups](#9-client-groups)
-- [10. Client HWID](#10-client-hwid)
-- [11. Hosts](#11-hosts)
-- [12. Node Push API](#12-node-push-api)
-- [13. Subscription Server](#13-subscription-server)
-- [14. WebSocket](#14-websocket)
+- [7. Xray Core Configuration Profiles](#7-xray-core-configuration-profiles)
+- [8. Nodes (Multi-Node Mode)](#8-nodes-multi-node-mode)
+- [9. Clients](#9-clients)
+- [10. Client Groups](#10-client-groups)
+- [11. Client HWID](#11-client-hwid)
+- [12. Hosts](#12-hosts)
+- [13. Node Push API](#13-node-push-api)
+- [14. Subscription Server](#14-subscription-server)
+- [15. WebSocket](#15-websocket)
 
 ---
 
@@ -1797,7 +1798,320 @@ curl -X POST "http://localhost:2053/panel/xray/resetOutboundsTraffic" \
 
 ---
 
-## 7. Nodes (Multi-Node Mode)
+## 7. Xray Core Configuration Profiles
+
+Base path: `/panel/xray-core-config-profile`
+
+Xray Core Configuration Profiles allow you to manage reusable Xray core configurations for nodes in multi-node mode. Each profile contains a complete Xray configuration JSON that can be assigned to one or more nodes.
+
+### GET `/panel/xray-core-config-profile/list`
+
+Get all profiles for the logged-in user. Automatically creates a default profile if none exists.
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/xray-core-config-profile/list" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "",
+  "obj": [
+    {
+      "id": 1,
+      "userId": 1,
+      "name": "Default Profile",
+      "description": "Default Xray configuration profile",
+      "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+      "isDefault": true,
+      "nodeIds": [1, 2],
+      "createdAt": 1703980800,
+      "updatedAt": 1704067200
+    },
+    {
+      "id": 2,
+      "userId": 1,
+      "name": "Custom Profile",
+      "description": "Custom routing configuration",
+      "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+      "isDefault": false,
+      "nodeIds": [3],
+      "createdAt": 1703980800,
+      "updatedAt": 1704067200
+    }
+  ]
+}
+```
+
+---
+
+### GET `/panel/xray-core-config-profile/get/{id}`
+
+Get a specific profile by ID.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/xray-core-config-profile/get/1" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "",
+  "obj": {
+    "id": 1,
+    "userId": 1,
+    "name": "Default Profile",
+    "description": "Default Xray configuration profile",
+    "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+    "isDefault": true,
+    "nodeIds": [1, 2],
+    "createdAt": 1703980800,
+    "updatedAt": 1704067200
+  }
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/add`
+
+Create a new profile.
+
+**Request Body** (form-urlencoded or JSON):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Profile name |
+| `description` | string | No | Profile description |
+| `configJson` | string | Yes | Full Xray configuration JSON string |
+| `isDefault` | boolean | No | Set as default profile (default: false) |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/add" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "name": "Custom Profile",
+    "description": "Custom routing configuration",
+    "configJson": "{\"log\":{\"loglevel\":\"warning\"},\"routing\":{...},\"outbounds\":[...]}",
+    "isDefault": false
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Profile added successfully",
+  "obj": {
+    "id": 2,
+    "userId": 1,
+    "name": "Custom Profile",
+    "description": "Custom routing configuration",
+    "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+    "isDefault": false,
+    "createdAt": 1703980800,
+    "updatedAt": 1703980800
+  }
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/update/{id}`
+
+Update an existing profile.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Request Body** (form-urlencoded or JSON): Same as `add` endpoint. Only provided fields will be updated.
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/update/2" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "name": "Updated Profile Name",
+    "description": "Updated description"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Profile updated successfully",
+  "obj": {
+    "id": 2,
+    "userId": 1,
+    "name": "Updated Profile Name",
+    "description": "Updated description",
+    "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+    "isDefault": false,
+    "updatedAt": 1704067200
+  }
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/del/{id}`
+
+Delete a profile. The default profile cannot be deleted.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/del/2" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Profile deleted successfully",
+  "obj": 2
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/set-default/{id}`
+
+Set a profile as the default profile for the logged-in user.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/set-default/2" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Profile set as default successfully"
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/reset-to-default/{id}`
+
+Reset a profile to the default template configuration.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/reset-to-default/2" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Profile reset to default successfully",
+  "obj": {
+    "id": 2,
+    "name": "Custom Profile",
+    "description": "Custom routing configuration",
+    "configJson": "{\"log\":{...},\"routing\":{...},\"outbounds\":[...]}",
+    "isDefault": false
+  }
+}
+```
+
+---
+
+### POST `/panel/xray-core-config-profile/assign-nodes/{id}`
+
+Assign nodes to a profile. Nodes can only be assigned to one profile at a time. After assignment, the configuration is automatically applied to the assigned nodes.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Profile ID |
+
+**Request Body** (form-urlencoded or JSON):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `nodeIds` | array | Yes | Array of node IDs to assign to the profile. Empty array removes all assignments. |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray-core-config-profile/assign-nodes/2" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{"nodeIds": [1, 2, 3]}'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Nodes assigned successfully"
+}
+```
+
+**Note:** If a node is already assigned to another profile, the request will fail with an error message listing the conflicting nodes.
+
+---
+
+## 8. Nodes (Multi-Node Mode)
 
 Base path: `/panel/node`
 
@@ -2140,7 +2454,7 @@ curl -X POST "http://localhost:2053/panel/node/check-connection" \
 
 ---
 
-## 8. Clients
+## 9. Clients
 
 Base path: `/panel/client`
 
@@ -2620,7 +2934,7 @@ curl -X POST "http://localhost:2053/panel/client/update/1" \
 
 ---
 
-## 9. Client Groups
+## 10. Client Groups
 
 Base path: `/panel/group`
 
@@ -3077,7 +3391,7 @@ curl -X POST "http://localhost:2053/panel/group/1/bulk/setHwidLimit" \
 
 ---
 
-## 10. Client HWID
+## 11. Client HWID
 
 Base path: `/panel/client/hwid`
 
@@ -3290,7 +3604,7 @@ curl -X POST "http://localhost:2053/panel/client/hwid/fix-timestamps" \
 
 ---
 
-## 11. Hosts
+## 12. Hosts
 
 Base path: `/panel/host`
 
@@ -3428,7 +3742,7 @@ curl -X POST "http://localhost:2053/panel/host/del/1" \
 
 ---
 
-## 12. Node Push API
+## 13. Node Push API
 
 Base path: `/panel/api/node`
 
@@ -3471,7 +3785,7 @@ curl -X POST "http://localhost:2053/panel/api/node/push-logs" \
 
 ---
 
-## 13. Subscription Server
+## 14. Subscription Server
 
 The subscription server runs on a separate port (default: 2096) and provides subscription links for proxy clients.
 
@@ -3551,7 +3865,7 @@ curl -X GET "http://localhost:2096/json/abcd1234"
 
 ---
 
-## 14. WebSocket
+## 15. WebSocket
 
 Real-time updates via WebSocket connection.
 
@@ -3598,7 +3912,7 @@ ws.onmessage = function(event) {
 
 ---
 
-## 14. Backup Endpoint
+## 16. Backup Endpoint
 
 ### GET `/panel/api/backuptotgbot`
 
@@ -3729,6 +4043,22 @@ curl -X GET "http://localhost:2053/panel/api/backuptotgbot" \
   "userAgent": "string",
   "blockedAt": null,
   "blockReason": ""
+}
+```
+
+### XrayCoreConfigProfile
+
+```json
+{
+  "id": 1,
+  "userId": 1,
+  "name": "string",
+  "description": "string",
+  "configJson": "string",
+  "isDefault": true,
+  "nodeIds": [1, 2],
+  "createdAt": 0,
+  "updatedAt": 0
 }
 ```
 

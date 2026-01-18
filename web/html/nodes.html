@@ -46,12 +46,42 @@
                   <a-icon type="edit"></a-icon>
                   {{ i18n "edit" }}
                 </a-menu-item>
+                <a-menu-item key="resetTraffic">
+                  <a-icon type="reload"></a-icon>
+                  {{ i18n "pages.nodes.resetTraffic" }}
+                </a-menu-item>
                 <a-menu-item key="delete" :style="{ color: '#FF4D4F' }">
                   <a-icon type="delete"></a-icon>
                   {{ i18n "delete" }}
                 </a-menu-item>
               </a-menu>
             </a-dropdown>
+          </template>
+          <template slot="traffic" slot-scope="text, node">
+            <a-popover :overlay-class-name="themeSwitcher.currentTheme">
+              <template slot="content">
+                <table cellpadding="2" width="100%">
+                  <tr>
+                    <td>↑ [[ SizeFormatter.sizeFormat(node.up || 0) ]]</td>
+                    <td>↓ [[ SizeFormatter.sizeFormat(node.down || 0) ]]</td>
+                  </tr>
+                  <tr>
+                    <td colspan="2">Total: [[ SizeFormatter.sizeFormat((node.up || 0) + (node.down || 0)) ]]</td>
+                  </tr>
+                  <tr v-if="node.trafficLimitGB > 0">
+                    <td colspan="2">Limit: [[ node.trafficLimitGB ]] GB</td>
+                  </tr>
+                </table>
+              </template>
+              <div>
+                <a-tag :color="getTrafficColor(node)">
+                  [[ SizeFormatter.sizeFormat((node.up || 0) + (node.down || 0)) ]]
+                </a-tag>
+                <a-tag v-if="node.trafficLimitGB > 0" color="blue" :style="{ marginLeft: '4px' }">
+                  / [[ node.trafficLimitGB ]] GB
+                </a-tag>
+              </div>
+            </a-popover>
           </template>
           <template slot="status" slot-scope="text, node">
             <a-tag :color="getStatusColor(node.status)">
@@ -167,6 +197,11 @@
     align: 'left',
     width: 300,
     scopedSlots: { customRender: 'profiles' },
+  }, {
+    title: '{{ i18n "pages.nodes.traffic" }}',
+    align: 'center',
+    width: 150,
+    scopedSlots: { customRender: 'traffic' },
   }];
 
   const mobileColumns = [{
@@ -224,7 +259,11 @@
               status: node.status || 'unknown',
               responseTime: node.responseTime || 0,
               inbounds: node.inbounds || [],
-              profiles: node.profiles || []
+              profiles: node.profiles || [],
+              up: node.up || 0,
+              down: node.down || 0,
+              allTime: node.allTime || 0,
+              trafficLimitGB: node.trafficLimitGB || 0
             }));
           }
         } catch (e) {
@@ -258,10 +297,47 @@
           case 'edit':
             this.editNode(node);
             break;
+          case 'resetTraffic':
+            this.resetNodeTraffic(node.id);
+            break;
           case 'delete':
             this.deleteNode(node.id);
             break;
         }
+      },
+      getTrafficColor(node) {
+        if (node.trafficLimitGB > 0) {
+          const total = (node.up || 0) + (node.down || 0);
+          const limit = node.trafficLimitGB * 1024 * 1024 * 1024;
+          const percent = (total / limit) * 100;
+          if (percent >= 100) return 'red';
+          if (percent >= 80) return 'orange';
+          return 'green';
+        }
+        return 'blue';
+      },
+      async resetNodeTraffic(id) {
+        this.$confirm({
+          title: '{{ i18n "pages.nodes.resetTraffic" }}',
+          content: '{{ i18n "pages.nodes.resetTrafficConfirm" }}',
+          okText: '{{ i18n "reset" }}',
+          okType: 'danger',
+          cancelText: '{{ i18n "cancel" }}',
+          onOk: async () => {
+            try {
+              const msg = await HttpUtil.post(`/panel/node/resetTraffic/${id}`);
+              if (msg.success) {
+                app.$message.success('{{ i18n "pages.nodes.resetTrafficSuccess" }}');
+                await this.loadNodes();
+              } else {
+                app.$message.error(msg.msg || '{{ i18n "pages.nodes.resetTrafficError" }}');
+              }
+            } catch (e) {
+              console.error("Failed to reset node traffic:", e);
+              app.$message.error('{{ i18n "pages.nodes.resetTrafficError" }}');
+            }
+          }
+        });
       },
       async checkNode(id) {
         try {
@@ -600,7 +676,11 @@
               status: node.status || 'unknown',
               responseTime: node.responseTime || 0,
               inbounds: node.inbounds || [],
-              profiles: node.profiles || []
+              profiles: node.profiles || [],
+              up: node.up || 0,
+              down: node.down || 0,
+              allTime: node.allTime || 0,
+              trafficLimitGB: node.trafficLimitGB || 0
             }));
           }
         });

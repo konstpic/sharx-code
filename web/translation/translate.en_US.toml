@@ -751,6 +751,13 @@ responseTime = "Response Time"
 "keyPathHint" = "Path to private key file (optional, for client certificate)"
 "insecureTls" = "Skip Certificate Verification"
 "insecureTlsHint" = "⚠️ Not recommended: Skip TLS certificate verification (insecure)"
+"traffic" = "Traffic"
+"trafficLimitGB" = "Traffic Limit (GB)"
+"trafficLimitGBHint" = "Set traffic limit in GB (0 = unlimited). When limit is reached, node will be blocked."
+"resetTraffic" = "Reset Traffic"
+"resetTrafficConfirm" = "Are you sure you want to reset traffic statistics for this node?"
+"resetTrafficSuccess" = "Node traffic reset successfully"
+"resetTrafficError" = "Failed to reset node traffic"
 
 [pages.nodes.toasts]
 "createSuccess" = "Node created successfully"

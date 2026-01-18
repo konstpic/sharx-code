@@ -583,16 +583,6 @@
     align: 'left',
     width: 50,
     scopedSlots: { customRender: 'clients' },
-  }, {
-    title: '{{ i18n "pages.inbounds.traffic" }}',
-    align: 'center',
-    width: 90,
-    scopedSlots: { customRender: 'traffic' },
-  }, {
-    title: '{{ i18n "pages.inbounds.expireDate" }}',
-    align: 'center',
-    width: 40,
-    scopedSlots: { customRender: 'expiryTime' },
   }];
 
   const mobileColumns = [{
@@ -623,8 +613,6 @@
     { title: '{{ i18n "pages.inbounds.enable" }}', width: 30, scopedSlots: { customRender: 'enable' } },
     { title: '{{ i18n "online" }}', width: 32, scopedSlots: { customRender: 'online' } },
     { title: '{{ i18n "pages.inbounds.client" }}', width: 80, scopedSlots: { customRender: 'client' } },
-    { title: '{{ i18n "pages.inbounds.traffic" }}', width: 80, align: 'center', scopedSlots: { customRender: 'traffic' } },
-    { title: '{{ i18n "pages.inbounds.expireDate" }}', width: 80, align: 'center', scopedSlots: { customRender: 'expiryTime' } },
   ];
 
   const innerMobileColumns = [
