@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -328,6 +329,10 @@ func (s *SettingService) SetListen(ip string) error {
 }
 
 func (s *SettingService) GetWebDomain() (string, error) {
+	// Check environment variable first
+	if envValue := os.Getenv("XUI_WEB_DOMAIN"); envValue != "" {
+		return envValue, nil
+	}
 	return s.getString("webDomain")
 }
 
@@ -412,6 +417,14 @@ func (s *SettingService) SetTwoFactorToken(value string) error {
 }
 
 func (s *SettingService) GetPort() (int, error) {
+	// Check environment variable first
+	if envValue := os.Getenv("XUI_WEB_PORT"); envValue != "" {
+		port, err := strconv.Atoi(envValue)
+		if err != nil {
+			return 0, common.NewErrorf("invalid XUI_WEB_PORT value: %v", envValue)
+		}
+		return port, nil
+	}
 	return s.getInt("webPort")
 }
 
@@ -424,6 +437,10 @@ func (s *SettingService) SetCertFile(webCertFile string) error {
 }
 
 func (s *SettingService) GetCertFile() (string, error) {
+	// Check environment variable first
+	if envValue := os.Getenv("XUI_WEB_CERT_FILE"); envValue != "" {
+		return envValue, nil
+	}
 	return s.getString("webCertFile")
 }
 
@@ -432,6 +449,10 @@ func (s *SettingService) SetKeyFile(webKeyFile string) error {
 }
 
 func (s *SettingService) GetKeyFile() (string, error) {
+	// Check environment variable first
+	if envValue := os.Getenv("XUI_WEB_KEY_FILE"); envValue != "" {
+		return envValue, nil
+	}
 	return s.getString("webKeyFile")
 }
 
