@@ -500,6 +500,14 @@ func (a *InboundController) addInboundClient(c *gin.Context) {
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
 	}
+	// Broadcast inbounds and clients update via WebSocket
+	user := session.GetLoginUser(c)
+	inbounds, _ := a.inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
+	// Also broadcast clients update
+	clientService := service.ClientService{}
+	clients, _ := clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
 }
 
 // delInboundClient deletes a client from an inbound by inbound ID and client ID.
@@ -535,6 +543,14 @@ func (a *InboundController) delInboundClient(c *gin.Context) {
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
 	}
+	// Broadcast inbounds and clients update via WebSocket
+	user := session.GetLoginUser(c)
+	inbounds, _ := a.inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
+	// Also broadcast clients update
+	clientService := service.ClientService{}
+	clients, _ := clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
 }
 
 // updateInboundClient updates a client's configuration in an inbound.
@@ -575,6 +591,14 @@ func (a *InboundController) updateInboundClient(c *gin.Context) {
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
 	}
+	// Broadcast inbounds and clients update via WebSocket
+	user := session.GetLoginUser(c)
+	inbounds, _ := a.inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
+	// Also broadcast clients update
+	clientService := service.ClientService{}
+	clients, _ := clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
 }
 
 // resetClientTraffic resets the traffic counter for a specific client in an inbound.
@@ -729,4 +753,12 @@ func (a *InboundController) delInboundClientByEmail(c *gin.Context) {
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
 	}
+	// Broadcast inbounds and clients update via WebSocket
+	user := session.GetLoginUser(c)
+	inbounds, _ := a.inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
+	// Also broadcast clients update
+	clientService := service.ClientService{}
+	clients, _ := clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
 }

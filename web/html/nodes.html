@@ -6,7 +6,7 @@
   <a-sidebar></a-sidebar>
   <a-layout id="content-layout">
     <a-layout-content :style="{ padding: '24px 16px' }">
-      <transition name="list" appear>
+      <transition name="list">
         <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-if="loadingStates.fetched">
         <a-col>
           <a-card size="small" :style="{ padding: '16px' }" hoverable>
@@ -244,7 +244,6 @@
       reloadingAll: false,
       editingNodeId: null,
       editingNodeName: '',
-      pollInterval: null,
     },
     methods: {
       async loadNodes() {
@@ -642,22 +641,6 @@
           modal.registering = false;
         }
       },
-      startPolling() {
-        // Poll every 5 seconds as fallback
-        if (this.pollInterval) {
-          clearInterval(this.pollInterval);
-        }
-        this.pollInterval = setInterval(() => {
-          this.loadNodes();
-        }, 5000);
-      }
-    },
-    beforeDestroy() {
-      // Clean up polling interval
-      if (this.pollInterval) {
-        clearInterval(this.pollInterval);
-        this.pollInterval = null;
-      }
     },
     async mounted() {
       await this.loadNodes();
@@ -666,22 +649,46 @@
       if (window.wsClient) {
         window.wsClient.connect();
         
-        // Listen for nodes updates
+        // Listen for nodes updates (real-time traffic and status)
         window.wsClient.on('nodes', (payload) => {
           if (payload && Array.isArray(payload)) {
-            this.nodes = payload.map(node => ({
-              id: node.id,
-              name: node.name || '',
-              address: node.address || '',
-              status: node.status || 'unknown',
-              responseTime: node.responseTime || 0,
-              inbounds: node.inbounds || [],
-              profiles: node.profiles || [],
-              up: node.up || 0,
-              down: node.down || 0,
-              allTime: node.allTime || 0,
-              trafficLimitGB: node.trafficLimitGB || 0
-            }));
+            // Update existing nodes or add new ones, preserving profiles if they exist
+            payload.forEach(updatedNode => {
+              const existingNode = this.nodes.find(n => n.id === updatedNode.id);
+              if (existingNode) {
+                // Update existing node, preserve profiles if not provided in update
+                existingNode.name = updatedNode.name || existingNode.name || '';
+                existingNode.address = updatedNode.address || existingNode.address || '';
+                existingNode.status = updatedNode.status || existingNode.status || 'unknown';
+                existingNode.responseTime = updatedNode.responseTime !== undefined ? updatedNode.responseTime : existingNode.responseTime;
+                existingNode.inbounds = updatedNode.inbounds || existingNode.inbounds || [];
+                // Only update profiles if they are provided (non-empty array or explicitly set)
+                // This prevents profiles from disappearing during traffic updates
+                if (updatedNode.profiles !== undefined && updatedNode.profiles !== null) {
+                  existingNode.profiles = updatedNode.profiles;
+                }
+                // Update traffic in real-time
+                existingNode.up = updatedNode.up !== undefined ? updatedNode.up : existingNode.up;
+                existingNode.down = updatedNode.down !== undefined ? updatedNode.down : existingNode.down;
+                existingNode.allTime = updatedNode.allTime !== undefined ? updatedNode.allTime : existingNode.allTime;
+                existingNode.trafficLimitGB = updatedNode.trafficLimitGB !== undefined ? updatedNode.trafficLimitGB : existingNode.trafficLimitGB;
+              } else {
+                // Add new node
+                this.nodes.push({
+                  id: updatedNode.id,
+                  name: updatedNode.name || '',
+                  address: updatedNode.address || '',
+                  status: updatedNode.status || 'unknown',
+                  responseTime: updatedNode.responseTime || 0,
+                  inbounds: updatedNode.inbounds || [],
+                  profiles: updatedNode.profiles || [],
+                  up: updatedNode.up || 0,
+                  down: updatedNode.down || 0,
+                  allTime: updatedNode.allTime || 0,
+                  trafficLimitGB: updatedNode.trafficLimitGB || 0
+                });
+              }
+            });
           }
         });
       }

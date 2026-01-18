@@ -96,60 +96,53 @@ func (s *InboundService) updateInboundWithRetry(inbound *model.Inbound) (*model.
 
 // GetInbounds retrieves all inbounds for a specific user.
 // Returns a slice of inbound models with their associated client statistics.
-// Results are cached in Redis for 30 seconds.
+// No caching - data is real-time via WebSocket.
 func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
-	key := fmt.Sprintf("%s%d", cache.KeyInboundsPrefix, userId)
-	var inbounds []*model.Inbound
+	db := database.GetDB()
+	var result []*model.Inbound
+	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Find(&result).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
 	
-	err := cache.GetOrSet(key, &inbounds, cache.TTLInbounds, func() (interface{}, error) {
-		// Cache miss - fetch from database
-		db := database.GetDB()
-		var result []*model.Inbound
-		err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Find(&result).Error
-		if err != nil && err != gorm.ErrRecordNotFound {
-			return nil, err
+	// Enrich with node assignments
+	nodeService := NodeService{}
+	for _, inbound := range result {
+		// Load all nodes for this inbound
+		nodes, err := nodeService.GetNodesForInbound(inbound.Id)
+		if err == nil && len(nodes) > 0 {
+			nodeIds := make([]int, len(nodes))
+			for i, node := range nodes {
+				nodeIds[i] = node.Id
+			}
+			inbound.NodeIds = nodeIds
+			// Don't set nodeId - it's deprecated and causes confusion
+			// nodeId is only for backward compatibility when receiving data from old clients
+		} else {
+			// Ensure empty array if no nodes assigned
+			inbound.NodeIds = []int{}
 		}
 		
-		// Enrich with node assignments
-		nodeService := NodeService{}
-		for _, inbound := range result {
-			// Load all nodes for this inbound
-			nodes, err := nodeService.GetNodesForInbound(inbound.Id)
-			if err == nil && len(nodes) > 0 {
-				nodeIds := make([]int, len(nodes))
-				for i, node := range nodes {
-					nodeIds[i] = node.Id
-				}
-				inbound.NodeIds = nodeIds
-				// Don't set nodeId - it's deprecated and causes confusion
-				// nodeId is only for backward compatibility when receiving data from old clients
-			} else {
-				// Ensure empty array if no nodes assigned
-				inbound.NodeIds = []int{}
-			}
-			
-			// Enrich client stats with UUID/SubId from inbound settings
-			clients, _ := s.GetClients(inbound)
-			if len(clients) == 0 || len(inbound.ClientStats) == 0 {
-				continue
-			}
-			// Build a map email -> client
-			cMap := make(map[string]model.Client, len(clients))
-			for _, c := range clients {
-				cMap[strings.ToLower(c.Email)] = c
-			}
-			for i := range inbound.ClientStats {
-				email := strings.ToLower(inbound.ClientStats[i].Email)
-				if c, ok := cMap[email]; ok {
-					inbound.ClientStats[i].UUID = c.ID
-					inbound.ClientStats[i].SubId = c.SubID
-				}
+		// Enrich client stats with UUID/SubId from inbound settings
+		clients, _ := s.GetClients(inbound)
+		if len(clients) == 0 || len(inbound.ClientStats) == 0 {
+			continue
+		}
+		// Build a map email -> client
+		cMap := make(map[string]model.Client, len(clients))
+		for _, c := range clients {
+			cMap[strings.ToLower(c.Email)] = c
+		}
+		for i := range inbound.ClientStats {
+			email := strings.ToLower(inbound.ClientStats[i].Email)
+			if c, ok := cMap[email]; ok {
+				inbound.ClientStats[i].UUID = c.ID
+				inbound.ClientStats[i].SubId = c.SubID
 			}
 		}
-		return result, nil
-	})
+	}
 	
-	return inbounds, err
+	return result, nil
 }
 
 // GetAllInbounds retrieves all inbounds from the database.

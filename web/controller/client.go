@@ -12,6 +12,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/web/service"
 	"github.com/mhsanaei/3x-ui/v2/web/session"
+	"github.com/mhsanaei/3x-ui/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
 )
@@ -198,6 +199,12 @@ func (a *ClientController) addClient(c *gin.Context) {
 		// Restart asynchronously to avoid blocking the response
 		a.xrayService.RestartXrayAsync(false)
 	}
+	// Broadcast clients and inbounds update via WebSocket
+	clients, _ := a.clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
+	inboundService := service.InboundService{}
+	inbounds, _ := inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
 }
 
 // updateClient updates an existing client.
@@ -494,6 +501,12 @@ func (a *ClientController) updateClient(c *gin.Context) {
 		// This allows the user to get an immediate response while configs are being sent
 		a.xrayService.RestartXrayAsync(false)
 	}
+	// Broadcast clients and inbounds update via WebSocket
+	clients, _ := a.clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
+	inboundService := service.InboundService{}
+	inbounds, _ := inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
 }
 
 // deleteClient deletes a client by ID.
@@ -519,6 +532,12 @@ func (a *ClientController) deleteClient(c *gin.Context) {
 		// This allows the user to get an immediate response while configs are being sent
 		a.xrayService.RestartXrayAsync(false)
 	}
+	// Broadcast clients and inbounds update via WebSocket
+	clients, _ := a.clientService.GetClients(user.Id)
+	websocket.BroadcastClients(clients)
+	inboundService := service.InboundService{}
+	inbounds, _ := inboundService.GetInbounds(user.Id)
+	websocket.BroadcastInbounds(inbounds)
 }
 
 // resetAllClientTraffics resets traffic counters for all clients of the current user.

@@ -85,8 +85,8 @@ func (a *ServerController) refreshStatus() {
 func (a *ServerController) startTask() {
 	webServer := global.GetWebServer()
 	c := webServer.GetCron()
-	c.AddFunc("@every 2s", func() {
-		// Always refresh to keep CPU history collected continuously.
+	c.AddFunc("@every 1s", func() {
+		// Always refresh to keep CPU history collected continuously for real-time updates.
 		// Sampling is lightweight and capped to ~6 hours in memory.
 		a.refreshStatus()
 	})

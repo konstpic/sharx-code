@@ -6,8 +6,8 @@
   <a-sidebar></a-sidebar>
   <a-layout id="content-layout">
     <a-layout-content>
-      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}'>
-        <transition name="list" appear>
+      <a-spin :spinning="loadingStates.spinning" :delay="0" tip='{{ i18n "loading"}}'>
+        <transition name="list">
           <a-alert type="error" v-if="showAlert && loadingStates.fetched" :style="{ marginBottom: '10px' }"
             message='{{ i18n "secAlertTitle" }}' color="red" description='{{ i18n "secAlertSsl" }}' show-icon closable>
           </a-alert>
@@ -128,27 +128,7 @@
                   </a-space>
                 </template>
                 <template #extra>
-                  <a-button-group>
-                    <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
-                    <a-popover placement="bottomRight" trigger="click" :overlay-class-name="themeSwitcher.currentTheme">
-                      <template #title>
-                        <div class="ant-custom-popover-title">
-                          <a-switch v-model="isRefreshEnabled" @change="toggleRefresh" size="small"></a-switch>
-                          <span>{{ i18n "pages.inbounds.autoRefresh" }}</span>
-                        </div>
-                      </template>
-                      <template #content>
-                        <a-space direction="vertical">
-                          <span>{{ i18n "pages.inbounds.autoRefreshInterval" }}</span>
-                          <a-select v-model="refreshInterval" :disabled="!isRefreshEnabled" :style="{ width: '100%' }"
-                            @change="changeRefreshInterval" :dropdown-class-name="themeSwitcher.currentTheme">
-                            <a-select-option v-for="key in [5,10,30,60]" :value="key*1000">[[ key ]]s</a-select-option>
-                          </a-select>
-                        </a-space>
-                      </template>
-                      <a-button icon="down"></a-button>
-                    </a-popover>
-                  </a-button-group>
+                  <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
                 </template>
                 <a-space direction="vertical">
                   <a-table :columns="isMobile ? mobileColumns : columns" :row-key="dbInbound => dbInbound.id"
@@ -643,9 +623,7 @@
       clientCount: [],
       onlineClients: [],
       lastOnlineMap: {},
-      isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
-      refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
       subSettings: {
         enable: false,
         subTitle: '',
@@ -1446,28 +1424,6 @@
       copy(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
         txtModal.show('{{ i18n "pages.inbounds.inboundData" }}', JSON.stringify(dbInbound, null, 2));
-      },
-      async startDataRefreshLoop() {
-        while (this.isRefreshEnabled) {
-          try {
-            await this.getDBInbounds();
-          } catch (e) {
-            console.error(e);
-          }
-          await PromiseUtil.sleep(this.refreshInterval);
-        }
-      },
-      toggleRefresh() {
-        localStorage.setItem("isRefreshEnabled", this.isRefreshEnabled);
-        if (this.isRefreshEnabled) {
-          // Connect WebSocket if available
-          if (window.wsClient && !window.wsClient.isConnected) {
-            window.wsClient.connect();
-          }
-        }
-      },
-      changeRefreshInterval() {
-        localStorage.setItem("refreshInterval", this.refreshInterval);
       },
       async manualRefresh() {
         if (!this.refreshing) {

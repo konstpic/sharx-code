@@ -10,7 +10,7 @@ class WebSocketClient {
     this.maxReconnectDelay = 30000; // Maximum delay of 30 seconds
     this.listeners = new Map();
     this.isConnected = false;
-    this.shouldReconnect = true;
+    this.shouldReconnect = true; // Always reconnect - no limit on attempts
   }
 
   connect() {
@@ -34,7 +34,7 @@ class WebSocketClient {
       this.ws.onopen = () => {
         console.log('WebSocket connected');
         this.isConnected = true;
-        this.reconnectAttempts = 0;
+        this.reconnectAttempts = 0; // Reset attempts on successful connection
         this.emit('connected');
       };
 
@@ -70,6 +70,7 @@ class WebSocketClient {
         this.isConnected = false;
         this.emit('disconnected');
         
+        // Always try to reconnect - no limit on attempts
         if (this.shouldReconnect) {
           this.reconnectAttempts++;
           // Exponential backoff with maximum delay cap
@@ -77,13 +78,24 @@ class WebSocketClient {
             this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
             this.maxReconnectDelay
           );
-          console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+          console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}, unlimited attempts)`);
           setTimeout(() => this.connect(), delay);
         }
       };
     } catch (e) {
       console.error('Failed to create WebSocket connection:', e);
       this.emit('error', e);
+      
+      // Retry connection on error - no limit on attempts
+      if (this.shouldReconnect) {
+        this.reconnectAttempts++;
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+          this.maxReconnectDelay
+        );
+        console.log(`Retrying connection in ${delay}ms after error (attempt ${this.reconnectAttempts}, unlimited attempts)`);
+        setTimeout(() => this.connect(), delay);
+      }
     }
   }
 

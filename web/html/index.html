@@ -6,13 +6,13 @@
   <a-sidebar></a-sidebar>
   <a-layout id="content-layout">
     <a-layout-content>
-      <a-spin :spinning="loadingStates.spinning" :delay="200" :tip="loadingTip">
-        <transition name="list" appear>
+      <a-spin :spinning="loadingStates.spinning" :delay="0" :tip="loadingTip">
+        <transition name="list">
           <a-alert type="error" v-if="showAlert && loadingStates.fetched" class="mb-10"
             message='{{ i18n "secAlertTitle" }}' color="red" description='{{ i18n "secAlertSsl" }}' show-icon closable>
           </a-alert>
         </transition>
-        <transition name="list" appear>
+        <transition name="list">
           <template>
             <a-row v-if="!loadingStates.fetched">
               <a-card class="card-placeholder text-center">
@@ -1314,20 +1314,6 @@
         });
         fileInput.click();
       },
-      startPolling() {
-        // Fallback polling mechanism
-        const pollInterval = setInterval(async () => {
-          if (window.wsClient && window.wsClient.isConnected) {
-            clearInterval(pollInterval);
-            return;
-          }
-          try {
-            await this.getStatus();
-          } catch (e) {
-            console.error(e);
-          }
-        }, 2000);
-      },
     },
     watch: {
       'xraylogModal.visible'(newVal) {
@@ -1356,7 +1342,7 @@
       if (window.wsClient) {
         window.wsClient.connect();
         
-        // Listen for status updates
+        // Listen for status updates (real-time via WebSocket)
         window.wsClient.on('status', (payload) => {
           this.setStatus(payload);
         });
@@ -1383,7 +1369,11 @@
           }
         });
 
-        // Notifications disabled - white notifications are not needed
+        // Listen for traffic updates (real-time)
+        window.wsClient.on('traffic', (payload) => {
+          // Traffic updates are handled automatically via status updates
+          // This is here for potential future use
+        });
       }
     },
   });

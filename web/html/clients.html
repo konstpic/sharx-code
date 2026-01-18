@@ -6,8 +6,8 @@
   <a-sidebar></a-sidebar>
   <a-layout id="content-layout">
     <a-layout-content :style="{ padding: '24px 16px' }">
-      <a-spin :spinning="loadingStates.spinning" :delay="500" tip='{{ i18n "loading"}}'>
-        <transition name="list" appear>
+      <a-spin :spinning="loadingStates.spinning" :delay="0" tip='{{ i18n "loading"}}'>
+        <transition name="list">
           <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 0 : 12]" v-if="loadingStates.fetched">
         <a-col>
           <a-card hoverable>
@@ -42,27 +42,7 @@
               </a-space>
             </template>
             <template #extra>
-              <a-button-group>
-                <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
-                <a-popover placement="bottomRight" trigger="click" :overlay-class-name="themeSwitcher.currentTheme">
-                  <template #title>
-                    <div class="ant-custom-popover-title">
-                      <a-switch v-model="isRefreshEnabled" @change="toggleRefresh" size="small"></a-switch>
-                      <span>{{ i18n "pages.inbounds.autoRefresh" }}</span>
-                    </div>
-                  </template>
-                  <template #content>
-                    <a-space direction="vertical">
-                      <span>{{ i18n "pages.inbounds.autoRefreshInterval" }}</span>
-                      <a-select v-model="refreshInterval" :disabled="!isRefreshEnabled" :style="{ width: '100%' }"
-                        @change="changeRefreshInterval" :dropdown-class-name="themeSwitcher.currentTheme">
-                        <a-select-option v-for="key in [5,10,30,60]" :value="key*1000">[[ key ]]s</a-select-option>
-                      </a-select>
-                    </a-space>
-                  </template>
-                  <a-button icon="down"></a-button>
-                </a-popover>
-              </a-button-group>
+              <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
             </template>
             <a-space direction="vertical">
               <div :style="isMobile ? {} : { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flexWrap: 'wrap', gap: '8px' }">
@@ -390,8 +370,6 @@
       refreshing: false,
       onlineClients: [],
       lastOnlineMap: {},
-      isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
-      refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
       searchKey: '',
       enableFilter: false,
       filterBy: '',
@@ -847,28 +825,6 @@
             client.enable = !enable;
           }
         }
-      },
-      async startDataRefreshLoop() {
-        while (this.isRefreshEnabled) {
-          try {
-            await this.loadClients();
-          } catch (e) {
-            console.error(e);
-          }
-          await PromiseUtil.sleep(this.refreshInterval);
-        }
-      },
-      toggleRefresh() {
-        localStorage.setItem("isRefreshEnabled", this.isRefreshEnabled);
-        if (this.isRefreshEnabled) {
-          // Connect WebSocket if available
-          if (window.wsClient && !window.wsClient.isConnected) {
-            window.wsClient.connect();
-          }
-        }
-      },
-      changeRefreshInterval() {
-        localStorage.setItem("refreshInterval", this.refreshInterval);
       },
       async manualRefresh() {
         if (!this.refreshing) {
@@ -1384,33 +1340,57 @@
         }
       });
 
-      // Setup WebSocket for real-time updates (only if auto-refresh is enabled)
-      if (window.wsClient && this.isRefreshEnabled) {
+      // Setup WebSocket for real-time updates (always enabled for real-time data)
+      if (window.wsClient) {
         window.wsClient.connect();
         
-        // Listen for inbounds updates (contains full client traffic data)
-        window.wsClient.on('inbounds', (payload) => {
-          // Only update if auto-refresh is enabled
-          if (!this.isRefreshEnabled) return;
-          
+        // Listen for clients updates (direct from ClientEntity - real-time traffic)
+        // This is the primary method for updating client traffic
+        window.wsClient.on('clients', (payload) => {
           if (payload && Array.isArray(payload)) {
-            // Update traffic for clients from inbounds data
-            // This is more efficient than reloading all clients
-            if (!this.refreshing) {
-              this.refreshing = true;
-              // Silently reload clients to get updated traffic
-              this.loadClients().finally(() => {
-                this.refreshing = false;
+            // Update client traffic directly from ClientEntity payload (real-time, no HTTP request)
+            payload.forEach(updatedClient => {
+              // Find client by id or email
+              const existingClient = this.clients.find(c => 
+                (c.id && c.id === updatedClient.id) || 
+                (c.email && c.email.toLowerCase() === (updatedClient.email || '').toLowerCase())
+              );
+              
+              if (existingClient) {
+                // Update traffic in real-time from ClientEntity
+                if (updatedClient.up !== undefined) existingClient.up = updatedClient.up;
+                if (updatedClient.down !== undefined) existingClient.down = updatedClient.down;
+                if (updatedClient.allTime !== undefined) existingClient.allTime = updatedClient.allTime;
+                if (updatedClient.lastOnline !== undefined) existingClient.lastOnline = updatedClient.lastOnline;
+                // Update other fields if needed
+                if (updatedClient.status !== undefined) existingClient.status = updatedClient.status;
+                if (updatedClient.hwids !== undefined) existingClient.hwids = updatedClient.hwids;
+                if (updatedClient.hwidEnabled !== undefined) existingClient.hwidEnabled = updatedClient.hwidEnabled;
+                if (updatedClient.maxHwid !== undefined) existingClient.maxHwid = updatedClient.maxHwid;
+              }
+            });
+            
+            // Also update searchedClients if it exists (for filtered/search view)
+            if (this.searchedClients && Array.isArray(this.searchedClients)) {
+              payload.forEach(updatedClient => {
+                const existingClient = this.searchedClients.find(c => 
+                  (c.id && c.id === updatedClient.id) || 
+                  (c.email && c.email.toLowerCase() === (updatedClient.email || '').toLowerCase())
+                );
+                if (existingClient) {
+                  if (updatedClient.up !== undefined) existingClient.up = updatedClient.up;
+                  if (updatedClient.down !== undefined) existingClient.down = updatedClient.down;
+                  if (updatedClient.allTime !== undefined) existingClient.allTime = updatedClient.allTime;
+                  if (updatedClient.lastOnline !== undefined) existingClient.lastOnline = updatedClient.lastOnline;
+                  if (updatedClient.status !== undefined) existingClient.status = updatedClient.status;
+                }
               });
             }
           }
         });
         
-        // Listen for traffic updates
+        // Listen for traffic updates (real-time online status)
         window.wsClient.on('traffic', (payload) => {
-          // Only update if auto-refresh is enabled
-          if (!this.isRefreshEnabled) return;
-          
           // Update online clients list in real-time
           if (payload && Array.isArray(payload.onlineClients)) {
             this.onlineClients = payload.onlineClients;
@@ -1419,27 +1399,6 @@
           // Update last online map in real-time
           if (payload && payload.lastOnlineMap && typeof payload.lastOnlineMap === 'object') {
             this.lastOnlineMap = { ...this.lastOnlineMap, ...payload.lastOnlineMap };
-          }
-          
-          // Note: Traffic updates (up/down) are handled via 'inbounds' event
-          // which contains full accumulated traffic data from database
-        });
-
-        // Listen for clients updates (HWID changes, etc.)
-        window.wsClient.on('clients', (payload) => {
-          // Only update if auto-refresh is enabled
-          if (!this.isRefreshEnabled) return;
-          
-          // Reload clients to get updated data (HWID, traffic, etc.)
-          // Also reload groups in case group assignments changed
-          if (!this.refreshing) {
-            this.refreshing = true;
-            Promise.all([
-              this.loadGroups(),
-              this.loadClients()
-            ]).finally(() => {
-              this.refreshing = false;
-            });
           }
         });
       }

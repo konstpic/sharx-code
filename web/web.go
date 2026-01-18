@@ -342,15 +342,15 @@ func (s *Server) startTask() {
 
 	go func() {
 		time.Sleep(time.Second * 5)
-		// Statistics every 3 seconds for faster traffic limit enforcement, start the delay for 5 seconds for the first time, and staggered with the time to restart xray
-		s.cron.AddJob("@every 3s", job.NewXrayTrafficJob())
+		// Statistics every 1 second for real-time traffic updates, start the delay for 5 seconds for the first time, and staggered with the time to restart xray
+		s.cron.AddJob("@every 1s", job.NewXrayTrafficJob())
 	}()
 
-	// check client ips from log file every 10 sec
-	s.cron.AddJob("@every 10s", job.NewCheckClientIpJob())
+	// check client ips from log file every 1 second for real-time updates
+	s.cron.AddJob("@every 1s", job.NewCheckClientIpJob())
 	
-	// Check client HWIDs from log file every 30 seconds
-	s.cron.AddJob("@every 30s", job.NewCheckClientHWIDJob())
+	// Check client HWIDs from log file every 1 second for real-time updates
+	s.cron.AddJob("@every 1s", job.NewCheckClientHWIDJob())
 
 	// check client ips from log file every day
 	s.cron.AddJob("@daily", job.NewClearLogsJob())
@@ -374,10 +374,10 @@ func (s *Server) startTask() {
 		s.cron.AddJob(runtime, j)
 	}
 
-	// Node health check job (every 10 seconds)
-	s.cron.AddJob("@every 10s", job.NewCheckNodeHealthJob())
-	// Collect node statistics (traffic and online clients) every 30 seconds
-	s.cron.AddJob("@every 30s", job.NewCollectNodeStatsJob())
+	// Node health check job (every 1 second for real-time updates)
+	s.cron.AddJob("@every 1s", job.NewCheckNodeHealthJob())
+	// Collect node statistics (traffic and online clients) every 1 second for real-time updates
+	s.cron.AddJob("@every 1s", job.NewCollectNodeStatsJob())
 
 	// Make a traffic condition every day, 8:30
 	var entry cron.EntryID
@@ -398,10 +398,10 @@ func (s *Server) startTask() {
 		// check for Telegram bot callback query hash storage reset
 		s.cron.AddJob("@every 2m", job.NewCheckHashStorageJob())
 
-		// Check CPU load and alarm to TgBot if threshold passes
+		// Check CPU load and alarm to TgBot if threshold passes (every 1 second for real-time)
 		cpuThreshold, err := s.settingService.GetTgCpu()
 		if (err == nil) && (cpuThreshold > 0) {
-			s.cron.AddJob("@every 10s", job.NewCheckCpuJob())
+			s.cron.AddJob("@every 1s", job.NewCheckCpuJob())
 		}
 	} else {
 		s.cron.Remove(entry)

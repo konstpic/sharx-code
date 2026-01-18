@@ -3,6 +3,8 @@ package job
 import (
 	"encoding/json"
 
+	"github.com/mhsanaei/3x-ui/v2/database"
+	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/web/service"
 	"github.com/mhsanaei/3x-ui/v2/web/websocket"
@@ -86,6 +88,28 @@ func (j *XrayTrafficJob) Run() {
 
 	if updatedOutbounds != nil {
 		websocket.BroadcastOutbounds(updatedOutbounds)
+	}
+
+	// Broadcast clients update for real-time traffic updates on clients page
+	// Get all clients directly from ClientEntity (traffic is stored there)
+	clientService := service.ClientService{}
+	// Get clients for all users - frontend will filter by current user
+	// We need to get all clients, so we'll query directly from DB
+	db := database.GetDB()
+	var allClients []*model.ClientEntity
+	err = db.Find(&allClients).Error
+	if err == nil && len(allClients) > 0 {
+		// Load inbound assignments and HWIDs for each client (like GetClients does)
+		for _, client := range allClients {
+			inboundIds, err := clientService.GetInboundIdsForClient(client.Id)
+			if err == nil {
+				client.InboundIds = inboundIds
+			}
+			// HWIDs are optional, skip for performance
+		}
+		websocket.BroadcastClients(allClients)
+	} else if err != nil {
+		logger.Warningf("get all clients for websocket failed: %v", err)
 	}
 
 }
