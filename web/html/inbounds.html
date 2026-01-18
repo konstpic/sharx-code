@@ -131,7 +131,7 @@
                   <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
                 </template>
                 <a-space direction="vertical">
-                  <a-table :columns="isMobile ? mobileColumns : columns" :row-key="dbInbound => dbInbound.id"
+                  <a-table :columns="isMobile ? mobileColumns : tableColumns" :row-key="dbInbound => dbInbound.id"
                     :data-source="dbInbounds" :scroll="isMobile ? {} : { x: 1000 }"
                     :pagination=pagination(dbInbounds) :expand-icon-as-cell="false" :expand-row-by-click="false"
                     :expand-icon-column-index="0" :indent-size="0"
@@ -197,6 +197,17 @@
                           color="blue">TLS</a-tag>
                         <a-tag :style="{ margin: '0' }" v-if="dbInbound.toInbound().stream.isReality"
                           color="blue">Reality</a-tag>
+                      </template>
+                    </template>
+                    <template slot="node" slot-scope="text, dbInbound">
+                      <template v-if="multiNodeMode && Array.isArray(dbInbound.nodeIds) && dbInbound.nodeIds.length > 0">
+                        <a-tag v-for="(nodeId, index) in dbInbound.nodeIds" :key="`node-${dbInbound.id}-${nodeId}-${index}`" 
+                          :color="getNodeName(nodeId) ? 'blue' : 'gray'" :style="{ margin: '0 2px 2px 0' }">
+                          [[ getNodeName(nodeId) || `Node ${nodeId}` ]]
+                        </a-tag>
+                      </template>
+                      <template v-else-if="multiNodeMode">
+                        <a-tag color="default" :style="{ margin: '0' }">-</a-tag>
                       </template>
                     </template>
                     <template slot="clients" slot-scope="text, dbInbound">
@@ -527,7 +538,7 @@
 {{template "modals/clientsModal"}}
 {{template "modals/clientsBulkModal"}}
 <script>
-  const columns = [{
+  const baseColumns = [{
     title: "ID",
     align: 'right',
     dataIndex: "id",
@@ -558,12 +569,9 @@
     align: 'left',
     width: 70,
     scopedSlots: { customRender: 'protocol' },
-  }, {
-    title: '{{ i18n "clients" }}',
-    align: 'left',
-    width: 50,
-    scopedSlots: { customRender: 'clients' },
   }];
+  
+  // columns will be computed dynamically in Vue component
 
   const mobileColumns = [{
     title: "ID",
@@ -737,12 +745,41 @@
         this.dbInbounds.splice(0);
         this.clientCount.splice(0);
         for (const inbound of dbInbounds) {
+          // Preserve nodeIds from original data before creating DBInbound
+          // This is critical because WebSocket updates might lose nodeIds if not explicitly preserved
+          // Check both nodeIds (array) and nodeId (single, deprecated) from the raw data
+          let originalNodeIds = null; // Use null to distinguish "not found" from "empty array"
+          if (inbound.nodeIds !== null && inbound.nodeIds !== undefined) {
+            if (Array.isArray(inbound.nodeIds)) {
+              if (inbound.nodeIds.length > 0) {
+                originalNodeIds = inbound.nodeIds.map(id => typeof id === 'string' ? parseInt(id, 10) : id).filter(id => !isNaN(id) && id > 0);
+              } else {
+                // Empty array is valid - means no nodes assigned
+                originalNodeIds = [];
+              }
+            }
+          } else if (inbound.nodeId !== null && inbound.nodeId !== undefined) {
+            // Backward compatibility: single nodeId
+            const nodeId = typeof inbound.nodeId === 'string' ? parseInt(inbound.nodeId, 10) : inbound.nodeId;
+            if (!isNaN(nodeId) && nodeId > 0) {
+              originalNodeIds = [nodeId];
+            } else {
+              originalNodeIds = [];
+            }
+          }
+          
           const dbInbound = new DBInbound(inbound);
-          // Ensure nodeIds are properly set after creating DBInbound
-          // The constructor should handle this, but double-check
-          if (!Array.isArray(dbInbound.nodeIds)) {
+          // Ensure nodeIds are properly set - use original data if available
+          // This handles cases where WebSocket data might not include nodeIds properly
+          if (originalNodeIds !== null) {
+            // We found nodeIds in original data - use them (they take priority)
+            dbInbound.nodeIds = originalNodeIds;
+          } else if (!Array.isArray(dbInbound.nodeIds)) {
+            // Fallback: ensure it's at least an array if constructor didn't set it
             dbInbound.nodeIds = [];
           }
+          // If originalNodeIds is null and dbInbound.nodeIds is already an array, keep it as is
+          
           to_inbound = dbInbound.toInbound()
           this.inbounds.push(to_inbound);
           this.dbInbounds.push(dbInbound);
@@ -1505,6 +1542,25 @@
       }
     },
     computed: {
+      tableColumns() {
+        const cols = [...baseColumns];
+        // Add Node column before clients column if multi-node mode is enabled
+        if (this.multiNodeMode) {
+          cols.push({
+            title: 'Node',
+            align: 'left',
+            width: 60,
+            scopedSlots: { customRender: 'node' },
+          });
+        }
+        cols.push({
+          title: '{{ i18n "clients" }}',
+          align: 'left',
+          width: 50,
+          scopedSlots: { customRender: 'clients' },
+        });
+        return cols;
+      },
       total() {
         let down = 0, up = 0, allTime = 0;
         let clients = 0, deactive = [], depleted = [], expiring = [];

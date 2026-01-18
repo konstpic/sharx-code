@@ -154,8 +154,26 @@ func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
-	// Enrich client stats with UUID/SubId from inbound settings
+	
+	// Enrich with node assignments
+	nodeService := NodeService{}
 	for _, inbound := range inbounds {
+		// Load all nodes for this inbound
+		nodes, err := nodeService.GetNodesForInbound(inbound.Id)
+		if err == nil && len(nodes) > 0 {
+			nodeIds := make([]int, len(nodes))
+			for i, node := range nodes {
+				nodeIds[i] = node.Id
+			}
+			inbound.NodeIds = nodeIds
+			// Don't set nodeId - it's deprecated and causes confusion
+			// nodeId is only for backward compatibility when receiving data from old clients
+		} else {
+			// Ensure empty array if no nodes assigned
+			inbound.NodeIds = []int{}
+		}
+		
+		// Enrich client stats with UUID/SubId from inbound settings
 		clients, _ := s.GetClients(inbound)
 		if len(clients) == 0 || len(inbound.ClientStats) == 0 {
 			continue
