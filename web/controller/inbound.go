@@ -31,6 +31,16 @@ func NewInboundController(g *gin.RouterGroup) *InboundController {
 
 // initRouter initializes the routes for inbound-related operations.
 func (a *InboundController) initRouter(g *gin.RouterGroup) {
+	// Add logging middleware for all inbound routes
+	g.Use(func(c *gin.Context) {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] InboundController middleware: request, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+		// #endregion
+		c.Next()
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] InboundController middleware: response, path=%s, method=%s, status=%d", c.Request.URL.Path, c.Request.Method, c.Writer.Status())
+		// #endregion
+	})
 
 	g.GET("/list", a.getInbounds)
 	g.GET("/get/:id", a.getInbound)
@@ -106,6 +116,9 @@ func (a *InboundController) getClientTrafficsById(c *gin.Context) {
 
 // addInbound creates a new inbound configuration.
 func (a *InboundController) addInbound(c *gin.Context) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] addInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	// #endregion
 	// Try to get nodeIds from JSON body first (if Content-Type is application/json)
 	// This must be done BEFORE ShouldBind, which reads the body
 	var nodeIdsFromJSON []int
@@ -230,6 +243,9 @@ func (a *InboundController) addInbound(c *gin.Context) {
 		}
 	}
 
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] addInbound controller: SUCCESS, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
+	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
@@ -241,16 +257,22 @@ func (a *InboundController) addInbound(c *gin.Context) {
 
 // delInbound deletes an inbound configuration by its ID.
 func (a *InboundController) delInbound(c *gin.Context) {
+	logger.Infof("[DEBUG-AGENT] delInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
+		logger.Infof("[DEBUG-AGENT] delInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), err)
 		return
 	}
+	logger.Infof("[DEBUG-AGENT] delInbound controller: parsed ID=%d", id)
+	logger.Infof("[DEBUG-AGENT] delInbound controller: calling DelInbound, id=%d", id)
 	needRestart, err := a.inboundService.DelInbound(id)
 	if err != nil {
+		logger.Infof("[DEBUG-AGENT] delInbound controller: ERROR from DelInbound, id=%d, error=%v, errorType=%T", id, err, err)
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	logger.Infof("[DEBUG-AGENT] delInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), id, nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
@@ -263,11 +285,20 @@ func (a *InboundController) delInbound(c *gin.Context) {
 
 // updateInbound updates an existing inbound configuration.
 func (a *InboundController) updateInbound(c *gin.Context) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	// #endregion
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] updateInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
+		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInbound controller: parsed ID=%d", id)
+	// #endregion
 	
 	// Try to get nodeIds from JSON body first (if Content-Type is application/json)
 	var nodeIdsFromJSON []int
@@ -413,6 +444,9 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 		// If neither nodeIds nor nodeId was provided, don't change assignments
 	}
 
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
+	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), inbound, nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
@@ -470,18 +504,33 @@ func (a *InboundController) addInboundClient(c *gin.Context) {
 
 // delInboundClient deletes a client from an inbound by inbound ID and client ID.
 func (a *InboundController) delInboundClient(c *gin.Context) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] delInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	// #endregion
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] delInboundClient controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
+		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
 	clientId := c.Param("clientId")
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] delInboundClient controller: parsed ID=%d, clientId=%s", id, clientId)
+	// #endregion
 
 	needRestart, err := a.inboundService.DelInboundClient(id, clientId)
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] delInboundClient controller: ERROR, id=%d, clientId=%s, error=%v", id, clientId, err)
+		// #endregion
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] delInboundClient controller: SUCCESS, id=%d, clientId=%s, needRestart=%v", id, clientId, needRestart)
+	// #endregion
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()
@@ -490,20 +539,38 @@ func (a *InboundController) delInboundClient(c *gin.Context) {
 
 // updateInboundClient updates a client's configuration in an inbound.
 func (a *InboundController) updateInboundClient(c *gin.Context) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	// #endregion
 	clientId := c.Param("clientId")
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: clientId=%s", clientId)
+	// #endregion
 
 	inbound := &model.Inbound{}
 	err := c.ShouldBind(inbound)
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] updateInboundClient controller: bind error, clientId=%s, error=%v", clientId, err)
+		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
 
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: calling UpdateInboundClient, inboundId=%d, clientId=%s", inbound.Id, clientId)
+	// #endregion
 	needRestart, err := a.inboundService.UpdateInboundClient(inbound, clientId)
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] updateInboundClient controller: ERROR, inboundId=%d, clientId=%s, error=%v", inbound.Id, clientId, err)
+		// #endregion
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: SUCCESS, inboundId=%d, clientId=%s, needRestart=%v", inbound.Id, clientId, needRestart)
+	// #endregion
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
 	if needRestart {
 		a.xrayService.SetToNeedRestart()

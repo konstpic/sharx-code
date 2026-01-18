@@ -313,6 +313,18 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	// Update timestamp
 	client.UpdatedAt = time.Now().Unix()
 
+	// Validate group_id if it's being set
+	if client.GroupId != nil && *client.GroupId > 0 {
+		groupService := ClientGroupService{}
+		_, err := groupService.GetGroup(*client.GroupId, userId)
+		if err != nil {
+			// Group doesn't exist or doesn't belong to user
+			// Set group_id to nil instead of failing
+			logger.Warningf("Group %d not found for user %d, setting group_id to nil for client %d", *client.GroupId, userId, client.Id)
+			client.GroupId = nil
+		}
+	}
+
 	db := database.GetDB()
 	tx := db.Begin()
 	// Track if transaction was committed to avoid double rollback
@@ -352,8 +364,15 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	updates["comment"] = client.Comment
 	updates["reset"] = client.Reset
 	// Update group_id - can be nil (no group)
-	// Always update group_id if it's set (including nil to remove from group)
-	updates["group_id"] = client.GroupId
+	// Only update if it's different from existing value
+	if existing.GroupId == nil && client.GroupId == nil {
+		// Both nil, no change needed
+	} else if existing.GroupId != nil && client.GroupId != nil && *existing.GroupId == *client.GroupId {
+		// Same value, no change needed
+	} else {
+		// Value changed, update it
+		updates["group_id"] = client.GroupId
+	}
 	// Update HWID settings - GORM converts field names to snake_case automatically
 	// HWIDEnabled -> hwid_enabled, MaxHWID -> max_hwid
 	// Always update HWID settings (they should always be present when updating from the UI)
@@ -439,15 +458,30 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		}
 	}
 	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateClient: before Commit, clientId=%d, userId=%d", client.Id, userId)
+	// #endregion
+	
 	// Commit client transaction first to avoid nested transactions
 	err = tx.Commit().Error
 	committed = true
+	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateClient: after Commit, clientId=%d, error=%v", client.Id, err)
+	// #endregion
+	
 	if err != nil {
 		return false, err
 	}
 	
 	// Invalidate cache for this user's clients
-	cache.InvalidateClients(userId)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateClient: before cache invalidation, userId=%d", userId)
+	// #endregion
+	cacheErr := cache.InvalidateClients(userId)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateClient: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
+	// #endregion
 	
 	// Now update Settings for all affected inbounds (old + new)
 	// This is needed even if InboundIds wasn't changed, because client data (UUID, password, etc.) might have changed
@@ -595,9 +629,18 @@ func (s *ClientService) DeleteClient(userId int, id int) (bool, error) {
 		return false, err
 	}
 	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] DeleteClient: before Commit, clientId=%d, userId=%d", id, userId)
+	// #endregion
+	
 	// Commit deletion transaction first to avoid nested transactions
 	err = tx.Commit().Error
 	committed = true
+	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] DeleteClient: after Commit, clientId=%d, error=%v", id, err)
+	// #endregion
+	
 	if err != nil {
 		return false, err
 	}

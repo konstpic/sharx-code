@@ -112,17 +112,32 @@ func DeletePattern(pattern string) error {
 		return fmt.Errorf("Redis client not initialized")
 	}
 	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] DeletePattern: start, pattern=%s", pattern)
+	// #endregion
+	
 	iter := client.Scan(ctx, 0, pattern, 0).Iterator()
 	keys := make([]string, 0)
 	for iter.Next(ctx) {
 		keys = append(keys, iter.Val())
 	}
 	if err := iter.Err(); err != nil {
+		// #region agent log
+		logger.Debugf("[DEBUG-AGENT] DeletePattern: Scan error, pattern=%s, error=%v", pattern, err)
+		// #endregion
 		return err
 	}
 	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] DeletePattern: keys found, pattern=%s, keysCount=%d, keys=%v", pattern, len(keys), keys)
+	// #endregion
+	
 	if len(keys) > 0 {
-		return client.Del(ctx, keys...).Err()
+		delErr := client.Del(ctx, keys...).Err()
+		// #region agent log
+		logger.Debugf("[DEBUG-AGENT] DeletePattern: Del result, pattern=%s, keysDeleted=%d, error=%v", pattern, len(keys), delErr)
+		// #endregion
+		return delErr
 	}
 	return nil
 }

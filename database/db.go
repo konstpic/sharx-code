@@ -147,6 +147,19 @@ func InitDB(dbConnectionString string) error {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
+	// Step 3.5: Clean up invalid group_id references (safety check)
+	// This ensures data integrity even if migrations didn't run or were applied before cleanup was added
+	// This is idempotent and safe to run multiple times
+	if err := db.Exec(`
+		UPDATE client_entities
+		SET group_id = NULL
+		WHERE group_id IS NOT NULL
+		  AND group_id NOT IN (SELECT id FROM client_groups)
+	`).Error; err != nil {
+		// Log warning but don't fail - this is a data cleanup, not critical
+		log.Printf("Warning: failed to cleanup invalid group_id references: %v", err)
+	}
+
 	// Step 4: Check schema version compatibility
 	if err := migrator.CheckSchemaVersion(minRequiredSchemaVersion); err != nil {
 		return fmt.Errorf("schema version check failed: %w", err)

@@ -478,12 +478,25 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 // It removes the inbound from the database and the running Xray instance if active.
 // Returns whether Xray needs restart and any error.
 func (s *InboundService) DelInbound(id int) (bool, error) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: START, inboundId=%d", id)
+	// #endregion
+	
 	db := database.GetDB()
+	if db == nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR db is nil, inboundId=%d", id)
+		// #endregion
+		return false, fmt.Errorf("database connection is nil")
+	}
 
 	var tag string
 	needRestart := false
 	result := db.Model(model.Inbound{}).Select("tag").Where("id = ? and enable = ?", id, true).First(&tag)
 	if result.Error == nil {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: Xray API delete, inboundId=%d, tag=%s", id, tag)
+	// #endregion
 		s.xrayApi.Init(p.GetAPIPort())
 		err1 := s.xrayApi.DelInbound(tag)
 		if err1 == nil {
@@ -494,52 +507,140 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		}
 		s.xrayApi.Close()
 	} else {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: inbound not enabled or not found, inboundId=%d, error=%v", id, result.Error)
+		// #endregion
 		logger.Debug("No enabled inbound founded to removing by api", tag)
 	}
 
-	// Delete client traffics of inbounds
-	err := db.Where("inbound_id = ?", id).Delete(xray.ClientTraffic{}).Error
+	// Get inbound data FIRST before deleting anything (needed for userId and clients)
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: getting inbound, inboundId=%d", id)
+	// #endregion
+	inbound, err := s.GetInbound(id)
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR getting inbound, inboundId=%d, error=%v", id, err)
+		// #endregion
+		return false, err
+	}
+	userId := inbound.UserId
+	
+	// Delete client traffics of inbounds
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client_traffics, inboundId=%d", id)
+	// #endregion
+	err = db.Where("inbound_id = ?", id).Delete(xray.ClientTraffic{}).Error
+	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client_traffics, inboundId=%d, error=%v", id, err)
+		// #endregion
 		return false, err
 	}
 	
 	// Delete node mappings for this inbound (cascade delete)
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: deleting inbound_node_mappings, inboundId=%d", id)
+	// #endregion
 	err = db.Where("inbound_id = ?", id).Delete(&model.InboundNodeMapping{}).Error
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting inbound_node_mappings, inboundId=%d, error=%v", id, err)
+		// #endregion
 		return false, err
 	}
 	
-	inbound, err := s.GetInbound(id)
+	// Delete client_inbound_mappings for this inbound
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client_inbound_mappings, inboundId=%d", id)
+	// #endregion
+	err = db.Where("inbound_id = ?", id).Delete(&model.ClientInboundMapping{}).Error
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client_inbound_mappings, inboundId=%d, error=%v", id, err)
+		// #endregion
 		return false, err
 	}
-	userId := inbound.UserId
+	
+	// Delete host_inbound_mappings for this inbound
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: deleting host_inbound_mappings, inboundId=%d", id)
+	// #endregion
+	err = db.Where("inbound_id = ?", id).Delete(&model.HostInboundMapping{}).Error
+	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting host_inbound_mappings, inboundId=%d, error=%v", id, err)
+		// #endregion
+		return false, err
+	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: getting clients, inboundId=%d, userId=%d", id, userId)
+	// #endregion
 	clients, err := s.GetClients(inbound)
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR getting clients, inboundId=%d, error=%v", id, err)
+		// #endregion
 		return false, err
 	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client IPs, inboundId=%d, clientsCount=%d", id, len(clients))
+	// #endregion
 	for _, client := range clients {
 		err := s.DelClientIPs(db, client.Email)
 		if err != nil {
+			// #region agent log
+			logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client IPs, inboundId=%d, email=%s, error=%v", id, client.Email, err)
+			// #endregion
 			return false, err
 		}
 	}
 
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: before Delete, inboundId=%d, userId=%d", id, userId)
+	// #endregion
+	
 	err = db.Delete(model.Inbound{}, id).Error
+	
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] DelInbound: after Delete, inboundId=%d, error=%v, rowsAffected=%d", id, err, db.RowsAffected)
+	// #endregion
+	
 	if err == nil && userId > 0 {
 		// Invalidate cache for this user's inbounds
-		cache.InvalidateInbounds(userId)
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: before cache invalidation, userId=%d", userId)
+		// #endregion
+		cacheErr := cache.InvalidateInbounds(userId)
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] DelInbound: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
+		// #endregion
 	}
 	return needRestart, err
 }
 
 func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] GetInbound: START, inboundId=%d", id)
+	// #endregion
 	db := database.GetDB()
+	if db == nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] GetInbound: ERROR db is nil, inboundId=%d", id)
+		// #endregion
+		return nil, fmt.Errorf("database connection is nil")
+	}
 	inbound := &model.Inbound{}
 	err := db.Model(model.Inbound{}).First(inbound, id).Error
 	if err != nil {
+		// #region agent log
+		logger.Infof("[DEBUG-AGENT] GetInbound: ERROR, inboundId=%d, error=%v, errorType=%T", id, err, err)
+		// #endregion
 		return nil, err
 	}
+	// #region agent log
+	logger.Infof("[DEBUG-AGENT] GetInbound: SUCCESS, inboundId=%d, userId=%d", id, inbound.UserId)
+	// #endregion
 	
 	// Enrich with node assignments
 	nodeService := NodeService{}
@@ -697,14 +798,32 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		logger.Debug("Inbound is disabled, not adding to Xray:", tag)
 	}
 
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateInbound: before transaction, inboundId=%d, userId=%d", inbound.Id, oldInbound.UserId)
+	// #endregion
+	
 	err = db.Transaction(func(tx *gorm.DB) error {
-		return tx.Save(oldInbound).Error
+		saveErr := tx.Save(oldInbound).Error
+		// #region agent log
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound: Save result, inboundId=%d, error=%v", inbound.Id, saveErr)
+		// #endregion
+		return saveErr
 	})
+	
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] UpdateInbound: after transaction, inboundId=%d, error=%v", inbound.Id, err)
+	// #endregion
 	
 	if err == nil {
 		// Invalidate cache for this user's inbounds
 		if oldInbound.UserId > 0 {
-			cache.InvalidateInbounds(oldInbound.UserId)
+			// #region agent log
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound: before cache invalidation, userId=%d", oldInbound.UserId)
+			// #endregion
+			cacheErr := cache.InvalidateInbounds(oldInbound.UserId)
+			// #region agent log
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound: after cache invalidation, userId=%d, error=%v", oldInbound.UserId, cacheErr)
+			// #endregion
 		}
 	}
 	return inbound, needRestart, err

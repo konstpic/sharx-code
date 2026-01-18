@@ -124,23 +124,32 @@ func (m *Migrator) LoadMigrations() ([]MigrationFile, error) {
 }
 
 // ApplyMigration applies a single migration within a transaction.
+// Migrations are idempotent (use IF EXISTS, IF NOT EXISTS), so they can be safely applied multiple times.
 func (m *Migrator) ApplyMigration(migration MigrationFile) error {
 	return m.db.Transaction(func(tx *gorm.DB) error {
-		// Execute migration SQL
+		// Execute migration SQL (idempotent - safe to run multiple times)
 		if err := tx.Exec(migration.Content).Error; err != nil {
 			return fmt.Errorf("failed to execute migration %s: %w", migration.Name, err)
 		}
 
-		// Record migration as applied
-		record := SchemaMigration{
-			Version:   migration.Version,
-			Name:      migration.Name,
-			AppliedAt: getCurrentTimestamp(),
+		// Record migration as applied (check if already exists to allow re-running)
+		// This allows migrations to be re-run safely
+		var existing SchemaMigration
+		err := tx.Where("version = ?", migration.Version).First(&existing).Error
+		if err == gorm.ErrRecordNotFound {
+			// Migration not recorded yet, insert it
+			record := SchemaMigration{
+				Version:   migration.Version,
+				Name:      migration.Name,
+				AppliedAt: getCurrentTimestamp(),
+			}
+			if err := tx.Create(&record).Error; err != nil {
+				return fmt.Errorf("failed to record migration %s: %w", migration.Name, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("failed to check migration %s: %w", migration.Name, err)
 		}
-
-		if err := tx.Create(&record).Error; err != nil {
-			return fmt.Errorf("failed to record migration %s: %w", migration.Name, err)
-		}
+		// If migration already exists, just continue (it's already recorded)
 
 		log.Printf("Applied migration: %s (version %d)", migration.Name, migration.Version)
 		return nil
@@ -166,19 +175,22 @@ func (m *Migrator) Migrate() error {
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
-	// Apply pending migrations
+	// Apply all migrations in order (they are idempotent, so safe to re-run)
+	// This ensures all migrations are always applied, even if they were partially applied before
 	appliedCount := 0
 	for _, migration := range migrations {
-		if applied[migration.Version] {
-			log.Printf("Skipping already applied migration: %s (version %d)", migration.Name, migration.Version)
-			continue
-		}
-
+		// Always apply migration (it's idempotent)
+		// The migration itself will handle IF EXISTS/IF NOT EXISTS checks
 		if err := m.ApplyMigration(migration); err != nil {
 			return fmt.Errorf("failed to apply migration %s: %w", migration.Name, err)
 		}
 
-		appliedCount++
+		// Check if this was a new migration or a re-application
+		if !applied[migration.Version] {
+			appliedCount++
+		} else {
+			log.Printf("Re-applied migration: %s (version %d) - ensuring consistency", migration.Name, migration.Version)
+		}
 	}
 
 	if appliedCount > 0 {

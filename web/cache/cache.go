@@ -83,7 +83,14 @@ func GetOrSet(key string, dest interface{}, expiration time.Duration, fn func() 
 // InvalidateInbounds invalidates all inbounds cache for a user.
 func InvalidateInbounds(userId int) error {
 	pattern := fmt.Sprintf("%s%d", KeyInboundsPrefix, userId)
-	return DeletePattern(pattern)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] InvalidateInbounds: before DeletePattern, userId=%d, pattern=%s", userId, pattern)
+	// #endregion
+	err := DeletePattern(pattern)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] InvalidateInbounds: after DeletePattern, userId=%d, pattern=%s, error=%v", userId, pattern, err)
+	// #endregion
+	return err
 }
 
 // InvalidateAllInbounds invalidates all inbounds cache.
@@ -95,7 +102,14 @@ func InvalidateAllInbounds() error {
 // InvalidateClients invalidates all clients cache for a user.
 func InvalidateClients(userId int) error {
 	pattern := fmt.Sprintf("%s%d", KeyClientsPrefix, userId)
-	return DeletePattern(pattern)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] InvalidateClients: before DeletePattern, userId=%d, pattern=%s", userId, pattern)
+	// #endregion
+	err := DeletePattern(pattern)
+	// #region agent log
+	logger.Debugf("[DEBUG-AGENT] InvalidateClients: after DeletePattern, userId=%d, pattern=%s, error=%v", userId, pattern, err)
+	// #endregion
+	return err
 }
 
 // InvalidateAllClients invalidates all clients cache.

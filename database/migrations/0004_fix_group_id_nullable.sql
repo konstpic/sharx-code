@@ -28,6 +28,13 @@ BEGIN
     END IF;
 END $$;
 
+-- Clean up invalid group_id references (clients pointing to non-existent groups)
+-- This must be done BEFORE recreating the foreign key constraint
+UPDATE client_entities
+SET group_id = NULL
+WHERE group_id IS NOT NULL
+  AND group_id NOT IN (SELECT id FROM client_groups);
+
 -- Recreate the foreign key constraint with explicit NULL handling
 -- PostgreSQL foreign keys allow NULL by default, but we're being explicit
 DO $$

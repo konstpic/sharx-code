@@ -52,6 +52,7 @@ func jsonMsgObj(c *gin.Context, msg string, obj any, err error) {
 	} else {
 		m.Success = false
 		m.Msg = msg + " (" + err.Error() + ")"
+		logger.Infof("[DEBUG-AGENT] jsonMsgObj: ERROR response, path=%s, msg=%s, error=%v, errorType=%T", c.Request.URL.Path, msg, err, err)
 		logger.Warning(msg+" "+I18nWeb(c, "fail")+": ", err)
 	}
 	c.JSON(http.StatusOK, m)
