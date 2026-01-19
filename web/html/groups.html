@@ -18,9 +18,6 @@
                 </a-button>
               </a-space>
             </template>
-            <template #extra>
-              <a-button icon="sync" @click="loadGroups" :loading="refreshing"></a-button>
-            </template>
             <a-table :columns="isMobile ? mobileColumns : columns" :row-key="group => group.id"
               :data-source="groups" :scroll="isMobile ? {} : { x: 1000 }"
               :pagination="false"

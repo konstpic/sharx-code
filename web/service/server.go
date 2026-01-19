@@ -235,20 +235,34 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		T: now,
 	}
 
-	// CPU stats
+	// Check if running in container (once for both CPU and memory)
+	containerStats := sys.GetContainerStats()
+
+	// CPU stats - try container first, fallback to host
+	var err error
+	if containerStats != nil && containerStats.IsContainer && containerStats.CPUQuota > 0 && containerStats.CPUPeriod > 0 {
+		// Calculate available CPU cores from container limits
+		availableCores := float64(containerStats.CPUQuota) / float64(containerStats.CPUPeriod)
+		status.CpuCores = int(availableCores)
+		if status.CpuCores == 0 {
+			status.CpuCores = 1 // At least 1 core
+		}
+		status.LogicalPro = status.CpuCores
+	} else {
+		// Not in container or no limits, use host CPU
+		status.CpuCores, err = cpu.Counts(false)
+		if err != nil {
+			logger.Warning("get cpu cores count failed:", err)
+		}
+		status.LogicalPro = runtime.NumCPU()
+	}
+
 	util, err := s.sampleCPUUtilization()
 	if err != nil {
 		logger.Warning("get cpu percent failed:", err)
 	} else {
 		status.Cpu = util
 	}
-
-	status.CpuCores, err = cpu.Counts(false)
-	if err != nil {
-		logger.Warning("get cpu cores count failed:", err)
-	}
-
-	status.LogicalPro = runtime.NumCPU()
 
 	if status.CpuSpeedMhz = s.cachedCpuSpeedMhz; s.cachedCpuSpeedMhz == 0 && time.Since(s.lastCpuInfoAttempt) > 5*time.Minute {
 		s.lastCpuInfoAttempt = time.Now()
@@ -284,13 +298,28 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		status.Uptime = upTime
 	}
 
-	// Memory stats
-	memInfo, err := mem.VirtualMemory()
-	if err != nil {
-		logger.Warning("get virtual memory failed:", err)
+	// Memory stats - try container first, fallback to host
+	if containerStats != nil && containerStats.IsContainer {
+		// Use container memory limits
+		status.Mem.Current = containerStats.MemoryUsed
+		if containerStats.MemoryLimit > 0 {
+			status.Mem.Total = containerStats.MemoryLimit
+		} else {
+			// If limit is 0 (unlimited), fall back to host memory
+			memInfo, err := mem.VirtualMemory()
+			if err == nil {
+				status.Mem.Total = memInfo.Total
+			}
+		}
 	} else {
-		status.Mem.Current = memInfo.Used
-		status.Mem.Total = memInfo.Total
+		// Not in container, use host memory
+		memInfo, err := mem.VirtualMemory()
+		if err != nil {
+			logger.Warning("get virtual memory failed:", err)
+		} else {
+			status.Mem.Current = memInfo.Used
+			status.Mem.Total = memInfo.Total
+		}
 	}
 
 	swapInfo, err := mem.SwapMemory()

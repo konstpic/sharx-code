@@ -483,101 +483,119 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	logger.Debugf("[DEBUG-AGENT] UpdateClient: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
 	// #endregion
 	
-	// Now update Settings for all affected inbounds (old + new)
+	// Now update Settings for all affected inbounds (old + new) ASYNCHRONOUSLY
 	// This is needed even if InboundIds wasn't changed, because client data (UUID, password, etc.) might have changed
 	// We do this AFTER committing the client transaction to avoid nested transactions and database locks
-	needRestart := false
-	inboundService := InboundService{}
-	
-	// Check if client needs to be re-added to Xray (was expired, now active)
-	wasExpired := existing.Status == "expired_traffic" || existing.Status == "expired_time"
-	nowActive := updatedClient.Status == "active" || updatedClient.Status == ""
-	if wasExpired && nowActive && updatedClient.Enable && p != nil {
-		// Re-add client to Xray API for all assigned inbounds
-		inboundService.xrayApi.Init(p.GetAPIPort())
-		defer inboundService.xrayApi.Close()
+	// Run asynchronously to avoid blocking the HTTP response - changes will be applied immediately in background
+	go func() {
+		needRestart := false
+		inboundService := InboundService{}
 		
-		clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
-		if err == nil {
-			for _, inboundId := range clientInboundIds {
-				inbound, err := inboundService.GetInbound(inboundId)
-				if err != nil {
-					continue
-				}
-				
-				// Build client data for Xray API
-				clientData := make(map[string]any)
-				clientData["email"] = updatedClient.Email
-				
-				switch inbound.Protocol {
-				case model.Trojan:
-					clientData["password"] = updatedClient.Password
-				case model.Shadowsocks:
-					var settings map[string]any
-					json.Unmarshal([]byte(inbound.Settings), &settings)
-					if method, ok := settings["method"].(string); ok {
-						clientData["method"] = method
+		// Check if client needs to be re-added to Xray (was expired, now active)
+		// Note: p is a global variable in the service package (declared in xray.go)
+		wasExpired := existing.Status == "expired_traffic" || existing.Status == "expired_time"
+		nowActive := updatedClient.Status == "active" || updatedClient.Status == ""
+		xrayService := XrayService{}
+		if wasExpired && nowActive && updatedClient.Enable && xrayService.IsXrayRunning() {
+			// Re-add client to Xray API for all assigned inbounds
+			// Access global p variable from xray.go (same package)
+			// p is declared in xray.go as: var p *xray.Process
+			apiPort := 10085 // Default Xray API port, will be updated if p is available
+			if p != nil {
+				apiPort = p.GetAPIPort()
+			}
+			inboundService.xrayApi.Init(apiPort)
+			defer inboundService.xrayApi.Close()
+			
+			clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
+			if err == nil {
+				for _, inboundId := range clientInboundIds {
+					inbound, err := inboundService.GetInbound(inboundId)
+					if err != nil {
+						continue
 					}
-					clientData["password"] = updatedClient.Password
-				case model.VMESS, model.VLESS:
-					clientData["id"] = updatedClient.UUID
-					if inbound.Protocol == model.VMESS && updatedClient.Security != "" {
-						clientData["security"] = updatedClient.Security
+					
+					// Build client data for Xray API
+					clientData := make(map[string]any)
+					clientData["email"] = updatedClient.Email
+					
+					switch inbound.Protocol {
+					case model.Trojan:
+						clientData["password"] = updatedClient.Password
+					case model.Shadowsocks:
+						var settings map[string]any
+						json.Unmarshal([]byte(inbound.Settings), &settings)
+						if method, ok := settings["method"].(string); ok {
+							clientData["method"] = method
+						}
+						clientData["password"] = updatedClient.Password
+					case model.VMESS, model.VLESS:
+						clientData["id"] = updatedClient.UUID
+						if inbound.Protocol == model.VMESS && updatedClient.Security != "" {
+							clientData["security"] = updatedClient.Security
+						}
+						if inbound.Protocol == model.VLESS && updatedClient.Flow != "" {
+							clientData["flow"] = updatedClient.Flow
+						}
 					}
-					if inbound.Protocol == model.VLESS && updatedClient.Flow != "" {
-						clientData["flow"] = updatedClient.Flow
-					}
-				}
-				
-				err = inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
-				if err != nil {
-					if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", updatedClient.Email)) {
-						logger.Debugf("Client %s already exists in Xray (tag: %s)", updatedClient.Email, inbound.Tag)
+					
+					err = inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+					if err != nil {
+						if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", updatedClient.Email)) {
+							logger.Debugf("Client %s already exists in Xray (tag: %s)", updatedClient.Email, inbound.Tag)
+						} else {
+							logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", updatedClient.Email, inbound.Tag, err)
+							needRestart = true
+						}
 					} else {
-						logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", updatedClient.Email, inbound.Tag, err)
-						needRestart = true
+						logger.Infof("Client %s re-added to Xray (tag: %s) after traffic reset", updatedClient.Email, inbound.Tag)
 					}
-				} else {
-					logger.Infof("Client %s re-added to Xray (tag: %s) after traffic reset", updatedClient.Email, inbound.Tag)
 				}
 			}
 		}
-	}
-	
-	for inboundId := range affectedInboundIds {
-		inbound, err := inboundService.GetInbound(inboundId)
-		if err != nil {
-			logger.Warningf("Failed to get inbound %d for settings update: %v", inboundId, err)
-			continue
+		
+		for inboundId := range affectedInboundIds {
+			inbound, err := inboundService.GetInbound(inboundId)
+			if err != nil {
+				logger.Warningf("Failed to get inbound %d for settings update: %v", inboundId, err)
+				continue
+			}
+			
+			// Get all clients for this inbound (from ClientEntity)
+			clientEntities, err := s.GetClientsForInbound(inboundId)
+			if err != nil {
+				logger.Warningf("Failed to get clients for inbound %d: %v", inboundId, err)
+				continue
+			}
+			
+			// Rebuild Settings from ClientEntity
+			newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
+			if err != nil {
+				logger.Warningf("Failed to build settings for inbound %d: %v", inboundId, err)
+				continue
+			}
+			
+			// Update inbound Settings (this will open its own transaction)
+			// Use retry logic to handle database lock errors
+			inbound.Settings = newSettings
+			_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
+			if err != nil {
+				logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
+				// Continue with other inbounds
+			} else if inboundNeedRestart {
+				needRestart = true
+			}
 		}
 		
-		// Get all clients for this inbound (from ClientEntity)
-		clientEntities, err := s.GetClientsForInbound(inboundId)
-		if err != nil {
-			logger.Warningf("Failed to get clients for inbound %d: %v", inboundId, err)
-			continue
+		// If restart is needed, trigger it asynchronously (non-blocking)
+		if needRestart {
+			xrayService := XrayService{}
+			xrayService.RestartXrayAsync(false)
 		}
-		
-		// Rebuild Settings from ClientEntity
-		newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
-		if err != nil {
-			logger.Warningf("Failed to build settings for inbound %d: %v", inboundId, err)
-			continue
-		}
-		
-		// Update inbound Settings (this will open its own transaction)
-		// Use retry logic to handle database lock errors
-		inbound.Settings = newSettings
-		_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
-		if err != nil {
-			logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-			// Continue with other inbounds
-		} else if inboundNeedRestart {
-			needRestart = true
-		}
-	}
+	}()
 
-	return needRestart, nil
+	// Return immediately - assume restart might be needed (will be handled asynchronously)
+	return true, nil
 }
 
 // DeleteClient deletes a client by ID.

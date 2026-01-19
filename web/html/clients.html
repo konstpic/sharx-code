@@ -41,9 +41,6 @@
                 </a-dropdown>
               </a-space>
             </template>
-            <template #extra>
-              <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
-            </template>
             <a-space direction="vertical">
               <div :style="isMobile ? {} : { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flexWrap: 'wrap', gap: '8px' }">
                 <a-switch v-model="enableFilter"
@@ -183,7 +180,9 @@
                 <a-tag v-else-if="client.hwidEnabled" color="default">
                   0/[[ client.maxHwid || '∞' ]]
                 </a-tag>
-                <span v-else style="color: #999;">-</span>
+                <a-tag v-else color="default" style="opacity: 0.6;">
+                  -
+                </a-tag>
               </template>
               <template slot="expiryTime" slot-scope="text, client">
                 <a-popover v-if="client.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
@@ -1368,6 +1367,17 @@
                 if (updatedClient.hwids !== undefined) existingClient.hwids = updatedClient.hwids;
                 if (updatedClient.hwidEnabled !== undefined) existingClient.hwidEnabled = updatedClient.hwidEnabled;
                 if (updatedClient.maxHwid !== undefined) existingClient.maxHwid = updatedClient.maxHwid;
+                
+                // Update HWIDs in searchedClients as well
+                const searchedClient = this.searchedClients.find(c => 
+                  (c.id && c.id === updatedClient.id) || 
+                  (c.email && c.email.toLowerCase() === (updatedClient.email || '').toLowerCase())
+                );
+                if (searchedClient) {
+                  if (updatedClient.hwids !== undefined) searchedClient.hwids = updatedClient.hwids;
+                  if (updatedClient.hwidEnabled !== undefined) searchedClient.hwidEnabled = updatedClient.hwidEnabled;
+                  if (updatedClient.maxHwid !== undefined) searchedClient.maxHwid = updatedClient.maxHwid;
+                }
               }
             });
             

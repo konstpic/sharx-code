@@ -126,13 +126,18 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 	clientsErr := db.Find(&allClients).Error
 	if clientsErr == nil {
 		if len(allClients) > 0 {
-			// Load inbound assignments for each client (like GetClients does)
+			// Load inbound assignments and HWIDs for each client (like GetClients does)
+			hwidService := service.ClientHWIDService{}
 			for _, client := range allClients {
 				inboundIds, inboundErr := clientService.GetInboundIdsForClient(client.Id)
 				if inboundErr == nil {
 					client.InboundIds = inboundIds
 				}
-				// HWIDs are optional, skip for performance
+				// Load HWIDs for real-time updates
+				hwids, hwidErr := hwidService.GetHWIDsForClient(client.Id)
+				if hwidErr == nil {
+					client.HWIDs = hwids
+				}
 			}
 			logger.Infof("Broadcasting %d clients via WebSocket for real-time updates", len(allClients))
 			websocket.BroadcastClients(allClients)

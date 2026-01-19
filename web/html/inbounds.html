@@ -23,7 +23,7 @@
             <a-col>
               <a-card size="small" :style="{ padding: '16px' }" hoverable>
                 <a-row>
-                  <a-col :sm="12" :md="5">
+                  <a-col v-if="!multiNodeMode" :sm="12" :md="5">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.totalDownUp" }}'
                       :value="`${SizeFormatter.sizeFormat(total.up)} / ${SizeFormatter.sizeFormat(total.down)}`">
                       <template #prefix>
@@ -31,7 +31,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="5">
+                  <a-col v-if="!multiNodeMode" :sm="12" :md="5">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.totalUsage" }}'
                       :value="SizeFormatter.sizeFormat(total.up + total.down)"
                       :style="{ marginTop: isMobile ? '10px' : 0 }">
@@ -40,7 +40,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="5">
+                  <a-col v-if="!multiNodeMode" :sm="12" :md="5">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.allTimeTrafficUsage" }}'
                       :value="SizeFormatter.sizeFormat(total.allTime)" :style="{ marginTop: isMobile ? '10px' : 0 }">
                       <template #prefix>
@@ -56,7 +56,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="4">
+                  <a-col :sm="12" :md="multiNodeMode ? 8 : 4">
                     <a-custom-statistic title='{{ i18n "clients" }}' value=" "
                       :style="{ marginTop: isMobile ? '10px' : 0 }">
                       <template #prefix>
@@ -127,15 +127,14 @@
                     </a-dropdown>
                   </a-space>
                 </template>
-                <template #extra>
-                  <a-button icon="sync" @click="manualRefresh" :loading="refreshing"></a-button>
-                </template>
                 <a-space direction="vertical">
                   <a-table :columns="isMobile ? mobileColumns : tableColumns" :row-key="dbInbound => dbInbound.id"
                     :data-source="dbInbounds" :scroll="isMobile ? {} : { x: 1000 }"
                     :pagination=pagination(dbInbounds) :expand-icon-as-cell="false" :expand-row-by-click="false"
                     :expand-icon-column-index="0" :indent-size="0"
                     :row-class-name="dbInbound => (dbInbound.isMultiUser() ? '' : 'hideExpandIcon')"
+                    :default-sort-order="'ascend'"
+                    :default-sort-column="'id'"
                     :style="{ marginTop: '10px' }"
                     :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}`, emptyText: `{{ i18n "noData" }}` }'>
                     <template slot="action" slot-scope="text, dbInbound">
@@ -544,6 +543,8 @@
     dataIndex: "id",
     width: 30,
     responsive: ["xs"],
+    sorter: (a, b) => a.id - b.id,
+    defaultSortOrder: 'ascend',
   }, {
     title: '{{ i18n "pages.inbounds.operate" }}',
     align: 'center',
@@ -1559,6 +1560,15 @@
           width: 50,
           scopedSlots: { customRender: 'clients' },
         });
+        // Add traffic column in single-node mode
+        if (!this.multiNodeMode) {
+          cols.push({
+            title: '{{ i18n "pages.inbounds.traffic" }}',
+            align: 'left',
+            width: 80,
+            scopedSlots: { customRender: 'traffic' },
+          });
+        }
         return cols;
       },
       total() {
