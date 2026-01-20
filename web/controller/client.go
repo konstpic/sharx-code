@@ -317,10 +317,26 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if enable, ok := updateData["enable"].(bool); ok {
 				client.Enable = enable
 			}
-			if tgID, ok := updateData["tgId"].(float64); ok {
-				client.TgID = int64(tgID)
-			} else if tgID, ok := updateData["tgId"].(int64); ok {
-				client.TgID = tgID
+			// Handle tgId - check if key exists (can be 0, null, or empty string to clear)
+			if tgIDVal, exists := updateData["tgId"]; exists {
+				if tgIDVal == nil {
+					client.TgID = 0
+				} else if tgIDStr, ok := tgIDVal.(string); ok {
+					// Empty string means clear the value
+					if tgIDStr == "" {
+						client.TgID = 0
+					} else {
+						if tgID, err := strconv.ParseInt(tgIDStr, 10, 64); err == nil {
+							client.TgID = tgID
+						}
+					}
+				} else if tgID, ok := tgIDVal.(float64); ok {
+					client.TgID = int64(tgID)
+				} else if tgID, ok := tgIDVal.(int64); ok {
+					client.TgID = tgID
+				} else if tgID, ok := tgIDVal.(int); ok {
+					client.TgID = int64(tgID)
+				}
 			}
 			// Handle subId - check if key exists (can be empty to clear)
 			if subIDVal, exists := updateData["subId"]; exists {
@@ -413,11 +429,15 @@ func (a *ClientController) updateClient(c *gin.Context) {
 		if enableStr != "" {
 			client.Enable = enableStr == "true" || enableStr == "1"
 		}
-		// Handle tgId - can be 0
-		tgIdStr := c.PostForm("tgId")
-		if tgIdStr != "" {
-			if tgId, err := strconv.ParseInt(tgIdStr, 10, 64); err == nil {
-				client.TgID = tgId
+		// Handle tgId - can be 0 or empty (to clear)
+		if tgIdVal, exists := c.GetPostForm("tgId"); exists {
+			if tgIdVal == "" {
+				// Empty string means clear the value
+				client.TgID = 0
+			} else {
+				if tgId, err := strconv.ParseInt(tgIdVal, 10, 64); err == nil {
+					client.TgID = tgId
+				}
 			}
 		}
 		// Handle subId - can be empty to clear

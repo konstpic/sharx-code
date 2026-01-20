@@ -64,6 +64,32 @@ func (s *ClientService) GetClients(userId int) ([]*model.ClientEntity, error) {
 				if err != nil {
 					logger.Warningf("Failed to update status for client %s: %v", client.Email, err)
 				}
+				// Remove expired client from Xray API if it's enabled and just expired
+				if client.Enable && p != nil {
+					inboundService := InboundService{}
+					inboundService.xrayApi.Init(p.GetAPIPort())
+					defer inboundService.xrayApi.Close()
+					
+					// Get all inbound IDs for this client
+					clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
+					if err == nil {
+						for _, inboundId := range clientInboundIds {
+							inbound, err := inboundService.GetInbound(inboundId)
+							if err == nil {
+								err = inboundService.xrayApi.RemoveUser(inbound.Tag, client.Email)
+								if err != nil {
+									if strings.Contains(err.Error(), fmt.Sprintf("User %s not found.", client.Email)) {
+										logger.Debugf("GetClients: client %s already removed from Xray (tag: %s)", client.Email, inbound.Tag)
+									} else {
+										logger.Warningf("GetClients: failed to remove expired client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+									}
+								} else {
+									logger.Infof("GetClients: removed expired client %s from Xray (tag: %s)", client.Email, inbound.Tag)
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -1648,9 +1674,43 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 	// Invalidate cache for this user's clients
 	cache.InvalidateClients(userId)
 
-	// Update Settings for affected inbounds
+	// If disabling clients, remove them from Xray API
 	needRestart := false
 	inboundService := InboundService{}
+	if !enable && p != nil {
+		// Get clients that are being disabled
+		var clientsToDisable []model.ClientEntity
+		err = db.Where("id IN ? AND user_id = ?", clientIds, userId).Find(&clientsToDisable).Error
+		if err == nil {
+			inboundService.xrayApi.Init(p.GetAPIPort())
+			defer inboundService.xrayApi.Close()
+			
+			for _, client := range clientsToDisable {
+				// Get all inbound IDs for this client
+				clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
+				if err == nil {
+					for _, inboundId := range clientInboundIds {
+						inbound, err := inboundService.GetInbound(inboundId)
+						if err == nil {
+							err = inboundService.xrayApi.RemoveUser(inbound.Tag, client.Email)
+							if err != nil {
+								if strings.Contains(err.Error(), fmt.Sprintf("User %s not found.", client.Email)) {
+									logger.Debugf("BulkEnable: client %s already removed from Xray (tag: %s)", client.Email, inbound.Tag)
+								} else {
+									logger.Warningf("BulkEnable: failed to remove client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+									needRestart = true
+								}
+							} else {
+								logger.Infof("BulkEnable: removed disabled client %s from Xray (tag: %s)", client.Email, inbound.Tag)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Update Settings for affected inbounds
 	for inboundId := range affectedInboundIds {
 		inbound, err := inboundService.GetInbound(inboundId)
 		if err != nil {

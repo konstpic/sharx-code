@@ -290,7 +290,7 @@ func (h *Hub) Broadcast(messageType MessageType, payload any) {
 		default:
 			payloadLen = -1
 		}
-		logger.Infof("Broadcasting clients event: %d clients (type %T) to %d WebSocket clients", payloadLen, payload, clientCount)
+		logger.Debugf("Broadcasting clients event: %d clients (type %T) to %d WebSocket clients", payloadLen, payload, clientCount)
 	}
 
 	// Throttle frequent updates (except for critical messages and clients which need real-time updates)

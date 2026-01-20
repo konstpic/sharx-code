@@ -696,7 +696,7 @@ func (s *SubService) genVmessLinkWithClient(inbound *model.Inbound, client *mode
 					newObj[key] = value
 				}
 			}
-			newObj["ps"] = s.genRemark(inbound, client.Email, ep["remark"].(string))
+			newObj["ps"] = s.genRemarkWithClient(inbound, client, ep["remark"].(string))
 			newObj["add"] = ep["dest"].(string)
 			newObj["port"] = int(ep["port"].(float64))
 
@@ -724,7 +724,7 @@ func (s *SubService) genVmessLinkWithClient(inbound *model.Inbound, client *mode
 		if addrPort.Port > 0 {
 			obj["port"] = addrPort.Port
 		}
-		obj["ps"] = s.genRemark(inbound, client.Email, "")
+		obj["ps"] = s.genRemarkWithClient(inbound, client, "")
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -920,7 +920,7 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 			}
 
 			url.RawQuery = q.Encode()
-			url.Fragment = s.genRemark(inbound, client.Email, ep["remark"].(string))
+			url.Fragment = s.genRemarkWithClient(inbound, client, ep["remark"].(string))
 			links = append(links, url.String())
 		}
 		return strings.Join(links, "\n")
@@ -941,7 +941,7 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 		}
 
 		url.RawQuery = q.Encode()
-		url.Fragment = s.genRemark(inbound, client.Email, "")
+		url.Fragment = s.genRemarkWithClient(inbound, client, "")
 		links = append(links, url.String())
 	}
 	
@@ -1339,7 +1339,7 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 			}
 
 			url.RawQuery = q.Encode()
-			url.Fragment = s.genRemark(inbound, client.Email, ep["remark"].(string))
+			url.Fragment = s.genRemarkWithClient(inbound, client, ep["remark"].(string))
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -1364,7 +1364,7 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 		}
 
 		url.RawQuery = q.Encode()
-		url.Fragment = s.genRemark(inbound, client.Email, "")
+		url.Fragment = s.genRemarkWithClient(inbound, client, "")
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -1729,7 +1729,7 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 			}
 
 			url.RawQuery = q.Encode()
-			url.Fragment = s.genRemark(inbound, client.Email, ep["remark"].(string))
+			url.Fragment = s.genRemarkWithClient(inbound, client, ep["remark"].(string))
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -1754,7 +1754,7 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 		}
 
 		url.RawQuery = q.Encode()
-		url.Fragment = s.genRemark(inbound, client.Email, "")
+		url.Fragment = s.genRemarkWithClient(inbound, client, "")
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -2033,6 +2033,87 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 				} else {
 					remark = append(remark, fmt.Sprintf("%dM⏳", minutes))
 				}
+			}
+		}
+	}
+	return strings.Join(remark, separationChar)
+}
+
+// genRemarkWithClient generates remark for ClientEntity, checking Enable and Status
+func (s *SubService) genRemarkWithClient(inbound *model.Inbound, client *model.ClientEntity, extra string) string {
+	separationChar := string(s.remarkModel[0])
+	orderChars := s.remarkModel[1:]
+	orders := map[byte]string{
+		'i': "",
+		'e': "",
+		'o': "",
+	}
+	if len(client.Email) > 0 {
+		orders['e'] = client.Email
+	}
+	if len(inbound.Remark) > 0 {
+		orders['i'] = inbound.Remark
+	}
+	if len(extra) > 0 {
+		orders['o'] = extra
+	}
+
+	var remark []string
+	for i := 0; i < len(orderChars); i++ {
+		char := orderChars[i]
+		order, exists := orders[char]
+		if exists && order != "" {
+			remark = append(remark, order)
+		}
+	}
+
+	// Check if client is disabled or expired - add brick emoji
+	if !client.Enable || client.Status == "expired_traffic" || client.Status == "expired_time" {
+		return fmt.Sprintf("🚫%s%s", separationChar, strings.Join(remark, separationChar))
+	}
+
+	if s.showInfo {
+		// Get remained traffic
+		if client.TotalGB > 0 {
+			totalBytes := int64(client.TotalGB * 1024 * 1024 * 1024)
+			usedBytes := client.Up + client.Down
+			if vol := totalBytes - usedBytes; vol > 0 {
+				remark = append(remark, fmt.Sprintf("%s%s", common.FormatTraffic(vol), "📊"))
+			}
+		}
+		// Get remained days
+		now := time.Now().Unix()
+		switch exp := client.ExpiryTime / 1000; {
+		case exp > 0:
+			remainingSeconds := exp - now
+			days := remainingSeconds / 86400
+			hours := (remainingSeconds % 86400) / 3600
+			minutes := (remainingSeconds % 3600) / 60
+			if days > 0 {
+				if hours > 0 {
+					remark = append(remark, fmt.Sprintf("%dD,%dH⏳", days, hours))
+				} else {
+					remark = append(remark, fmt.Sprintf("%dD⏳", days))
+				}
+			} else if hours > 0 {
+				remark = append(remark, fmt.Sprintf("%dH⏳", hours))
+			} else {
+				remark = append(remark, fmt.Sprintf("%dM⏳", minutes))
+			}
+		case exp < 0:
+			days := exp / -86400
+			hours := (exp % -86400) / 3600
+			minutes := (exp % -3600) / 60
+			if days > 0 {
+				if hours > 0 {
+					remark = append(remark, fmt.Sprintf("%dD,%dH⏳", days, hours))
+				} else {
+					remark = append(remark, fmt.Sprintf("%dD⏳", days))
+				}
+			} else if hours > 0 {
+				remark = append(remark, fmt.Sprintf("%dH⏳", hours))
+			} else {
+				remark = append(remark, fmt.Sprintf("%dM⏳", minutes))
 			}
 		}
 	}

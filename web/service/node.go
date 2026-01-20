@@ -471,7 +471,24 @@ type NodeClientTraffic struct {
 
 // GetNodeStats retrieves traffic and online clients statistics from a node.
 func (s *NodeService) GetNodeStats(node *model.Node, reset bool) (*NodeStatsResponse, error) {
-	client, err := s.createHTTPClient(node, 10*time.Second)
+	// Calculate adaptive timeout based on node's response time history
+	// Use response time * 3 + buffer, but within reasonable bounds
+	timeout := 10 * time.Second // Default timeout
+	if node.ResponseTime > 0 {
+		// Convert response time from milliseconds to duration
+		responseTime := time.Duration(node.ResponseTime) * time.Millisecond
+		// Use 3x response time + 2 second buffer, but at least 5 seconds and at most 30 seconds
+		calculatedTimeout := responseTime*3 + 2*time.Second
+		if calculatedTimeout < 5*time.Second {
+			timeout = 5 * time.Second
+		} else if calculatedTimeout > 30*time.Second {
+			timeout = 30 * time.Second
+		} else {
+			timeout = calculatedTimeout
+		}
+	}
+	
+	client, err := s.createHTTPClient(node, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}

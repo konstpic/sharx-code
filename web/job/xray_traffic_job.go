@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/database"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
@@ -128,6 +129,7 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 		if len(allClients) > 0 {
 			// Load inbound assignments and HWIDs for each client (like GetClients does)
 			hwidService := service.ClientHWIDService{}
+			now := time.Now().Unix() * 1000
 			for _, client := range allClients {
 				inboundIds, inboundErr := clientService.GetInboundIdsForClient(client.Id)
 				if inboundErr == nil {
@@ -138,8 +140,31 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 				if hwidErr == nil {
 					client.HWIDs = hwids
 				}
+				
+				// Check and update status if expired (same logic as GetClients)
+				totalUsed := client.Up + client.Down
+				trafficLimit := int64(client.TotalGB * 1024 * 1024 * 1024)
+				trafficExceeded := client.TotalGB > 0 && totalUsed >= trafficLimit
+				timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= now
+				
+				if trafficExceeded || timeExpired {
+					status := "expired_traffic"
+					if timeExpired {
+						status = "expired_time"
+					}
+					// Update status if changed (for real-time WebSocket updates)
+					if client.Status != status {
+						client.Status = status
+						// Update in DB asynchronously (don't block WebSocket broadcast)
+						go func(c *model.ClientEntity, s string) {
+							if err := db.Model(&model.ClientEntity{}).Where("id = ?", c.Id).Update("status", s).Error; err != nil {
+								logger.Warningf("Failed to update status for client %s: %v", c.Email, err)
+							}
+						}(client, status)
+					}
+				}
 			}
-			logger.Infof("Broadcasting %d clients via WebSocket for real-time updates", len(allClients))
+			logger.Debugf("Broadcasting %d clients via WebSocket for real-time updates", len(allClients))
 			websocket.BroadcastClients(allClients)
 		} else {
 			logger.Debugf("No clients found to broadcast (empty database)")

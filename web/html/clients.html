@@ -135,7 +135,14 @@
                 <a-switch v-model="client.enable" @change="switchEnable(client.id, client.enable)"></a-switch>
               </template>
               <template slot="status" slot-scope="text, client">
-                <a-tag v-if="isClientOnline(client.email)" color="green">{{ i18n "online" }}</a-tag>
+                <!-- Use client properties directly from WebSocket (like traffic uses client.up/down) -->
+                <!-- Check if client is online: must be enabled, not expired, and traffic is active (changed within last 5 seconds) -->
+                <a-tag v-if="client.enable && 
+                             client.status !== 'expired_time' && 
+                             client.status !== 'expired_traffic' && 
+                             (!client.expiryTime || client.expiryTime > Date.now()) && 
+                             isClientTrafficActive(client)" 
+                       color="green">{{ i18n "online" }}</a-tag>
                 <a-tag v-else class="offline-tag">{{ i18n "offline" }}</a-tag>
               </template>
               <template slot="traffic" slot-scope="text, client">
@@ -143,12 +150,8 @@
                   <template slot="content">
                     <table cellpadding="2" width="100%">
                       <tr>
-                        <td>↓[[ SizeFormatter.sizeFormat(client.up || 0) ]]</td>
-                        <td>↑[[ SizeFormatter.sizeFormat(client.down || 0) ]]</td>
-                      </tr>
-                      <tr v-if="getClientTotal(client) > 0 && (client.up || 0) + (client.down || 0) < getClientTotal(client)">
-                        <td>{{ i18n "remained" }}</td>
-                        <td>[[ SizeFormatter.sizeFormat(getClientTotal(client) - (client.up || 0) - (client.down || 0)) ]]</td>
+                        <td>↓[[ SizeFormatter.sizeFormat(getClientSpeed(client, 'down')) ]]/s</td>
+                        <td>↑[[ SizeFormatter.sizeFormat(getClientSpeed(client, 'up')) ]]/s</td>
                       </tr>
                     </table>
                   </template>
@@ -185,12 +188,14 @@
                 </a-tag>
               </template>
               <template slot="expiryTime" slot-scope="text, client">
+                <!-- Use client.expiryTime directly from WebSocket (like traffic uses client.up/down) -->
+                <!-- Also check client.status to show expired state in real-time -->
                 <a-popover v-if="client.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
                   <template slot="content">
                     [[ IntlUtil.formatDate(client.expiryTime) ]]
                   </template>
                   <a-tag :style="{ minWidth: '50px' }"
-                    :color="ColorUtils.usageColor(new Date().getTime(), 0, client.expiryTime)">
+                    :color="(client.status === 'expired_time' || client.expiryTime <= Date.now()) ? 'red' : ColorUtils.usageColor(new Date().getTime(), 0, client.expiryTime)">
                     [[ IntlUtil.formatRelativeTime(client.expiryTime) ]]
                   </a-tag>
                 </a-popover>
@@ -402,6 +407,8 @@
           const msg = await HttpUtil.get('/panel/client/list');
           if (msg && msg.success && msg.obj) {
             this.clients = msg.obj;
+            // Don't initialize lastTrafficUpdate here - it should only be set when traffic actually changes
+            // This ensures that clients with old traffic (up/down > 0 but no recent changes) are shown as offline
             // Load inbounds for each client
             await this.loadInboundsForClients();
             // Apply current filter/search
@@ -438,6 +445,46 @@
       },
       isClientOnline(email) {
         return this.onlineClients.includes(email);
+      },
+      isClientTrafficActive(client) {
+        // Check if client has active traffic based on speed only (no delay - real-time)
+        // IMPORTANT: We check for actual traffic speed, not just presence of traffic values
+        if (!client) return false;
+        
+        // Check if speed is active (speed > 0 and recently updated)
+        const upSpeed = client._upSpeed || 0;
+        const downSpeed = client._downSpeed || 0;
+        const hasActiveSpeed = (upSpeed > 0 || downSpeed > 0);
+        
+        if (hasActiveSpeed) {
+          // Check if speed was updated recently (within last 2 seconds for real-time)
+          const now = Date.now();
+          if (client._speedUpdateTime && (now - client._speedUpdateTime) < 2000) {
+            return true;
+          }
+        }
+        
+        // If no active speed, client is offline
+        return false;
+      },
+      getClientSpeed(client, type) {
+        // Return current speed (bytes per second) - always return speed if available, no online check
+        // Speed is calculated from traffic changes over time
+        if (!client) return 0;
+        
+        // Check if speed is still valid (updated within last 2 seconds for real-time)
+        const now = Date.now();
+        if (client._speedUpdateTime && (now - client._speedUpdateTime) > 2000) {
+          return 0;
+        }
+        
+        if (type === 'up') {
+          return client._upSpeed || 0;
+        } else if (type === 'down') {
+          return client._downSpeed || 0;
+        }
+        
+        return (client._upSpeed || 0) + (client._downSpeed || 0);
       },
       getLastOnline(email) {
         return this.lastOnlineMap[email] || null
@@ -1358,25 +1405,157 @@
               
               if (existingClient) {
                 // Update traffic in real-time from ClientEntity (EXACT same as nodes page)
-                // Direct property assignment - Vue will detect changes (same as nodes page)
-                existingClient.up = updatedClient.up !== undefined ? updatedClient.up : existingClient.up;
-                existingClient.down = updatedClient.down !== undefined ? updatedClient.down : existingClient.down;
-                existingClient.allTime = updatedClient.allTime !== undefined ? updatedClient.allTime : existingClient.allTime;
-                if (updatedClient.lastOnline !== undefined) existingClient.lastOnline = updatedClient.lastOnline;
-                if (updatedClient.status !== undefined) existingClient.status = updatedClient.status;
-                if (updatedClient.hwids !== undefined) existingClient.hwids = updatedClient.hwids;
-                if (updatedClient.hwidEnabled !== undefined) existingClient.hwidEnabled = updatedClient.hwidEnabled;
-                if (updatedClient.maxHwid !== undefined) existingClient.maxHwid = updatedClient.maxHwid;
+                // Use Vue.set to ensure reactivity for nested properties
+                // Track traffic changes to determine online status and calculate speed
+                // IMPORTANT: Only update lastTrafficUpdate when traffic VALUES actually change
+                const oldUp = existingClient.up || 0;
+                const oldDown = existingClient.down || 0;
+                const now = Date.now();
+                let trafficChanged = false;
                 
-                // Update HWIDs in searchedClients as well
+                // Store previous values and timestamp for speed calculation
+                const prevUp = existingClient._prevUp || oldUp;
+                const prevDown = existingClient._prevDown || oldDown;
+                const prevTime = existingClient._prevTrafficTime || now;
+                
+                // Check if up changed (strict comparison to detect actual changes)
+                if (updatedClient.up !== undefined) {
+                  const newUp = updatedClient.up || 0;
+                  if (newUp !== oldUp) {
+                    this.$set(existingClient, 'up', newUp);
+                    // Store previous values for speed calculation
+                    this.$set(existingClient, '_prevUp', oldUp);
+                    this.$set(existingClient, '_prevDown', oldDown);
+                    this.$set(existingClient, '_prevTrafficTime', prevTime);
+                    trafficChanged = true;
+                  }
+                }
+                
+                // Check if down changed (strict comparison to detect actual changes)
+                if (updatedClient.down !== undefined) {
+                  const newDown = updatedClient.down || 0;
+                  if (newDown !== oldDown) {
+                    this.$set(existingClient, 'down', newDown);
+                    // Store previous values for speed calculation
+                    this.$set(existingClient, '_prevUp', oldUp);
+                    this.$set(existingClient, '_prevDown', oldDown);
+                    this.$set(existingClient, '_prevTrafficTime', prevTime);
+                    trafficChanged = true;
+                  }
+                }
+                
+                // Calculate speed (bytes per second) when traffic changes
+                if (trafficChanged) {
+                  const timeDiff = (now - prevTime) / 1000; // seconds
+                  if (timeDiff > 0 && timeDiff < 60) { // Only calculate if time diff is reasonable (less than 60 seconds)
+                    // Get new values (already updated in existingClient)
+                    const newUp = existingClient.up || 0;
+                    const newDown = existingClient.down || 0;
+                    const upSpeed = (newUp - prevUp) / timeDiff;
+                    const downSpeed = (newDown - prevDown) / timeDiff;
+                    this.$set(existingClient, '_upSpeed', Math.max(0, upSpeed)); // Ensure non-negative
+                    this.$set(existingClient, '_downSpeed', Math.max(0, downSpeed)); // Ensure non-negative
+                    this.$set(existingClient, '_speedUpdateTime', now);
+                  }
+                  // Update previous values for next calculation
+                  this.$set(existingClient, '_prevUp', existingClient.up || 0);
+                  this.$set(existingClient, '_prevDown', existingClient.down || 0);
+                  this.$set(existingClient, '_prevTrafficTime', now);
+                  this.$set(existingClient, 'lastTrafficUpdate', now);
+                } else {
+                  // If traffic didn't change, check if we should reset speed to 0
+                  // Reset speed if no traffic change for more than 2 seconds (real-time)
+                  if (existingClient._speedUpdateTime && (now - existingClient._speedUpdateTime) > 2000) {
+                    this.$set(existingClient, '_upSpeed', 0);
+                    this.$set(existingClient, '_downSpeed', 0);
+                  }
+                }
+                
+                if (updatedClient.allTime !== undefined) this.$set(existingClient, 'allTime', updatedClient.allTime);
+                if (updatedClient.lastOnline !== undefined) this.$set(existingClient, 'lastOnline', updatedClient.lastOnline);
+                if (updatedClient.status !== undefined) this.$set(existingClient, 'status', updatedClient.status);
+                if (updatedClient.expiryTime !== undefined) {
+                  this.$set(existingClient, 'expiryTime', updatedClient.expiryTime);
+                  // Update _expiryTime for date picker if expiryTime changed
+                  this.$set(existingClient, '_expiryTime', updatedClient.expiryTime > 0 ? (moment ? moment(updatedClient.expiryTime) : new Date(updatedClient.expiryTime)) : null);
+                }
+                if (updatedClient.hwids !== undefined) this.$set(existingClient, 'hwids', updatedClient.hwids);
+                if (updatedClient.hwidEnabled !== undefined) this.$set(existingClient, 'hwidEnabled', updatedClient.hwidEnabled);
+                if (updatedClient.maxHwid !== undefined) this.$set(existingClient, 'maxHwid', updatedClient.maxHwid);
+                
+                // Update HWIDs in searchedClients as well (use $set for reactivity, same as traffic)
                 const searchedClient = this.searchedClients.find(c => 
                   (c.id && c.id === updatedClient.id) || 
                   (c.email && c.email.toLowerCase() === (updatedClient.email || '').toLowerCase())
                 );
                 if (searchedClient) {
-                  if (updatedClient.hwids !== undefined) searchedClient.hwids = updatedClient.hwids;
-                  if (updatedClient.hwidEnabled !== undefined) searchedClient.hwidEnabled = updatedClient.hwidEnabled;
-                  if (updatedClient.maxHwid !== undefined) searchedClient.maxHwid = updatedClient.maxHwid;
+                  // Use Vue.set to ensure reactivity (same as traffic updates)
+                  // Track traffic changes to determine online status and calculate speed
+                  // IMPORTANT: Only update lastTrafficUpdate when traffic VALUES actually change
+                  const oldUp = searchedClient.up || 0;
+                  const oldDown = searchedClient.down || 0;
+                  const now = Date.now();
+                  let trafficChanged = false;
+                  
+                  // Store previous values and timestamp for speed calculation
+                  const prevUp = searchedClient._prevUp || oldUp;
+                  const prevDown = searchedClient._prevDown || oldDown;
+                  const prevTime = searchedClient._prevTrafficTime || now;
+                  
+                  // Check if up changed (strict comparison to detect actual changes)
+                  if (updatedClient.up !== undefined) {
+                    const newUp = updatedClient.up || 0;
+                    if (newUp !== oldUp) {
+                      this.$set(searchedClient, 'up', newUp);
+                      trafficChanged = true;
+                    }
+                  }
+                  
+                  // Check if down changed (strict comparison to detect actual changes)
+                  if (updatedClient.down !== undefined) {
+                    const newDown = updatedClient.down || 0;
+                    if (newDown !== oldDown) {
+                      this.$set(searchedClient, 'down', newDown);
+                      trafficChanged = true;
+                    }
+                  }
+                  
+                  // Calculate speed (bytes per second) when traffic changes
+                  if (trafficChanged) {
+                    const timeDiff = (now - prevTime) / 1000; // seconds
+                    if (timeDiff > 0 && timeDiff < 60) { // Only calculate if time diff is reasonable (less than 60 seconds)
+                      const newUp = updatedClient.up !== undefined ? (updatedClient.up || 0) : oldUp;
+                      const newDown = updatedClient.down !== undefined ? (updatedClient.down || 0) : oldDown;
+                      const upSpeed = (newUp - prevUp) / timeDiff;
+                      const downSpeed = (newDown - prevDown) / timeDiff;
+                      this.$set(searchedClient, '_upSpeed', Math.max(0, upSpeed)); // Ensure non-negative
+                      this.$set(searchedClient, '_downSpeed', Math.max(0, downSpeed)); // Ensure non-negative
+                      this.$set(searchedClient, '_speedUpdateTime', now);
+                    }
+                    // Update previous values for next calculation
+                    this.$set(searchedClient, '_prevUp', oldUp);
+                    this.$set(searchedClient, '_prevDown', oldDown);
+                    this.$set(searchedClient, '_prevTrafficTime', now);
+                    this.$set(searchedClient, 'lastTrafficUpdate', now);
+                  } else {
+                    // If traffic didn't change, check if we should reset speed to 0
+                    // Reset speed if no traffic change for more than 2 seconds (real-time)
+                    if (searchedClient._speedUpdateTime && (now - searchedClient._speedUpdateTime) > 2000) {
+                      this.$set(searchedClient, '_upSpeed', 0);
+                      this.$set(searchedClient, '_downSpeed', 0);
+                    }
+                  }
+                  
+                  if (updatedClient.allTime !== undefined) this.$set(searchedClient, 'allTime', updatedClient.allTime);
+                  if (updatedClient.lastOnline !== undefined) this.$set(searchedClient, 'lastOnline', updatedClient.lastOnline);
+                  if (updatedClient.status !== undefined) this.$set(searchedClient, 'status', updatedClient.status);
+                  if (updatedClient.expiryTime !== undefined) {
+                    this.$set(searchedClient, 'expiryTime', updatedClient.expiryTime);
+                    this.$set(searchedClient, '_expiryTime', updatedClient.expiryTime > 0 ? (moment ? moment(updatedClient.expiryTime) : new Date(updatedClient.expiryTime)) : null);
+                  }
+                  if (updatedClient.hwids !== undefined) this.$set(searchedClient, 'hwids', updatedClient.hwids);
+                  if (updatedClient.hwidEnabled !== undefined) this.$set(searchedClient, 'hwidEnabled', updatedClient.hwidEnabled);
+                  if (updatedClient.maxHwid !== undefined) this.$set(searchedClient, 'maxHwid', updatedClient.maxHwid);
                 }
               }
             });
@@ -1392,11 +1571,17 @@
                 );
                 if (searchedClient) {
                   // Update the same object reference (EXACT same as nodes page)
-                  searchedClient.up = updatedClient.up !== undefined ? updatedClient.up : searchedClient.up;
-                  searchedClient.down = updatedClient.down !== undefined ? updatedClient.down : searchedClient.down;
-                  searchedClient.allTime = updatedClient.allTime !== undefined ? updatedClient.allTime : searchedClient.allTime;
-                  if (updatedClient.lastOnline !== undefined) searchedClient.lastOnline = updatedClient.lastOnline;
-                  if (updatedClient.status !== undefined) searchedClient.status = updatedClient.status;
+                  // Use Vue.set to ensure reactivity for nested properties
+                  if (updatedClient.up !== undefined) this.$set(searchedClient, 'up', updatedClient.up);
+                  if (updatedClient.down !== undefined) this.$set(searchedClient, 'down', updatedClient.down);
+                  if (updatedClient.allTime !== undefined) this.$set(searchedClient, 'allTime', updatedClient.allTime);
+                  if (updatedClient.lastOnline !== undefined) this.$set(searchedClient, 'lastOnline', updatedClient.lastOnline);
+                  if (updatedClient.status !== undefined) this.$set(searchedClient, 'status', updatedClient.status);
+                  if (updatedClient.expiryTime !== undefined) {
+                    this.$set(searchedClient, 'expiryTime', updatedClient.expiryTime);
+                    // Update _expiryTime for date picker if expiryTime changed
+                    this.$set(searchedClient, '_expiryTime', updatedClient.expiryTime > 0 ? (moment ? moment(updatedClient.expiryTime) : new Date(updatedClient.expiryTime)) : null);
+                  }
                 }
               });
             }
@@ -1407,12 +1592,15 @@
         window.wsClient.on('traffic', (payload) => {
           // Update online clients list in real-time
           if (payload && Array.isArray(payload.onlineClients)) {
-            this.onlineClients = payload.onlineClients;
+            // Use Vue.set to ensure reactivity
+            this.$set(this, 'onlineClients', payload.onlineClients);
           }
           
           // Update last online map in real-time
           if (payload && payload.lastOnlineMap && typeof payload.lastOnlineMap === 'object') {
-            this.lastOnlineMap = { ...this.lastOnlineMap, ...payload.lastOnlineMap };
+            // Merge with existing map and use Vue.set for reactivity
+            const newLastOnlineMap = { ...this.lastOnlineMap, ...payload.lastOnlineMap };
+            this.$set(this, 'lastOnlineMap', newLastOnlineMap);
           }
         });
       }
