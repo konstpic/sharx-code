@@ -259,11 +259,24 @@
   [data-glass-morphism] .clients-table .ant-table-tbody > tr.ant-table-row-selected > td * {
     color: inherit !important;
   }
+  .clients-page.dark .ant-table,
+.clients-page.dark .ant-table-content,
+.clients-page.dark .ant-table-body,
+.clients-page.dark .ant-table-header,
+.clients-page.dark .ant-table-scroll,
+.clients-page.dark .ant-table-container {
+  outline-color: var(--dark-color-table-ring) !important;
+  background-color: transparent !important;
+}
+  .ant-tag {
+  min-height: 22px;
+}
+
 </style>
 <script>
   const columns = [{
     title: "ID",
-    align: 'right',
+    align: 'center',
     dataIndex: "id",
     width: 50,
     sorter: (a, b) => a.id - b.id,
@@ -275,7 +288,7 @@
     scopedSlots: { customRender: 'action' },
   }, {
     title: '{{ i18n "pages.clients.group" }}',
-    align: 'left',
+    align: 'center',
     width: 150,
     scopedSlots: { customRender: 'group' },
   }, {
@@ -287,7 +300,7 @@
     scopedSlots: { customRender: 'email' },
   }, {
     title: '{{ i18n "pages.clients.inbounds" }}',
-    align: 'left',
+    align: 'center',
     width: 250,
     sorter: (a, b) => (a.inbounds?.length || 0) - (b.inbounds?.length || 0),
     scopedSlots: { customRender: 'inbounds' },
@@ -299,7 +312,7 @@
     scopedSlots: { customRender: 'status' },
   }, {
     title: '{{ i18n "pages.clients.traffic" }}',
-    align: 'left',
+    align: 'center',
     width: 150,
     sorter: (a, b) => ((a.up || 0) + (a.down || 0)) - ((b.up || 0) + (b.down || 0)),
     scopedSlots: { customRender: 'traffic' },
@@ -311,13 +324,13 @@
     scopedSlots: { customRender: 'hwid' },
   }, {
     title: '{{ i18n "pages.clients.expiryTime" }}',
-    align: 'left',
+    align: 'center',
     width: 120,
     sorter: (a, b) => (a.expiryTime || 0) - (b.expiryTime || 0),
     scopedSlots: { customRender: 'expiryTime' },
   }, {
     title: '{{ i18n "pages.clients.comment" }}',
-    align: 'left',
+    align: 'center',
     width: 150,
     dataIndex: "comment",
     sorter: (a, b) => (a.comment || '').localeCompare(b.comment || ''),
