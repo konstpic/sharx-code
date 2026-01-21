@@ -130,6 +130,9 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 			// Load inbound assignments and HWIDs for each client (like GetClients does)
 			hwidService := service.ClientHWIDService{}
 			now := time.Now().Unix() * 1000
+			// Collect clients that need to be disabled (for API removal)
+			clientsToDisable := make(map[string]string) // map[email]tag
+			
 			for _, client := range allClients {
 				inboundIds, inboundErr := clientService.GetInboundIdsForClient(client.Id)
 				if inboundErr == nil {
@@ -155,15 +158,34 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 					// Update status if changed (for real-time WebSocket updates)
 					if client.Status != status {
 						client.Status = status
-						// Update in DB asynchronously (don't block WebSocket broadcast)
-						go func(c *model.ClientEntity, s string) {
-							if err := db.Model(&model.ClientEntity{}).Where("id = ?", c.Id).Update("status", s).Error; err != nil {
-								logger.Warningf("Failed to update status for client %s: %v", c.Email, err)
+						// Update in DB
+						if err := db.Model(&model.ClientEntity{}).Where("id = ?", client.Id).Update("status", status).Error; err != nil {
+							logger.Warningf("Failed to update status for client %s: %v", client.Email, err)
+						}
+						
+						// Collect client for API removal if enabled
+						if client.Enable && len(inboundIds) > 0 {
+							// Get tag from first inbound
+							var inbound model.Inbound
+							if err := db.Where("id = ?", inboundIds[0]).First(&inbound).Error; err == nil {
+								clientsToDisable[client.Email] = inbound.Tag
 							}
-						}(client, status)
+						}
 					}
 				}
 			}
+			
+			// Remove expired clients from Xray API (both local and nodes) asynchronously
+			if len(clientsToDisable) > 0 {
+				go func() {
+					inboundService := service.InboundService{}
+					_, err := clientService.DisableClientsByEmail(clientsToDisable, &inboundService)
+					if err != nil {
+						logger.Warningf("XrayTrafficJob: failed to disable expired clients via API: %v", err)
+					}
+				}()
+			}
+			
 			logger.Debugf("Broadcasting %d clients via WebSocket for real-time updates", len(allClients))
 			websocket.BroadcastClients(allClients)
 		} else {

@@ -60,6 +60,11 @@ func (x *XrayAPI) Init(apiPort int) error {
 	return nil
 }
 
+// IsConnected checks if the gRPC connection is still active.
+func (x *XrayAPI) IsConnected() bool {
+	return x.isConnected && x.grpcClient != nil
+}
+
 // Close closes the gRPC connection and resets the XrayAPI client state.
 func (x *XrayAPI) Close() {
 	if x.grpcClient != nil {

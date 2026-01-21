@@ -28,6 +28,23 @@ type InboundService struct {
 	xrayApi xray.XrayAPI
 }
 
+// getXrayAPI gets or creates a cached XrayAPI connection using the connection pool.
+// This reuses connections to avoid overhead. The connection is automatically managed by the pool.
+func (s *InboundService) getXrayAPI(apiPort int) (*xray.XrayAPI, error) {
+	if apiPort <= 0 {
+		return nil, fmt.Errorf("invalid API port: %d", apiPort)
+	}
+
+	xrayService := XrayService{}
+	api, cleanup, err := xrayService.GetOrCreateAPI(apiPort)
+	if err != nil {
+		return nil, err
+	}
+	// Note: cleanup is a no-op, connection stays in pool
+	_ = cleanup
+	return api, nil
+}
+
 // inboundUpdateMutexes provides per-inbound mutexes to prevent concurrent updates
 var inboundUpdateMutexes = make(map[int]*sync.Mutex)
 var inboundMutexLock sync.Mutex
@@ -467,22 +484,27 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	needRestart := false
 	if inbound.Enable {
 		if p != nil {
-			s.xrayApi.Init(p.GetAPIPort())
-			inboundJson, err1 := json.MarshalIndent(inbound.GenXrayInboundConfig(), "", "  ")
-			if err1 != nil {
-				logger.Debug("Unable to marshal inbound config:", err1)
-			}
-
-			err1 = s.xrayApi.AddInbound(inboundJson)
-			if err1 == nil {
-				logger.Debug("New inbound added by api:", inbound.Tag)
+			apiPort := p.GetAPIPort()
+			api, err := s.getXrayAPI(apiPort)
+			if err == nil {
+				inboundJson, err1 := json.MarshalIndent(inbound.GenXrayInboundConfig(), "", "  ")
+				if err1 != nil {
+					logger.Debug("Unable to marshal inbound config:", err1)
+				} else {
+					err1 = api.AddInbound(inboundJson)
+					if err1 == nil {
+						logger.Debug("New inbound added by api:", inbound.Tag)
+					} else {
+						logger.Debug("Unable to add inbound by api:", err1)
+						needRestart = true
+					}
+				}
 			} else {
-				logger.Debug("Unable to add inbound by api:", err1)
+				logger.Debug("Failed to get XrayAPI connection:", err)
 				needRestart = true
 			}
-			s.xrayApi.Close()
 		} else {
-			logger.Infof("[DEBUG-AGENT] AddInbound service: Xray process is nil, skipping live Xray API add; inbound will be applied on next restart")
+			logger.Debugf("[DEBUG-AGENT] AddInbound service: Xray process is nil, skipping live Xray API add; inbound will be applied on next restart")
 		}
 	}
 
@@ -494,13 +516,13 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 // Returns whether Xray needs restart and any error.
 func (s *InboundService) DelInbound(id int) (bool, error) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: START, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: START, inboundId=%d", id)
 	// #endregion
 	
 	db := database.GetDB()
 	if db == nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR db is nil, inboundId=%d", id)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR db is nil, inboundId=%d", id)
 		// #endregion
 		return false, fmt.Errorf("database connection is nil")
 	}
@@ -510,36 +532,66 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 	result := db.Model(model.Inbound{}).Select("tag").Where("id = ? and enable = ?", id, true).First(&tag)
 	if result.Error == nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: Xray API delete, inboundId=%d, tag=%s", id, tag)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: Xray API delete, inboundId=%d, tag=%s", id, tag)
 		// #endregion
-		if p != nil {
-			s.xrayApi.Init(p.GetAPIPort())
-			err1 := s.xrayApi.DelInbound(tag)
-			if err1 == nil {
-				logger.Debug("Inbound deleted by api:", tag)
+		
+		// Check multi-node mode
+		settingService := SettingService{}
+		multiMode, _ := settingService.GetMultiNodeMode()
+		
+		if multiMode {
+			// Multi-node mode: remove from all nodes assigned to this inbound
+			nodeService := NodeService{}
+			nodes, err := nodeService.GetNodesForInbound(id)
+			if err == nil && len(nodes) > 0 {
+				// Remove inbound from all nodes via API (async, non-blocking)
+				for _, node := range nodes {
+					go func(n *model.Node) {
+						if err := nodeService.RemoveInboundFromNode(n, tag); err != nil {
+							logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, err)
+						} else {
+							logger.Infof("DelInbound: removed inbound %s from node %s via API (instant)", tag, n.Name)
+						}
+					}(node)
+				}
+				logger.Debugf("DelInbound: using fast API delete for inbound %s on %d node(s)", tag, len(nodes))
 			} else {
-				logger.Debug("Unable to delete inbound by api:", err1)
+				logger.Debugf("DelInbound: no nodes found for inbound %d, skipping API delete", id)
+			}
+		} else if p != nil {
+			// Single mode: remove from local Xray via API
+			apiPort := p.GetAPIPort()
+			api, err := s.getXrayAPI(apiPort)
+			if err == nil {
+				err1 := api.DelInbound(tag)
+				if err1 == nil {
+					logger.Debug("Inbound deleted by api:", tag)
+				} else {
+					logger.Debug("Unable to delete inbound by api:", err1)
+					needRestart = true
+				}
+			} else {
+				logger.Debug("Failed to get XrayAPI connection:", err)
 				needRestart = true
 			}
-			s.xrayApi.Close()
 		} else {
-			logger.Infof("[DEBUG-AGENT] DelInbound: Xray process is nil, skipping live Xray API delete; inbound removal will apply on next restart, inboundId=%d", id)
+			logger.Debugf("[DEBUG-AGENT] DelInbound: Xray process is nil, skipping live Xray API delete; inbound removal will apply on next restart, inboundId=%d", id)
 		}
 	} else {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: inbound not enabled or not found, inboundId=%d, error=%v", id, result.Error)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: inbound not enabled or not found, inboundId=%d, error=%v", id, result.Error)
 		// #endregion
 		logger.Debug("No enabled inbound founded to removing by api", tag)
 	}
 
 	// Get inbound data FIRST before deleting anything (needed for userId and clients)
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: getting inbound, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: getting inbound, inboundId=%d", id)
 	// #endregion
 	inbound, err := s.GetInbound(id)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR getting inbound, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR getting inbound, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
@@ -547,92 +599,92 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 	
 	// Delete client traffics of inbounds
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client_traffics, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: deleting client_traffics, inboundId=%d", id)
 	// #endregion
 	err = db.Where("inbound_id = ?", id).Delete(xray.ClientTraffic{}).Error
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client_traffics, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR deleting client_traffics, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
 	
 	// Delete node mappings for this inbound (cascade delete)
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: deleting inbound_node_mappings, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: deleting inbound_node_mappings, inboundId=%d", id)
 	// #endregion
 	err = db.Where("inbound_id = ?", id).Delete(&model.InboundNodeMapping{}).Error
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting inbound_node_mappings, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR deleting inbound_node_mappings, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
 	
 	// Delete client_inbound_mappings for this inbound
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client_inbound_mappings, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: deleting client_inbound_mappings, inboundId=%d", id)
 	// #endregion
 	err = db.Where("inbound_id = ?", id).Delete(&model.ClientInboundMapping{}).Error
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client_inbound_mappings, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR deleting client_inbound_mappings, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
 	
 	// Delete host_inbound_mappings for this inbound
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: deleting host_inbound_mappings, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: deleting host_inbound_mappings, inboundId=%d", id)
 	// #endregion
 	err = db.Where("inbound_id = ?", id).Delete(&model.HostInboundMapping{}).Error
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting host_inbound_mappings, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR deleting host_inbound_mappings, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: getting clients, inboundId=%d, userId=%d", id, userId)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: getting clients, inboundId=%d, userId=%d", id, userId)
 	// #endregion
 	clients, err := s.GetClients(inbound)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: ERROR getting clients, inboundId=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR getting clients, inboundId=%d, error=%v", id, err)
 		// #endregion
 		return false, err
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: deleting client IPs, inboundId=%d, clientsCount=%d", id, len(clients))
+	logger.Debugf("[DEBUG-AGENT] DelInbound: deleting client IPs, inboundId=%d, clientsCount=%d", id, len(clients))
 	// #endregion
 	for _, client := range clients {
 		err := s.DelClientIPs(db, client.Email)
 		if err != nil {
 			// #region agent log
-			logger.Infof("[DEBUG-AGENT] DelInbound: ERROR deleting client IPs, inboundId=%d, email=%s, error=%v", id, client.Email, err)
+			logger.Debugf("[DEBUG-AGENT] DelInbound: ERROR deleting client IPs, inboundId=%d, email=%s, error=%v", id, client.Email, err)
 			// #endregion
 			return false, err
 		}
 	}
 
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: before Delete, inboundId=%d, userId=%d", id, userId)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: before Delete, inboundId=%d, userId=%d", id, userId)
 	// #endregion
 	
 	err = db.Delete(model.Inbound{}, id).Error
 	
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] DelInbound: after Delete, inboundId=%d, error=%v, rowsAffected=%d", id, err, db.RowsAffected)
+	logger.Debugf("[DEBUG-AGENT] DelInbound: after Delete, inboundId=%d, error=%v, rowsAffected=%d", id, err, db.RowsAffected)
 	// #endregion
 	
 	if err == nil && userId > 0 {
 		// Invalidate cache for this user's inbounds
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: before cache invalidation, userId=%d", userId)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: before cache invalidation, userId=%d", userId)
 		// #endregion
 		cacheErr := cache.InvalidateInbounds(userId)
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] DelInbound: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
+		logger.Debugf("[DEBUG-AGENT] DelInbound: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
 		// #endregion
 	}
 	return needRestart, err
@@ -640,12 +692,12 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 
 func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] GetInbound: START, inboundId=%d", id)
+	logger.Debugf("[DEBUG-AGENT] GetInbound: START, inboundId=%d", id)
 	// #endregion
 	db := database.GetDB()
 	if db == nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] GetInbound: ERROR db is nil, inboundId=%d", id)
+		logger.Debugf("[DEBUG-AGENT] GetInbound: ERROR db is nil, inboundId=%d", id)
 		// #endregion
 		return nil, fmt.Errorf("database connection is nil")
 	}
@@ -653,12 +705,12 @@ func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 	err := db.Model(model.Inbound{}).First(inbound, id).Error
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] GetInbound: ERROR, inboundId=%d, error=%v, errorType=%T", id, err, err)
+		logger.Debugf("[DEBUG-AGENT] GetInbound: ERROR, inboundId=%d, error=%v, errorType=%T", id, err, err)
 		// #endregion
 		return nil, err
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] GetInbound: SUCCESS, inboundId=%d, userId=%d", id, inbound.UserId)
+	logger.Debugf("[DEBUG-AGENT] GetInbound: SUCCESS, inboundId=%d, userId=%d", id, inbound.UserId)
 	// #endregion
 	
 	// Enrich with node assignments
@@ -685,19 +737,19 @@ func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 // Returns the updated inbound, whether Xray needs restart, and any error.
 func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] UpdateInbound service: START, inboundId=%d, listen=%s, port=%d, protocol=%s", inbound.Id, inbound.Listen, inbound.Port, inbound.Protocol)
+	logger.Debugf("[DEBUG-AGENT] UpdateInbound service: START, inboundId=%d, listen=%s, port=%d, protocol=%s", inbound.Id, inbound.Listen, inbound.Port, inbound.Protocol)
 	// #endregion
 
 	exist, err := s.checkPortExist(inbound.Listen, inbound.Port, inbound.Id)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: checkPortExist error, inboundId=%d, error=%v", inbound.Id, err)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: checkPortExist error, inboundId=%d, error=%v", inbound.Id, err)
 		// #endregion
 		return inbound, false, err
 	}
 	if exist {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: port already exists, inboundId=%d, port=%d", inbound.Id, inbound.Port)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: port already exists, inboundId=%d, port=%d", inbound.Id, inbound.Port)
 		// #endregion
 		return inbound, false, common.NewError("Port already exists:", inbound.Port)
 	}
@@ -705,7 +757,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound, err := s.GetInbound(inbound.Id)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: GetInbound error, inboundId=%d, error=%v", inbound.Id, err)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: GetInbound error, inboundId=%d, error=%v", inbound.Id, err)
 		// #endregion
 		return inbound, false, err
 	}
@@ -798,44 +850,93 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 
 	needRestart := false
 
-	// Safely interact with Xray process only if it's running.
-	// In multi-node mode or when Xray is stopped, p can be nil – in этом случае
-	// мы просто обновляем БД, а конфиг применится на следующем рестарте.
-	if p != nil {
-		s.xrayApi.Init(p.GetAPIPort())
-		defer s.xrayApi.Close()
+	// Check if only Settings changed (clients list) - if so, we can use fast API update
+	// If port/protocol/streamSettings changed, we need full config reload
+	onlySettingsChanged := oldInbound.Port == inbound.Port &&
+		oldInbound.Protocol == inbound.Protocol &&
+		oldInbound.Listen == inbound.Listen &&
+		oldInbound.Tag == tag &&
+		oldInbound.Settings != inbound.Settings &&
+		oldInbound.StreamSettings == inbound.StreamSettings &&
+		oldInbound.Sniffing == inbound.Sniffing
 
-		// Always delete old inbound first to ensure clean state
-		// This is critical when removing disabled clients - we need to completely remove and recreate
-		if s.xrayApi.DelInbound(tag) == nil {
-			logger.Debug("Old inbound deleted by api:", tag)
-		} else {
-			logger.Debug("Failed to delete old inbound by api (may not exist):", tag)
-			// Continue anyway - inbound might not exist yet
-		}
+	// Check multi-node mode
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
 
-		if inbound.Enable {
-			// Generate new config with updated Settings (which excludes disabled clients)
-			inboundJson, err2 := json.MarshalIndent(oldInbound.GenXrayInboundConfig(), "", "  ")
-			if err2 != nil {
-				logger.Debug("Unable to marshal updated inbound config:", err2)
-				needRestart = true
-			} else {
-				// Add new inbound with updated config (disabled clients are already excluded from Settings)
-				err2 = s.xrayApi.AddInbound(inboundJson)
+	// Use fast API update if:
+	// 1. Only Settings changed (clients list), OR
+	// 2. In single mode and Xray is running locally
+	useFastAPI := onlySettingsChanged || (p != nil && !multiMode)
+
+	if useFastAPI {
+		// Fast path: Use API to update inbound (instant, no restart)
+		if multiMode {
+			// Multi-node mode: update on all nodes assigned to this inbound
+			nodeService := NodeService{}
+			nodes, err := nodeService.GetNodesForInbound(inbound.Id)
+			if err == nil && len(nodes) > 0 && inbound.Enable {
+				// Generate new config with updated Settings
+				inboundJson, err2 := json.MarshalIndent(oldInbound.GenXrayInboundConfig(), "", "  ")
 				if err2 == nil {
-					logger.Debug("Updated inbound added by api:", oldInbound.Tag)
+					// Update inbound on all nodes via API (async, non-blocking)
+					for _, node := range nodes {
+						go func(n *model.Node) {
+							if err := nodeService.UpdateInboundOnNode(n, inboundJson); err != nil {
+								logger.Warningf("Failed to update inbound %s on node %s via API: %v", tag, n.Name, err)
+							} else {
+								logger.Infof("Updated inbound %s on node %s via API (instant)", tag, n.Name)
+							}
+						}(node)
+					}
+					logger.Debugf("UpdateInbound: using fast API update for inbound %s on %d node(s)", tag, len(nodes))
 				} else {
-					logger.Debug("Unable to update inbound by api:", err2)
+					logger.Debugf("Unable to marshal inbound config for API update: %v", err2)
 					needRestart = true
 				}
 			}
-		} else {
-			// Inbound is disabled - it's already deleted, nothing to add
-			logger.Debug("Inbound is disabled, not adding to Xray:", tag)
+		} else if p != nil {
+			// Single mode: update local Xray via API
+			apiPort := p.GetAPIPort()
+			api, err := s.getXrayAPI(apiPort)
+			if err == nil {
+				// Always delete old inbound first to ensure clean state
+				if api.DelInbound(tag) == nil {
+					logger.Debug("Old inbound deleted by api:", tag)
+				} else {
+					logger.Debug("Failed to delete old inbound by api (may not exist):", tag)
+					// Continue anyway - inbound might not exist yet
+				}
+
+				if inbound.Enable {
+					// Generate new config with updated Settings (which excludes disabled clients)
+					inboundJson, err2 := json.MarshalIndent(oldInbound.GenXrayInboundConfig(), "", "  ")
+					if err2 != nil {
+						logger.Debug("Unable to marshal updated inbound config:", err2)
+						needRestart = true
+					} else {
+						// Add new inbound with updated config (disabled clients are already excluded from Settings)
+						err2 = api.AddInbound(inboundJson)
+						if err2 == nil {
+							logger.Debug("Updated inbound added by api:", oldInbound.Tag)
+						} else {
+							logger.Debug("Unable to update inbound by api:", err2)
+							needRestart = true
+						}
+					}
+				} else {
+					// Inbound is disabled - it's already deleted, nothing to add
+					logger.Debug("Inbound is disabled, not adding to Xray:", tag)
+				}
+			} else {
+				logger.Debug("Failed to get XrayAPI connection:", err)
+				needRestart = true
+			}
 		}
 	} else {
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: Xray process is nil, skipping live Xray API update; changes will apply on next restart")
+		// Slow path: Full config reload needed (port/protocol/streamSettings changed)
+		logger.Debugf("UpdateInbound: full config reload needed for inbound %s (port/protocol/streamSettings changed)", tag)
+		needRestart = true
 	}
 
 	// #region agent log
@@ -845,7 +946,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	err = db.Transaction(func(tx *gorm.DB) error {
 		saveErr := tx.Save(oldInbound).Error
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound: Save result, inboundId=%d, error=%v", inbound.Id, saveErr)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound: Save result, inboundId=%d, error=%v", inbound.Id, saveErr)
 		// #endregion
 		return saveErr
 	})
@@ -856,21 +957,21 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	
 	if err == nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: DB transaction success, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: DB transaction success, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
 		// #endregion
 		// Invalidate cache for this user's inbounds
 		if oldInbound.UserId > 0 {
 			// #region agent log
-			logger.Infof("[DEBUG-AGENT] UpdateInbound: before cache invalidation, userId=%d", oldInbound.UserId)
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound: before cache invalidation, userId=%d", oldInbound.UserId)
 			// #endregion
 			cacheErr := cache.InvalidateInbounds(oldInbound.UserId)
 			// #region agent log
-			logger.Infof("[DEBUG-AGENT] UpdateInbound: after cache invalidation, userId=%d, error=%v", oldInbound.UserId, cacheErr)
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound: after cache invalidation, userId=%d, error=%v", oldInbound.UserId, cacheErr)
 			// #endregion
 		}
 	} else {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] UpdateInbound service: DB transaction FAILED, inboundId=%d, error=%v", inbound.Id, err)
+		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: DB transaction FAILED, inboundId=%d, error=%v", inbound.Id, err)
 		// #endregion
 	}
 
@@ -1388,17 +1489,19 @@ func (s *InboundService) disableInvalidInbounds(tx *gorm.DB) (bool, int64, error
 		if err != nil {
 			return false, 0, err
 		}
-		s.xrayApi.Init(p.GetAPIPort())
-		for _, tag := range tags {
-			err1 := s.xrayApi.DelInbound(tag)
-			if err1 == nil {
-				logger.Debug("Inbound disabled by api:", tag)
-			} else {
-				logger.Debug("Error in disabling inbound by api:", err1)
-				needRestart = true
+		apiPort := p.GetAPIPort()
+		api, err := s.getXrayAPI(apiPort)
+		if err == nil {
+			for _, tag := range tags {
+				err1 := api.DelInbound(tag)
+				if err1 == nil {
+					logger.Debug("Inbound disabled by api:", tag)
+				} else {
+					logger.Debug("Error in disabling inbound by api:", err1)
+					needRestart = true
+				}
 			}
 		}
-		s.xrayApi.Close()
 	}
 
 	result := tx.Model(model.Inbound{}).
@@ -1427,14 +1530,13 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB) (bool, int64, error)
 		if err != nil {
 			return false, 0, err
 		}
-		s.xrayApi.Init(p.GetAPIPort())
-		for _, result := range results {
-			err1 := s.xrayApi.RemoveUser(result.Tag, result.Email)
-			if err1 == nil {
-				logger.Debug("Client disabled by api:", result.Email)
-			} else {
-				if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", result.Email)) {
-					logger.Debug("User is already disabled. Nothing to do more...")
+		apiPort := p.GetAPIPort()
+		api, err := s.getXrayAPI(apiPort)
+		if err == nil {
+			for _, result := range results {
+				err1 := api.RemoveUser(result.Tag, result.Email)
+				if err1 == nil {
+					logger.Debug("Client disabled by api:", result.Email)
 				} else {
 					if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", result.Email)) {
 						logger.Debug("User is already disabled. Nothing to do more...")
@@ -1445,7 +1547,6 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB) (bool, int64, error)
 				}
 			}
 		}
-		s.xrayApi.Close()
 	}
 	result := tx.Model(xray.ClientTraffic{}).
 		Where("((total > 0 and up + down >= total) or (expiry_time > 0 and expiry_time <= ?)) and enable = ?", now, true).
@@ -1473,7 +1574,13 @@ func (s *InboundService) MigrationRemoveOrphanedTraffics() {
 		WHERE email NOT IN (
 			SELECT (client.value::jsonb)->>'email' as email
 			FROM inbounds,
-				jsonb_array_elements((inbounds.settings::jsonb)->'clients') AS client
+				jsonb_array_elements(
+					CASE 
+						WHEN jsonb_typeof((inbounds.settings::jsonb)->'clients') = 'array' 
+						THEN (inbounds.settings::jsonb)->'clients'
+						ELSE '[]'::jsonb
+					END
+				) AS client
 		)
 	`)
 }
@@ -1928,33 +2035,35 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, e
 		for _, client := range clients {
 			if client.Email == clientEmail && client.Enable {
 				if p != nil {
-					s.xrayApi.Init(p.GetAPIPort())
-					cipher := ""
-					if string(inbound.Protocol) == "shadowsocks" {
-						var oldSettings map[string]any
-						err = json.Unmarshal([]byte(inbound.Settings), &oldSettings)
-						if err != nil {
-							return false, err
+					apiPort := p.GetAPIPort()
+					api, err := s.getXrayAPI(apiPort)
+					if err == nil {
+						cipher := ""
+						if string(inbound.Protocol) == "shadowsocks" {
+							var oldSettings map[string]any
+							err = json.Unmarshal([]byte(inbound.Settings), &oldSettings)
+							if err != nil {
+								return false, err
+							}
+							cipher = oldSettings["method"].(string)
 						}
-						cipher = oldSettings["method"].(string)
+						err1 := api.AddUser(string(inbound.Protocol), inbound.Tag, map[string]any{
+							"email":    client.Email,
+							"id":       client.ID,
+							"security": client.Security,
+							"flow":     client.Flow,
+							"password": client.Password,
+							"cipher":   cipher,
+						})
+						if err1 == nil {
+							logger.Debug("Client enabled due to reset traffic:", clientEmail)
+						} else {
+							logger.Debug("Error in enabling client by api:", err1)
+							needRestart = true
+						}
 					}
-					err1 := s.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, map[string]any{
-						"email":    client.Email,
-						"id":       client.ID,
-						"security": client.Security,
-						"flow":     client.Flow,
-						"password": client.Password,
-						"cipher":   cipher,
-					})
-					if err1 == nil {
-						logger.Debug("Client enabled due to reset traffic:", clientEmail)
-					} else {
-						logger.Debug("Error in enabling client by api:", err1)
-						needRestart = true
-					}
-					s.xrayApi.Close()
 				} else {
-					logger.Infof("[DEBUG-AGENT] ResetClientTraffic: Xray process is nil, skipping live AddUser; client will be enabled on next restart, email=%s", clientEmail)
+					logger.Debugf("[DEBUG-AGENT] ResetClientTraffic: Xray process is nil, skipping live AddUser; client will be enabled on next restart, email=%s", clientEmail)
 				}
 				break
 			}
@@ -2182,7 +2291,13 @@ func (s *InboundService) GetClientTrafficByID(id string) ([]xray.ClientTraffic, 
 	err := db.Model(xray.ClientTraffic{}).Where(`email IN(
 		SELECT (client.value::jsonb)->>'email' as email
 		FROM inbounds,
-	  	jsonb_array_elements((inbounds.settings::jsonb)->'clients') AS client
+	  	jsonb_array_elements(
+			CASE 
+				WHEN jsonb_typeof((inbounds.settings::jsonb)->'clients') = 'array' 
+				THEN (inbounds.settings::jsonb)->'clients'
+				ELSE '[]'::jsonb
+			END
+		) AS client
 		WHERE
 	  	(client.value::jsonb)->>'id' in (?)
 		)`, id).Find(&traffics).Error

@@ -150,8 +150,8 @@
                   <template slot="content">
                     <table cellpadding="2" width="100%">
                       <tr>
-                        <td>↓[[ SizeFormatter.sizeFormat(getClientSpeed(client, 'down')) ]]/s</td>
-                        <td>↑[[ SizeFormatter.sizeFormat(getClientSpeed(client, 'up')) ]]/s</td>
+                        <td>↓[[ getSpeedFormatted(client, 'up') ]]</td>
+                        <td>↑[[ getSpeedFormatted(client, 'down') ]]</td>
                       </tr>
                     </table>
                   </template>
@@ -468,16 +468,28 @@
         return false;
       },
       getClientSpeed(client, type) {
-        // Return current speed (bytes per second) - always return speed if available, no online check
-        // Speed is calculated from traffic changes over time
+        // Return current speed (bits per second) from backend
+        // Backend calculates speed accurately based on 1-second update intervals
+        // Speed is in BITS per second (not bytes) - matches standard internet speed measurement
         if (!client) return 0;
         
+        // Use backend-calculated speed if available (more accurate)
+        if (client.upSpeed !== undefined || client.downSpeed !== undefined) {
+          if (type === 'up') {
+            return client.upSpeed || 0;
+          } else if (type === 'down') {
+            return client.downSpeed || 0;
+          }
+          return (client.upSpeed || 0) + (client.downSpeed || 0);
+        }
+        
+        // Fallback to frontend calculation for backward compatibility
         // Check if speed is still valid (updated within last 2 seconds for real-time)
         const now = Date.now();
         if (client._speedUpdateTime && (now - client._speedUpdateTime) > 2000) {
           return 0;
         }
-        
+
         if (type === 'up') {
           return client._upSpeed || 0;
         } else if (type === 'down') {
@@ -485,6 +497,21 @@
         }
         
         return (client._upSpeed || 0) + (client._downSpeed || 0);
+      },
+      getSpeedFormatted(client, type) {
+        // Format speed in bits per second using speedFormat if available, otherwise sizeFormat
+        try {
+          const speed = this.getClientSpeed(client, type);
+          if (speed <= 0) return "0 bps";
+          if (SizeFormatter.speedFormat) {
+            return SizeFormatter.speedFormat(speed);
+          }
+          // Fallback to sizeFormat if speedFormat is not available
+          return SizeFormatter.sizeFormat(speed) + "/s";
+        } catch (e) {
+          console.error("Error formatting speed:", e);
+          return "0 bps";
+        }
       },
       getLastOnline(email) {
         return this.lastOnlineMap[email] || null
@@ -1418,56 +1445,58 @@
                 const prevDown = existingClient._prevDown || oldDown;
                 const prevTime = existingClient._prevTrafficTime || now;
                 
-                // Check if up changed (strict comparison to detect actual changes)
+                // Update traffic values
                 if (updatedClient.up !== undefined) {
                   const newUp = updatedClient.up || 0;
                   if (newUp !== oldUp) {
                     this.$set(existingClient, 'up', newUp);
-                    // Store previous values for speed calculation
-                    this.$set(existingClient, '_prevUp', oldUp);
-                    this.$set(existingClient, '_prevDown', oldDown);
-                    this.$set(existingClient, '_prevTrafficTime', prevTime);
                     trafficChanged = true;
                   }
                 }
                 
-                // Check if down changed (strict comparison to detect actual changes)
                 if (updatedClient.down !== undefined) {
                   const newDown = updatedClient.down || 0;
                   if (newDown !== oldDown) {
                     this.$set(existingClient, 'down', newDown);
-                    // Store previous values for speed calculation
-                    this.$set(existingClient, '_prevUp', oldUp);
-                    this.$set(existingClient, '_prevDown', oldDown);
-                    this.$set(existingClient, '_prevTrafficTime', prevTime);
                     trafficChanged = true;
                   }
                 }
                 
-                // Calculate speed (bytes per second) when traffic changes
-                if (trafficChanged) {
+                // Use backend-calculated speed if available (more accurate, calculated every 1 second)
+                if (updatedClient.upSpeed !== undefined) {
+                  this.$set(existingClient, 'upSpeed', updatedClient.upSpeed || 0);
+                }
+                if (updatedClient.downSpeed !== undefined) {
+                  this.$set(existingClient, 'downSpeed', updatedClient.downSpeed || 0);
+                }
+                
+                // Fallback to frontend calculation only if backend speed is not available
+                // Note: Frontend calculation should match backend (bits per second, * 8)
+                if ((updatedClient.upSpeed === undefined && updatedClient.downSpeed === undefined) && trafficChanged) {
                   const timeDiff = (now - prevTime) / 1000; // seconds
-                  if (timeDiff > 0 && timeDiff < 60) { // Only calculate if time diff is reasonable (less than 60 seconds)
-                    // Get new values (already updated in existingClient)
+                  const effectiveTimeDiff = Math.min(Math.max(timeDiff, 0.5), 5.0); // Between 0.5s and 5s
+                  if (timeDiff > 0 && timeDiff < 60) {
                     const newUp = existingClient.up || 0;
                     const newDown = existingClient.down || 0;
-                    const upSpeed = (newUp - prevUp) / timeDiff;
-                    const downSpeed = (newDown - prevDown) / timeDiff;
-                    this.$set(existingClient, '_upSpeed', Math.max(0, upSpeed)); // Ensure non-negative
-                    this.$set(existingClient, '_downSpeed', Math.max(0, downSpeed)); // Ensure non-negative
+                    // Calculate speed in bits per second (match backend calculation: bytes/sec * 8)
+                    const upSpeed = ((newUp - prevUp) / effectiveTimeDiff) * 8;
+                    const downSpeed = ((newDown - prevDown) / effectiveTimeDiff) * 8;
+                    this.$set(existingClient, '_upSpeed', Math.max(0, upSpeed));
+                    this.$set(existingClient, '_downSpeed', Math.max(0, downSpeed));
                     this.$set(existingClient, '_speedUpdateTime', now);
                   }
-                  // Update previous values for next calculation
                   this.$set(existingClient, '_prevUp', existingClient.up || 0);
                   this.$set(existingClient, '_prevDown', existingClient.down || 0);
                   this.$set(existingClient, '_prevTrafficTime', now);
+                }
+                
+                if (trafficChanged) {
                   this.$set(existingClient, 'lastTrafficUpdate', now);
                 } else {
-                  // If traffic didn't change, check if we should reset speed to 0
-                  // Reset speed if no traffic change for more than 2 seconds (real-time)
-                  if (existingClient._speedUpdateTime && (now - existingClient._speedUpdateTime) > 2000) {
-                    this.$set(existingClient, '_upSpeed', 0);
-                    this.$set(existingClient, '_downSpeed', 0);
+                  // Reset backend speed if no traffic change for more than 2 seconds
+                  if (existingClient.upSpeed !== undefined && (now - (existingClient.lastTrafficUpdate || 0)) > 2000) {
+                    this.$set(existingClient, 'upSpeed', 0);
+                    this.$set(existingClient, 'downSpeed', 0);
                   }
                 }
                 
@@ -1523,11 +1552,17 @@
                   // Calculate speed (bytes per second) when traffic changes
                   if (trafficChanged) {
                     const timeDiff = (now - prevTime) / 1000; // seconds
+                    // Limit timeDiff to reasonable range for accurate speed calculation
+                    // If timeDiff is too large (>5s), it means updates are delayed and speed will be underestimated
+                    // Use minimum of actual timeDiff and 5 seconds to prevent speed underestimation
+                    const effectiveTimeDiff = Math.min(Math.max(timeDiff, 0.5), 5.0); // Between 0.5s and 5s
                     if (timeDiff > 0 && timeDiff < 60) { // Only calculate if time diff is reasonable (less than 60 seconds)
                       const newUp = updatedClient.up !== undefined ? (updatedClient.up || 0) : oldUp;
                       const newDown = updatedClient.down !== undefined ? (updatedClient.down || 0) : oldDown;
-                      const upSpeed = (newUp - prevUp) / timeDiff;
-                      const downSpeed = (newDown - prevDown) / timeDiff;
+                      // Use effectiveTimeDiff to prevent speed underestimation due to delayed updates
+                      // Calculate speed in bits per second (match backend calculation: bytes/sec * 8)
+                      const upSpeed = ((newUp - prevUp) / effectiveTimeDiff) * 8;
+                      const downSpeed = ((newDown - prevDown) / effectiveTimeDiff) * 8;
                       this.$set(searchedClient, '_upSpeed', Math.max(0, upSpeed)); // Ensure non-negative
                       this.$set(searchedClient, '_downSpeed', Math.max(0, downSpeed)); // Ensure non-negative
                       this.$set(searchedClient, '_speedUpdateTime', now);

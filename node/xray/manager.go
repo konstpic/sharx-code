@@ -544,6 +544,158 @@ func (m *Manager) GetLogs(count int, filter string) ([]string, error) {
 	return lines, nil
 }
 
+// GetProcess returns the Xray process (for internal use by API server).
+func (m *Manager) GetProcess() *xray.Process {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	return m.process
+}
+
+// AddUser adds a user to an inbound via Xray API (instant, no restart).
+func (m *Manager) AddUser(protocol, inboundTag string, user map[string]interface{}) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.process == nil || !m.process.IsRunning() {
+		return errors.New("XRAY is not running")
+	}
+
+	apiPort := m.process.GetAPIPort()
+	if apiPort == 0 {
+		return errors.New("XRAY API port is not available")
+	}
+
+	// Initialize XrayAPI
+	xrayAPI := &xray.XrayAPI{}
+	if err := xrayAPI.Init(apiPort); err != nil {
+		return fmt.Errorf("failed to init XrayAPI: %w", err)
+	}
+	defer xrayAPI.Close()
+
+	// Add user via Xray API (instant, no restart needed)
+	if err := xrayAPI.AddUser(protocol, inboundTag, user); err != nil {
+		return fmt.Errorf("failed to add user: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveUser removes a user from an inbound via Xray API (instant, no restart).
+func (m *Manager) RemoveUser(inboundTag, email string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.process == nil || !m.process.IsRunning() {
+		return errors.New("XRAY is not running")
+	}
+
+	apiPort := m.process.GetAPIPort()
+	if apiPort == 0 {
+		return errors.New("XRAY API port is not available")
+	}
+
+	// Initialize XrayAPI
+	xrayAPI := &xray.XrayAPI{}
+	if err := xrayAPI.Init(apiPort); err != nil {
+		return fmt.Errorf("failed to init XrayAPI: %w", err)
+	}
+	defer xrayAPI.Close()
+
+	// Remove user via Xray API (instant, no restart needed)
+	if err := xrayAPI.RemoveUser(inboundTag, email); err != nil {
+		// Check if user not found (this is OK - might already be removed)
+		if strings.Contains(err.Error(), "not found") {
+			return nil // User already removed, consider it success
+		}
+		return fmt.Errorf("failed to remove user: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateInbound updates an inbound configuration via Xray API (instant, no restart).
+// This is faster than full config reload - it uses DelInbound + AddInbound.
+func (m *Manager) UpdateInbound(inboundConfig []byte) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.process == nil || !m.process.IsRunning() {
+		return errors.New("XRAY is not running")
+	}
+
+	apiPort := m.process.GetAPIPort()
+	if apiPort == 0 {
+		return errors.New("XRAY API port is not available")
+	}
+
+	// Parse inbound config to get tag
+	var inboundJSON map[string]interface{}
+	if err := json.Unmarshal(inboundConfig, &inboundJSON); err != nil {
+		return fmt.Errorf("failed to parse inbound config: %w", err)
+	}
+
+	tag, ok := inboundJSON["tag"].(string)
+	if !ok || tag == "" {
+		return errors.New("inbound tag is required")
+	}
+
+	// Initialize XrayAPI
+	xrayAPI := &xray.XrayAPI{}
+	if err := xrayAPI.Init(apiPort); err != nil {
+		return fmt.Errorf("failed to init XrayAPI: %w", err)
+	}
+	defer xrayAPI.Close()
+
+	// Remove old inbound first
+	if err := xrayAPI.DelInbound(tag); err != nil {
+		// Log but continue - inbound might not exist yet
+		logger.Debugf("Failed to delete old inbound %s (may not exist): %v", tag, err)
+	}
+
+	// Add updated inbound
+	if err := xrayAPI.AddInbound(inboundConfig); err != nil {
+		return fmt.Errorf("failed to add updated inbound: %w", err)
+	}
+
+	logger.Infof("Inbound %s updated successfully via API (instant)", tag)
+	return nil
+}
+
+// DelInbound removes an inbound configuration via Xray API (instant, no restart).
+func (m *Manager) DelInbound(tag string) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.process == nil || !m.process.IsRunning() {
+		return errors.New("XRAY is not running")
+	}
+
+	apiPort := m.process.GetAPIPort()
+	if apiPort == 0 {
+		return errors.New("XRAY API port is not available")
+	}
+
+	// Initialize XrayAPI
+	xrayAPI := &xray.XrayAPI{}
+	if err := xrayAPI.Init(apiPort); err != nil {
+		return fmt.Errorf("failed to init XrayAPI: %w", err)
+	}
+	defer xrayAPI.Close()
+
+	// Remove inbound via Xray API (instant, no restart needed)
+	if err := xrayAPI.DelInbound(tag); err != nil {
+		// Check if inbound not found (this is OK - might already be removed)
+		if strings.Contains(err.Error(), "not found") {
+			logger.Debugf("Inbound %s already removed or not found - this is OK", tag)
+			return nil // Already removed, consider it success
+		}
+		return fmt.Errorf("failed to remove inbound: %w", err)
+	}
+
+	logger.Infof("Inbound %s removed successfully via API (instant)", tag)
+	return nil
+}
+
 // InstallXrayVersion downloads and installs a specific version of Xray.
 func (m *Manager) InstallXrayVersion(version string) error {
 	m.lock.Lock()

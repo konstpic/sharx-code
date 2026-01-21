@@ -16,15 +16,18 @@ Complete API reference for the 3x-ui panel. This documentation covers all endpoi
 - [4. Settings](#4-settings)
 - [5. Migration](#5-migration)
 - [6. Xray Settings](#6-xray-settings)
-- [7. Xray Core Configuration Profiles](#7-xray-core-configuration-profiles)
-- [8. Nodes (Multi-Node Mode)](#8-nodes-multi-node-mode)
-- [9. Clients](#9-clients)
-- [10. Client Groups](#10-client-groups)
-- [11. Client HWID](#11-client-hwid)
-- [12. Hosts](#12-hosts)
-- [13. Node Push API](#13-node-push-api)
-- [14. Subscription Server](#14-subscription-server)
-- [15. WebSocket](#15-websocket)
+- [7. Outbounds API](#7-outbounds-api)
+- [8. Xray Core Configuration Profiles](#8-xray-core-configuration-profiles)
+- [9. Nodes (Multi-Node Mode)](#9-nodes-multi-node-mode)
+- [10. Clients](#10-clients)
+- [11. Client Groups](#11-client-groups)
+- [12. Client HWID](#12-client-hwid)
+- [13. Hosts](#13-hosts)
+- [14. Node Push API](#14-node-push-api)
+- [15. Subscription Server](#15-subscription-server)
+- [16. WebSocket](#16-websocket)
+- [17. Backup Endpoint](#17-backup-endpoint)
+- [18. API Documentation](#18-api-documentation)
 
 ---
 
@@ -1798,7 +1801,231 @@ curl -X POST "http://localhost:2053/panel/xray/resetOutboundsTraffic" \
 
 ---
 
-## 7. Xray Core Configuration Profiles
+### POST `/panel/xray/getFullConfig`
+
+Get the full Xray configuration JSON.
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray/getFullConfig" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "",
+  "obj": {
+    "log": {...},
+    "api": {...},
+    "inbounds": [...],
+    "outbounds": [...],
+    "routing": {...}
+  }
+}
+```
+
+---
+
+### POST `/panel/xray/resetToDefault`
+
+Reset Xray settings to default template configuration.
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/xray/resetToDefault" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Xray settings reset to default successfully"
+}
+```
+
+---
+
+## 7. Outbounds API
+
+Base path: `/panel/outbound`
+
+Outbounds are used to configure Xray outbound connections (direct, blocked, proxy, etc.).
+
+### GET `/panel/outbound/list`
+
+Get all outbounds for the logged-in user.
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/outbound/list" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "",
+  "obj": [
+    {
+      "id": 1,
+      "userId": 1,
+      "remark": "Direct",
+      "enable": true,
+      "protocol": "freedom",
+      "settings": "{\"domainStrategy\":\"UseIP\"}",
+      "streamSettings": "",
+      "tag": "direct",
+      "proxySettings": "",
+      "sendThrough": "",
+      "mux": "",
+      "coreConfigProfileId": null,
+      "nodeIds": [],
+      "createdAt": 1703980800,
+      "updatedAt": 1704067200
+    }
+  ]
+}
+```
+
+---
+
+### GET `/panel/outbound/get/{id}`
+
+Get a specific outbound by ID.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Outbound ID |
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/outbound/get/1" \
+  -b cookies.txt
+```
+
+---
+
+### POST `/panel/outbound/add`
+
+Create a new outbound configuration.
+
+**Request Body** (form-urlencoded or JSON):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `remark` | string | No | Human-readable name |
+| `enable` | boolean | No | Enable outbound (default: true) |
+| `protocol` | string | Yes | Protocol: `freedom`, `blackhole`, `dns`, `socks`, `http`, `shadowsocks`, `vmess`, `vless`, `trojan`, `wireguard` |
+| `settings` | string | Yes | JSON string with protocol settings |
+| `streamSettings` | string | No | JSON string with stream settings |
+| `tag` | string | Yes | Outbound tag (unique identifier) |
+| `proxySettings` | string | No | JSON string with proxy settings |
+| `sendThrough` | string | No | Send through interface |
+| `mux` | string | No | Mux settings JSON |
+| `coreConfigProfileId` | integer | No | Xray core config profile ID |
+| `nodeIds` | array | No | Node IDs to assign (multi-node mode) |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/outbound/add" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "remark": "Direct",
+    "enable": true,
+    "protocol": "freedom",
+    "settings": "{\"domainStrategy\":\"UseIP\"}",
+    "tag": "direct"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Outbound added successfully",
+  "obj": {
+    "id": 1,
+    "remark": "Direct",
+    "protocol": "freedom",
+    "tag": "direct",
+    ...
+  }
+}
+```
+
+---
+
+### POST `/panel/outbound/update/{id}`
+
+Update an existing outbound.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Outbound ID |
+
+**Request Body:** Same as `add` endpoint. Only provided fields will be updated.
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/outbound/update/1" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "enable": false,
+    "remark": "Updated Direct"
+  }'
+```
+
+---
+
+### POST `/panel/outbound/del/{id}`
+
+Delete an outbound.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Outbound ID |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/outbound/del/1" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Outbound deleted successfully"
+}
+```
+
+---
+
+## 8. Xray Core Configuration Profiles
 
 Base path: `/panel/xray-core-config-profile`
 
@@ -2111,7 +2338,7 @@ curl -X POST "http://localhost:2053/panel/xray-core-config-profile/assign-nodes/
 
 ---
 
-## 8. Nodes (Multi-Node Mode)
+## 9. Nodes (Multi-Node Mode)
 
 Base path: `/panel/node`
 
@@ -2454,7 +2681,35 @@ curl -X POST "http://localhost:2053/panel/node/check-connection" \
 
 ---
 
-## 9. Clients
+### POST `/panel/node/resetTraffic/{id}`
+
+Reset traffic statistics for a specific node.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | integer | Node ID |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/node/resetTraffic/1" \
+  -b cookies.txt
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "msg": "Node traffic reset successfully"
+}
+```
+
+---
+
+## 10. Clients
 
 Base path: `/panel/client`
 
@@ -2934,7 +3189,7 @@ curl -X POST "http://localhost:2053/panel/client/update/1" \
 
 ---
 
-## 10. Client Groups
+## 11. Client Groups
 
 Base path: `/panel/group`
 
@@ -3391,7 +3646,7 @@ curl -X POST "http://localhost:2053/panel/group/1/bulk/setHwidLimit" \
 
 ---
 
-## 11. Client HWID
+## 12. Client HWID
 
 Base path: `/panel/client/hwid`
 
@@ -3604,7 +3859,7 @@ curl -X POST "http://localhost:2053/panel/client/hwid/fix-timestamps" \
 
 ---
 
-## 12. Hosts
+## 13. Hosts
 
 Base path: `/panel/host`
 
@@ -3742,7 +3997,7 @@ curl -X POST "http://localhost:2053/panel/host/del/1" \
 
 ---
 
-## 13. Node Push API
+## 14. Node Push API
 
 Base path: `/panel/api/node`
 
@@ -3785,7 +4040,7 @@ curl -X POST "http://localhost:2053/panel/api/node/push-logs" \
 
 ---
 
-## 14. Subscription Server
+## 15. Subscription Server
 
 The subscription server runs on a separate port (default: 2096) and provides subscription links for proxy clients.
 
@@ -3865,7 +4120,7 @@ curl -X GET "http://localhost:2096/json/abcd1234"
 
 ---
 
-## 15. WebSocket
+## 16. WebSocket
 
 Real-time updates via WebSocket connection.
 
@@ -3912,7 +4167,7 @@ ws.onmessage = function(event) {
 
 ---
 
-## 16. Backup Endpoint
+## 17. Backup Endpoint
 
 ### GET `/panel/api/backuptotgbot`
 
@@ -3924,6 +4179,23 @@ Trigger a backup to Telegram bot admins.
 curl -X GET "http://localhost:2053/panel/api/backuptotgbot" \
   -b cookies.txt
 ```
+
+---
+
+## 18. API Documentation
+
+### GET `/panel/api/api-docs/markdown`
+
+Get API documentation in Markdown format.
+
+**Example Request:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/api/api-docs/markdown" \
+  -b cookies.txt
+```
+
+**Response:** Returns the API documentation as Markdown text.
 
 ---
 

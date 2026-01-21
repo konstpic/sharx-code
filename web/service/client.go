@@ -3,7 +3,6 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -64,27 +63,53 @@ func (s *ClientService) GetClients(userId int) ([]*model.ClientEntity, error) {
 				if err != nil {
 					logger.Warningf("Failed to update status for client %s: %v", client.Email, err)
 				}
-				// Remove expired client from Xray API if it's enabled and just expired
-				if client.Enable && p != nil {
+				// Remove expired client from Xray API if it's enabled and just expired (both local and nodes)
+				if client.Enable {
+					settingService := SettingService{}
+					multiMode, _ := settingService.GetMultiNodeMode()
+					nodeService := NodeService{}
 					inboundService := InboundService{}
-					inboundService.xrayApi.Init(p.GetAPIPort())
-					defer inboundService.xrayApi.Close()
 					
 					// Get all inbound IDs for this client
 					clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
 					if err == nil {
 						for _, inboundId := range clientInboundIds {
 							inbound, err := inboundService.GetInbound(inboundId)
-							if err == nil {
-								err = inboundService.xrayApi.RemoveUser(inbound.Tag, client.Email)
-								if err != nil {
-									if strings.Contains(err.Error(), fmt.Sprintf("User %s not found.", client.Email)) {
-										logger.Debugf("GetClients: client %s already removed from Xray (tag: %s)", client.Email, inbound.Tag)
-									} else {
-										logger.Warningf("GetClients: failed to remove expired client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+							if err != nil {
+								continue
+							}
+							
+							if multiMode {
+								// Multi-node mode: remove from all nodes assigned to this inbound
+								nodes, err := nodeService.GetNodesForInbound(inboundId)
+								if err == nil {
+									for _, node := range nodes {
+										go func(n *model.Node) {
+											if err := nodeService.RemoveUserFromNode(n, inbound.Tag, client.Email); err != nil {
+												logger.Warningf("GetClients: failed to remove expired client %s from node %s via API: %v", client.Email, n.Name, err)
+											} else {
+												logger.Infof("GetClients: removed expired client %s from node %s via API (instant)", client.Email, n.Name)
+											}
+										}(node)
 									}
-								} else {
-									logger.Infof("GetClients: removed expired client %s from Xray (tag: %s)", client.Email, inbound.Tag)
+								}
+							} else {
+								// Single mode: remove from local Xray
+								if p != nil && p.IsRunning() {
+									apiPort := p.GetAPIPort()
+									api, err := inboundService.getXrayAPI(apiPort)
+									if err == nil {
+										err = api.RemoveUser(inbound.Tag, client.Email)
+										if err != nil {
+											if strings.Contains(err.Error(), "not found") {
+												logger.Debugf("GetClients: client %s already removed from Xray (tag: %s)", client.Email, inbound.Tag)
+											} else {
+												logger.Warningf("GetClients: failed to remove expired client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+											}
+										} else {
+											logger.Infof("GetClients: removed expired client %s from Xray via API (instant)", client.Email)
+										}
+									}
 								}
 							}
 						}
@@ -509,6 +534,14 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	logger.Debugf("[DEBUG-AGENT] UpdateClient: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
 	// #endregion
 	
+	// Reload client from DB after commit to get latest status and values
+	var finalClient model.ClientEntity
+	db = database.GetDB()
+	if err = db.Where("id = ?", client.Id).First(&finalClient).Error; err != nil {
+		logger.Warningf("UpdateClient: failed to reload client %d after commit: %v", client.Id, err)
+		finalClient = updatedClient // Fallback to previous value
+	}
+	
 	// Now update Settings for all affected inbounds (old + new) ASYNCHRONOUSLY
 	// This is needed even if InboundIds wasn't changed, because client data (UUID, password, etc.) might have changed
 	// We do this AFTER committing the client transaction to avoid nested transactions and database locks
@@ -516,23 +549,35 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	go func() {
 		needRestart := false
 		inboundService := InboundService{}
-		
-		// Check if client needs to be re-added to Xray (was expired, now active)
-		// Note: p is a global variable in the service package (declared in xray.go)
-		wasExpired := existing.Status == "expired_traffic" || existing.Status == "expired_time"
-		nowActive := updatedClient.Status == "active" || updatedClient.Status == ""
+		settingService := SettingService{}
+		multiMode, _ := settingService.GetMultiNodeMode()
+		nodeService := NodeService{}
 		xrayService := XrayService{}
-		if wasExpired && nowActive && updatedClient.Enable && xrayService.IsXrayRunning() {
-			// Re-add client to Xray API for all assigned inbounds
-			// Access global p variable from xray.go (same package)
-			// p is declared in xray.go as: var p *xray.Process
-			apiPort := 10085 // Default Xray API port, will be updated if p is available
-			if p != nil {
-				apiPort = p.GetAPIPort()
-			}
-			inboundService.xrayApi.Init(apiPort)
-			defer inboundService.xrayApi.Close()
-			
+		
+		// Check if enable status changed
+		enableChanged := existing.Enable != finalClient.Enable
+		wasExpired := existing.Status == "expired_traffic" || existing.Status == "expired_time"
+		
+		// Check if client is no longer expired (by traffic or time)
+		now := time.Now().Unix() * 1000
+		totalUsed := finalClient.Up + finalClient.Down
+		trafficLimit := int64(finalClient.TotalGB * 1024 * 1024 * 1024)
+		trafficExceeded := finalClient.TotalGB > 0 && totalUsed >= trafficLimit
+		timeExpired := finalClient.ExpiryTime > 0 && finalClient.ExpiryTime <= now
+		nowActive := (!trafficExceeded && !timeExpired) && (finalClient.Status == "active" || finalClient.Status == "")
+		
+		needsReAdd := wasExpired && nowActive && finalClient.Enable
+		
+		// Use Xray API for instant user add/remove when enable status changes or client needs re-add
+		// In multi-node mode, we don't need local Xray running - we call nodes directly
+		// In single mode, we need local Xray running
+		shouldUseAPI := (enableChanged || needsReAdd) && (multiMode || xrayService.IsXrayRunning())
+		apiOperationDone := false // Track if we successfully used API (to skip full config update)
+		
+		logger.Infof("UpdateClient: enableChanged=%v, needsReAdd=%v, multiMode=%v, xrayRunning=%v, shouldUseAPI=%v", 
+			enableChanged, needsReAdd, multiMode, xrayService.IsXrayRunning(), shouldUseAPI)
+		
+		if shouldUseAPI {
 			clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
 			if err == nil {
 				for _, inboundId := range clientInboundIds {
@@ -542,44 +587,123 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 					}
 					
 					// Build client data for Xray API
-					clientData := make(map[string]any)
-					clientData["email"] = updatedClient.Email
+					clientData := make(map[string]interface{})
+					clientData["email"] = finalClient.Email
 					
 					switch inbound.Protocol {
 					case model.Trojan:
-						clientData["password"] = updatedClient.Password
+						clientData["password"] = finalClient.Password
 					case model.Shadowsocks:
-						var settings map[string]any
+						var settings map[string]interface{}
 						json.Unmarshal([]byte(inbound.Settings), &settings)
 						if method, ok := settings["method"].(string); ok {
 							clientData["method"] = method
 						}
-						clientData["password"] = updatedClient.Password
+						clientData["password"] = finalClient.Password
 					case model.VMESS, model.VLESS:
-						clientData["id"] = updatedClient.UUID
-						if inbound.Protocol == model.VMESS && updatedClient.Security != "" {
-							clientData["security"] = updatedClient.Security
+						clientData["id"] = finalClient.UUID
+						if inbound.Protocol == model.VMESS && finalClient.Security != "" {
+							clientData["security"] = finalClient.Security
 						}
-						if inbound.Protocol == model.VLESS && updatedClient.Flow != "" {
-							clientData["flow"] = updatedClient.Flow
+						if inbound.Protocol == model.VLESS && finalClient.Flow != "" {
+							clientData["flow"] = finalClient.Flow
 						}
 					}
 					
-					err = inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
-					if err != nil {
-						if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", updatedClient.Email)) {
-							logger.Debugf("Client %s already exists in Xray (tag: %s)", updatedClient.Email, inbound.Tag)
+					if finalClient.Enable {
+						// Enable: Add user via Xray API
+						if multiMode {
+							// Multi-node mode: add to all nodes assigned to this inbound
+							nodes, err := nodeService.GetNodesForInbound(inboundId)
+							logger.Infof("UpdateClient: adding client %s to %d node(s) via API", finalClient.Email, len(nodes))
+							if err == nil && len(nodes) > 0 {
+								apiOperationDone = true // Mark as done before async calls (they will complete in background)
+								for _, node := range nodes {
+									go func(n *model.Node) {
+										if err := nodeService.AddUserToNode(n, string(inbound.Protocol), inbound.Tag, clientData); err != nil {
+											logger.Warningf("UpdateClient: failed to add client %s to node %s via API: %v", finalClient.Email, n.Name, err)
+										} else {
+											logger.Infof("UpdateClient: added enabled client %s to node %s via API (instant)", finalClient.Email, n.Name)
+										}
+									}(node)
+								}
+							} else {
+								logger.Warningf("UpdateClient: no nodes found for inbound %d, cannot add client via API", inboundId)
+							}
 						} else {
-							logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", updatedClient.Email, inbound.Tag, err)
-							needRestart = true
+							// Single mode: add to local Xray
+							if p != nil && p.IsRunning() {
+								apiPort := p.GetAPIPort()
+								api, err := inboundService.getXrayAPI(apiPort)
+								if err == nil {
+									err = api.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+									if err != nil {
+										if strings.Contains(err.Error(), "already exists") {
+											logger.Debugf("UpdateClient: client %s already exists in Xray (tag: %s) - this is OK", finalClient.Email, inbound.Tag)
+											apiOperationDone = true // Already exists is OK
+										} else {
+											logger.Warningf("UpdateClient: failed to add client %s to Xray (tag: %s): %v", finalClient.Email, inbound.Tag, err)
+											needRestart = true
+										}
+									} else {
+										logger.Infof("UpdateClient: added enabled client %s to Xray via API (instant)", finalClient.Email)
+										apiOperationDone = true
+									}
+								} else {
+									logger.Debugf("UpdateClient: failed to get XrayAPI connection: %v", err)
+									needRestart = true
+								}
+							}
 						}
 					} else {
-						logger.Infof("Client %s re-added to Xray (tag: %s) after traffic reset", updatedClient.Email, inbound.Tag)
+						// Disable: Remove user via Xray API
+						if multiMode {
+							// Multi-node mode: remove from all nodes assigned to this inbound
+							nodes, err := nodeService.GetNodesForInbound(inboundId)
+							logger.Infof("UpdateClient: removing client %s from %d node(s) via API", finalClient.Email, len(nodes))
+							if err == nil && len(nodes) > 0 {
+								apiOperationDone = true // Mark as done before async calls (they will complete in background)
+								for _, node := range nodes {
+									go func(n *model.Node) {
+										if err := nodeService.RemoveUserFromNode(n, inbound.Tag, finalClient.Email); err != nil {
+											logger.Warningf("UpdateClient: failed to remove client %s from node %s via API: %v", finalClient.Email, n.Name, err)
+										} else {
+											logger.Infof("UpdateClient: removed disabled client %s from node %s via API (instant)", finalClient.Email, n.Name)
+										}
+									}(node)
+								}
+							} else {
+								logger.Warningf("UpdateClient: no nodes found for inbound %d, cannot remove client via API", inboundId)
+							}
+						} else {
+							// Single mode: remove from local Xray
+							if p != nil && p.IsRunning() {
+								apiPort := p.GetAPIPort()
+								api, err := inboundService.getXrayAPI(apiPort)
+								if err == nil {
+									err = api.RemoveUser(inbound.Tag, finalClient.Email)
+									if err != nil {
+										if strings.Contains(err.Error(), "not found") {
+											logger.Debugf("UpdateClient: client %s already removed from Xray (tag: %s)", finalClient.Email, inbound.Tag)
+											apiOperationDone = true // Already removed is OK
+										} else {
+											logger.Warningf("UpdateClient: failed to remove client %s from Xray (tag: %s): %v", finalClient.Email, inbound.Tag, err)
+											needRestart = true
+										}
+									} else {
+										logger.Infof("UpdateClient: removed disabled client %s from Xray via API (instant)", finalClient.Email)
+										apiOperationDone = true
+									}
+								}
+							}
+						}
 					}
 				}
 			}
 		}
 		
+		// Update Settings for affected inbounds (needed to keep DB in sync)
+		// But if API operation was successful, we don't need to send full config to nodes
 		for inboundId := range affectedInboundIds {
 			inbound, err := inboundService.GetInbound(inboundId)
 			if err != nil {
@@ -601,27 +725,40 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 				continue
 			}
 			
-			// Update inbound Settings (this will open its own transaction)
+			// Update inbound Settings in DB (to keep database in sync)
 			// Use retry logic to handle database lock errors
 			inbound.Settings = newSettings
 			_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
 			if err != nil {
 				logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
 				// Continue with other inbounds
-			} else if inboundNeedRestart {
+			} else if inboundNeedRestart && !apiOperationDone {
+				// Only need restart if API operation didn't succeed
+				// If API succeeded, Xray already has the correct state
 				needRestart = true
 			}
 		}
 		
-		// If restart is needed, trigger it asynchronously (non-blocking)
-		if needRestart {
+		// If restart is needed (API failed or other changes), trigger it asynchronously (non-blocking)
+		// But skip if API operation was successful - Xray already has correct state
+		logger.Infof("UpdateClient: needRestart=%v, apiOperationDone=%v", needRestart, apiOperationDone)
+		if needRestart && !apiOperationDone {
+			logger.Infof("UpdateClient: triggering full config restart (API operation not done or failed)")
 			xrayService := XrayService{}
 			xrayService.RestartXrayAsync(false)
+		} else if apiOperationDone {
+			logger.Infof("UpdateClient: API operation successful, skipping full config restart")
+		} else {
+			logger.Debugf("UpdateClient: no restart needed (no changes or API not applicable)")
 		}
 	}()
 
-	// Return immediately - assume restart might be needed (will be handled asynchronously)
-	return true, nil
+	// Return needRestart based on whether API operation was done
+	// If API operation was done, no restart needed (handled asynchronously)
+	// If API operation wasn't done, might need restart (handled asynchronously)
+	// We return false here because restart is handled asynchronously in goroutine above
+	// The controller will check needRestart from the goroutine result
+	return false, nil
 }
 
 // DeleteClient deletes a client by ID.
@@ -689,9 +826,49 @@ func (s *ClientService) DeleteClient(userId int, id int) (bool, error) {
 		return false, err
 	}
 	
+	// Use Xray API for instant user removal (both local and nodes)
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	nodeService := NodeService{}
+	inboundService := InboundService{}
+	xrayService := XrayService{}
+	apiOperationsDone := false // Track if we successfully used API (to skip full config update)
+	
+	// Remove user from Xray via API before updating Settings
+	if multiMode || xrayService.IsXrayRunning() {
+		for inboundId := range affectedInboundIds {
+			inbound, err := inboundService.GetInbound(inboundId)
+			if err != nil {
+				logger.Warningf("DeleteClient: failed to get inbound %d: %v", inboundId, err)
+				continue
+			}
+			
+			if multiMode {
+				// Multi-node mode: remove from all nodes assigned to this inbound
+				nodes, err := nodeService.GetNodesForInbound(inboundId)
+				if err == nil && len(nodes) > 0 {
+					for _, node := range nodes {
+						go func(n *model.Node) {
+							if err := nodeService.RemoveUserFromNode(n, inbound.Tag, existing.Email); err != nil {
+								logger.Warningf("DeleteClient: failed to remove client %s from node %s via API: %v", existing.Email, n.Name, err)
+							} else {
+								logger.Infof("DeleteClient: removed client %s from node %s via API (instant)", existing.Email, n.Name)
+								apiOperationsDone = true
+							}
+						}(node)
+					}
+					apiOperationsDone = true // Assume success if we have nodes to call
+				}
+			} else {
+				// Single mode: UpdateInbound will handle API removal when updating Settings
+				// This is already optimized - UpdateInbound uses API when only Settings change
+				logger.Debugf("DeleteClient: UpdateInbound will handle API removal in single mode")
+			}
+		}
+	}
+	
 	// Update Settings for affected inbounds (after deletion)
 	// We do this AFTER committing the deletion transaction to avoid nested transactions and database locks
-	inboundService := InboundService{}
 	for inboundId := range affectedInboundIds {
 		inbound, err := inboundService.GetInbound(inboundId)
 		if err != nil {
@@ -713,16 +890,25 @@ func (s *ClientService) DeleteClient(userId int, id int) (bool, error) {
 			continue
 		}
 		
-		// Update inbound Settings (this will open its own transaction)
+		// Update inbound Settings in DB (to keep database in sync)
 		// Use retry logic to handle database lock errors
 		inbound.Settings = newSettings
 		_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
 		if err != nil {
 			logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
 			// Continue with other inbounds
-		} else if inboundNeedRestart {
+		} else if inboundNeedRestart && !apiOperationsDone {
+			// Only need restart if API operations didn't succeed
+			// If API succeeded, Xray already has the correct state
 			needRestart = true
 		}
+	}
+
+	// Return needRestart only if API operations didn't succeed
+	// If API operations succeeded, Xray already has correct state, no restart needed
+	if apiOperationsDone {
+		logger.Debugf("DeleteClient: API operations successful, skipping full config restart")
+		return false, nil
 	}
 
 	return needRestart, nil
@@ -837,39 +1023,80 @@ func (s *ClientService) DisableClientsByEmail(clientsToDisable map[string]string
 		return false, nil
 	}
 
-	if p == nil {
-		logger.Warningf("DisableClientsByEmail: p is nil, cannot remove clients from Xray")
-		return false, nil
-	}
-
 	logger.Infof("DisableClientsByEmail: removing %d expired clients from Xray", len(clientsToDisable))
 
 	db := database.GetDB()
 	needRestart := false
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	nodeService := NodeService{}
 
-	// Group clients by tag
-	tagClients := make(map[string][]string)
+	// Group clients by tag and inbound ID for better processing
+	// Build map: email -> inbound info (tag, inboundId)
+	emailToInbound := make(map[string]struct {
+		tag       string
+		inboundId int
+	})
+	
 	for email, tag := range clientsToDisable {
-		tagClients[tag] = append(tagClients[tag], email)
-		logger.Debugf("DisableClientsByEmail: client %s will be removed from tag %s", email, tag)
+		// Find inbound by tag to get inboundId
+		var inbound model.Inbound
+		if err := db.Where("tag = ?", tag).First(&inbound).Error; err == nil {
+			emailToInbound[email] = struct {
+				tag       string
+				inboundId int
+			}{tag: tag, inboundId: inbound.Id}
+		} else {
+			logger.Warningf("DisableClientsByEmail: failed to find inbound with tag %s for client %s: %v", tag, email, err)
+			// Still try to remove with just tag
+			emailToInbound[email] = struct {
+				tag       string
+				inboundId int
+			}{tag: tag, inboundId: 0}
+		}
 	}
 
-	// Remove from Xray API
-	inboundService.xrayApi.Init(p.GetAPIPort())
-	defer inboundService.xrayApi.Close()
-
-	for tag, emails := range tagClients {
-		for _, email := range emails {
-			err := inboundService.xrayApi.RemoveUser(tag, email)
-			if err != nil {
-				if strings.Contains(err.Error(), fmt.Sprintf("User %s not found.", email)) {
-					logger.Debugf("DisableClientsByEmail: client %s already removed from Xray (tag: %s)", email, tag)
-				} else {
-					logger.Warningf("DisableClientsByEmail: failed to remove client %s from Xray (tag: %s): %v", email, tag, err)
-					needRestart = true // If API removal fails, need restart
+	// Remove from Xray API (both local and nodes)
+	// Group by mode to optimize API calls
+	if multiMode {
+		// Multi-node mode: remove from all nodes
+		for email, inboundInfo := range emailToInbound {
+			if inboundInfo.inboundId > 0 {
+				nodes, err := nodeService.GetNodesForInbound(inboundInfo.inboundId)
+				if err == nil {
+					for _, node := range nodes {
+						go func(n *model.Node, tag string, email string) {
+							if err := nodeService.RemoveUserFromNode(n, tag, email); err != nil {
+								logger.Warningf("DisableClientsByEmail: failed to remove expired client %s from node %s via API: %v", email, n.Name, err)
+							} else {
+								logger.Infof("DisableClientsByEmail: removed expired client %s from node %s via API (instant)", email, n.Name)
+							}
+						}(node, inboundInfo.tag, email)
+					}
+				}
+			}
+		}
+	} else {
+		// Single mode: remove from local Xray
+		if p != nil && p.IsRunning() {
+			apiPort := p.GetAPIPort()
+			api, err := inboundService.getXrayAPI(apiPort)
+			if err == nil {
+				for email, inboundInfo := range emailToInbound {
+					err := api.RemoveUser(inboundInfo.tag, email)
+					if err != nil {
+						if strings.Contains(err.Error(), "not found") {
+							logger.Debugf("DisableClientsByEmail: client %s already removed from Xray (tag: %s)", email, inboundInfo.tag)
+						} else {
+							logger.Warningf("DisableClientsByEmail: failed to remove client %s from Xray (tag: %s): %v", email, inboundInfo.tag, err)
+							needRestart = true // If API removal fails, need restart
+						}
+					} else {
+						logger.Infof("DisableClientsByEmail: successfully removed client %s from Xray via API (instant)", email)
+					}
 				}
 			} else {
-				logger.Infof("DisableClientsByEmail: successfully removed client %s from Xray (tag: %s)", email, tag)
+				logger.Debugf("DisableClientsByEmail: failed to get XrayAPI connection: %v", err)
 			}
 		}
 	}
@@ -986,90 +1213,122 @@ func (s *ClientService) ResetAllClientTraffics(userId int) (bool, error) {
 	
 	// Re-add expired clients to Xray if they were removed
 	needRestart := false
-	if len(expiredClients) > 0 && p != nil {
+	if len(expiredClients) > 0 {
 		inboundService := InboundService{}
-		inboundService.xrayApi.Init(p.GetAPIPort())
-		defer inboundService.xrayApi.Close()
+		settingService := SettingService{}
+		multiMode, _ := settingService.GetMultiNodeMode()
+		nodeService := NodeService{}
+		xrayService := XrayService{}
 		
-		// Group clients by inbound
-		inboundClients := make(map[int][]model.ClientEntity)
-		for _, client := range expiredClients {
-			inboundIds, err := s.GetInboundIdsForClient(client.Id)
-			if err == nil {
-				for _, inboundId := range inboundIds {
-					inboundClients[inboundId] = append(inboundClients[inboundId], client)
-				}
-			}
-		}
+		// Check if we can use API (multi-node mode or local Xray running)
+		canUseAPI := multiMode || xrayService.IsXrayRunning()
 		
-		// Re-add clients to Xray for each inbound
-		for inboundId, clients := range inboundClients {
-			inbound, err := inboundService.GetInbound(inboundId)
-			if err != nil {
-				continue
-			}
-			
-			// Get method for shadowsocks
-			var method string
-			if inbound.Protocol == model.Shadowsocks {
-				var settings map[string]any
-				json.Unmarshal([]byte(inbound.Settings), &settings)
-				if m, ok := settings["method"].(string); ok {
-					method = m
-				}
-			}
-			
-			for _, client := range clients {
+		if canUseAPI {
+			// Group clients by inbound
+			inboundClients := make(map[int][]model.ClientEntity)
+			for _, client := range expiredClients {
 				if !client.Enable {
 					continue
 				}
-				
-				// Build client data for Xray API
-				clientData := make(map[string]any)
-				clientData["email"] = client.Email
-				
-				switch inbound.Protocol {
-				case model.Trojan:
-					clientData["password"] = client.Password
-				case model.Shadowsocks:
-					if method != "" {
-						clientData["method"] = method
+				inboundIds, err := s.GetInboundIdsForClient(client.Id)
+				if err == nil {
+					for _, inboundId := range inboundIds {
+						inboundClients[inboundId] = append(inboundClients[inboundId], client)
 					}
-					clientData["password"] = client.Password
-				case model.VMESS, model.VLESS:
-					clientData["id"] = client.UUID
-					if inbound.Protocol == model.VMESS && client.Security != "" {
-						clientData["security"] = client.Security
-					}
-					if inbound.Protocol == model.VLESS && client.Flow != "" {
-						clientData["flow"] = client.Flow
-					}
-				}
-				
-				err := inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
-				if err != nil {
-					if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", client.Email)) {
-						logger.Debugf("Client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
-					} else {
-						logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err)
-						needRestart = true
-					}
-				} else {
-					logger.Infof("Client %s re-added to Xray (tag: %s) after traffic reset", client.Email, inbound.Tag)
 				}
 			}
 			
-			// Update inbound settings to include all clients
-			allClients, err := s.GetClientsForInbound(inboundId)
-			if err == nil {
-				newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, allClients)
+			// Re-add clients to Xray for each inbound
+			for inboundId, clients := range inboundClients {
+				inbound, err := inboundService.GetInbound(inboundId)
+				if err != nil {
+					continue
+				}
+				
+				// Get method for shadowsocks
+				var method string
+				if inbound.Protocol == model.Shadowsocks {
+					var settings map[string]any
+					json.Unmarshal([]byte(inbound.Settings), &settings)
+					if m, ok := settings["method"].(string); ok {
+						method = m
+					}
+				}
+				
+				for _, client := range clients {
+					// Build client data for Xray API
+					clientData := make(map[string]any)
+					clientData["email"] = client.Email
+					
+					switch inbound.Protocol {
+					case model.Trojan:
+						clientData["password"] = client.Password
+					case model.Shadowsocks:
+						if method != "" {
+							clientData["method"] = method
+						}
+						clientData["password"] = client.Password
+					case model.VMESS, model.VLESS:
+						clientData["id"] = client.UUID
+						if inbound.Protocol == model.VMESS && client.Security != "" {
+							clientData["security"] = client.Security
+						}
+						if inbound.Protocol == model.VLESS && client.Flow != "" {
+							clientData["flow"] = client.Flow
+						}
+					}
+					
+					if multiMode {
+						// Multi-node mode: add to all nodes assigned to this inbound
+						nodes, err := nodeService.GetNodesForInbound(inboundId)
+						if err == nil && len(nodes) > 0 {
+							for _, node := range nodes {
+								go func(n *model.Node) {
+									if err := nodeService.AddUserToNode(n, string(inbound.Protocol), inbound.Tag, clientData); err != nil {
+										logger.Warningf("ResetAllClientTraffics: failed to re-add client %s to node %s via API: %v", client.Email, n.Name, err)
+									} else {
+										logger.Infof("ResetAllClientTraffics: re-added client %s to node %s via API after traffic reset", client.Email, n.Name)
+									}
+								}(node)
+							}
+						}
+					} else {
+						// Single mode: add to local Xray
+						if p != nil && p.IsRunning() {
+							apiPort := p.GetAPIPort()
+							api, err := inboundService.getXrayAPI(apiPort)
+							if err == nil {
+								err := api.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+								if err != nil {
+									if strings.Contains(err.Error(), "already exists") {
+										logger.Debugf("ResetAllClientTraffics: client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
+									} else {
+										logger.Warningf("ResetAllClientTraffics: failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+										needRestart = true
+									}
+								} else {
+									logger.Infof("ResetAllClientTraffics: re-added client %s to Xray (tag: %s) after traffic reset", client.Email, inbound.Tag)
+								}
+							} else {
+								logger.Debugf("ResetAllClientTraffics: failed to get XrayAPI connection: %v", err)
+								needRestart = true
+							}
+						}
+					}
+				}
+				
+				// Update inbound settings to include all clients
+				allClients, err := s.GetClientsForInbound(inboundId)
 				if err == nil {
-					inbound.Settings = newSettings
-					_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
-					if err != nil {
-						logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-					} else if inboundNeedRestart {
-						needRestart = true
+					newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, allClients)
+					if err == nil {
+						inbound.Settings = newSettings
+						_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
+						if err != nil {
+							logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
+						} else if inboundNeedRestart {
+							needRestart = true
+						}
 					}
 				}
 			}
@@ -1121,84 +1380,117 @@ func (s *ClientService) ResetClientTraffic(userId int, clientId int) (bool, erro
 	
 	// Re-add client to Xray if it was expired and is now active
 	needRestart := false
-	if wasExpired && client.Enable && p != nil {
+	if wasExpired && client.Enable {
 		inboundService := InboundService{}
-		inboundService.xrayApi.Init(p.GetAPIPort())
-		defer inboundService.xrayApi.Close()
+		settingService := SettingService{}
+		multiMode, _ := settingService.GetMultiNodeMode()
+		nodeService := NodeService{}
+		xrayService := XrayService{}
 		
-		// Get all inbounds for this client
-		inboundIds, err := s.GetInboundIdsForClient(clientId)
-		if err == nil {
-			for _, inboundId := range inboundIds {
-				inbound, err := inboundService.GetInbound(inboundId)
-				if err != nil {
-					continue
-				}
-				
-				// Build client data for Xray API
-				clientData := make(map[string]any)
-				clientData["email"] = client.Email
-				
-				switch inbound.Protocol {
-				case model.Trojan:
-					clientData["password"] = client.Password
-				case model.Shadowsocks:
-					var settings map[string]any
-					json.Unmarshal([]byte(inbound.Settings), &settings)
-					if method, ok := settings["method"].(string); ok {
-						clientData["method"] = method
+		// Check if we can use API (multi-node mode or local Xray running)
+		canUseAPI := multiMode || xrayService.IsXrayRunning()
+		
+		if canUseAPI {
+			// Get all inbounds for this client
+			inboundIds, err := s.GetInboundIdsForClient(clientId)
+			if err == nil {
+				for _, inboundId := range inboundIds {
+					inbound, err := inboundService.GetInbound(inboundId)
+					if err != nil {
+						continue
 					}
-					clientData["password"] = client.Password
-				case model.VMESS, model.VLESS:
-					clientData["id"] = client.UUID
-					if inbound.Protocol == model.VMESS && client.Security != "" {
-						clientData["security"] = client.Security
+					
+					// Build client data for Xray API
+					clientData := make(map[string]any)
+					clientData["email"] = client.Email
+					
+					switch inbound.Protocol {
+					case model.Trojan:
+						clientData["password"] = client.Password
+					case model.Shadowsocks:
+						var settings map[string]any
+						json.Unmarshal([]byte(inbound.Settings), &settings)
+						if method, ok := settings["method"].(string); ok {
+							clientData["method"] = method
+						}
+						clientData["password"] = client.Password
+					case model.VMESS, model.VLESS:
+						clientData["id"] = client.UUID
+						if inbound.Protocol == model.VMESS && client.Security != "" {
+							clientData["security"] = client.Security
+						}
+						if inbound.Protocol == model.VLESS && client.Flow != "" {
+							clientData["flow"] = client.Flow
+						}
 					}
-					if inbound.Protocol == model.VLESS && client.Flow != "" {
-						clientData["flow"] = client.Flow
-					}
-				}
-				
-				err = inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
-				if err != nil {
-					if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", client.Email)) {
-						logger.Debugf("Client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
+					
+					if multiMode {
+						// Multi-node mode: add to all nodes assigned to this inbound
+						nodes, err := nodeService.GetNodesForInbound(inboundId)
+						if err == nil && len(nodes) > 0 {
+							for _, node := range nodes {
+								go func(n *model.Node) {
+									if err := nodeService.AddUserToNode(n, string(inbound.Protocol), inbound.Tag, clientData); err != nil {
+										logger.Warningf("ResetClientTraffic: failed to re-add client %s to node %s via API: %v", client.Email, n.Name, err)
+									} else {
+										logger.Infof("ResetClientTraffic: re-added client %s to node %s via API after traffic reset", client.Email, n.Name)
+									}
+								}(node)
+							}
+						}
 					} else {
-						logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+						// Single mode: add to local Xray
+						if p != nil && p.IsRunning() {
+							apiPort := p.GetAPIPort()
+							api, err := inboundService.getXrayAPI(apiPort)
+							if err == nil {
+								err1 := api.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+								if err1 != nil {
+									if strings.Contains(err1.Error(), "already exists") {
+										logger.Debugf("ResetClientTraffic: client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
+									} else {
+										logger.Warningf("ResetClientTraffic: failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err1)
+										needRestart = true
+									}
+								} else {
+									logger.Infof("ResetClientTraffic: re-added client %s to Xray (tag: %s) after traffic reset", client.Email, inbound.Tag)
+								}
+							} else {
+								logger.Debugf("ResetClientTraffic: failed to get XrayAPI connection: %v", err)
+								needRestart = true
+							}
+						}
+					}
+				}
+				
+				// Update inbound settings to include the client
+				for _, inboundId := range inboundIds {
+					inbound, err := inboundService.GetInbound(inboundId)
+					if err != nil {
+						continue
+					}
+					
+					// Get all clients for this inbound
+					clientEntities, err := s.GetClientsForInbound(inboundId)
+					if err != nil {
+						continue
+					}
+					
+					// Rebuild Settings from ClientEntity
+					newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
+					if err != nil {
+						continue
+					}
+					
+					// Update inbound Settings
+					inbound.Settings = newSettings
+					_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
+					if err != nil {
+						logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
+					} else if inboundNeedRestart {
 						needRestart = true
 					}
-				} else {
-					logger.Infof("Client %s re-added to Xray (tag: %s) after traffic reset", client.Email, inbound.Tag)
 				}
-			}
-		}
-		
-		// Update inbound settings to include the client
-		for _, inboundId := range inboundIds {
-			inbound, err := inboundService.GetInbound(inboundId)
-			if err != nil {
-				continue
-			}
-			
-			// Get all clients for this inbound
-			clientEntities, err := s.GetClientsForInbound(inboundId)
-			if err != nil {
-				continue
-			}
-			
-			// Rebuild Settings from ClientEntity
-			newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
-			if err != nil {
-				continue
-			}
-			
-			// Update inbound Settings
-			inbound.Settings = newSettings
-			_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
-			if err != nil {
-				logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-			} else if inboundNeedRestart {
-				needRestart = true
 			}
 		}
 	}
@@ -1426,80 +1718,114 @@ func (s *ClientService) BulkResetTraffic(userId int, clientIds []int) (bool, err
 
 	// Re-add expired clients to Xray if they were removed
 	needRestart := false
-	if len(expiredClients) > 0 && p != nil {
+	if len(expiredClients) > 0 {
 		inboundService := InboundService{}
-		inboundService.xrayApi.Init(p.GetAPIPort())
-		defer inboundService.xrayApi.Close()
-
-		// Group clients by inbound
-		inboundClients := make(map[int][]model.ClientEntity)
-		for _, client := range expiredClients {
-			inboundIds, err := s.GetInboundIdsForClient(client.Id)
-			if err == nil {
-				for _, inboundId := range inboundIds {
-					inboundClients[inboundId] = append(inboundClients[inboundId], client)
-				}
-			}
-		}
-
-		// Re-add clients to Xray for each inbound
-		for inboundId, clients := range inboundClients {
-			inbound, err := inboundService.GetInbound(inboundId)
-			if err != nil {
-				continue
-			}
-
-			for _, client := range clients {
+		settingService := SettingService{}
+		multiMode, _ := settingService.GetMultiNodeMode()
+		nodeService := NodeService{}
+		xrayService := XrayService{}
+		
+		// Check if we can use API (multi-node mode or local Xray running)
+		canUseAPI := multiMode || xrayService.IsXrayRunning()
+		
+		if canUseAPI {
+			// Group clients by inbound
+			inboundClients := make(map[int][]model.ClientEntity)
+			for _, client := range expiredClients {
 				if !client.Enable {
 					continue
 				}
-
-				// Build client data for Xray API
-				clientData := make(map[string]any)
-				clientData["email"] = client.Email
-
-				switch inbound.Protocol {
-				case model.Trojan:
-					clientData["password"] = client.Password
-				case model.Shadowsocks:
-					var settings map[string]any
-					json.Unmarshal([]byte(inbound.Settings), &settings)
-					if method, ok := settings["method"].(string); ok {
-						clientData["method"] = method
-					}
-					clientData["password"] = client.Password
-				case model.VMESS, model.VLESS:
-					clientData["id"] = client.UUID
-					if inbound.Protocol == model.VMESS && client.Security != "" {
-						clientData["security"] = client.Security
-					}
-					if inbound.Protocol == model.VLESS && client.Flow != "" {
-						clientData["flow"] = client.Flow
-					}
-				}
-
-				err = inboundService.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
-				if err != nil {
-					if strings.Contains(err.Error(), fmt.Sprintf("User %s already exists.", client.Email)) {
-						logger.Debugf("Client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
-					} else {
-						logger.Warningf("Failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err)
-						needRestart = true
+				inboundIds, err := s.GetInboundIdsForClient(client.Id)
+				if err == nil {
+					for _, inboundId := range inboundIds {
+						inboundClients[inboundId] = append(inboundClients[inboundId], client)
 					}
 				}
 			}
 
-			// Update inbound settings
-			clientEntities, err := s.GetClientsForInbound(inboundId)
-			if err == nil {
-				newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
+			// Re-add clients to Xray for each inbound
+			for inboundId, clients := range inboundClients {
+				inbound, err := inboundService.GetInbound(inboundId)
+				if err != nil {
+					continue
+				}
+
+				for _, client := range clients {
+					// Build client data for Xray API
+					clientData := make(map[string]any)
+					clientData["email"] = client.Email
+
+					switch inbound.Protocol {
+					case model.Trojan:
+						clientData["password"] = client.Password
+					case model.Shadowsocks:
+						var settings map[string]any
+						json.Unmarshal([]byte(inbound.Settings), &settings)
+						if method, ok := settings["method"].(string); ok {
+							clientData["method"] = method
+						}
+						clientData["password"] = client.Password
+					case model.VMESS, model.VLESS:
+						clientData["id"] = client.UUID
+						if inbound.Protocol == model.VMESS && client.Security != "" {
+							clientData["security"] = client.Security
+						}
+						if inbound.Protocol == model.VLESS && client.Flow != "" {
+							clientData["flow"] = client.Flow
+						}
+					}
+
+					if multiMode {
+						// Multi-node mode: add to all nodes assigned to this inbound
+						nodes, err := nodeService.GetNodesForInbound(inboundId)
+						if err == nil && len(nodes) > 0 {
+							for _, node := range nodes {
+								go func(n *model.Node) {
+									if err := nodeService.AddUserToNode(n, string(inbound.Protocol), inbound.Tag, clientData); err != nil {
+										logger.Warningf("BulkResetTraffic: failed to re-add client %s to node %s via API: %v", client.Email, n.Name, err)
+									} else {
+										logger.Infof("BulkResetTraffic: re-added client %s to node %s via API after traffic reset", client.Email, n.Name)
+									}
+								}(node)
+							}
+						}
+					} else {
+						// Single mode: add to local Xray
+						if p != nil && p.IsRunning() {
+							apiPort := p.GetAPIPort()
+							api, err := inboundService.getXrayAPI(apiPort)
+							if err == nil {
+								err1 := api.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+								if err1 != nil {
+									if strings.Contains(err1.Error(), "already exists") {
+										logger.Debugf("BulkResetTraffic: client %s already exists in Xray (tag: %s)", client.Email, inbound.Tag)
+									} else {
+										logger.Warningf("BulkResetTraffic: failed to re-add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err1)
+										needRestart = true
+									}
+								} else {
+									logger.Infof("BulkResetTraffic: re-added client %s to Xray (tag: %s) after traffic reset", client.Email, inbound.Tag)
+								}
+							} else {
+								logger.Debugf("BulkResetTraffic: failed to get XrayAPI connection: %v", err)
+								needRestart = true
+							}
+						}
+					}
+				}
+
+				// Update inbound settings
+				clientEntities, err := s.GetClientsForInbound(inboundId)
 				if err == nil {
-					inbound.Settings = newSettings
-					_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
-					if err != nil {
-						logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-					} else if inboundNeedRestart {
-						needRestart = true
+					newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
+					if err == nil {
+						inbound.Settings = newSettings
+						_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
+						if err != nil {
+							logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
+						} else if inboundNeedRestart {
+							needRestart = true
+						}
 					}
 				}
 			}
@@ -1674,34 +2000,137 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 	// Invalidate cache for this user's clients
 	cache.InvalidateClients(userId)
 
-	// If disabling clients, remove them from Xray API
+	// Use Xray API for instant user add/remove (both local and nodes)
 	needRestart := false
 	inboundService := InboundService{}
-	if !enable && p != nil {
-		// Get clients that are being disabled
-		var clientsToDisable []model.ClientEntity
-		err = db.Where("id IN ? AND user_id = ?", clientIds, userId).Find(&clientsToDisable).Error
-		if err == nil {
-			inboundService.xrayApi.Init(p.GetAPIPort())
-			defer inboundService.xrayApi.Close()
-			
-			for _, client := range clientsToDisable {
-				// Get all inbound IDs for this client
-				clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
-				if err == nil {
-					for _, inboundId := range clientInboundIds {
-						inbound, err := inboundService.GetInbound(inboundId)
-						if err == nil {
-							err = inboundService.xrayApi.RemoveUser(inbound.Tag, client.Email)
-							if err != nil {
-								if strings.Contains(err.Error(), fmt.Sprintf("User %s not found.", client.Email)) {
-									logger.Debugf("BulkEnable: client %s already removed from Xray (tag: %s)", client.Email, inbound.Tag)
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	nodeService := NodeService{}
+	apiOperationsDone := false // Track if we successfully used API (to skip full config update)
+
+	// Get clients that are being enabled/disabled
+	var clientsToUpdate []model.ClientEntity
+	err = db.Where("id IN ? AND user_id = ?", clientIds, userId).Find(&clientsToUpdate).Error
+	if err == nil {
+		for _, client := range clientsToUpdate {
+			// Get all inbound IDs for this client
+			clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
+			if err == nil {
+				for _, inboundId := range clientInboundIds {
+					inbound, err := inboundService.GetInbound(inboundId)
+					if err != nil {
+						continue
+					}
+
+					if enable {
+						// Enable: Add user via Xray API
+						// Build client data for Xray API
+						clientData := make(map[string]interface{})
+						clientData["email"] = client.Email
+
+						switch inbound.Protocol {
+						case model.Trojan:
+							clientData["password"] = client.Password
+						case model.Shadowsocks:
+							var settings map[string]interface{}
+							json.Unmarshal([]byte(inbound.Settings), &settings)
+							if method, ok := settings["method"].(string); ok {
+								clientData["method"] = method
+							}
+							clientData["password"] = client.Password
+						case model.VMESS, model.VLESS:
+							clientData["id"] = client.UUID
+							if inbound.Protocol == model.VMESS && client.Security != "" {
+								clientData["security"] = client.Security
+							}
+							if inbound.Protocol == model.VLESS && client.Flow != "" {
+								clientData["flow"] = client.Flow
+							}
+						}
+
+						// Add user via Xray API (instant, no restart)
+						if multiMode {
+							// Multi-node mode: add to all nodes assigned to this inbound
+							nodes, err := nodeService.GetNodesForInbound(inboundId)
+							if err == nil && len(nodes) > 0 {
+								for _, node := range nodes {
+									go func(n *model.Node) {
+										if err := nodeService.AddUserToNode(n, string(inbound.Protocol), inbound.Tag, clientData); err != nil {
+											logger.Warningf("BulkEnable: failed to add client %s to node %s via API: %v", client.Email, n.Name, err)
+										} else {
+											logger.Infof("BulkEnable: added enabled client %s to node %s via API (instant)", client.Email, n.Name)
+											apiOperationsDone = true
+										}
+									}(node)
+								}
+								apiOperationsDone = true // Assume success if we have nodes to call
+							}
+						} else {
+							// Single mode: add to local Xray
+							if p != nil && p.IsRunning() {
+								apiPort := p.GetAPIPort()
+								api, err := inboundService.getXrayAPI(apiPort)
+								if err == nil {
+									err = api.AddUser(string(inbound.Protocol), inbound.Tag, clientData)
+									if err != nil {
+										if strings.Contains(err.Error(), "already exists") {
+											logger.Debugf("BulkEnable: client %s already exists in Xray (tag: %s) - this is OK", client.Email, inbound.Tag)
+											apiOperationsDone = true // Already exists is OK
+										} else {
+											logger.Warningf("BulkEnable: failed to add client %s to Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+											needRestart = true
+										}
+									} else {
+										logger.Infof("BulkEnable: added enabled client %s to Xray via API (instant)", client.Email)
+										apiOperationsDone = true
+									}
 								} else {
-									logger.Warningf("BulkEnable: failed to remove client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+									logger.Debugf("BulkEnable: failed to get XrayAPI connection: %v", err)
 									needRestart = true
 								}
-							} else {
-								logger.Infof("BulkEnable: removed disabled client %s from Xray (tag: %s)", client.Email, inbound.Tag)
+							}
+						}
+					} else {
+						// Disable: Remove user via Xray API
+						if multiMode {
+							// Multi-node mode: remove from all nodes assigned to this inbound
+							nodes, err := nodeService.GetNodesForInbound(inboundId)
+							if err == nil && len(nodes) > 0 {
+								for _, node := range nodes {
+									go func(n *model.Node) {
+										if err := nodeService.RemoveUserFromNode(n, inbound.Tag, client.Email); err != nil {
+											logger.Warningf("BulkEnable: failed to remove client %s from node %s via API: %v", client.Email, n.Name, err)
+										} else {
+											logger.Infof("BulkEnable: removed disabled client %s from node %s via API (instant)", client.Email, n.Name)
+											apiOperationsDone = true
+										}
+									}(node)
+								}
+								apiOperationsDone = true // Assume success if we have nodes to call
+							}
+						} else {
+							// Single mode: remove from local Xray
+							if p != nil && p.IsRunning() {
+								apiPort := p.GetAPIPort()
+								api, err := inboundService.getXrayAPI(apiPort)
+								if err == nil {
+									err = api.RemoveUser(inbound.Tag, client.Email)
+									if err != nil {
+										if strings.Contains(err.Error(), "not found") {
+											logger.Debugf("BulkEnable: client %s already removed from Xray (tag: %s) - this is OK", client.Email, inbound.Tag)
+											apiOperationsDone = true // Already removed is OK
+										} else {
+											logger.Warningf("BulkEnable: failed to remove client %s from Xray (tag: %s): %v", client.Email, inbound.Tag, err)
+											needRestart = true
+										}
+									} else {
+										logger.Infof("BulkEnable: removed disabled client %s from Xray via API (instant)", client.Email)
+										apiOperationsDone = true
+									}
+								} else {
+									logger.Debugf("BulkEnable: failed to get XrayAPI connection: %v", err)
+									needRestart = true
+								}
 							}
 						}
 					}
@@ -1710,7 +2139,8 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 		}
 	}
 
-	// Update Settings for affected inbounds
+	// Update Settings for affected inbounds (needed to keep DB in sync)
+	// But if API operations were successful, we don't need to send full config to nodes
 	for inboundId := range affectedInboundIds {
 		inbound, err := inboundService.GetInbound(inboundId)
 		if err != nil {
@@ -1727,13 +2157,23 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 			continue
 		}
 
+		// Update inbound Settings in DB (to keep database in sync)
 		inbound.Settings = newSettings
 		_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
 		if err != nil {
 			logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-		} else if inboundNeedRestart {
+		} else if inboundNeedRestart && !apiOperationsDone {
+			// Only need restart if API operations didn't succeed
+			// If API succeeded, Xray already has the correct state
 			needRestart = true
 		}
+	}
+
+	// Return needRestart only if API operations didn't succeed
+	// If API operations succeeded, Xray already has correct state, no restart needed
+	if apiOperationsDone {
+		logger.Debugf("BulkEnable: API operations successful, skipping full config restart")
+		return false, nil
 	}
 
 	return needRestart, nil

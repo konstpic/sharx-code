@@ -286,7 +286,13 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 	err = db.Model(model.Inbound{}).Preload("ClientStats").Where(`id in (
 		SELECT DISTINCT inbounds.id
 		FROM inbounds,
-			jsonb_array_elements((inbounds.settings::jsonb)->'clients') AS client 
+			jsonb_array_elements(
+				CASE 
+					WHEN jsonb_typeof((inbounds.settings::jsonb)->'clients') = 'array' 
+					THEN (inbounds.settings::jsonb)->'clients'
+					ELSE '[]'::jsonb
+				END
+			) AS client 
 		WHERE
 			protocol in ('vmess','vless','trojan','shadowsocks')
 			AND (client.value::jsonb)->>'subId' = ? AND enable = ?

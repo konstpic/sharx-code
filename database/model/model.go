@@ -156,6 +156,10 @@ type ClientEntity struct {
 	Up         int64 `json:"up,omitempty" form:"-" gorm:"default:0"`         // Upload traffic in bytes
 	Down       int64 `json:"down,omitempty" form:"-" gorm:"default:0"`       // Download traffic in bytes
 	AllTime    int64 `json:"allTime,omitempty" form:"-" gorm:"default:0"`    // All-time traffic usage
+	
+	// Speed statistics (calculated on backend, not stored in DB)
+	UpSpeed    int64 `json:"upSpeed,omitempty" form:"-" gorm:"-"`            // Upload speed in bits per second (calculated)
+	DownSpeed  int64 `json:"downSpeed,omitempty" form:"-" gorm:"-"`          // Download speed in bits per second (calculated)
 	LastOnline int64 `json:"lastOnline,omitempty" form:"-" gorm:"default:0"` // Last online timestamp
 	
 	// HWID (Hardware ID) restrictions

@@ -472,59 +472,149 @@ type NodeClientTraffic struct {
 // GetNodeStats retrieves traffic and online clients statistics from a node.
 func (s *NodeService) GetNodeStats(node *model.Node, reset bool) (*NodeStatsResponse, error) {
 	// Calculate adaptive timeout based on node's response time history
-	// Use response time * 3 + buffer, but within reasonable bounds
-	timeout := 10 * time.Second // Default timeout
+	// For high-load nodes, use longer timeouts and more retries
+	baseTimeout := 10 * time.Second // Default timeout
+	maxTimeout := 30 * time.Second  // Default max timeout
+	
+	// Detect high-load nodes: response time > 5 seconds or timeout history
+	isHighLoad := false
+	if node.ResponseTime > 5000 { // > 5 seconds
+		isHighLoad = true
+		maxTimeout = 60 * time.Second // Increase max timeout to 60s for high-load nodes
+	}
+	
 	if node.ResponseTime > 0 {
 		// Convert response time from milliseconds to duration
 		responseTime := time.Duration(node.ResponseTime) * time.Millisecond
-		// Use 3x response time + 2 second buffer, but at least 5 seconds and at most 30 seconds
-		calculatedTimeout := responseTime*3 + 2*time.Second
+		// Use 5x response time + 3 second buffer for high-load nodes, 3x + 2s for normal
+		multiplier := 3
+		buffer := 2 * time.Second
+		if isHighLoad {
+			multiplier = 5
+			buffer = 3 * time.Second
+		}
+		calculatedTimeout := responseTime*time.Duration(multiplier) + buffer
 		if calculatedTimeout < 5*time.Second {
-			timeout = 5 * time.Second
-		} else if calculatedTimeout > 30*time.Second {
-			timeout = 30 * time.Second
+			baseTimeout = 5 * time.Second
+		} else if calculatedTimeout > maxTimeout {
+			baseTimeout = maxTimeout
 		} else {
-			timeout = calculatedTimeout
+			baseTimeout = calculatedTimeout
 		}
 	}
 	
-	client, err := s.createHTTPClient(node, timeout)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
-	}
-
 	url := fmt.Sprintf("%s/api/v1/stats", node.Address)
 	if reset {
 		url += "?reset=true"
 	}
 
-	logger.Debugf("[Node: %s] Getting stats from %s (reset=%v)", node.Name, url, reset)
+	logger.Debugf("[Node: %s] Getting stats from %s (reset=%v, timeout=%v, highLoad=%v)", 
+		node.Name, url, reset, baseTimeout, isHighLoad)
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// Retry logic: more attempts for high-load nodes
+	maxRetries := 3
+	if isHighLoad {
+		maxRetries = 5 // More retries for high-load nodes
+	}
+	
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff with longer delays for high-load nodes
+			baseBackoff := 500 * time.Millisecond
+			if isHighLoad {
+				baseBackoff = 1 * time.Second // Start with 1s for high-load nodes
+			}
+			backoff := baseBackoff * time.Duration(1<<uint(attempt-1))
+			// Cap backoff at 5s for normal nodes, 10s for high-load
+			maxBackoff := 5 * time.Second
+			if isHighLoad {
+				maxBackoff = 10 * time.Second
+			}
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			logger.Debugf("[Node: %s] Retrying stats request (attempt %d/%d) after %v", node.Name, attempt+1, maxRetries, backoff)
+			time.Sleep(backoff)
+			
+			// Increase timeout on retry for high-load nodes (adaptive timeout)
+			if isHighLoad && attempt > 1 {
+				baseTimeout = baseTimeout + 5*time.Second
+				if baseTimeout > maxTimeout {
+					baseTimeout = maxTimeout
+				}
+				logger.Debugf("[Node: %s] Increased timeout to %v for retry attempt %d", node.Name, baseTimeout, attempt+1)
+			}
+		}
+
+		client, err := s.createHTTPClient(node, baseTimeout)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create HTTP client: %w", err)
+			continue
+		}
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create request: %w", err)
+			continue
+		}
+
+		req.Header.Set("Authorization", "Bearer "+node.ApiKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			// Check if error is retryable (timeout, network errors)
+			errMsg := err.Error()
+			isRetryable := strings.Contains(errMsg, "context deadline exceeded") || 
+			              strings.Contains(errMsg, "timeout") ||
+			              strings.Contains(errMsg, "Client.Timeout") ||
+			              strings.Contains(errMsg, "connection refused") ||
+			              strings.Contains(errMsg, "no such host") ||
+			              strings.Contains(errMsg, "network is unreachable")
+			
+			if !isRetryable || attempt == maxRetries-1 {
+				// Non-retryable error or last attempt
+				if strings.Contains(errMsg, "context deadline exceeded") || 
+				   strings.Contains(errMsg, "timeout") ||
+				   strings.Contains(errMsg, "Client.Timeout") {
+					logger.Debugf("[Node: %s] Stats request timeout after %d attempts: %v (URL: %s)", node.Name, attempt+1, err, url)
+				} else {
+					logger.Errorf("[Node: %s] Failed to request stats after %d attempts: %v (URL: %s)", node.Name, attempt+1, err, url)
+				}
+				return nil, fmt.Errorf("failed to request node stats: %w", err)
+			}
+			// Retryable error, continue to next attempt
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			// Retry on 500/503 (server errors) and 429 (rate limit) for high-load nodes
+			if (resp.StatusCode == 500 || resp.StatusCode == 503 || (resp.StatusCode == 429 && isHighLoad)) && attempt < maxRetries-1 {
+				lastErr = fmt.Errorf("node returned status code %d: %s", resp.StatusCode, string(body))
+				continue
+			}
+			return nil, fmt.Errorf("node returned status code %d: %s", resp.StatusCode, string(body))
+		}
+
+		var stats NodeStatsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+			lastErr = fmt.Errorf("failed to decode response: %w", err)
+			// Don't retry on decode errors
+			return nil, lastErr
+		}
+
+		// Success
+		if attempt > 0 {
+			logger.Debugf("[Node: %s] Stats request succeeded on attempt %d/%d", node.Name, attempt+1, maxRetries)
+		}
+		return &stats, nil
 	}
 
-	req.Header.Set("Authorization", "Bearer "+node.ApiKey)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.Errorf("[Node: %s] Failed to request stats: %v (URL: %s)", node.Name, err, url)
-		return nil, fmt.Errorf("failed to request node stats: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("node returned status code %d: %s", resp.StatusCode, string(body))
-	}
-
-	var stats NodeStatsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return &stats, nil
+	// All retries exhausted
+	return nil, fmt.Errorf("failed to request node stats after %d attempts: %w", maxRetries, lastErr)
 }
 
 // UpdateNodeTraffic updates traffic statistics for a node and checks traffic limit.
@@ -671,11 +761,14 @@ func (s *NodeService) CollectNodeStats() error {
 	for i := 0; i < len(nodesWithInbounds); i++ {
 		result := <-results
 		if result.err != nil {
-			// Check if error is expected (XRAY not running, 404 for old nodes, etc.)
+			// Check if error is expected (XRAY not running, 404 for old nodes, timeout, etc.)
 			errMsg := result.err.Error()
 			if strings.Contains(errMsg, "XRAY is not running") || 
 			   strings.Contains(errMsg, "status code 404") ||
-			   strings.Contains(errMsg, "status code 500") {
+			   strings.Contains(errMsg, "status code 500") ||
+			   strings.Contains(errMsg, "context deadline exceeded") ||
+			   strings.Contains(errMsg, "timeout") ||
+			   strings.Contains(errMsg, "Client.Timeout") {
 				// These are expected errors, log as debug only
 				logger.Debugf("[Node: %s] Skipping stats collection: %v", result.node.Name, result.err)
 			} else {
@@ -753,7 +846,12 @@ func (s *NodeService) CollectNodeStats() error {
 				}
 			}
 
-			// Sum traffic from this node
+			// Sum traffic from this node (values are in bytes from Xray API)
+			// Log if traffic seems unusually small (might indicate unit conversion issue)
+			if nct.Up > 0 || nct.Down > 0 {
+				logger.Debugf("[Node: %s] Client %s traffic: Up=%d bytes, Down=%d bytes", 
+					result.node.Name, email, nct.Up, nct.Down)
+			}
 			clientTrafficMap[email].Up += nct.Up
 			clientTrafficMap[email].Down += nct.Down
 		}
@@ -830,9 +928,16 @@ func (s *NodeService) CollectNodeStats() error {
 			if err := tx.Commit().Error; err != nil {
 				logger.Warningf("Failed to commit client traffic: %v", err)
 			} else {
-				// Handle clients that need to be disabled
+				// Handle clients that need to be disabled - remove them from Xray API (both local and nodes)
 				if len(clientsToDisable) > 0 {
-					logger.Infof("Traffic limit exceeded for %d clients, restart may be needed", len(clientsToDisable))
+					logger.Infof("Traffic limit exceeded for %d clients, removing from Xray via API", len(clientsToDisable))
+					// Remove expired clients from Xray API asynchronously (don't block traffic processing)
+					go func() {
+						_, err := clientService.DisableClientsByEmail(clientsToDisable, inboundService)
+						if err != nil {
+							logger.Warningf("Failed to disable expired clients via API: %v", err)
+						}
+					}()
 				}
 			}
 		}
@@ -1030,6 +1135,198 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte) err
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return nil
+}
+
+// AddUserToNode adds a user to an inbound on a node via Xray API (instant, no restart).
+func (s *NodeService) AddUserToNode(node *model.Node, protocol, inboundTag string, user map[string]interface{}) error {
+	client, err := s.createHTTPClient(node, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	requestBody := map[string]interface{}{
+		"protocol":   protocol,
+		"inboundTag": inboundTag,
+		"user":       user,
+	}
+
+	requestJSON, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/add-user", node.Address)
+	logger.Debugf("[Node: %s] Adding user via API: %s in inbound %s", node.Name, user["email"], inboundTag)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", node.ApiKey))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		bodyStr := string(body)
+		// Check if user already exists (this is OK - user is already in Xray)
+		if strings.Contains(bodyStr, "already exists") {
+			logger.Infof("[Node: %s] User %s already exists in inbound %s - this is OK", node.Name, user["email"], inboundTag)
+			return nil // Already exists is OK
+		}
+		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, bodyStr)
+	}
+
+	logger.Infof("[Node: %s] User added successfully via API: %s in inbound %s", node.Name, user["email"], inboundTag)
+	return nil
+}
+
+// RemoveUserFromNode removes a user from an inbound on a node via Xray API (instant, no restart).
+func (s *NodeService) RemoveUserFromNode(node *model.Node, inboundTag, email string) error {
+	client, err := s.createHTTPClient(node, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	requestBody := map[string]interface{}{
+		"inboundTag": inboundTag,
+		"email":      email,
+	}
+
+	requestJSON, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/remove-user", node.Address)
+	logger.Debugf("[Node: %s] Removing user via API: %s from inbound %s", node.Name, email, inboundTag)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", node.ApiKey))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		// Check if user not found (this is OK - might already be removed)
+		if strings.Contains(string(body), "not found") || strings.Contains(string(body), "already removed") {
+			logger.Debugf("[Node: %s] User %s already removed or not found in inbound %s", node.Name, email, inboundTag)
+			return nil
+		}
+		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	logger.Infof("[Node: %s] User removed successfully via API: %s from inbound %s", node.Name, email, inboundTag)
+	return nil
+}
+
+// UpdateInboundOnNode updates an inbound configuration on a node via Xray API (instant, no restart).
+// This is faster than full config reload - it uses DelInbound + AddInbound.
+func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte) error {
+	client, err := s.createHTTPClient(node, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	requestBody := map[string]interface{}{
+		"inboundConfig": json.RawMessage(inboundConfig),
+	}
+
+	requestJSON, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Parse inbound config to get tag for logging
+	var inboundJSON map[string]interface{}
+	tag := "unknown"
+	if err := json.Unmarshal(inboundConfig, &inboundJSON); err == nil {
+		if t, ok := inboundJSON["tag"].(string); ok {
+			tag = t
+		}
+	}
+
+	url := fmt.Sprintf("%s/api/v1/update-inbound", node.Address)
+	logger.Debugf("[Node: %s] Updating inbound via API: %s", node.Name, tag)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", node.ApiKey))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	logger.Infof("[Node: %s] Inbound %s updated successfully via API (instant)", node.Name, tag)
+	return nil
+}
+
+// RemoveInboundFromNode removes an inbound configuration on a node via Xray API (instant, no restart).
+func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string) error {
+	client, err := s.createHTTPClient(node, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP client: %w", err)
+	}
+
+	requestBody := map[string]interface{}{
+		"tag": tag,
+	}
+
+	requestJSON, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/v1/remove-inbound", node.Address)
+	logger.Debugf("[Node: %s] Removing inbound via API: %s", node.Name, tag)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", node.ApiKey))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	logger.Infof("[Node: %s] Inbound %s removed successfully via API (instant)", node.Name, tag)
 	return nil
 }
 

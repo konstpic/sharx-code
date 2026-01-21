@@ -20,6 +20,9 @@ var (
 	isNeedXrayRestart atomic.Bool // Indicates that restart was requested for Xray
 	isManuallyStopped atomic.Bool // Indicates that Xray was stopped manually from the panel
 	result            string
+	// API connection pool: map[apiPort]*xray.XrayAPI
+	apiConnectionPool sync.Map
+	apiPoolLock       sync.Mutex
 )
 
 // XrayService provides business logic for Xray process management.
@@ -46,6 +49,66 @@ func NewXrayService() XrayService {
 // IsXrayRunning checks if the Xray process is currently running.
 func (s *XrayService) IsXrayRunning() bool {
 	return p != nil && p.IsRunning()
+}
+
+// GetOrCreateAPI gets or creates a cached XrayAPI connection for the given API port.
+// This reuses connections to avoid the overhead of creating new gRPC connections.
+// Returns the API client and a cleanup function that should be called when done.
+// Note: The cleanup function does NOT close the connection (it's reused), it just releases the reference.
+func (s *XrayService) GetOrCreateAPI(apiPort int) (*xray.XrayAPI, func(), error) {
+	if apiPort <= 0 {
+		return nil, nil, fmt.Errorf("invalid API port: %d", apiPort)
+	}
+
+	// Try to get existing connection
+	if conn, ok := apiConnectionPool.Load(apiPort); ok {
+		api := conn.(*xray.XrayAPI)
+		if api.IsConnected() {
+			// Connection is still valid, reuse it
+			return api, func() {
+				// No-op: connection stays in pool for reuse
+			}, nil
+		}
+		// Connection is dead, remove it from pool
+		apiConnectionPool.Delete(apiPort)
+	}
+
+	// Create new connection
+	apiPoolLock.Lock()
+	defer apiPoolLock.Unlock()
+
+	// Double-check after acquiring lock (another goroutine might have created it)
+	if conn, ok := apiConnectionPool.Load(apiPort); ok {
+		api := conn.(*xray.XrayAPI)
+		if api.IsConnected() {
+			return api, func() {}, nil
+		}
+	}
+
+	// Create new API connection
+	api := &xray.XrayAPI{}
+	if err := api.Init(apiPort); err != nil {
+		return nil, nil, fmt.Errorf("failed to init XrayAPI: %w", err)
+	}
+
+	// Store in pool
+	apiConnectionPool.Store(apiPort, api)
+
+	return api, func() {
+		// No-op: connection stays in pool for reuse
+	}, nil
+}
+
+// CloseAPIConnections closes all cached API connections.
+// This should be called when Xray is stopped or restarted.
+func (s *XrayService) CloseAPIConnections() {
+	apiConnectionPool.Range(func(key, value interface{}) bool {
+		api := value.(*xray.XrayAPI)
+		api.Close()
+		apiConnectionPool.Delete(key)
+		return true
+	})
+	logger.Debug("All API connections closed")
 }
 
 // GetXrayErr returns the error from the Xray process, if any.
@@ -108,20 +171,20 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	// This is critical when updating only the panel image without DB migrations,
 	// as old JSON in the DB may be incompatible with the new code.
 	if err := s.settingService.EnsureXrayTemplateConfigValid(); err != nil {
-		logger.Infof("[DEBUG-AGENT] GetXrayConfig: failed EnsureXrayTemplateConfigValid: %v", err)
+		logger.Debugf("[DEBUG-AGENT] GetXrayConfig: failed EnsureXrayTemplateConfigValid: %v", err)
 		// Continue anyway; GetXrayConfigTemplate() will still try to return something.
 	}
 
 	templateConfig, err := s.settingService.GetXrayConfigTemplate()
 	if err != nil {
-		logger.Infof("[DEBUG-AGENT] GetXrayConfig: GetXrayConfigTemplate error: %v", err)
+		logger.Debugf("[DEBUG-AGENT] GetXrayConfig: GetXrayConfigTemplate error: %v", err)
 		return nil, err
 	}
 
 	xrayConfig := &xray.Config{}
 	err = json.Unmarshal([]byte(templateConfig), xrayConfig)
 	if err != nil {
-		logger.Infof("[DEBUG-AGENT] GetXrayConfig: failed to unmarshal template JSON: %v", err)
+		logger.Debugf("[DEBUG-AGENT] GetXrayConfig: failed to unmarshal template JSON: %v", err)
 		return nil, err
 	}
 
@@ -224,10 +287,13 @@ func (s *XrayService) GetXrayTraffic() ([]*xray.Traffic, []*xray.ClientTraffic, 
 		return nil, nil, err
 	}
 	apiPort := p.GetAPIPort()
-	s.xrayAPI.Init(apiPort)
-	defer s.xrayAPI.Close()
+	api, cleanup, err := s.GetOrCreateAPI(apiPort)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer cleanup()
 
-	traffic, clientTraffic, err := s.xrayAPI.GetTraffic(true)
+	traffic, clientTraffic, err := api.GetTraffic(true)
 	if err != nil {
 		logger.Debug("Failed to fetch Xray traffic:", err)
 		return nil, nil, err
@@ -264,6 +330,8 @@ func (s *XrayService) RestartXray(isForce bool) error {
 			logger.Debug("It does not need to restart Xray")
 			return nil
 		}
+		// Close API connections before stopping Xray
+		s.CloseAPIConnections()
 		p.Stop()
 	}
 
@@ -573,6 +641,8 @@ func (s *XrayService) StopXray() error {
 	isManuallyStopped.Store(true)
 	logger.Debug("Attempting to stop Xray...")
 	if s.IsXrayRunning() {
+		// Close API connections before stopping Xray
+		s.CloseAPIConnections()
 		return p.Stop()
 	}
 	// Xray is not running, nothing to stop - this is not an error

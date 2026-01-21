@@ -34,11 +34,11 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	// Add logging middleware for all inbound routes
 	g.Use(func(c *gin.Context) {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] InboundController middleware: request, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+		logger.Debugf("[DEBUG-AGENT] InboundController middleware: request, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 		// #endregion
 		c.Next()
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] InboundController middleware: response, path=%s, method=%s, status=%d", c.Request.URL.Path, c.Request.Method, c.Writer.Status())
+		logger.Debugf("[DEBUG-AGENT] InboundController middleware: response, path=%s, method=%s, status=%d", c.Request.URL.Path, c.Request.Method, c.Writer.Status())
 		// #endregion
 	})
 

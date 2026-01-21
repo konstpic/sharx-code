@@ -42,13 +42,13 @@ func (a *APIController) SetDocsFS(docsFS fs.FS) {
 func (a *APIController) checkAPIAuth(c *gin.Context) {
 	// #region agent log
 	if strings.HasPrefix(c.Request.URL.Path, "/panel/api/inbounds") {
-		logger.Infof("[DEBUG-AGENT] checkAPIAuth: inbound request, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+		logger.Debugf("[DEBUG-AGENT] checkAPIAuth: inbound request, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	}
 	// #endregion
 	if !session.IsLogin(c) {
 		// #region agent log
 		if strings.HasPrefix(c.Request.URL.Path, "/panel/api/inbounds") {
-			logger.Infof("[DEBUG-AGENT] checkAPIAuth: UNAUTHORIZED, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+			logger.Debugf("[DEBUG-AGENT] checkAPIAuth: UNAUTHORIZED, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 		}
 		// #endregion
 		c.AbortWithStatus(http.StatusNotFound)
@@ -57,7 +57,7 @@ func (a *APIController) checkAPIAuth(c *gin.Context) {
 	// #region agent log
 	if strings.HasPrefix(c.Request.URL.Path, "/panel/api/inbounds") {
 		user := session.GetLoginUser(c)
-		logger.Infof("[DEBUG-AGENT] checkAPIAuth: AUTHORIZED, path=%s, method=%s, userId=%d", c.Request.URL.Path, c.Request.Method, user.Id)
+		logger.Debugf("[DEBUG-AGENT] checkAPIAuth: AUTHORIZED, path=%s, method=%s, userId=%d", c.Request.URL.Path, c.Request.Method, user.Id)
 	}
 	// #endregion
 	c.Next()
