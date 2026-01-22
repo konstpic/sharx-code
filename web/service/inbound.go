@@ -220,6 +220,29 @@ func (s *InboundService) GetInboundsByTrafficReset(period string) ([]*model.Inbo
 	return inbounds, nil
 }
 
+// generateInboundTag generates a unique tag for an inbound.
+// In single-node mode: uses port (and listen address if specified)
+// In multi-node mode: uses ID to ensure uniqueness (allows same port with different SNI)
+func (s *InboundService) generateInboundTag(inbound *model.Inbound, multiMode bool) string {
+	if multiMode {
+		// In multi-node mode, use ID for uniqueness (allows same port with different SNI)
+		if inbound.Id > 0 {
+			return fmt.Sprintf("inbound-%d", inbound.Id)
+		}
+		// If ID not yet assigned (during creation), use port temporarily
+		// Tag will be updated after creation when ID is available
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			return fmt.Sprintf("inbound-%v", inbound.Port)
+		}
+		return fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+	}
+	// Single-node mode: use port (and listen address if specified)
+	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+		return fmt.Sprintf("inbound-%v", inbound.Port)
+	}
+	return fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+}
+
 func (s *InboundService) checkPortExist(listen string, port int, ignoreId int) (bool, error) {
 	db := database.GetDB()
 	if listen == "" || listen == "0.0.0.0" || listen == "::" || listen == "::0" {
@@ -397,12 +420,18 @@ func (s *InboundService) checkEmailExistForInbound(inbound *model.Inbound) (stri
 // then saves the inbound to the database and optionally adds it to the running Xray instance.
 // Returns the created inbound, whether Xray needs restart, and any error.
 func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
-	exist, err := s.checkPortExist(inbound.Listen, inbound.Port, 0)
-	if err != nil {
-		return inbound, false, err
-	}
-	if exist {
-		return inbound, false, common.NewError("Port already exists:", inbound.Port)
+	// Check port uniqueness only in single-node mode
+	// In multi-node mode, same port is allowed (with different SNI), but one node cannot have two inbounds with same port
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	if !multiMode {
+		exist, err := s.checkPortExist(inbound.Listen, inbound.Port, 0)
+		if err != nil {
+			return inbound, false, err
+		}
+		if exist {
+			return inbound, false, common.NewError("Port already exists:", inbound.Port)
+		}
 	}
 
 	existEmail, err := s.checkEmailExistForInbound(inbound)
@@ -471,6 +500,19 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	
 	if err != nil {
 		return inbound, false, err
+	}
+	
+	// In multi-node mode, update tag with ID after creation to ensure uniqueness
+	if multiMode && inbound.Id > 0 {
+		newTag := s.generateInboundTag(inbound, multiMode)
+		if inbound.Tag != newTag {
+			inbound.Tag = newTag
+			if err := db.Model(inbound).Update("tag", newTag).Error; err != nil {
+				logger.Warningf("Failed to update inbound tag after creation: %v", err)
+			} else {
+				logger.Debugf("Updated inbound tag to %s after creation (multi-node mode)", newTag)
+			}
+		}
 	}
 	
 	// Invalidate cache for this user's inbounds
@@ -740,18 +782,24 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	logger.Debugf("[DEBUG-AGENT] UpdateInbound service: START, inboundId=%d, listen=%s, port=%d, protocol=%s", inbound.Id, inbound.Listen, inbound.Port, inbound.Protocol)
 	// #endregion
 
-	exist, err := s.checkPortExist(inbound.Listen, inbound.Port, inbound.Id)
-	if err != nil {
-		// #region agent log
-		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: checkPortExist error, inboundId=%d, error=%v", inbound.Id, err)
-		// #endregion
-		return inbound, false, err
-	}
-	if exist {
-		// #region agent log
-		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: port already exists, inboundId=%d, port=%d", inbound.Id, inbound.Port)
-		// #endregion
-		return inbound, false, common.NewError("Port already exists:", inbound.Port)
+	// Check port uniqueness only in single-node mode
+	// In multi-node mode, same port is allowed (with different SNI), but one node cannot have two inbounds with same port
+	settingService := SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	if !multiMode {
+		exist, err := s.checkPortExist(inbound.Listen, inbound.Port, inbound.Id)
+		if err != nil {
+			// #region agent log
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound service: checkPortExist error, inboundId=%d, error=%v", inbound.Id, err)
+			// #endregion
+			return inbound, false, err
+		}
+		if exist {
+			// #region agent log
+			logger.Debugf("[DEBUG-AGENT] UpdateInbound service: port already exists, inboundId=%d, port=%d", inbound.Id, inbound.Port)
+			// #endregion
+			return inbound, false, common.NewError("Port already exists:", inbound.Port)
+		}
 	}
 
 	oldInbound, err := s.GetInbound(inbound.Id)
@@ -842,11 +890,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Settings = inbound.Settings
 	oldInbound.StreamSettings = inbound.StreamSettings
 	oldInbound.Sniffing = inbound.Sniffing
-	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
-		oldInbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
-	} else {
-		oldInbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
-	}
+	// Generate tag based on mode (multi-node uses ID for uniqueness)
+	oldInbound.Tag = s.generateInboundTag(inbound, multiMode)
 
 	needRestart := false
 
@@ -860,9 +905,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		oldInbound.StreamSettings == inbound.StreamSettings &&
 		oldInbound.Sniffing == inbound.Sniffing
 
-	// Check multi-node mode
-	settingService := SettingService{}
-	multiMode, _ := settingService.GetMultiNodeMode()
+	// Check multi-node mode (reuse variables already declared above)
+	// settingService and multiMode are already declared at the beginning of the function
 
 	// Use fast API update if:
 	// 1. Only Settings changed (clients list), OR

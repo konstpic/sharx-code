@@ -979,6 +979,31 @@ func (s *NodeService) AssignInboundToNode(inboundId, nodeId int) error {
 // AssignInboundToNodes assigns an inbound to multiple nodes.
 func (s *NodeService) AssignInboundToNodes(inboundId int, nodeIds []int) error {
 	db := database.GetDB()
+	
+	// Get the inbound to check its port
+	var inbound model.Inbound
+	if err := db.Where("id = ?", inboundId).First(&inbound).Error; err != nil {
+		return fmt.Errorf("failed to get inbound %d: %w", inboundId, err)
+	}
+	
+	// Check for port conflicts: one node cannot be assigned to two inbounds with the same port
+	for _, nodeId := range nodeIds {
+		if nodeId > 0 {
+			// Get all inbounds currently assigned to this node
+			existingInbounds, err := s.GetInboundsForNode(nodeId)
+			if err != nil {
+				return fmt.Errorf("failed to get inbounds for node %d: %w", nodeId, err)
+			}
+			
+			// Check if any existing inbound has the same port (excluding the current inbound)
+			for _, existingInbound := range existingInbounds {
+				if existingInbound.Id != inboundId && existingInbound.Port == inbound.Port {
+					return fmt.Errorf("node %d is already assigned to inbound %d with port %d. One node cannot be assigned to two inbounds with the same port", nodeId, existingInbound.Id, inbound.Port)
+				}
+			}
+		}
+	}
+	
 	// First, remove all existing assignments
 	if err := db.Where("inbound_id = ?", inboundId).Delete(&model.InboundNodeMapping{}).Error; err != nil {
 		return err

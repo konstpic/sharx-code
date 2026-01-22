@@ -176,10 +176,24 @@ func (a *InboundController) addInbound(c *gin.Context) {
 	
 	user := session.GetLoginUser(c)
 	inbound.UserId = user.Id
-	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
-		inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+	// Tag will be generated in AddInbound service based on multi-node mode
+	// For now, set a temporary tag (will be updated after creation if multi-node mode)
+	settingService := service.SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	if multiMode {
+		// In multi-node mode, use port temporarily (will be updated with ID after creation)
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+		} else {
+			inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		}
 	} else {
-		inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		// Single-node mode: use port (and listen address if specified)
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+		} else {
+			inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		}
 	}
 
 	inbound, needRestart, err := a.inboundService.AddInbound(inbound)
@@ -664,10 +678,24 @@ func (a *InboundController) importInbound(c *gin.Context) {
 	user := session.GetLoginUser(c)
 	inbound.Id = 0
 	inbound.UserId = user.Id
-	if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
-		inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+	// Tag will be generated in AddInbound service based on multi-node mode
+	// For now, set a temporary tag (will be updated after creation if multi-node mode)
+	settingService := service.SettingService{}
+	multiMode, _ := settingService.GetMultiNodeMode()
+	if multiMode {
+		// In multi-node mode, use port temporarily (will be updated with ID after creation)
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+		} else {
+			inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		}
 	} else {
-		inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		// Single-node mode: use port (and listen address if specified)
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			inbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+		} else {
+			inbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		}
 	}
 
 	for index := range inbound.ClientStats {
