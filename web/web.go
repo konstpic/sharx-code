@@ -243,10 +243,12 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		if strings.HasPrefix(uri, assetsBasePath) {
 			// Cache static assets for 1 year with immutable flag
 			c.Header("Cache-Control", "max-age=31536000, public, immutable")
-		} else if strings.HasPrefix(uri, basePath+"panel/api/") && c.Request.Method == "GET" {
-			// For API GET requests, use no-cache but allow conditional requests
-			// This enables browser caching with validation
-			c.Header("Cache-Control", "no-cache, must-revalidate")
+		} else if strings.HasPrefix(uri, basePath+"panel/") {
+			// For all panel requests (HTML pages, API calls, settings), disable caching
+			// This ensures that settings and dynamic content are always fresh
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
 		}
 	})
 
