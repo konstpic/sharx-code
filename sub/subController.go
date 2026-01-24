@@ -86,44 +86,6 @@ func (a *SUBController) subs(c *gin.Context) {
 			result += sub + "\n"
 		}
 
-		// Get User-Agent and log it
-		userAgent := c.GetHeader("User-Agent")
-		logger.Infof("subController: Request to /sub/%s from User-Agent: %s", subId, userAgent)
-		
-		// Check if request is from Happ or V2RayTun app and encryption is enabled
-		userAgentLower := strings.ToLower(userAgent)
-		isHappApp := strings.Contains(userAgentLower, "happ")
-		isV2RayTunApp := strings.Contains(userAgentLower, "v2raytun")
-		
-		// If request is from Happ or V2RayTun app, return encrypted URL directly
-		if (isHappApp || isV2RayTunApp) {
-			// Build URLs to get encrypted versions
-			subURL, subJsonURL := a.subService.BuildURLs(scheme, hostWithPort, a.subPath, a.subJsonPath, subId)
-			basePath, exists := c.Get("base_path")
-			if !exists {
-				basePath = "/"
-			}
-			basePathStr := basePath.(string)
-			if basePathStr == "/" {
-				basePathStr = "/" + subId + "/"
-			} else {
-				basePathStr = strings.TrimRight(basePathStr, "/") + "/" + subId + "/"
-			}
-			page := a.subService.BuildPageData(subId, hostHeader, traffic, lastOnline, subs, subURL, subJsonURL, basePathStr)
-			
-			if isHappApp && page.HappEncryptedUrl != "" {
-				logger.Infof("subController: Detected Happ app, returning encrypted URL: %s", page.HappEncryptedUrl)
-				c.String(200, page.HappEncryptedUrl)
-				return
-			} else if isV2RayTunApp && page.V2RayTunEncryptedUrl != "" {
-				logger.Infof("subController: Detected V2RayTun app, returning encrypted URL: %s", page.V2RayTunEncryptedUrl)
-				c.String(200, page.V2RayTunEncryptedUrl)
-				return
-			} else {
-				logger.Warningf("subController: Detected app (%s) but encryption is disabled, returning plain result", userAgent)
-			}
-		}
-
 		// If the request expects HTML (e.g., browser) or explicitly asked (?html=1 or ?view=html), render the info page here
 		accept := c.GetHeader("Accept")
 		if strings.Contains(strings.ToLower(accept), "text/html") || c.Query("html") == "1" || strings.EqualFold(c.Query("view"), "html") {
