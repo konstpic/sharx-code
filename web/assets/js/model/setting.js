@@ -51,8 +51,13 @@ class AllSetting {
         this.subOnlyHappV2RayTun = false;
         this.subHideConfigLinks = false;
         this.subShowOnlyHappV2RayTun = false;
+        this.subAutoRotateKeys = false; // Automatically rotate client keys before subscription update interval
         this.subHeaders = "{}"; // JSON string for subscription headers
         this.subProviderID = ""; // Provider ID for Happ extended headers
+        this.subPageTheme = ""; // Subscription page theme: "rainbow", "coffee", "banana", "sunset"
+        this.subPageLogoUrl = ""; // Logo URL for subscription page
+        this.subPageBrandText = ""; // Brand text for subscription page
+        this.subPageBackgroundUrl = ""; // Background image URL for subscription card
 
         this.timeLocation = "Local";
 
@@ -92,6 +97,20 @@ class AllSetting {
         }
         
         ObjectUtil.cloneProps(this, data);
+        
+        // Ensure new subscription page customization fields are strings (handle undefined/null)
+        if (this.subPageTheme === undefined || this.subPageTheme === null) {
+            this.subPageTheme = "";
+        }
+        if (this.subPageLogoUrl === undefined || this.subPageLogoUrl === null) {
+            this.subPageLogoUrl = "";
+        }
+        if (this.subPageBrandText === undefined || this.subPageBrandText === null) {
+            this.subPageBrandText = "";
+        }
+        if (this.subPageBackgroundUrl === undefined || this.subPageBackgroundUrl === null) {
+            this.subPageBackgroundUrl = "";
+        }
         
         // Ensure multiNodeMode is boolean (handle string "true"/"false" from backend)
         if (this.multiNodeMode !== undefined && this.multiNodeMode !== null) {

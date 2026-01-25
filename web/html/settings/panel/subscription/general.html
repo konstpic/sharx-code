@@ -107,6 +107,13 @@
             </template>
         </a-setting-list-item>
         <a-setting-list-item paddings="small">
+            <template #title>Auto Rotate Keys</template>
+            <template #description>Automatically rotate client keys (UUID/password) for all inbounds before subscription update interval. If subscription update is 1 hour, keys will be rotated at 59 minutes to allow propagation.</template>
+            <template #control>
+                <a-switch v-model="allSetting.subAutoRotateKeys"></a-switch>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.subProviderID"}}</template>
             <template #description>{{ i18n "pages.settings.subProviderIDDesc"}}</template>
             <template #control>
@@ -133,7 +140,7 @@
     <a-collapse-panel key="4" header='{{ i18n "pages.settings.intervals"}}'>
         <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.subUpdates"}}</template>
-            <template #description>{{ i18n "pages.settings.subUpdatesDesc"}}</template>
+            <template #description>Base subscription update interval in minutes. This value is used by default for the Profile-Update-Interval header. If a custom ProfileUpdateInterval is set in subscription headers, it will override this value. Used for automatic key rotation timing.</template>
             <template #control>
                 <a-input-number :min="1" v-model="allSetting.subUpdates" :style="{ width: '100%' }"></a-input-number>
             </template>

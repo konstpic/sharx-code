@@ -79,8 +79,13 @@ var defaultValueMap = map[string]string{
 	"subOnlyHappV2RayTun":          "false",
 	"subShowOnlyHappV2RayTun":      "false",
 	"subHideConfigLinks":           "false",
+	"subAutoRotateKeys":            "false", // Automatically rotate client keys before subscription update interval
 	"subHeaders":                   "{}", // JSON string for subscription headers
 	"subProviderID":                "",   // Provider ID for Happ extended headers
+	"subPageTheme":                 "",   // Subscription page theme: "rainbow", "coffee", "banana", "sunset"
+	"subPageLogoUrl":               "",   // Logo URL for subscription page
+	"subPageBrandText":             "",   // Brand text for subscription page
+	"subPageBackgroundUrl":         "",   // Background image URL for subscription card
 	"datepicker":                  "gregorian",
 	"warp":                        "",
 	"externalTrafficInformEnable": "false",
@@ -681,8 +686,48 @@ func (s *SettingService) GetSubShowOnlyHappV2RayTun() (bool, error) {
 	return s.getBool("subShowOnlyHappV2RayTun")
 }
 
+func (s *SettingService) GetSubAutoRotateKeys() (bool, error) {
+	return s.getBool("subAutoRotateKeys")
+}
+
+func (s *SettingService) SetSubAutoRotateKeys(value bool) error {
+	return s.setBool("subAutoRotateKeys", value)
+}
+
 func (s *SettingService) GetSubProviderID() (string, error) {
 	return s.getString("subProviderID")
+}
+
+func (s *SettingService) GetSubPageTheme() (string, error) {
+	return s.getString("subPageTheme")
+}
+
+func (s *SettingService) SetSubPageTheme(theme string) error {
+	return s.setString("subPageTheme", theme)
+}
+
+func (s *SettingService) GetSubPageLogoUrl() (string, error) {
+	return s.getString("subPageLogoUrl")
+}
+
+func (s *SettingService) SetSubPageLogoUrl(url string) error {
+	return s.setString("subPageLogoUrl", url)
+}
+
+func (s *SettingService) GetSubPageBrandText() (string, error) {
+	return s.getString("subPageBrandText")
+}
+
+func (s *SettingService) SetSubPageBrandText(text string) error {
+	return s.setString("subPageBrandText", text)
+}
+
+func (s *SettingService) GetSubPageBackgroundUrl() (string, error) {
+	return s.getString("subPageBackgroundUrl")
+}
+
+func (s *SettingService) SetSubPageBackgroundUrl(url string) error {
+	return s.setString("subPageBackgroundUrl", url)
 }
 
 func (s *SettingService) SetSubHideConfigLinks(value bool) error {

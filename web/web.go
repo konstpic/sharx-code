@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -381,6 +382,59 @@ func (s *Server) startTask() {
 	s.cron.AddJob("@every 1s", job.NewCheckNodeHealthJob())
 	// Collect node statistics (traffic and online clients) every 1 second for real-time updates
 	s.cron.AddJob("@every 1s", job.NewCollectNodeStatsJob())
+
+	// Client keys rotation job (runs before subscription update interval)
+	// Schedule dynamically based on subscription update interval
+	// Priority: 1) Custom header ProfileUpdateInterval (in hours) - takes precedence
+	//           2) Base subUpdates setting (in minutes)
+	go func() {
+		// Wait a bit for settings to be loaded
+		time.Sleep(time.Second * 2)
+		
+		autoRotate, err := s.settingService.GetSubAutoRotateKeys()
+		if err == nil && autoRotate {
+			var subUpdatesMinutes int
+			
+			// Check custom headers first
+			customHeaders, err := s.settingService.GetSubHeadersParsed()
+			if err == nil && customHeaders != nil && customHeaders.ProfileUpdateInterval != "" {
+				// Use custom header value (in hours, convert to minutes)
+				profileUpdateIntervalHours, err := strconv.Atoi(customHeaders.ProfileUpdateInterval)
+				if err == nil && profileUpdateIntervalHours > 0 {
+					subUpdatesMinutes = profileUpdateIntervalHours * 60
+					logger.Infof("Client keys auto-rotation: using custom ProfileUpdateInterval: %d hours (%d minutes)", 
+						profileUpdateIntervalHours, subUpdatesMinutes)
+				}
+			}
+			
+			// If custom header not set, use base subUpdates
+			if subUpdatesMinutes == 0 {
+				subUpdatesStr, err := s.settingService.GetSubUpdates()
+				if err == nil && subUpdatesStr != "" {
+					subUpdates, err := strconv.Atoi(subUpdatesStr)
+					if err == nil && subUpdates > 0 {
+						subUpdatesMinutes = subUpdates
+						logger.Infof("Client keys auto-rotation: using base subUpdates: %d minutes", subUpdatesMinutes)
+					}
+				}
+			}
+			
+			if subUpdatesMinutes > 1 {
+				// Rotate keys 1 minute before subscription update interval
+				// If subUpdates is 60 minutes, rotate every 59 minutes
+				rotateInterval := subUpdatesMinutes - 1
+				if rotateInterval < 1 {
+					rotateInterval = 1
+				}
+				cronSpec := fmt.Sprintf("@every %dm", rotateInterval)
+				s.cron.AddJob(cronSpec, job.NewRotateClientKeysJob())
+				logger.Infof("Client keys auto-rotation enabled: rotating keys every %d minutes (subscription update: %d minutes)", 
+					rotateInterval, subUpdatesMinutes)
+			} else {
+				logger.Warning("Client keys auto-rotation: subscription update interval is too small or not set, skipping")
+			}
+		}
+	}()
 
 	// Make a traffic condition every day, 8:30
 	var entry cron.EntryID

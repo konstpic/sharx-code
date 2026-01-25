@@ -550,6 +550,12 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		}
 	}
 
+	// Send notification about inbound creation
+	tgbotService := Tgbot{}
+	if tgbotService.IsRunning() {
+		tgbotService.NotifyInboundCreated(inbound)
+	}
+
 	return inbound, needRestart, err
 }
 
@@ -728,6 +734,14 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		// #region agent log
 		logger.Debugf("[DEBUG-AGENT] DelInbound: after cache invalidation, userId=%d, error=%v", userId, cacheErr)
 		// #endregion
+		
+		// Send notification about inbound deletion (only if deletion was successful)
+		if err == nil {
+			tgbotService := Tgbot{}
+			if tgbotService.IsRunning() {
+				tgbotService.NotifyInboundDeleted(inbound)
+			}
+		}
 	}
 	return needRestart, err
 }
@@ -1017,6 +1031,14 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		// #region agent log
 		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: DB transaction FAILED, inboundId=%d, error=%v", inbound.Id, err)
 		// #endregion
+	}
+
+	// Send notification about inbound update (only if update was successful)
+	if err == nil {
+		tgbotService := Tgbot{}
+		if tgbotService.IsRunning() {
+			tgbotService.NotifyInboundUpdated(inbound, oldInbound)
+		}
 	}
 
 	return inbound, needRestart, err

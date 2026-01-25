@@ -15,8 +15,14 @@
                 <a-card hoverable class="subscription-card">
                     <template #title>
                         <a-space>
-                            <span>{{ i18n "subscription.title" }}</span>
-                            <a-tag>{{ .sId }}</a-tag>
+                            <a-space v-if="logoUrl || brandText" :size="8">
+                                <img v-if="logoUrl" :src="logoUrl" alt="Logo" style="width: 32px; height: 32px; object-fit: contain;" />
+                                <span v-if="brandText" style="font-weight: 500;">[[ brandText ]]</span>
+                            </a-space>
+                            <a-space>
+                                <span>{{ i18n "subscription.title" }}</span>
+                                <a-tag>{{ .sId }}</a-tag>
+                            </a-space>
                         </a-space>
                     </template>
                     <template #extra>
@@ -261,7 +267,10 @@
     data-datepicker="{{ .datepicker }}" data-hideconfiglinks="{{ .hideConfigLinks }}"
     data-showonlyhappv2raytun="{{ .showOnlyHappV2RayTun }}"
     {{ if .happEncryptedUrl }}data-happ-encrypted-url="{{ .happEncryptedUrl }}"{{ else }}data-happ-encrypted-url=""{{ end }}
-    {{ if .v2raytunEncryptedUrl }}data-v2raytun-encrypted-url="{{ .v2raytunEncryptedUrl }}"{{ else }}data-v2raytun-encrypted-url=""{{ end }}></template>
+    {{ if .v2raytunEncryptedUrl }}data-v2raytun-encrypted-url="{{ .v2raytunEncryptedUrl }}"{{ else }}data-v2raytun-encrypted-url=""{{ end }}
+    {{ if .theme }}data-theme="{{ .theme }}"{{ else }}data-theme=""{{ end }}
+    {{ if .logoUrl }}data-logo-url="{{ .logoUrl }}"{{ else }}data-logo-url=""{{ end }}
+    {{ if .brandText }}data-brand-text="{{ .brandText }}"{{ else }}data-brand-text=""{{ end }}></template>
 <script type="application/json" id="subscription-encrypted-urls">{{ .encryptedUrlsJSON }}</script>
 <textarea id="subscription-links" style="display:none">{{ range .result }}{{ . }}
 {{ end }}</textarea>

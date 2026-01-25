@@ -2333,6 +2333,249 @@ func (t *Tgbot) SendMsgToTgbotAdmins(msg string, replyMarkup ...telego.ReplyMark
 	}
 }
 
+// NotifyClientCreated sends a notification when a client is created.
+func (t *Tgbot) NotifyClientCreated(client *model.ClientEntity) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("✅ <b>Клиент создан</b>\n\n"+
+		"<b>Email:</b> %s\n"+
+		"<b>Статус:</b> %s\n"+
+		"<b>Включен:</b> %v\n"+
+		"<b>Лимит трафика:</b> %s\n"+
+		"<b>Время истечения:</b> %s\n"+
+		"<b>Время:</b> %s",
+		client.Email,
+		client.Status,
+		client.Enable,
+		formatTrafficLimit(client.TotalGB),
+		formatExpiryTime(client.ExpiryTime),
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if client.Comment != "" {
+		msg += fmt.Sprintf("\n<b>Комментарий:</b> %s", client.Comment)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyClientUpdated sends a notification when a client is updated.
+func (t *Tgbot) NotifyClientUpdated(client *model.ClientEntity, oldClient *model.ClientEntity) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("🔄 <b>Клиент изменен</b>\n\n"+
+		"<b>Email:</b> %s\n"+
+		"<b>Статус:</b> %s\n"+
+		"<b>Включен:</b> %v\n"+
+		"<b>Лимит трафика:</b> %s\n"+
+		"<b>Время истечения:</b> %s\n"+
+		"<b>Время:</b> %s",
+		client.Email,
+		client.Status,
+		client.Enable,
+		formatTrafficLimit(client.TotalGB),
+		formatExpiryTime(client.ExpiryTime),
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if oldClient != nil {
+		changes := []string{}
+		if oldClient.Email != client.Email {
+			changes = append(changes, fmt.Sprintf("Email: %s → %s", oldClient.Email, client.Email))
+		}
+		if oldClient.Enable != client.Enable {
+			changes = append(changes, fmt.Sprintf("Включен: %v → %v", oldClient.Enable, client.Enable))
+		}
+		if oldClient.TotalGB != client.TotalGB {
+			changes = append(changes, fmt.Sprintf("Лимит трафика: %s → %s", formatTrafficLimit(oldClient.TotalGB), formatTrafficLimit(client.TotalGB)))
+		}
+		if oldClient.ExpiryTime != client.ExpiryTime {
+			changes = append(changes, fmt.Sprintf("Время истечения: %s → %s", formatExpiryTime(oldClient.ExpiryTime), formatExpiryTime(client.ExpiryTime)))
+		}
+		if oldClient.Status != client.Status {
+			changes = append(changes, fmt.Sprintf("Статус: %s → %s", oldClient.Status, client.Status))
+		}
+		if len(changes) > 0 {
+			msg += "\n\n<b>Изменения:</b>\n" + strings.Join(changes, "\n")
+		}
+	}
+
+	if client.Comment != "" {
+		msg += fmt.Sprintf("\n<b>Комментарий:</b> %s", client.Comment)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyClientDeleted sends a notification when a client is deleted.
+func (t *Tgbot) NotifyClientDeleted(client *model.ClientEntity) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("❌ <b>Клиент удален</b>\n\n"+
+		"<b>Email:</b> %s\n"+
+		"<b>Время:</b> %s",
+		client.Email,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if client.Comment != "" {
+		msg += fmt.Sprintf("\n<b>Комментарий:</b> %s", client.Comment)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyClientDisabled sends a notification when a client is disabled.
+func (t *Tgbot) NotifyClientDisabled(client *model.ClientEntity) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("⛔ <b>Клиент отключен</b>\n\n"+
+		"<b>Email:</b> %s\n"+
+		"<b>Статус:</b> %s\n"+
+		"<b>Время:</b> %s",
+		client.Email,
+		client.Status,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if client.Comment != "" {
+		msg += fmt.Sprintf("\n<b>Комментарий:</b> %s", client.Comment)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyClientFirstConnection sends a notification when a client connects for the first time.
+func (t *Tgbot) NotifyClientFirstConnection(client *model.ClientEntity) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("🟢 <b>Первое подключение клиента</b>\n\n"+
+		"<b>Email:</b> %s\n"+
+		"<b>Время:</b> %s",
+		client.Email,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if client.Comment != "" {
+		msg += fmt.Sprintf("\n<b>Комментарий:</b> %s", client.Comment)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyInboundCreated sends a notification when an inbound is created.
+func (t *Tgbot) NotifyInboundCreated(inbound *model.Inbound) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("✅ <b>Инбаунд создан</b>\n\n"+
+		"<b>Название:</b> %s\n"+
+		"<b>Протокол:</b> %s\n"+
+		"<b>Порт:</b> %d\n"+
+		"<b>Включен:</b> %v\n"+
+		"<b>Время:</b> %s",
+		inbound.Remark,
+		inbound.Protocol,
+		inbound.Port,
+		inbound.Enable,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if inbound.Listen != "" && inbound.Listen != "0.0.0.0" {
+		msg += fmt.Sprintf("\n<b>Listen:</b> %s", inbound.Listen)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyInboundUpdated sends a notification when an inbound is updated.
+func (t *Tgbot) NotifyInboundUpdated(inbound *model.Inbound, oldInbound *model.Inbound) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("🔄 <b>Инбаунд изменен</b>\n\n"+
+		"<b>Название:</b> %s\n"+
+		"<b>Протокол:</b> %s\n"+
+		"<b>Порт:</b> %d\n"+
+		"<b>Включен:</b> %v\n"+
+		"<b>Время:</b> %s",
+		inbound.Remark,
+		inbound.Protocol,
+		inbound.Port,
+		inbound.Enable,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if oldInbound != nil {
+		changes := []string{}
+		if oldInbound.Remark != inbound.Remark {
+			changes = append(changes, fmt.Sprintf("Название: %s → %s", oldInbound.Remark, inbound.Remark))
+		}
+		if oldInbound.Port != inbound.Port {
+			changes = append(changes, fmt.Sprintf("Порт: %d → %d", oldInbound.Port, inbound.Port))
+		}
+		if oldInbound.Protocol != inbound.Protocol {
+			changes = append(changes, fmt.Sprintf("Протокол: %s → %s", oldInbound.Protocol, inbound.Protocol))
+		}
+		if oldInbound.Enable != inbound.Enable {
+			changes = append(changes, fmt.Sprintf("Включен: %v → %v", oldInbound.Enable, inbound.Enable))
+		}
+		if len(changes) > 0 {
+			msg += "\n\n<b>Изменения:</b>\n" + strings.Join(changes, "\n")
+		}
+	}
+
+	if inbound.Listen != "" && inbound.Listen != "0.0.0.0" {
+		msg += fmt.Sprintf("\n<b>Listen:</b> %s", inbound.Listen)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// NotifyInboundDeleted sends a notification when an inbound is deleted.
+func (t *Tgbot) NotifyInboundDeleted(inbound *model.Inbound) {
+	if !t.IsRunning() {
+		return
+	}
+
+	msg := fmt.Sprintf("❌ <b>Инбаунд удален</b>\n\n"+
+		"<b>Название:</b> %s\n"+
+		"<b>Протокол:</b> %s\n"+
+		"<b>Порт:</b> %d\n"+
+		"<b>Время:</b> %s",
+		inbound.Remark,
+		inbound.Protocol,
+		inbound.Port,
+		time.Now().Format("2006-01-02 15:04:05"))
+
+	if inbound.Listen != "" && inbound.Listen != "0.0.0.0" {
+		msg += fmt.Sprintf("\n<b>Listen:</b> %s", inbound.Listen)
+	}
+
+	t.SendMsgToTgbotAdmins(msg)
+}
+
+// Helper functions for formatting
+func formatTrafficLimit(totalGB int64) string {
+	if totalGB == 0 {
+		return "Безлимит"
+	}
+	return fmt.Sprintf("%d GB", totalGB)
+}
+
+func formatExpiryTime(expiryTime int64) string {
+	if expiryTime == 0 {
+		return "Без срока"
+	}
+	t := time.Unix(expiryTime/1000, 0)
+	return t.Format("2006-01-02 15:04:05")
+}
+
 // SendReport sends a periodic report to admin chats.
 func (t *Tgbot) SendReport() {
 	runTime, err := t.settingService.GetTgbotRuntime()

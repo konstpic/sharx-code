@@ -312,7 +312,19 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 		// Add user in onlineUsers array on traffic (only if not disabled)
 		if newTotal > 0 && client.Enable {
 			onlineClients = append(onlineClients, client.Email)
+			// Check if this is the first connection (LastOnline was 0 before update)
+			wasFirstConnection := client.LastOnline == 0
 			client.LastOnline = time.Now().UnixMilli()
+			
+			// Send notification about first connection
+			if wasFirstConnection {
+				go func(c *model.ClientEntity) {
+					tgbotService := Tgbot{}
+					if tgbotService.IsRunning() {
+						tgbotService.NotifyClientFirstConnection(c)
+					}
+				}(client)
+			}
 		}
 	}
 

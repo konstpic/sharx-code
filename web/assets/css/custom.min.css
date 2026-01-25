@@ -2717,6 +2717,12 @@ li.ant-calendar-time-picker-select-option-selected {
 }
 .subscription-page .subscription-card {
   margin: 2rem 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background-color: transparent !important;
+}
+.dark .subscription-page .subscription-card {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background-color: transparent !important;
 }
 .mb-10 {
   margin-bottom: 10px;
@@ -4003,4 +4009,288 @@ html[data-glass-morphism="true"] .clients-page .clients-selection-actions {
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
+}
+/* Subscription page themes */
+@property --sub-theme-rotate {
+  syntax: "<angle>";
+  initial-value: 45deg;
+  inherits: false;
+}
+/* Rainbow theme - animated gradient like QR codes - applied only to subscription card */
+/* Rainbow theme - applied to subscription card body background (not header) */
+.subscription-page.subscription-theme-rainbow .subscription-card .ant-card-body {
+  background-image: linear-gradient(
+    var(--sub-theme-rotate),
+    #76ccb4,
+    #ff6b9d,
+    #c44569,
+    #f8b500,
+    #76ccb4
+  );
+  background-size: 200% 200%;
+  animation: sub-rainbow-gradient 8s linear infinite;
+}
+.dark .subscription-page.subscription-theme-rainbow .subscription-card .ant-card-body {
+  background-image: linear-gradient(
+    var(--sub-theme-rotate),
+    #195141,
+    #5a2969,
+    #8b2d4a,
+    #7a5a1a,
+    #195141
+  );
+}
+/* Rainbow theme - card header in theme color */
+.subscription-page.subscription-theme-rainbow .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #76ccb4, #ff6b9d);
+  border-bottom: 1px solid rgba(118, 204, 180, 0.3);
+}
+.dark .subscription-page.subscription-theme-rainbow .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #195141, #5a2969);
+  border-bottom: 1px solid rgba(25, 81, 65, 0.3);
+}
+.subscription-page.subscription-theme-rainbow .subscription-card .ant-card-head-title,
+.subscription-page.subscription-theme-rainbow .subscription-card .ant-card-extra {
+  color: #fff;
+}
+@keyframes sub-rainbow-gradient {
+  from {
+    --sub-theme-rotate: 0deg;
+    background-position: 0% 50%;
+  }
+  to {
+    --sub-theme-rotate: 360deg;
+    background-position: 100% 50%;
+  }
+}
+/* Coffee theme - brown, beige, cream tones - applied to subscription card body background (not header) */
+.subscription-page.subscription-theme-coffee .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #8b6f47 0%, #d4a574 25%, #f5e6d3 50%, #d4a574 75%, #8b6f47 100%);
+  background-size: 200% 200%;
+  animation: sub-coffee-gradient 10s ease infinite;
+}
+.dark .subscription-page.subscription-theme-coffee .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #3d2817 0%, #5c3a1f 25%, #8b6f47 50%, #5c3a1f 75%, #3d2817 100%);
+  background-size: 200% 200%;
+  animation: sub-coffee-gradient 10s ease infinite;
+}
+/* Coffee theme - card header in theme color */
+.subscription-page.subscription-theme-coffee .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #8b6f47, #d4a574);
+  border-bottom: 1px solid rgba(139, 111, 71, 0.3);
+}
+.dark .subscription-page.subscription-theme-coffee .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #3d2817, #5c3a1f);
+  border-bottom: 1px solid rgba(61, 40, 23, 0.3);
+}
+.subscription-page.subscription-theme-coffee .subscription-card .ant-card-head-title,
+.subscription-page.subscription-theme-coffee .subscription-card .ant-card-extra {
+  color: #fff;
+}
+@keyframes sub-coffee-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+/* Banana theme - yellow, light yellow, golden tones - applied to subscription card body background (not header) */
+.subscription-page.subscription-theme-banana .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #ffd700 0%, #ffeb3b 25%, #fff9c4 50%, #ffeb3b 75%, #ffd700 100%);
+  background-size: 200% 200%;
+  animation: sub-banana-gradient 10s ease infinite;
+}
+.dark .subscription-page.subscription-theme-banana .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #8b6914 0%, #b8860b 25%, #daa520 50%, #b8860b 75%, #8b6914 100%);
+  background-size: 200% 200%;
+  animation: sub-banana-gradient 10s ease infinite;
+}
+/* Banana theme - card header in theme color */
+.subscription-page.subscription-theme-banana .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #ffd700, #ffeb3b);
+  border-bottom: 1px solid rgba(255, 215, 0, 0.3);
+}
+.dark .subscription-page.subscription-theme-banana .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #8b6914, #b8860b);
+  border-bottom: 1px solid rgba(139, 105, 20, 0.3);
+}
+.subscription-page.subscription-theme-banana .subscription-card .ant-card-head-title,
+.subscription-page.subscription-theme-banana .subscription-card .ant-card-extra {
+  color: #333;
+}
+.dark .subscription-page.subscription-theme-banana .subscription-card .ant-card-head-title,
+.dark .subscription-page.subscription-theme-banana .subscription-card .ant-card-extra {
+  color: #fff;
+}
+@keyframes sub-banana-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+/* Sunset theme - orange, pink, red, peach tones - applied to subscription card body background (not header) */
+.subscription-page.subscription-theme-sunset .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 25%, #ffa07a 50%, #ffb347 75%, #ff6b6b 100%);
+  background-size: 200% 200%;
+  animation: sub-sunset-gradient 10s ease infinite;
+}
+.dark .subscription-page.subscription-theme-sunset .subscription-card .ant-card-body {
+  background: linear-gradient(135deg, #8b2d4a 0%, #a0522d 25%, #cd5c5c 50%, #b8860b 75%, #8b2d4a 100%);
+  background-size: 200% 200%;
+  animation: sub-sunset-gradient 10s ease infinite;
+}
+/* Sunset theme - card header in theme color */
+.subscription-page.subscription-theme-sunset .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.3);
+}
+.dark .subscription-page.subscription-theme-sunset .subscription-card .ant-card-head {
+  background: linear-gradient(135deg, #8b2d4a, #a0522d);
+  border-bottom: 1px solid rgba(139, 45, 74, 0.3);
+}
+.subscription-page.subscription-theme-sunset .subscription-card .ant-card-head-title,
+.subscription-page.subscription-theme-sunset .subscription-card .ant-card-extra {
+  color: #fff;
+}
+@keyframes sub-sunset-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+/* Branding styles */
+.subscription-page .subscription-card .ant-card-head-title img {
+  border-radius: 4px;
+  object-fit: contain;
+}
+.subscription-page .subscription-card .ant-card-head-title .brand-text {
+  font-weight: 500;
+  margin-left: 8px;
+}
+/* Theme-specific styles for subscription card elements */
+/* Rainbow theme elements */
+.subscription-theme-rainbow .subscription-card .ant-btn-primary {
+  background: linear-gradient(135deg, #76ccb4, #ff6b9d, #c44569);
+  border: none;
+  background-size: 200% 200%;
+  animation: sub-rainbow-gradient 8s linear infinite;
+}
+.subscription-theme-rainbow .subscription-card .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #5aa895, #e55a8a, #a83652);
+  background-size: 200% 200%;
+  animation: sub-rainbow-gradient 8s linear infinite;
+}
+.subscription-theme-rainbow .subscription-card .ant-descriptions-bordered .ant-descriptions-item-label,
+.subscription-theme-rainbow .subscription-card .ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(118, 204, 180, 0.3);
+}
+.subscription-theme-rainbow .subscription-card .ant-tag {
+  background: rgba(118, 204, 180, 0.2);
+  border-color: rgba(118, 204, 180, 0.5);
+  color: #fff;
+}
+.subscription-theme-rainbow .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #76ccb4, transparent, #ff6b9d);
+}
+.dark .subscription-theme-rainbow .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #195141, transparent, #5a2969);
+}
+/* Coffee theme elements */
+.subscription-theme-coffee .subscription-card .ant-btn-primary {
+  background: linear-gradient(135deg, #8b6f47, #d4a574);
+  border: none;
+}
+.subscription-theme-coffee .subscription-card .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #6d5638, #b8945f);
+}
+.subscription-theme-coffee .subscription-card .ant-descriptions-bordered .ant-descriptions-item-label,
+.subscription-theme-coffee .subscription-card .ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(139, 111, 71, 0.3);
+}
+.subscription-theme-coffee .subscription-card .ant-tag {
+  background: rgba(139, 111, 71, 0.2);
+  border-color: rgba(139, 111, 71, 0.5);
+  color: #fff;
+}
+.subscription-theme-coffee .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #8b6f47, transparent, #d4a574);
+}
+.dark .subscription-theme-coffee .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #3d2817, transparent, #5c3a1f);
+}
+/* Banana theme elements */
+.subscription-theme-banana .subscription-card .ant-btn-primary {
+  background: linear-gradient(135deg, #ffd700, #ffeb3b);
+  border: none;
+  color: #333;
+}
+.subscription-theme-banana .subscription-card .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #e6c200, #e6d133);
+}
+.subscription-theme-banana .subscription-card .ant-descriptions-bordered .ant-descriptions-item-label,
+.subscription-theme-banana .subscription-card .ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(255, 215, 0, 0.3);
+}
+.subscription-theme-banana .subscription-card .ant-tag {
+  background: rgba(255, 215, 0, 0.2);
+  border-color: rgba(255, 215, 0, 0.5);
+  color: #333;
+}
+.subscription-theme-banana .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #ffd700, transparent, #ffeb3b);
+}
+.dark .subscription-theme-banana .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #8b6914, transparent, #b8860b);
+}
+/* Sunset theme elements */
+.subscription-theme-sunset .subscription-card .ant-btn-primary {
+  background: linear-gradient(135deg, #ff6b6b, #ff8e53);
+  border: none;
+}
+.subscription-theme-sunset .subscription-card .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #e55a5a, #e67e48);
+}
+.subscription-theme-sunset .subscription-card .ant-descriptions-bordered .ant-descriptions-item-label,
+.subscription-theme-sunset .subscription-card .ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(255, 107, 107, 0.3);
+}
+.subscription-theme-sunset .subscription-card .ant-tag {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.5);
+  color: #fff;
+}
+.subscription-theme-sunset .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #ff6b6b, transparent, #ff8e53);
+}
+.dark .subscription-theme-sunset .subscription-card .qr-bg-sub {
+  background-image: linear-gradient(var(--tr-rotate), #8b2d4a, transparent, #a0522d);
+}
+/* Common theme styles for card content */
+.subscription-theme-rainbow .subscription-card .ant-card-body,
+.subscription-theme-coffee .subscription-card .ant-card-body,
+.subscription-theme-banana .subscription-card .ant-card-body,
+.subscription-theme-sunset .subscription-card .ant-card-body {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+.dark .subscription-theme-rainbow .subscription-card .ant-card-body,
+.dark .subscription-theme-coffee .subscription-card .ant-card-body,
+.dark .subscription-theme-banana .subscription-card .ant-card-body,
+.dark .subscription-theme-sunset .subscription-card .ant-card-body {
+  background: rgba(17, 25, 41, 0.95);
+  backdrop-filter: blur(10px);
 }

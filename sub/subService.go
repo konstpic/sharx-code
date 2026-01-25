@@ -2214,6 +2214,10 @@ type PageData struct {
 	ShowOnlyHappV2RayTun bool   // Show only Happ and V2RayTun buttons
 	HappEncryptedUrl     string // Encrypted URL for Happ app (happ://crypt4/...)
 	V2RayTunEncryptedUrl string // Encrypted URL for V2RayTun app (v2raytun://crypt/...)
+	Theme                string // Subscription page theme
+	LogoUrl              string // Logo URL for subscription page
+	BrandText            string // Brand text for subscription page
+	BackgroundUrl        string // Background image URL for subscription card
 }
 
 // ResolveRequest extracts scheme and host info from request/headers consistently.
@@ -2392,6 +2396,11 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		logger.Infof("BuildPageData: Encryption disabled, using plain URLs")
 	}
 	
+	// Get subscription page customization settings
+	theme, _ := s.settingService.GetSubPageTheme()
+	logoUrl, _ := s.settingService.GetSubPageLogoUrl()
+	brandText, _ := s.settingService.GetSubPageBrandText()
+	
 	return PageData{
 		Host:                 hostHeader,
 		BasePath:             basePath,
@@ -2414,6 +2423,9 @@ func (s *SubService) BuildPageData(subId string, hostHeader string, traffic xray
 		ShowOnlyHappV2RayTun: showOnlyHappV2RayTun,
 		HappEncryptedUrl:     happEncryptedUrl,
 		V2RayTunEncryptedUrl: v2raytunEncryptedUrl,
+		Theme:                theme,
+		LogoUrl:              logoUrl,
+		BrandText:            brandText,
 	}
 }
 

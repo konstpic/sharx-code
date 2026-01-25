@@ -79,8 +79,13 @@ type AllSetting struct {
 	SubOnlyHappV2RayTun         bool   `json:"subOnlyHappV2RayTun" form:"subOnlyHappV2RayTun"`                // Only include Happ and V2RayTun compatible links
 	SubHideConfigLinks          bool   `json:"subHideConfigLinks" form:"subHideConfigLinks"`                  // Hide configuration links on subscription page
 	SubShowOnlyHappV2RayTun     bool   `json:"subShowOnlyHappV2RayTun" form:"subShowOnlyHappV2RayTun"`        // Show only Happ and V2RayTun applications on subscription page
+	SubAutoRotateKeys           bool   `json:"subAutoRotateKeys" form:"subAutoRotateKeys"`                     // Automatically rotate client keys before subscription update interval
 	SubHeaders                  string `json:"subHeaders" form:"subHeaders"`                                    // JSON string containing subscription headers configuration
 	SubProviderID               string `json:"subProviderID" form:"subProviderID"`                             // Provider ID for Happ extended headers (required for new-url, new-domain, etc.)
+	SubPageTheme                string `json:"subPageTheme" form:"subPageTheme"`                                 // Subscription page theme: "rainbow", "coffee", "banana", "sunset"
+	SubPageLogoUrl              string `json:"subPageLogoUrl" form:"subPageLogoUrl"`                           // Logo URL for subscription page (32x32 or 64x64)
+	SubPageBrandText            string `json:"subPageBrandText" form:"subPageBrandText"`                         // Brand text for subscription page
+	SubPageBackgroundUrl        string `json:"subPageBackgroundUrl" form:"subPageBackgroundUrl"`                 // Background image URL for subscription card (overrides theme gradient)
 
 	// LDAP settings
 	LdapEnable     bool   `json:"ldapEnable" form:"ldapEnable"`

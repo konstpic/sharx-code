@@ -75,9 +75,75 @@ func (a *SUBController) initRouter(g *gin.RouterGroup) {
 	}
 }
 
+// isAllowedUserAgent checks if the User-Agent is allowed when encryption is enabled.
+// Allows: Happ, v2raytun, or browser (detected by Accept header).
+// For Happ/v2raytun, also requires all HWID fields to be present.
+func (a *SUBController) isAllowedUserAgent(c *gin.Context) bool {
+	userAgent := strings.ToLower(c.GetHeader("User-Agent"))
+	accept := strings.ToLower(c.GetHeader("Accept"))
+	
+	// Check for browser (by Accept header containing text/html)
+	if strings.Contains(accept, "text/html") {
+		return true
+	}
+	
+	// Check if explicitly requesting HTML view
+	if c.Query("html") == "1" || strings.EqualFold(c.Query("view"), "html") {
+		return true
+	}
+	
+	// For Happ or v2raytun, require all HWID fields
+	isHapp := strings.Contains(userAgent, "happ")
+	isV2RayTun := strings.Contains(userAgent, "v2raytun")
+	
+	if isHapp || isV2RayTun {
+		// Check for all required HWID fields
+		hwid := c.GetHeader("x-hwid")
+		if hwid == "" {
+			hwid = c.GetHeader("X-HWID")
+		}
+		
+		deviceOS := c.GetHeader("x-device-os")
+		if deviceOS == "" {
+			deviceOS = c.GetHeader("X-Device-OS")
+		}
+		
+		deviceModel := c.GetHeader("x-device-model")
+		if deviceModel == "" {
+			deviceModel = c.GetHeader("X-Device-Model")
+		}
+		
+		osVersion := c.GetHeader("x-ver-os")
+		if osVersion == "" {
+			osVersion = c.GetHeader("X-Ver-OS")
+		}
+		
+		// All HWID fields must be present
+		if hwid != "" && deviceOS != "" && deviceModel != "" && osVersion != "" {
+			return true
+		}
+		
+		// Missing HWID fields - not allowed
+		return false
+	}
+	
+	return false
+}
+
 // subs handles HTTP requests for subscription links, returning either HTML page or base64-encoded subscription data.
 func (a *SUBController) subs(c *gin.Context) {
 	subId := c.Param("subid")
+	
+	// If encryption is enabled, check User-Agent - only allow Happ, v2raytun, or browser
+	if a.subEncrypt {
+		if !a.isAllowedUserAgent(c) {
+			logger.Warningf("Subscription request blocked: encryption enabled but User-Agent not allowed (subId: %s, User-Agent: %s)", 
+				subId, c.GetHeader("User-Agent"))
+			c.String(403, "Forbidden")
+			return
+		}
+	}
+	
 	scheme, host, hostWithPort, hostHeader := a.subService.ResolveRequest(c)
 	subs, lastOnline, traffic, err := a.subService.GetSubs(subId, host, c) // Pass context for HWID registration
 	if err != nil || len(subs) == 0 {
@@ -165,6 +231,9 @@ func (a *SUBController) subs(c *gin.Context) {
 			"happEncryptedUrl":     page.HappEncryptedUrl,
 			"v2raytunEncryptedUrl": page.V2RayTunEncryptedUrl,
 			"encryptedUrlsJSON":    encryptedUrlsJSON,
+			"theme":                page.Theme,
+			"logoUrl":              page.LogoUrl,
+			"brandText":            page.BrandText,
 			})
 			return
 		}
@@ -184,6 +253,17 @@ func (a *SUBController) subs(c *gin.Context) {
 // subJsons handles HTTP requests for JSON subscription configurations.
 func (a *SUBController) subJsons(c *gin.Context) {
 	subId := c.Param("subid")
+	
+	// If encryption is enabled, check User-Agent - only allow Happ, v2raytun, or browser
+	if a.subEncrypt {
+		if !a.isAllowedUserAgent(c) {
+			logger.Warningf("JSON subscription request blocked: encryption enabled but User-Agent not allowed (subId: %s, User-Agent: %s)", 
+				subId, c.GetHeader("User-Agent"))
+			c.String(403, "Forbidden")
+			return
+		}
+	}
+	
 	_, host, _, _ := a.subService.ResolveRequest(c)
 	jsonSub, header, err := a.subJsonService.GetJson(subId, host, c) // Pass context for HWID registration
 	if err != nil || len(jsonSub) == 0 {

@@ -98,6 +98,13 @@
                   </a-tab-pane>
                   <a-tab-pane key="7" :style="{ paddingTop: '20px' }">
                     <template #tab>
+                      <a-icon type="bg-colors"></a-icon>
+                      <span>Customize Subscription Page</span>
+                    </template>
+                    {{ template "settings/panel/subscription/customize" . }}
+                  </a-tab-pane>
+                  <a-tab-pane key="8" :style="{ paddingTop: '20px' }">
+                    <template #tab>
                       <a-icon type="database"></a-icon>
                       <span>{{ i18n "pages.settings.migration.title" }}</span>
                     </template>
@@ -376,8 +383,12 @@
         if (msg.success) {
           Vue.prototype.$message.success('{{ i18n "pages.settings.toasts.modifySettings" }}');
           // Wait a bit for cache to be cleared on server side, then reload with cache-busting
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 200));
           await this.getAllSetting(true);
+          // Force Vue to update the view by using $forceUpdate if needed
+          this.$nextTick(() => {
+            this.$forceUpdate();
+          });
         } else {
           Vue.prototype.$message.error(msg.msg || '{{ i18n "pages.settings.toasts.getSettings" }}');
         }

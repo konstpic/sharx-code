@@ -1,0 +1,35 @@
+{{define "settings/panel/subscription/customize"}}
+<a-collapse default-active-key="1">
+    <a-collapse-panel key="1" header="Theme">
+        <a-setting-list-item paddings="small">
+            <template #title>Theme</template>
+            <template #description>Select the visual theme for the subscription page</template>
+            <template #control>
+                <a-select v-model="allSetting.subPageTheme" :style="{ width: '100%' }" placeholder="Select theme">
+                    <a-select-option value="">Default</a-select-option>
+                    <a-select-option value="rainbow">Rainbow</a-select-option>
+                    <a-select-option value="coffee">Coffee</a-select-option>
+                    <a-select-option value="banana">Banana</a-select-option>
+                    <a-select-option value="sunset">Sunset</a-select-option>
+                </a-select>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
+    <a-collapse-panel key="2" header="Branding">
+        <a-setting-list-item paddings="small">
+            <template #title>Logo URL</template>
+            <template #description>URL of the logo image (32x32 or 64x64 pixels)</template>
+            <template #control>
+                <a-input type="text" v-model="allSetting.subPageLogoUrl" placeholder="https://example.com/logo.png (32x32 or 64x64)"></a-input>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small">
+            <template #title>Brand Text</template>
+            <template #description>Text to display next to the logo</template>
+            <template #control>
+                <a-input type="text" v-model="allSetting.subPageBrandText" placeholder="Brand name or text"></a-input>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
+</a-collapse>
+{{end}}

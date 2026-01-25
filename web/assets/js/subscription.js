@@ -71,6 +71,9 @@
       const val = el.getAttribute('data-v2raytun-encrypted-url') || '';
       return (val && val !== '#ZgotmplZ' && val.trim() !== '') ? val : '';
     })(),
+    theme: el.getAttribute('data-theme') || '',
+    logoUrl: el.getAttribute('data-logo-url') || '',
+    brandText: el.getAttribute('data-brand-text') || '',
   };
 
   // Normalize lastOnline to milliseconds if it looks like seconds
@@ -151,12 +154,23 @@
       viewportWidth: (typeof window !== 'undefined' ? window.innerWidth : 1024),
       hideConfigLinks: data.hideConfigLinks,
       showOnlyHappV2RayTun: data.showOnlyHappV2RayTun || false,
+      theme: data.theme || '',
+      logoUrl: data.logoUrl || '',
+      brandText: data.brandText || '',
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       const tpl = document.getElementById('subscription-data');
       const sj = tpl ? tpl.getAttribute('data-subjson-url') : '';
       if (sj) this.app.subJsonUrl = sj;
+      
+      // Apply theme class to root element if theme is set
+      if (this.theme) {
+        const rootEl = document.getElementById('app');
+        if (rootEl) {
+          rootEl.classList.add('subscription-theme-' + this.theme);
+        }
+      }
       
       // Log subscription URLs
       console.info('[Subscription] Loaded subscription data:');
@@ -165,6 +179,9 @@
       console.info('  - V2RayTun encrypted URL:', this.app.v2raytunEncryptedUrl || '(not available)');
       console.info('  - hideConfigLinks:', this.hideConfigLinks, '(type:', typeof this.hideConfigLinks + ')');
       console.info('  - showDualEncryptedQR:', this.showDualEncryptedQR);
+      console.info('  - Theme:', this.theme || '(default)');
+      console.info('  - Logo URL:', this.logoUrl || '(not set)');
+      console.info('  - Brand Text:', this.brandText || '(not set)');
       
       // Draw QR codes based on mode
       if (this.showDualEncryptedQR) {

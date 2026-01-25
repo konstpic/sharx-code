@@ -17,7 +17,7 @@
         </a-setting-list-item>
         <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.subscriptionHeaders.profileUpdateInterval" }}</template>
-            <template #description>{{ i18n "pages.settings.subscriptionHeaders.profileUpdateIntervalDesc" }}</template>
+            <template #description>Custom Profile-Update-Interval header value in hours. If set, this overrides the base subscription update interval (subUpdates). Used by clients to determine when to refresh subscriptions. Also used for automatic key rotation timing (converted to minutes).</template>
             <template #control>
                 <a-input-number v-model="subHeaders.profileUpdateInterval" :min="1" :style="{ width: '100%' }" :placeholder="12"></a-input-number>
             </template>

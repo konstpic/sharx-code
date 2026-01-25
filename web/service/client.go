@@ -337,6 +337,12 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 		}
 	}
 
+	// Send notification about client creation
+	tgbotService := Tgbot{}
+	if tgbotService.IsRunning() {
+		tgbotService.NotifyClientCreated(client)
+	}
+
 	return needRestart, nil
 }
 
@@ -697,6 +703,12 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		}
 	}()
 
+	// Send notification about client update
+	tgbotService := Tgbot{}
+	if tgbotService.IsRunning() {
+		tgbotService.NotifyClientUpdated(&finalClient, existing)
+	}
+
 	// Return needRestart based on whether API operation was done
 	// If API operation was done, no restart needed (handled asynchronously)
 	// If API operation wasn't done, might need restart (handled asynchronously)
@@ -855,7 +867,20 @@ func (s *ClientService) DeleteClient(userId int, id int) (bool, error) {
 				logger.Debugf("DeleteClient: Xray restarted successfully (config synced)")
 			}
 		}()
+		
+		// Send notification about client deletion
+		tgbotService := Tgbot{}
+		if tgbotService.IsRunning() {
+			tgbotService.NotifyClientDeleted(existing)
+		}
+		
 		return false, nil // No need for synchronous restart
+	}
+
+	// Send notification about client deletion
+	tgbotService := Tgbot{}
+	if tgbotService.IsRunning() {
+		tgbotService.NotifyClientDeleted(existing)
 	}
 
 	return false, nil
@@ -2034,7 +2059,32 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 				logger.Debugf("BulkEnable: Xray restarted successfully (config synced)")
 			}
 		}()
+		
+		// Send notifications about disabled clients
+		if !enable {
+			tgbotService := Tgbot{}
+			if tgbotService.IsRunning() {
+				for _, client := range clientsToUpdate {
+					if !client.Enable {
+						tgbotService.NotifyClientDisabled(&client)
+					}
+				}
+			}
+		}
+		
 		return false, nil // No need for synchronous restart
+	}
+
+	// Send notifications about disabled clients
+	if !enable {
+		tgbotService := Tgbot{}
+		if tgbotService.IsRunning() {
+			for _, client := range clientsToUpdate {
+				if !client.Enable {
+					tgbotService.NotifyClientDisabled(&client)
+				}
+			}
+		}
 	}
 
 	return needRestart, nil
