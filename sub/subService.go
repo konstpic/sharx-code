@@ -1985,10 +1985,24 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 func (s *SubService) genRemark(inbound *model.Inbound, email string, extra string) string {
 	separationChar := string(s.remarkModel[0])
 	orderChars := s.remarkModel[1:]
+	
+	// Get node information if available (for 'n' and 'p' options)
+	var nodeName, nodeIP string
+	nodes, err := s.nodeService.GetNodesForInbound(inbound.Id)
+	if err == nil && len(nodes) > 0 {
+		// Use first node for template variables
+		node := nodes[0]
+		nodeName = node.Name
+		nodeIP = s.extractNodeHost(node.Address)
+	}
+	
 	orders := map[byte]string{
 		'i': "",
 		'e': "",
 		'o': "",
+		'n': "",
+		'p': "",
+		'r': "",
 	}
 	if len(email) > 0 {
 		orders['e'] = email
@@ -1999,6 +2013,13 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 	if len(extra) > 0 {
 		orders['o'] = extra
 	}
+	if len(nodeName) > 0 {
+		orders['n'] = nodeName
+	}
+	if len(nodeIP) > 0 {
+		orders['p'] = nodeIP
+	}
+	orders['r'] = fmt.Sprintf("%d", inbound.Port)
 
 	var remark []string
 	for i := 0; i < len(orderChars); i++ {
@@ -2071,10 +2092,24 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 func (s *SubService) genRemarkWithClient(inbound *model.Inbound, client *model.ClientEntity, extra string) string {
 	separationChar := string(s.remarkModel[0])
 	orderChars := s.remarkModel[1:]
+	
+	// Get node information if available (for 'n' and 'p' options)
+	var nodeName, nodeIP string
+	nodes, err := s.nodeService.GetNodesForInbound(inbound.Id)
+	if err == nil && len(nodes) > 0 {
+		// Use first node for template variables
+		node := nodes[0]
+		nodeName = node.Name
+		nodeIP = s.extractNodeHost(node.Address)
+	}
+	
 	orders := map[byte]string{
 		'i': "",
 		'e': "",
 		'o': "",
+		'n': "",
+		'p': "",
+		'r': "",
 	}
 	if len(client.Email) > 0 {
 		orders['e'] = client.Email
@@ -2085,6 +2120,13 @@ func (s *SubService) genRemarkWithClient(inbound *model.Inbound, client *model.C
 	if len(extra) > 0 {
 		orders['o'] = extra
 	}
+	if len(nodeName) > 0 {
+		orders['n'] = nodeName
+	}
+	if len(nodeIP) > 0 {
+		orders['p'] = nodeIP
+	}
+	orders['r'] = fmt.Sprintf("%d", inbound.Port)
 
 	var remark []string
 	for i := 0; i < len(orderChars); i++ {

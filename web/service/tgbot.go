@@ -2349,7 +2349,7 @@ func (t *Tgbot) NotifyClientCreated(client *model.ClientEntity) {
 		client.Email,
 		client.Status,
 		client.Enable,
-		formatTrafficLimit(client.TotalGB),
+		formatTrafficLimit(int64(client.TotalGB)),
 		formatExpiryTime(client.ExpiryTime),
 		time.Now().Format("2006-01-02 15:04:05"))
 
@@ -2376,7 +2376,7 @@ func (t *Tgbot) NotifyClientUpdated(client *model.ClientEntity, oldClient *model
 		client.Email,
 		client.Status,
 		client.Enable,
-		formatTrafficLimit(client.TotalGB),
+		formatTrafficLimit(int64(client.TotalGB)),
 		formatExpiryTime(client.ExpiryTime),
 		time.Now().Format("2006-01-02 15:04:05"))
 
@@ -2389,7 +2389,7 @@ func (t *Tgbot) NotifyClientUpdated(client *model.ClientEntity, oldClient *model
 			changes = append(changes, fmt.Sprintf("Включен: %v → %v", oldClient.Enable, client.Enable))
 		}
 		if oldClient.TotalGB != client.TotalGB {
-			changes = append(changes, fmt.Sprintf("Лимит трафика: %s → %s", formatTrafficLimit(oldClient.TotalGB), formatTrafficLimit(client.TotalGB)))
+			changes = append(changes, fmt.Sprintf("Лимит трафика: %s → %s", formatTrafficLimit(int64(oldClient.TotalGB)), formatTrafficLimit(int64(client.TotalGB))))
 		}
 		if oldClient.ExpiryTime != client.ExpiryTime {
 			changes = append(changes, fmt.Sprintf("Время истечения: %s → %s", formatExpiryTime(oldClient.ExpiryTime), formatExpiryTime(client.ExpiryTime)))
