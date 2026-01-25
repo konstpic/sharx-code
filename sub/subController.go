@@ -147,14 +147,25 @@ func (a *SUBController) subs(c *gin.Context) {
 	}
 	
 	scheme, host, hostWithPort, hostHeader := a.subService.ResolveRequest(c)
-	subs, lastOnline, traffic, err := a.subService.GetSubs(subId, host, c) // Pass context for HWID registration
-	if err != nil || len(subs) == 0 {
-		c.String(400, "Error!")
-	} else {
-		result := ""
-		for _, sub := range subs {
-			result += sub + "\n"
-		}
+		subs, lastOnline, traffic, err := a.subService.GetSubs(subId, host, c) // Pass context for HWID registration
+		if err != nil || len(subs) == 0 {
+			c.String(400, "Error!")
+		} else {
+			result := ""
+			
+			// Add Provider ID as comment in subscription body if method is "body" (according to Happ documentation)
+			settingService := service.SettingService{}
+			providerID, err := settingService.GetSubProviderID()
+			if err == nil && providerID != "" {
+				providerMethod, err := settingService.GetSubProviderIDMethod()
+				if err == nil && providerMethod == "body" {
+					result += fmt.Sprintf("#providerid %s\n", providerID)
+				}
+			}
+			
+			for _, sub := range subs {
+				result += sub + "\n"
+			}
 
 		// If the request expects HTML (e.g., browser) or explicitly asked (?html=1 or ?view=html), render the info page here
 		accept := c.GetHeader("Accept")
@@ -247,7 +258,7 @@ func (a *SUBController) subs(c *gin.Context) {
 		clientAnnounce := ""
 		db := database.GetDB()
 		var clientEntity *model.ClientEntity
-		err := db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
+		err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
 		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
 			clientAnnounce = clientEntity.Announce
 		}
@@ -285,7 +296,7 @@ func (a *SUBController) subJsons(c *gin.Context) {
 		clientAnnounce := ""
 		db := database.GetDB()
 		var clientEntity *model.ClientEntity
-		err := db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
+		err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
 		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
 			clientAnnounce = clientEntity.Announce
 		}
@@ -312,13 +323,13 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, header, updateInterva
 	// Add subscription ID header so clients can use it as HWID identifier
 	c.Writer.Header().Set("X-Subscription-ID", subId)
 	
-	// Add Provider ID to HTTP header if method is "header"
+	// Add Provider ID to HTTP header if method is "header" (according to Happ documentation: providerid)
 	settingService := service.SettingService{}
 	providerID, err := settingService.GetSubProviderID()
 	if err == nil && providerID != "" {
 		providerMethod, err := settingService.GetSubProviderIDMethod()
 		if err == nil && providerMethod == "header" {
-			c.Writer.Header().Set("Provider-ID", providerID)
+			c.Writer.Header().Set("providerid", providerID)
 		}
 	}
 	

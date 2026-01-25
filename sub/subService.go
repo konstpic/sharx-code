@@ -2381,12 +2381,12 @@ func (s *SubService) joinPathWithID(basePath, subId string) string {
 	if err == nil && providerID != "" {
 		providerMethod, err := s.settingService.GetSubProviderIDMethod()
 		if err == nil && providerMethod == "url" {
-			// Add Provider ID as query parameter
-			if strings.Contains(subURL, "?") {
-				subURL += "&provider=" + url.QueryEscape(providerID)
-			} else {
-				subURL += "?provider=" + url.QueryEscape(providerID)
-			}
+		// Add Provider ID as query parameter (according to Happ documentation: providerid)
+		if strings.Contains(subURL, "?") {
+			subURL += "&providerid=" + url.QueryEscape(providerID)
+		} else {
+			subURL += "?providerid=" + url.QueryEscape(providerID)
+		}
 		}
 	}
 	

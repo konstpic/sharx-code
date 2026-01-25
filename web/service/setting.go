@@ -714,10 +714,11 @@ func (s *SettingService) SetSubProviderIDMethod(value string) error {
 	validMethods := map[string]bool{
 		"url":    true,
 		"header": true,
+		"body":   true,
 		"none":   true,
 	}
 	if !validMethods[value] {
-		return common.NewErrorf("invalid subProviderIDMethod: %s (must be one of: url, header, none)", value)
+		return common.NewErrorf("invalid subProviderIDMethod: %s (must be one of: url, header, body, none)", value)
 	}
 	return s.setString("subProviderIDMethod", value)
 }
