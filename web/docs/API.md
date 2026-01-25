@@ -2759,7 +2759,8 @@ curl -X GET "http://localhost:2053/panel/client/list" \
       "lastOnline": 1704067200,
       "hwidEnabled": false,
       "maxHwid": 1,
-      "groupId": 1
+      "groupId": 1,
+      "announce": ""
     }
   ]
 }
@@ -2811,6 +2812,7 @@ Create a new client entity.
 | `maxHwid` | integer | No | Max HWID devices (0 = unlimited) |
 | `inboundIds` | array | No | Array of inbound IDs to assign |
 | `groupId` | integer | No | Group ID to assign client to (null to remove from group) |
+| `announce` | string | No | Custom announcement text for this client (max 200 chars, supports base64). Overrides subscription header announce setting if provided. |
 
 **Example Request:**
 
@@ -2855,9 +2857,12 @@ curl -X POST "http://localhost:2053/panel/client/update/1" \
     "totalGB": 100,
     "enable": true,
     "inboundIds": [1, 2, 3],
-    "groupId": 1
+    "groupId": 1,
+    "announce": "Custom announcement for this client"
   }'
 ```
+
+**Note:** The `announce` field allows setting a per-client announcement that overrides the subscription header announcement setting. If a client has an `announce` value, it will be used in the subscription response headers instead of the global subscription header `announce` setting. The field supports up to 200 characters and base64 encoding (prefixed with "base64:").
 
 ---
 
@@ -4255,7 +4260,9 @@ curl -X GET "http://localhost:2053/panel/api/api-docs/markdown" \
   "allTime": 0,
   "lastOnline": 0,
   "hwidEnabled": false,
-  "maxHwid": 1
+  "maxHwid": 1,
+  "groupId": null,
+  "announce": ""
 }
 ```
 
