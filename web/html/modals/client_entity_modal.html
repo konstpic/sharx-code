@@ -122,6 +122,10 @@
                 </template>
             </a-table>
         </a-form-item>
+        <a-divider>{{ i18n "pages.settings.subscriptionHeaders.announce" }}</a-divider>
+        <a-form-item label='{{ i18n "pages.settings.subscriptionHeaders.announce" }}'>
+            <a-textarea v-model="client.announce" :max-length="200" :rows="3" placeholder='{{ i18n "pages.settings.subscriptionHeaders.announceDesc" }}'></a-textarea>
+        </a-form-item>
         <a-form-item label='{{ i18n "pages.inbounds.enable" }}'>
             <a-switch v-model="client.enable"></a-switch>
         </a-form-item>
@@ -189,7 +193,8 @@
                     hwidEnabled: client.hwidEnabled !== undefined ? client.hwidEnabled : false,
                     maxHwid: client.maxHwid !== undefined ? client.maxHwid : 1,
                     hwids: client.hwids ? [...client.hwids] : [],
-                    groupId: client.groupId !== undefined ? client.groupId : null
+                    groupId: client.groupId !== undefined ? client.groupId : null,
+                    announce: client.announce || ''
                 };
                 
                 // If in edit mode, load HWIDs from API
@@ -214,7 +219,8 @@
                     enable: true,
                     hwidEnabled: false,
                     maxHwid: 1,
-                    groupId: null
+                    groupId: null,
+                    announce: ''
                 };
             }
             

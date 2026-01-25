@@ -164,6 +164,9 @@ type ClientEntity struct {
 	HWIDEnabled bool `json:"hwidEnabled" form:"hwidEnabled" gorm:"column:hwid_enabled;default:false"` // Whether HWID restriction is enabled for this client
 	MaxHWID     int  `json:"maxHwid" form:"maxHwid" gorm:"column:max_hwid;default:1"`             // Maximum number of allowed HWID devices (0 = unlimited)
 	HWIDs       []*ClientHWID `json:"hwids,omitempty" form:"-" gorm:"-"`          // Registered HWIDs for this client (loaded from client_hwids table, not stored in ClientEntity table)
+	
+	// Subscription customization
+	Announce string `json:"announce,omitempty" form:"announce" gorm:"column:announce"` // Custom announcement text for this client (overrides subscription header, max 200 chars, supports base64)
 }
 
 // Node represents a worker node in multi-node architecture.

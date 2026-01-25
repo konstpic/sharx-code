@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
+	"github.com/mhsanaei/3x-ui/v2/database"
+	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	service "github.com/mhsanaei/3x-ui/v2/web/service"
 	"github.com/mhsanaei/3x-ui/v2/web/entity"
@@ -240,7 +242,17 @@ func (a *SUBController) subs(c *gin.Context) {
 
 		// Add headers
 		header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, traffic.ExpiryTime/1000)
-		a.ApplyCommonHeaders(c, header, a.updateInterval, a.subTitle, subId)
+		
+		// Get client announce if available (overrides subscription header)
+		clientAnnounce := ""
+		db := database.GetDB()
+		var clientEntity *model.ClientEntity
+		err := db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
+		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
+			clientAnnounce = clientEntity.Announce
+		}
+		
+		a.ApplyCommonHeaders(c, header, a.updateInterval, a.subTitle, subId, clientAnnounce)
 
 		if a.subEncrypt {
 			c.String(200, base64.StdEncoding.EncodeToString([]byte(result)))
@@ -269,9 +281,17 @@ func (a *SUBController) subJsons(c *gin.Context) {
 	if err != nil || len(jsonSub) == 0 {
 		c.String(400, "Error!")
 	} else {
+		// Get client announce if available (overrides subscription header)
+		clientAnnounce := ""
+		db := database.GetDB()
+		var clientEntity *model.ClientEntity
+		err := db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
+		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
+			clientAnnounce = clientEntity.Announce
+		}
 
 		// Add headers
-		a.ApplyCommonHeaders(c, header, a.updateInterval, a.subTitle, subId)
+		a.ApplyCommonHeaders(c, header, a.updateInterval, a.subTitle, subId, clientAnnounce)
 
 		c.String(200, jsonSub)
 	}
@@ -280,7 +300,8 @@ func (a *SUBController) subJsons(c *gin.Context) {
 // ApplyCommonHeaders sets common HTTP headers for subscription responses including user info, update interval, and profile title.
 // Also adds X-Subscription-ID header so clients can use it as HWID if needed.
 // Custom headers from settings are applied if available.
-func (a *SUBController) ApplyCommonHeaders(c *gin.Context, header, updateInterval, profileTitle, subId string) {
+// clientAnnounce: If provided, overrides the subscription header announce setting.
+func (a *SUBController) ApplyCommonHeaders(c *gin.Context, header, updateInterval, profileTitle, subId, clientAnnounce string) {
 	// Apply standard headers (can be overridden by custom headers)
 	c.Writer.Header().Set("Subscription-Userinfo", header)
 	c.Writer.Header().Set("Profile-Update-Interval", updateInterval)
@@ -295,12 +316,20 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, header, updateInterva
 	settingService := service.SettingService{}
 	customHeaders, err := settingService.GetSubHeadersParsed()
 	if err == nil && customHeaders != nil {
-		a.applyCustomHeaders(c, customHeaders, header, updateInterval, profileTitle)
+		a.applyCustomHeaders(c, customHeaders, header, updateInterval, profileTitle, clientAnnounce)
+	} else if clientAnnounce != "" {
+		// If no custom headers but client has announce, apply it directly
+		if strings.HasPrefix(clientAnnounce, "base64:") {
+			c.Writer.Header().Set("Announce", clientAnnounce)
+		} else {
+			c.Writer.Header().Set("Announce", clientAnnounce)
+		}
 	}
 }
 
 // applyCustomHeaders applies custom subscription headers from settings
-func (a *SUBController) applyCustomHeaders(c *gin.Context, headers *entity.SubscriptionHeaders, defaultUserinfo, defaultUpdateInterval, defaultProfileTitle string) {
+// clientAnnounce: If provided, overrides the subscription header announce setting.
+func (a *SUBController) applyCustomHeaders(c *gin.Context, headers *entity.SubscriptionHeaders, defaultUserinfo, defaultUpdateInterval, defaultProfileTitle, clientAnnounce string) {
 	// Standard headers (override defaults if provided)
 	if headers.ProfileTitle != "" {
 		// Check if already base64 encoded
@@ -327,8 +356,16 @@ func (a *SUBController) applyCustomHeaders(c *gin.Context, headers *entity.Subsc
 		c.Writer.Header().Set("Profile-Web-Page-Url", headers.ProfileWebPageUrl)
 	}
 	
-	if headers.Announce != "" {
-		// Check if already base64 encoded
+	// Client announce takes precedence over subscription header announce
+	if clientAnnounce != "" {
+		// Client has custom announce - use it (overrides subscription header)
+		if strings.HasPrefix(clientAnnounce, "base64:") {
+			c.Writer.Header().Set("Announce", clientAnnounce)
+		} else {
+			c.Writer.Header().Set("Announce", clientAnnounce)
+		}
+	} else if headers.Announce != "" {
+		// Use subscription header announce if client doesn't have one
 		if strings.HasPrefix(headers.Announce, "base64:") {
 			c.Writer.Header().Set("Announce", headers.Announce)
 		} else {
