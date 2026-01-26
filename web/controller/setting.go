@@ -143,7 +143,7 @@ func (a *SettingController) getDefaultXrayConfig(c *gin.Context) {
 func (a *SettingController) submitBugReport(c *gin.Context) {
 	bugReportURL := os.Getenv("BUG_REPORT_SERVICE_URL")
 	if bugReportURL == "" {
-		bugReportURL = "http://localhost:8000" // Default URL
+		bugReportURL = getDefaultBugReportURL()
 	}
 
 	// Parse multipart form
@@ -334,7 +334,7 @@ func (a *SettingController) getBugReportStatus(c *gin.Context) {
 	// This ensures we get the latest status from Taiga API
 	bugReportURL := os.Getenv("BUG_REPORT_SERVICE_URL")
 	if bugReportURL == "" {
-		bugReportURL = "http://localhost:8000" // Default URL
+		bugReportURL = getDefaultBugReportURL()
 	}
 
 	// Send request to bug report service

@@ -886,8 +886,7 @@
         return new Date(timestampMs).toLocaleString();
       },
       async checkBugReportServiceAvailability() {
-        // Try to check availability via our own backend endpoint
-        // This is more reliable than direct fetch due to CORS
+        // Check if bug-report-service is available
         try {
           // Create a promise that rejects after 5 seconds
           const timeoutPromise = new Promise((_, reject) => {
