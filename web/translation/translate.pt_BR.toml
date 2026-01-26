@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>Cliente Desabilitado</b>\n\n"
 "clientFirstConnection" = "🟢 <b>Primeira Conexão do Cliente</b>\n\n"
 "status" = "<b>Status:</b> {{ .Status }}\n"
-"enabled" = "<b>Habilitado:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>Habilitado:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>Limite de Tráfego:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>Tempo de Expiração:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>Tráfego:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / Total: {{ .Total }}\n"

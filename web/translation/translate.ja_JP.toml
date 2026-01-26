@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>クライアントが無効化されました</b>\n\n"
 "clientFirstConnection" = "🟢 <b>クライアントの初回接続</b>\n\n"
 "status" = "<b>ステータス:</b> {{ .Status }}\n"
-"enabled" = "<b>有効:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>有効:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>トラフィック制限:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>有効期限:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>トラフィック:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / 合計: {{ .Total }}\n"

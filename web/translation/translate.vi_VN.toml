@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>Khách Hàng Đã Vô Hiệu Hóa</b>\n\n"
 "clientFirstConnection" = "🟢 <b>Kết Nối Đầu Tiên Của Khách Hàng</b>\n\n"
 "status" = "<b>Trạng Thái:</b> {{ .Status }}\n"
-"enabled" = "<b>Đã Bật:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>Đã Bật:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>Giới Hạn Lưu Lượng:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>Thời Gian Hết Hạn:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>Lưu Lượng:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / Tổng: {{ .Total }}\n"

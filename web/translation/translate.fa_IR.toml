@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>کلاینت غیرفعال شد</b>\n\n"
 "clientFirstConnection" = "🟢 <b>اتصال اول کلاینت</b>\n\n"
 "status" = "<b>وضعیت:</b> {{ .Status }}\n"
-"enabled" = "<b>فعال:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>فعال:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>محدودیت ترافیک:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>زمان انقضا:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>ترافیک:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / مجموع: {{ .Total }}\n"

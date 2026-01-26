@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>İstemci Devre Dışı</b>\n\n"
 "clientFirstConnection" = "🟢 <b>İstemci İlk Bağlantısı</b>\n\n"
 "status" = "<b>Durum:</b> {{ .Status }}\n"
-"enabled" = "<b>Etkin:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>Etkin:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>Trafik Limiti:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>Bitiş Zamanı:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>Trafik:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / Toplam: {{ .Total }}\n"

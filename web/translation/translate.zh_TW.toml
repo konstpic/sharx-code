@@ -694,7 +694,7 @@
 "clientDisabled" = "⛔ <b>客戶端已停用</b>\n\n"
 "clientFirstConnection" = "🟢 <b>客戶端首次連線</b>\n\n"
 "status" = "<b>狀態:</b> {{ .Status }}\n"
-"enabled" = "<b>已啟用:</b> {{ .Enabled }}\n"
+"clientEnabled" = "<b>已啟用:</b> {{ .Enabled }}\n"
 "trafficLimit" = "<b>流量限制:</b> {{ .Limit }}\n"
 "expiryTime" = "<b>過期時間:</b> {{ .Time }}\n"
 "trafficInfo" = "<b>流量:</b> ↑ {{ .Upload }} / ↓ {{ .Download }} / 總計: {{ .Total }}\n"
