@@ -320,6 +320,13 @@
     sorter: (a, b) => (a.email || '').localeCompare(b.email || ''),
     scopedSlots: { customRender: 'email' },
   }, {
+    title: '{{ i18n "pages.clients.comment" }}',
+    align: 'center',
+    width: 150,
+    dataIndex: "comment",
+    sorter: (a, b) => (a.comment || '').localeCompare(b.comment || ''),
+    scopedSlots: { customRender: 'comment' },
+  }, {
     title: '{{ i18n "pages.clients.inbounds" }}',
     align: 'center',
     width: 250,
@@ -349,13 +356,6 @@
     width: 120,
     sorter: (a, b) => (a.expiryTime || 0) - (b.expiryTime || 0),
     scopedSlots: { customRender: 'expiryTime' },
-  }, {
-    title: '{{ i18n "pages.clients.comment" }}',
-    align: 'center',
-    width: 150,
-    dataIndex: "comment",
-    sorter: (a, b) => (a.comment || '').localeCompare(b.comment || ''),
-    scopedSlots: { customRender: 'comment' },
   }, {
     title: '{{ i18n "pages.clients.enable" }}',
     align: 'center',
