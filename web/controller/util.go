@@ -3,6 +3,7 @@ package controller
 import (
 	"net"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
@@ -103,6 +104,13 @@ func getContext(h gin.H) gin.H {
 		multiNodeMode = false
 	}
 	a["multiNodeMode"] = multiNodeMode
+	
+	// Add bug-report-service URL to context
+	bugReportURL := os.Getenv("BUG_REPORT_SERVICE_URL")
+	if bugReportURL == "" {
+		bugReportURL = "http://localhost:8000" // Default URL
+	}
+	a["bug_report_service_url"] = bugReportURL
 	
 	for key, value := range h {
 		a[key] = value

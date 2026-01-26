@@ -319,6 +319,22 @@ func (ClientHWID) TableName() string {
 	return "client_hw_ids"
 }
 
+// BugReport represents a bug report submitted by users.
+type BugReport struct {
+	Id            string `json:"id" gorm:"primaryKey;type:UUID"`                          // UUID primary key
+	UserId        int    `json:"userId,omitempty" gorm:"column:user_id;index"`             // Associated user ID (optional)
+	AppVersion    string `json:"appVersion" gorm:"column:app_version;not null"`            // Application version
+	Title         string `json:"title" gorm:"not null"`                                    // Bug report title
+	Description   string `json:"description" gorm:"type:TEXT;not null"`                   // Detailed description
+	Logs          string `json:"logs,omitempty" gorm:"type:TEXT"`                           // Error logs (optional)
+	Platform      string `json:"platform" gorm:"not null"`                                 // Platform (windows, linux, etc.)
+	Status        string `json:"status" gorm:"default:'open';index"`                       // Status: open, in_progress, closed
+	TaigaTaskId   *int   `json:"taigaTaskId,omitempty" gorm:"column:taiga_task_id;index"`  // Taiga task ID (optional)
+	TaigaTaskRef  string `json:"taigaTaskRef,omitempty" gorm:"column:taiga_task_ref"`      // Taiga task reference (optional)
+	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`                       // Creation timestamp
+	UpdatedAt     int64  `json:"updatedAt" gorm:"column:updated_at"`                      // Last update timestamp
+}
+
 // ClientGroup represents a group of clients for organization and bulk operations.
 type ClientGroup struct {
 	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"` // Unique identifier
