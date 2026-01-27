@@ -980,22 +980,24 @@ func (s *ClientService) ConvertClientToEntity(client *model.Client, userId int) 
 		}
 	}
 	return &model.ClientEntity{
-		UserId:     userId,
-		Email:      strings.ToLower(client.Email),
-		UUID:       client.ID,
-		Security:   client.Security,
-		Password:   client.Password,
-		Flow:       client.Flow,
-		TotalGB:    float64(client.TotalGB), // Convert int64 to float64
-		ExpiryTime: client.ExpiryTime,
-		Enable:     client.Enable,
-		Status:     status,
-		TgID:       client.TgID,
-		SubID:      client.SubID,
-		Comment:    client.Comment,
-		Reset:      client.Reset,
-		CreatedAt:  client.CreatedAt,
-		UpdatedAt:  client.UpdatedAt,
+		UserId:      userId,
+		Email:       strings.ToLower(client.Email),
+		UUID:        client.ID,
+		Security:    client.Security,
+		Password:    client.Password,
+		Flow:        client.Flow,
+		TotalGB:     float64(client.TotalGB), // Convert int64 to float64
+		ExpiryTime:  client.ExpiryTime,
+		Enable:      client.Enable,
+		Status:      status,
+		TgID:        client.TgID,
+		SubID:       client.SubID,
+		Comment:     client.Comment,
+		Reset:       client.Reset,
+		HWIDEnabled: client.HWIDEnabled,
+		MaxHWID:     client.MaxHWID,
+		CreatedAt:   client.CreatedAt,
+		UpdatedAt:   client.UpdatedAt,
 	}
 }
 

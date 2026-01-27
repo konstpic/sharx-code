@@ -1099,14 +1099,8 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 		}
 	}
 
-	// Check for duplicate emails
-	existEmail, err := s.checkEmailsExistForClients(clients)
-	if err != nil {
-		return false, err
-	}
-	if existEmail != "" {
-		return false, common.NewError("Duplicate email:", existEmail)
-	}
+	// Note: Email uniqueness is checked by ClientService.AddClient per user
+	// No need to check globally here as clients are user-specific
 
 	// Use ClientService to add clients
 	clientService := ClientService{}

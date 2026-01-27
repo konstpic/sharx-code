@@ -1223,6 +1223,7 @@ responseTime = "Response Time"
 "change_comment" = "⚙️💬 Comment"
 "ResetAllTraffics" = "Reset All Traffics"
 "SortedTrafficUsageReport" = "Sorted Traffic Usage Report"
+"delete" = "Delete"
 
 [tgbot.answers]
 "successfulOperation" = "✅ Operation successful!"
