@@ -1,10 +1,8 @@
 package controller
 
 import (
-	"encoding/base64"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
@@ -14,23 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-// getDefaultBugReportURL returns the default bug report service URL (obfuscated)
-func getDefaultBugReportURL() string {
-	// Obfuscated URL: base64(XOR(url, 0x42))
-	encoded := "KjY2MnhtbXdscXtscHBybHB3eHBxcnJy"
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	// Simple XOR deobfuscation (XOR with key 0x42)
-	key := byte(0x42)
-	result := make([]byte, len(decoded))
-	for i := range decoded {
-		result[i] = decoded[i] ^ key
-	}
-	return string(result)
-}
 
 // getRemoteIp extracts the real IP address from the request headers or remote address.
 func getRemoteIp(c *gin.Context) string {
@@ -122,14 +103,6 @@ func getContext(h gin.H) gin.H {
 		multiNodeMode = false
 	}
 	a["multiNodeMode"] = multiNodeMode
-	
-	// Add bug-report-service URL to context (never expose default URL to frontend)
-	bugReportURL := os.Getenv("BUG_REPORT_SERVICE_URL")
-	if bugReportURL == "" {
-		bugReportURL = getDefaultBugReportURL()
-	}
-	// Always show as configured (even if using default) to avoid exposing internal URL
-	a["bug_report_service_url"] = bugReportURL
 	
 	for key, value := range h {
 		a[key] = value

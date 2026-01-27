@@ -383,9 +383,6 @@ func (s *Server) startTask() {
 	// Collect node statistics (traffic and online clients) every 1 second for real-time updates
 	s.cron.AddJob("@every 1s", job.NewCollectNodeStatsJob())
 
-	// Sync bug report statuses from Taiga every 5 minutes
-	s.cron.AddJob("@every 5m", job.NewSyncBugReportStatusesJob())
-
 	// Client keys rotation job (runs before subscription update interval)
 	// Schedule dynamically based on subscription update interval
 	// Priority: 1) Custom header ProfileUpdateInterval (in hours) - takes precedence
