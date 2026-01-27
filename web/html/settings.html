@@ -648,6 +648,56 @@
           this.migrationExecuting = false;
         }
       },
+      async downloadGrafanaDashboard() {
+        try {
+          const response = await fetch(basePath + 'panel/setting/grafana/dashboard');
+          if (!response.ok) {
+            throw new Error('Failed to download dashboard');
+          }
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = '3x-ui-grafana-dashboard.json';
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+          Vue.prototype.$message.success('{{ i18n "pages.settings.toasts.downloadDashboardSuccess" }}');
+        } catch (error) {
+          Vue.prototype.$message.error('{{ i18n "pages.settings.toasts.downloadDashboardError" }}: ' + (error.message || 'Unknown error'));
+          console.error('Download dashboard error:', error);
+        }
+      },
+      copyMetricsEndpoint() {
+        const baseUrl = window.location.origin + basePath;
+        const metricsUrl = baseUrl + 'panel/metrics';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(metricsUrl).then(() => {
+            Vue.prototype.$message.success('Metrics endpoint URL copied to clipboard: ' + metricsUrl);
+          }).catch(err => {
+            console.error('Failed to copy to clipboard:', err);
+            this.fallbackCopyToClipboard(metricsUrl);
+          });
+        } else {
+          this.fallbackCopyToClipboard(metricsUrl);
+        }
+      },
+      fallbackCopyToClipboard(text) {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          Vue.prototype.$message.success('Metrics endpoint URL copied to clipboard: ' + text);
+        } catch (err) {
+          Vue.prototype.$message.error('Failed to copy to clipboard. Please copy manually: ' + text);
+        }
+        document.body.removeChild(textArea);
+      },
     },
     computed: {
       ldapInboundTagList: {

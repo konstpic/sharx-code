@@ -119,6 +119,11 @@ type AllSetting struct {
 	// "client_header" = HWID provided by client via x-hwid header (default, recommended)
 	// "legacy_fingerprint" = deprecated fingerprint-based HWID generation (deprecated, for backward compatibility only)
 	HwidMode string `json:"hwidMode" form:"hwidMode"` // HWID tracking mode
+	
+	// Grafana integration settings
+	GrafanaLokiUrl            string `json:"grafanaLokiUrl" form:"grafanaLokiUrl"`                         // Loki API URL (e.g., http://localhost:3100/loki/api/v1/push)
+	GrafanaVictoriaMetricsUrl string `json:"grafanaVictoriaMetricsUrl" form:"grafanaVictoriaMetricsUrl"` // VictoriaMetrics API URL (e.g., http://localhost:8428/api/v1/import/prometheus)
+	GrafanaEnable             bool   `json:"grafanaEnable" form:"grafanaEnable"`                           // Enable Grafana integration (Loki logging and VictoriaMetrics metrics)
 	// JSON subscription routing rules
 }
 

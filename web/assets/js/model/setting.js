@@ -92,6 +92,11 @@ class AllSetting {
         // "client_header" = HWID provided by client via x-hwid header (default, recommended)
         // "legacy_fingerprint" = deprecated fingerprint-based HWID generation (deprecated, for backward compatibility only)
         this.hwidMode = "client_header"; // HWID tracking mode
+        
+        // Grafana integration settings
+        this.grafanaLokiUrl = ""; // Loki API URL
+        this.grafanaVictoriaMetricsUrl = ""; // VictoriaMetrics API URL
+        this.grafanaEnable = false; // Enable Grafana integration
 
         if (data == null) {
             return

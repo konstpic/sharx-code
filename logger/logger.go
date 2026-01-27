@@ -34,22 +34,51 @@ var (
 
 // InitLogger initializes dual logging backends: console/syslog and file.
 // Console logging uses the specified level, file logging always uses DEBUG level.
+// If lokiURL is provided and grafanaEnabled is true, Loki backend will be used instead of file/console.
 func InitLogger(level logging.Level) {
+	InitLoggerWithLoki(level, "", false, "")
+}
+
+// InitLoggerWithLoki initializes logging with optional Loki backend.
+// If grafanaEnabled is true and lokiURL is provided, file and console logging will be disabled
+// and all logs will be sent to Loki with DEBUG level enabled.
+func InitLoggerWithLoki(level logging.Level, lokiURL string, grafanaEnabled bool, nodeID string) {
 	newLogger := logging.MustGetLogger("x-ui")
 	backends := make([]logging.Backend, 0, 2)
 
-	// Console/syslog backend with configurable level
-	if consoleBackend := initDefaultBackend(); consoleBackend != nil {
-		leveledBackend := logging.AddModuleLevel(consoleBackend)
-		leveledBackend.SetLevel(level, "x-ui")
-		backends = append(backends, leveledBackend)
-	}
+	// Initialize Loki if enabled
+	if grafanaEnabled && lokiURL != "" {
+		err := InitLokiClient(lokiURL, "x-ui", nodeID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize Loki client: %v\n", err)
+		} else {
+			// When Grafana is enabled, disable file and console logging
+			// Only use minimal console for critical errors
+			if consoleBackend := initDefaultBackend(); consoleBackend != nil {
+				leveledBackend := logging.AddModuleLevel(consoleBackend)
+				leveledBackend.SetLevel(logging.ERROR, "x-ui") // Only errors to console
+				backends = append(backends, leveledBackend)
+			}
+			// File backend is disabled when Grafana is enabled
+		}
+	} else {
+		// Normal mode: use console and file backends
+		// Console/syslog backend with configurable level
+		if consoleBackend := initDefaultBackend(); consoleBackend != nil {
+			leveledBackend := logging.AddModuleLevel(consoleBackend)
+			leveledBackend.SetLevel(level, "x-ui")
+			backends = append(backends, leveledBackend)
+		}
 
-	// File backend with DEBUG level for comprehensive logging
-	if fileBackend := initFileBackend(); fileBackend != nil {
-		leveledBackend := logging.AddModuleLevel(fileBackend)
-		leveledBackend.SetLevel(logging.DEBUG, "x-ui")
-		backends = append(backends, leveledBackend)
+		// File backend with DEBUG level for comprehensive logging
+		if fileBackend := initFileBackend(); fileBackend != nil {
+			leveledBackend := logging.AddModuleLevel(fileBackend)
+			leveledBackend.SetLevel(logging.DEBUG, "x-ui")
+			backends = append(backends, leveledBackend)
+		}
+
+		// Stop Loki if it was previously enabled
+		StopLokiClient()
 	}
 
 	multiBackend := logging.MultiLogger(backends...)
@@ -210,6 +239,9 @@ func addToBuffer(level string, newLog string) {
 		level: logLevel,
 		log:   newLog,
 	})
+
+	// Push to Loki if enabled
+	PushLogToLoki(level, newLog)
 
 	// If running on node, push log to panel in real-time
 	// pushLogToPanel is set by node package if log pusher is initialized

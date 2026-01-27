@@ -136,11 +136,15 @@ func (a *SUBController) isAllowedUserAgent(c *gin.Context) bool {
 func (a *SUBController) subs(c *gin.Context) {
 	subId := c.Param("subid")
 	
+	// Record User-Agent for metrics
+	userAgent := c.GetHeader("User-Agent")
+	service.RecordUserAgent(userAgent)
+	
 	// If encryption is enabled, check User-Agent - only allow Happ, v2raytun, or browser
 	if a.subEncrypt {
 		if !a.isAllowedUserAgent(c) {
 			logger.Warningf("Subscription request blocked: encryption enabled but User-Agent not allowed (subId: %s, User-Agent: %s)", 
-				subId, c.GetHeader("User-Agent"))
+				subId, userAgent)
 			c.String(403, "Forbidden")
 			return
 		}
@@ -277,11 +281,15 @@ func (a *SUBController) subs(c *gin.Context) {
 func (a *SUBController) subJsons(c *gin.Context) {
 	subId := c.Param("subid")
 	
+	// Record User-Agent for metrics
+	userAgent := c.GetHeader("User-Agent")
+	service.RecordUserAgent(userAgent)
+	
 	// If encryption is enabled, check User-Agent - only allow Happ, v2raytun, or browser
 	if a.subEncrypt {
 		if !a.isAllowedUserAgent(c) {
 			logger.Warningf("JSON subscription request blocked: encryption enabled but User-Agent not allowed (subId: %s, User-Agent: %s)", 
-				subId, c.GetHeader("User-Agent"))
+				subId, userAgent)
 			c.String(403, "Forbidden")
 			return
 		}

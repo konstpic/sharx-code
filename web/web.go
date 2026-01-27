@@ -295,6 +295,14 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 
 	g := engine.Group(basePath)
 
+	// Prometheus metrics endpoint (no auth required for scraping)
+	panelMetrics := g.Group("/panel")
+	panelMetrics.GET("/metrics", func(c *gin.Context) {
+		metrics := service.CollectMetrics()
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		c.String(http.StatusOK, metrics)
+	})
+
 	s.index = controller.NewIndexController(g)
 	s.panel = controller.NewXUIController(g)
 	s.api = controller.NewAPIController(g)

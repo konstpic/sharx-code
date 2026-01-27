@@ -236,6 +236,10 @@ func (a *APIController) pushNodeLogs(c *gin.Context) {
 		default:
 			logger.Infof("%s", formattedMessage)
 		}
+		
+		// Also send to Loki with node component and node ID
+		nodeIDStr := fmt.Sprintf("%d", node.Id)
+		logger.PushLogToLokiWithComponent(level, message, "node", nodeIDStr)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logs received"})

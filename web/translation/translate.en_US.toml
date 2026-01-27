@@ -452,6 +452,16 @@
 "information" = "Information"
 "language" = "Language"
 "telegramBotLanguage" = "Telegram Bot Language"
+"grafanaEnable" = "Enable Grafana Integration"
+"grafanaEnableDesc" = "When enabled, all logs (including xray and node logs) will be sent to Grafana Loki, and local file logging will be disabled. All log levels will be enabled."
+"grafanaLokiUrl" = "Loki URL"
+"grafanaLokiUrlDesc" = "Loki API endpoint URL (e.g., http://localhost:3100/loki/api/v1/push)"
+"grafanaDashboard" = "Grafana Dashboard"
+"grafanaDashboardDesc" = "Download ready-to-use Grafana dashboard JSON file"
+"grafanaMetricsEndpoint" = "Prometheus Metrics Endpoint"
+"grafanaMetricsEndpointDesc" = "Metrics are available at: /panel/metrics\n\nTo configure Grafana/Prometheus scraping:\n1. Add a Prometheus data source in Grafana pointing to your 3x-ui panel\n2. Configure scrape job with target: http://your-panel-host:port/panel/metrics\n3. Import the downloaded dashboard JSON file\n\nExample Prometheus scrape config:\n- job_name: '3x-ui'\n  scrape_interval: 30s\n  static_configs:\n    - targets: ['your-panel-host:port']\n      metrics_path: '/panel/metrics'"
+"grafanaIntegrationEnabled" = "Grafana Integration Enabled"
+"grafanaIntegrationEnabledDesc" = "When Grafana integration is enabled:\n• All logs (x-ui, xray, and node logs) will be sent to Loki\n• Local file logging will be disabled\n• All log levels (DEBUG, INFO, WARNING, ERROR) will be enabled\n• Metrics will be exported in Prometheus format\n• Metrics can be scraped from /panel/metrics endpoint"
 
 [pages.settings.subscriptionHeaders]
 "title" = "Subscription Headers"
@@ -1039,6 +1049,8 @@ responseTime = "Response Time"
 "userPassMustBeNotEmpty" = "The new username and password is empty"
 "getOutboundTrafficError" = "Error getting traffics"
 "resetOutboundTrafficError" = "Error in reset outbound traffics"
+"downloadDashboardSuccess" = "Dashboard JSON downloaded successfully"
+"downloadDashboardError" = "Failed to download dashboard"
 
 [tgbot]
 "keyboardClosed" = "❌ Custom keyboard closed!"

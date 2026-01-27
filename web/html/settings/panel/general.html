@@ -300,5 +300,51 @@
             </template>
         </a-setting-list-item>
     </a-collapse-panel>
+    <a-collapse-panel key="8" header='Grafana'>
+        <a-setting-list-item paddings="small">
+            <template #title>{{ i18n "pages.settings.grafanaEnable" }}</template>
+            <template #description>{{ i18n "pages.settings.grafanaEnableDesc" }}</template>
+            <template #control>
+                <a-switch v-model="allSetting.grafanaEnable"></a-switch>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small" v-if="allSetting.grafanaEnable">
+            <template #title>{{ i18n "pages.settings.grafanaLokiUrl" }}</template>
+            <template #description>{{ i18n "pages.settings.grafanaLokiUrlDesc" }}</template>
+            <template #control>
+                <a-input type="text" placeholder="http://localhost:3100/loki/api/v1/push" v-model="allSetting.grafanaLokiUrl"></a-input>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small" v-if="allSetting.grafanaEnable">
+            <template #title>{{ i18n "pages.settings.grafanaDashboard" }}</template>
+            <template #description>{{ i18n "pages.settings.grafanaDashboardDesc" }}</template>
+            <template #control>
+                <a-button type="primary" @click="downloadGrafanaDashboard">
+                    <a-icon type="download"></a-icon>
+                    {{ i18n "download" }} Dashboard JSON
+                </a-button>
+            </template>
+        </a-setting-list-item>
+        <a-setting-list-item paddings="small" v-if="allSetting.grafanaEnable">
+            <template #title>{{ i18n "pages.settings.grafanaMetricsEndpoint" }}</template>
+            <template #description>
+                <div style="white-space: pre-line;">{{ i18n "pages.settings.grafanaMetricsEndpointDesc" }}</div>
+            </template>
+            <template #control>
+                <a-button type="default" @click="copyMetricsEndpoint">
+                    <a-icon type="copy"></a-icon>
+                    {{ i18n "copy" }} Endpoint URL
+                </a-button>
+            </template>
+        </a-setting-list-item>
+        <a-alert v-if="allSetting.grafanaEnable" type="warning" :style="{ marginTop: '10px' }" show-icon>
+            <template slot="message">
+                {{ i18n "pages.settings.grafanaIntegrationEnabled" }}
+            </template>
+            <template slot="description">
+                <div style="white-space: pre-line;">{{ i18n "pages.settings.grafanaIntegrationEnabledDesc" }}</div>
+            </template>
+        </a-alert>
+    </a-collapse-panel>
 </a-collapse>
 {{end}}

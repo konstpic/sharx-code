@@ -68,6 +68,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/importDB", a.importDB)
 	g.POST("/getNewEchCert", a.getNewEchCert)
+	g.GET("/metrics", a.getMetrics)
 }
 
 // refreshStatus updates the cached server status and collects CPU history.
@@ -540,4 +541,11 @@ func (a *ServerController) getNewmlkem768(c *gin.Context) {
 		return
 	}
 	jsonObj(c, out, nil)
+}
+
+// getMetrics returns metrics in Prometheus format
+func (a *ServerController) getMetrics(c *gin.Context) {
+	metrics := service.CollectMetrics()
+	c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	c.String(http.StatusOK, metrics)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v2/config"
 	"github.com/mhsanaei/3x-ui/v2/database"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
@@ -20,10 +21,15 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/web/cache"
 	"github.com/mhsanaei/3x-ui/v2/web/entity"
 	"github.com/mhsanaei/3x-ui/v2/xray"
+
+	"github.com/op/go-logging"
 )
 
 //go:embed config.json
 var defaultXrayTemplateConfig string
+
+//go:embed grafana-dashboard.json
+var grafanaDashboardJSON string
 
 var defaultValueMap = map[string]string{
 	// Default Xray template configuration. At runtime, the real source of truth
@@ -116,6 +122,10 @@ var defaultValueMap = map[string]string{
 	"multiNodeMode": "false", // "true" for multi-mode, "false" for single-mode
 	// HWID tracking mode
 	"hwidMode": "client_header", // "off" = disabled, "client_header" = use x-hwid header (default), "legacy_fingerprint" = deprecated fingerprint-based (deprecated)
+	// Grafana integration
+	"grafanaLokiUrl":        "",
+	"grafanaVictoriaMetricsUrl": "",
+	"grafanaEnable":         "false",
 }
 
 // SettingService provides business logic for application settings management.
@@ -996,6 +1006,33 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 	// Force clear cache after all settings are updated to ensure fresh data on next request
 	cache.InvalidateAllSettings()
 	
+	// Reinitialize logger and metrics exporter if Grafana settings changed
+	if allSetting.GrafanaEnable && allSetting.GrafanaLokiUrl != "" {
+		// Reinitialize with Loki - use DEBUG level when Grafana is enabled for full logging
+		logger.InitLoggerWithLoki(logging.DEBUG, allSetting.GrafanaLokiUrl, true, "")
+	} else {
+		// Reinitialize without Loki
+		var logLevel logging.Level
+		switch config.GetLogLevel() {
+		case config.Debug:
+			logLevel = logging.DEBUG
+		case config.Info:
+			logLevel = logging.INFO
+		case config.Notice:
+			logLevel = logging.NOTICE
+		case config.Warning:
+			logLevel = logging.WARNING
+		case config.Error:
+			logLevel = logging.ERROR
+		default:
+			logLevel = logging.INFO
+		}
+		logger.InitLogger(logLevel)
+	}
+	
+	// Initialize metrics exporter (metrics are exposed via /panel/metrics endpoint)
+	InitMetricsExporter()
+	
 	return common.Combine(errs...)
 }
 
@@ -1093,4 +1130,12 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 	}
 
 	return result, nil
+}
+
+// GetGrafanaDashboard returns the Grafana dashboard JSON content
+func (s *SettingService) GetGrafanaDashboard() (string, error) {
+	if grafanaDashboardJSON == "" {
+		return "", errors.New("Grafana dashboard not found")
+	}
+	return grafanaDashboardJSON, nil
 }
