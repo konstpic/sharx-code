@@ -1700,13 +1700,15 @@ func (s *InboundService) GetClientInboundByEmail(email string) (traffic *xray.Cl
 	var traffics []*xray.ClientTraffic
 	err = db.Model(xray.ClientTraffic{}).Where("email = ?", email).Find(&traffics).Error
 	if err != nil {
-		logger.Warningf("Error retrieving ClientTraffic with email %s: %v", email, err)
+		// Only log real database errors, not "not found" cases
+		logger.Warningf("Database error retrieving ClientTraffic with email %s: %v", email, err)
 		return nil, nil, err
 	}
 	if len(traffics) > 0 {
 		inbound, err = s.GetInbound(traffics[0].InboundId)
 		return traffics[0], inbound, err
 	}
+	// Client not found - this is normal, return nil without error
 	return nil, nil, nil
 }
 
@@ -2281,7 +2283,15 @@ func (s *InboundService) GetClientTrafficByEmail(email string) (traffic *xray.Cl
 	// Prefer retrieving along with client to reflect actual enabled state from inbound settings
 	t, client, err := s.GetClientByEmail(email)
 	if err != nil {
-		logger.Warningf("Error retrieving ClientTraffic with email %s: %v", email, err)
+		// Check if it's a "not found" error (normal case) vs real error
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Not Found") {
+			// Client not found - this is normal, log as debug instead of warning
+			logger.Debugf("Client not found for email %s: %v", email, err)
+		} else {
+			// Real error (database error, etc.) - log as warning
+			logger.Warningf("Error retrieving ClientTraffic with email %s: %v", email, err)
+		}
 		return nil, err
 	}
 	if t != nil && client != nil {
@@ -2290,6 +2300,7 @@ func (s *InboundService) GetClientTrafficByEmail(email string) (traffic *xray.Cl
 		t.SubId = client.SubID
 		return t, nil
 	}
+	// Client not found - return nil without error (normal case)
 	return nil, nil
 }
 

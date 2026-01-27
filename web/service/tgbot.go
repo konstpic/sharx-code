@@ -22,12 +22,15 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
+	"github.com/mhsanaei/3x-ui/v2/database"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/util/common"
 	"github.com/mhsanaei/3x-ui/v2/web/global"
 	"github.com/mhsanaei/3x-ui/v2/web/locale"
 	"github.com/mhsanaei/3x-ui/v2/xray"
+
+	"gorm.io/gorm"
 
 	"github.com/google/uuid"
 	"github.com/mymmrac/telego"
@@ -572,10 +575,26 @@ func (t *Tgbot) OnReceive() {
 					if checkAdmin(message.From.ID) {
 						for _, sharedUser := range message.UsersShared.Users {
 							userID := sharedUser.UserID
-							needRestart, err := t.inboundService.SetClientTelegramUserID(message.UsersShared.RequestID, userID)
+							// RequestID is now clientEntity.Id (new architecture) instead of traffic.Id
+							clientId := int(message.UsersShared.RequestID)
+							
+							// Use ClientService to update TgID directly (new architecture)
+							clientService := ClientService{}
+							client, err := clientService.GetClient(clientId)
+							if err != nil {
+								output := t.I18nBot("tgbot.messages.selectUserFailed")
+								t.SendMsgToTgbot(message.Chat.ID, output, tu.ReplyKeyboardRemove())
+								continue
+							}
+							
+							// Update TgID
+							client.TgID = userID
+							client.UpdatedAt = time.Now().Unix()
+							needRestart, err := clientService.UpdateClient(client.UserId, client)
 							if needRestart {
 								t.xrayService.SetToNeedRestart()
 							}
+							
 							output := ""
 							if err != nil {
 								output += t.I18nBot("tgbot.messages.selectUserFailed")
@@ -725,12 +744,17 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil || inbound == nil {
+					logger.Warningf("Error getting inbound %d: %v", inboundIdInt, err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.wentWrong"))
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_sub_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "get_clients_for_individual":
 				inboundId := dataArray[1]
@@ -739,12 +763,17 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil || inbound == nil {
+					logger.Warningf("Error getting inbound %d: %v", inboundIdInt, err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.wentWrong"))
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_individual_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "get_clients_for_qr":
 				inboundId := dataArray[1]
@@ -753,12 +782,17 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil || inbound == nil {
+					logger.Warningf("Error getting inbound %d: %v", inboundIdInt, err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.wentWrong"))
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_qr_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "client_sub_links":
 				t.sendClientSubLinks(chatId, email)
@@ -801,7 +835,31 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "reset_traffic_c":
-				err := t.inboundService.ResetClientTrafficByEmail(email)
+				// Use ClientService to reset traffic (new architecture)
+				db := database.GetDB()
+				var clientEntity model.ClientEntity
+				err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+				if err != nil {
+					if err == gorm.ErrRecordNotFound {
+						t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+						return
+					}
+					logger.Warning(err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				
+				// Reset traffic counters
+				clientEntity.Up = 0
+				clientEntity.Down = 0
+				clientEntity.AllTime = 0
+				clientEntity.UpdatedAt = time.Now().Unix()
+				
+				clientService := ClientService{}
+				needRestart, err := clientService.UpdateClient(clientEntity.UserId, &clientEntity)
+				if needRestart {
+					t.xrayService.SetToNeedRestart()
+				}
 				if err == nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.resetTrafficSuccess", "Email=="+email))
 					t.searchClient(chatId, email, callbackQuery.Message.GetMessageID())
@@ -843,7 +901,26 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				if len(dataArray) == 3 {
 					limitTraffic, err := strconv.Atoi(dataArray[2])
 					if err == nil {
-						needRestart, err := t.inboundService.ResetClientTrafficLimitByEmail(email, limitTraffic)
+						// Use ClientService to set traffic limit (new architecture)
+						db := database.GetDB()
+						var clientEntity model.ClientEntity
+						err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+						if err != nil {
+							if err == gorm.ErrRecordNotFound {
+								t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+								return
+							}
+							logger.Warning(err)
+							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+							return
+						}
+						
+						// Set traffic limit (convert GB to float64)
+						clientEntity.TotalGB = float64(limitTraffic)
+						clientEntity.UpdatedAt = time.Now().Unix()
+						
+						clientService := ClientService{}
+						needRestart, err := clientService.UpdateClient(clientEntity.UserId, &clientEntity)
 						if needRestart {
 							t.xrayService.SetToNeedRestart()
 						}
@@ -1026,33 +1103,39 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				if len(dataArray) == 3 {
 					days, err := strconv.ParseInt(dataArray[2], 10, 64)
 					if err == nil {
+						// Use ClientEntity to get and update expiry time (new architecture)
+						db := database.GetDB()
+						var clientEntity model.ClientEntity
+						err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+						if err != nil {
+							if err == gorm.ErrRecordNotFound {
+								t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+								return
+							}
+							logger.Warning(err)
+							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+							return
+						}
+
 						var date int64
 						if days > 0 {
-							traffic, err := t.inboundService.GetClientTrafficByEmail(email)
-							if err != nil {
-								logger.Warning(err)
-								msg := t.I18nBot("tgbot.wentWrong")
-								t.SendMsgToTgbot(chatId, msg)
-								return
-							}
-							if traffic == nil {
-								msg := t.I18nBot("tgbot.noResult")
-								t.SendMsgToTgbot(chatId, msg)
-								return
-							}
-
-							if traffic.ExpiryTime > 0 {
-								if traffic.ExpiryTime-time.Now().Unix()*1000 < 0 {
+							if clientEntity.ExpiryTime > 0 {
+								if clientEntity.ExpiryTime-time.Now().Unix()*1000 < 0 {
 									date = -int64(days * 24 * 60 * 60000)
 								} else {
-									date = traffic.ExpiryTime + int64(days*24*60*60000)
+									date = clientEntity.ExpiryTime + int64(days*24*60*60000)
 								}
 							} else {
-								date = traffic.ExpiryTime - int64(days*24*60*60000)
+								date = clientEntity.ExpiryTime - int64(days*24*60*60000)
 							}
-
 						}
-						needRestart, err := t.inboundService.ResetClientExpiryTimeByEmail(email, date)
+						
+						// Use ClientService to set expiry time (new architecture)
+						clientEntity.ExpiryTime = date
+						clientEntity.UpdatedAt = time.Now().Unix()
+						
+						clientService := ClientService{}
+						needRestart, err := clientService.UpdateClient(clientEntity.UserId, &clientEntity)
 						if needRestart {
 							t.xrayService.SetToNeedRestart()
 						}
@@ -1251,12 +1334,21 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "tgid_remove_c":
-				traffic, err := t.inboundService.GetClientTrafficByEmail(email)
-				if err != nil || traffic == nil {
+				// Use ClientService to remove TgID directly (new architecture)
+				clientService := ClientService{}
+				db := database.GetDB()
+				
+				var clientEntity model.ClientEntity
+				err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
 					return
 				}
-				needRestart, err := t.inboundService.SetClientTelegramUserID(traffic.Id, EmptyTelegramUserID)
+				
+				// Update TgID to 0
+				clientEntity.TgID = EmptyTelegramUserID
+				clientEntity.UpdatedAt = time.Now().Unix()
+				needRestart, err := clientService.UpdateClient(clientEntity.UserId, &clientEntity)
 				if needRestart {
 					t.xrayService.SetToNeedRestart()
 				}
@@ -1277,10 +1369,30 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "toggle_enable_c":
-				enabled, needRestart, err := t.inboundService.ToggleClientEnableByEmail(email)
+				// Use ClientService to toggle enable status (new architecture)
+				db := database.GetDB()
+				var clientEntity model.ClientEntity
+				err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+				if err != nil {
+					if err == gorm.ErrRecordNotFound {
+						t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+						return
+					}
+					logger.Warning(err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				
+				// Toggle enable status
+				clientEntity.Enable = !clientEntity.Enable
+				clientEntity.UpdatedAt = time.Now().Unix()
+				
+				clientService := ClientService{}
+				needRestart, err := clientService.UpdateClient(clientEntity.UserId, &clientEntity)
 				if needRestart {
 					t.xrayService.SetToNeedRestart()
 				}
+				enabled := clientEntity.Enable
 				if err == nil {
 					if enabled {
 						t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.enableSuccess", "Email=="+email))
@@ -1299,8 +1411,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					return
 				}
 				inbound, err := t.inboundService.GetInbound(inboundIdInt)
-				if err != nil {
-					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
+				if err != nil || inbound == nil {
+					logger.Warningf("Error getting inbound %d: %v", inboundIdInt, err)
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.wentWrong"))
 					return
 				}
 				clients, err := t.getInboundClients(inboundIdInt)
@@ -1414,11 +1527,15 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_sub_links":
 		// show user's own clients to choose one for sub links
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
-		if err != nil {
-			// fallback to message
-			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
-			return
+		// Try new architecture first
+		traffics, err := t.getClientTrafficTgBotNew(tgUserID)
+		if err != nil || len(traffics) == 0 {
+			// Fallback to old method
+			traffics, err = t.inboundService.GetClientTrafficTgBot(tgUserID)
+			if err != nil {
+				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+				return
+			}
 		}
 		if len(traffics) == 0 {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.askToAddUserId", "TgUserID=="+strconv.FormatInt(tgUserID, 10)))
@@ -1437,10 +1554,15 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_individual_links":
 		// show user's clients to choose for individual links
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
-		if err != nil {
-			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
-			return
+		// Try new architecture first
+		traffics, err := t.getClientTrafficTgBotNew(tgUserID)
+		if err != nil || len(traffics) == 0 {
+			// Fallback to old method
+			traffics, err = t.inboundService.GetClientTrafficTgBot(tgUserID)
+			if err != nil {
+				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+				return
+			}
 		}
 		if len(traffics) == 0 {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.askToAddUserId", "TgUserID=="+strconv.FormatInt(tgUserID, 10)))
@@ -1459,10 +1581,15 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_qr_links":
 		// show user's clients to choose for QR codes
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
-		if err != nil {
-			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOccurred")+"\r\n"+err.Error())
-			return
+		// Try new architecture first
+		traffics, err := t.getClientTrafficTgBotNew(tgUserID)
+		if err != nil || len(traffics) == 0 {
+			// Fallback to old method
+			traffics, err = t.inboundService.GetClientTrafficTgBot(tgUserID)
+			if err != nil {
+				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOccurred")+"\r\n"+err.Error())
+				return
+			}
 		}
 		if len(traffics) == 0 {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.askToAddUserId", "TgUserID=="+strconv.FormatInt(tgUserID, 10)))
@@ -1755,17 +1882,38 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 		}
 
 		for _, valid_emails := range valid_emails {
-			traffic, err := t.inboundService.GetClientTrafficByEmail(valid_emails)
+			// Use ClientEntity to get client data (new architecture)
+			db := database.GetDB()
+			var clientEntity model.ClientEntity
+			err := db.Where("LOWER(email) = ?", strings.ToLower(valid_emails)).First(&clientEntity).Error
 			if err != nil {
+				if err == gorm.ErrRecordNotFound {
+					msg := t.I18nBot("tgbot.noResult")
+					t.SendMsgToTgbot(chatId, msg)
+					continue
+				}
 				logger.Warning(err)
 				msg := t.I18nBot("tgbot.wentWrong")
 				t.SendMsgToTgbot(chatId, msg)
 				continue
 			}
-			if traffic == nil {
-				msg := t.I18nBot("tgbot.noResult")
-				t.SendMsgToTgbot(chatId, msg)
-				continue
+
+			// Create ClientTraffic from ClientEntity for compatibility with clientInfoMsg
+			totalBytes := int64(clientEntity.TotalGB * 1024 * 1024 * 1024)
+			traffic := &xray.ClientTraffic{
+				Id:         0,
+				InboundId:  0,
+				Enable:     clientEntity.Enable,
+				Email:      clientEntity.Email,
+				UUID:       clientEntity.UUID,
+				SubId:      clientEntity.SubID,
+				Up:         clientEntity.Up,
+				Down:       clientEntity.Down,
+				AllTime:    clientEntity.AllTime,
+				ExpiryTime: clientEntity.ExpiryTime,
+				Total:      totalBytes,
+				Reset:      clientEntity.Reset,
+				LastOnline: clientEntity.LastOnline,
 			}
 
 			output := t.clientInfoMsg(traffic, false, false, false, false, true, false)
@@ -2058,11 +2206,24 @@ func (t *Tgbot) SendMsgToTgbot(chatId int64, msg string, replyMarkup ...telego.R
 
 // buildSubscriptionURLs builds the HTML sub page URL and JSON subscription URL for a client email
 func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
-	// Resolve subId from client email
-	traffic, client, err := t.inboundService.GetClientByEmail(email)
-	_ = traffic
-	if err != nil || client == nil {
-		return "", "", errors.New("client not found")
+	// Use ClientEntity to find client by email (new architecture)
+	db := database.GetDB()
+	
+	// Find client by email (email is unique)
+	var clientEntity model.ClientEntity
+	err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			logger.Warningf("Client not found for email: %s", email)
+			return "", "", errors.New("клиент не найден")
+		}
+		logger.Warningf("Error getting client by email %s: %v", email, err)
+		return "", "", fmt.Errorf("ошибка при получении клиента: %v", err)
+	}
+	
+	if clientEntity.SubID == "" {
+		logger.Warningf("Client %s has no SubID", email)
+		return "", "", errors.New("у клиента не установлен Subscription ID")
 	}
 
 	// Gather settings to construct absolute URLs
@@ -2113,8 +2274,8 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 		subJsonPath = subJsonPath + "/"
 	}
 
-	subURL := fmt.Sprintf("%s://%s%s%s", scheme, host, subPath, client.SubID)
-	subJsonURL := fmt.Sprintf("%s://%s%s%s", scheme, host, subJsonPath, client.SubID)
+	subURL := fmt.Sprintf("%s://%s%s%s", scheme, host, subPath, clientEntity.SubID)
+	subJsonURL := fmt.Sprintf("%s://%s%s%s", scheme, host, subJsonPath, clientEntity.SubID)
 	if !subJsonEnable {
 		subJsonURL = ""
 	}
@@ -2125,7 +2286,8 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 func (t *Tgbot) sendClientSubLinks(chatId int64, email string) {
 	subURL, subJsonURL, err := t.buildSubscriptionURLs(email)
 	if err != nil {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+		logger.Warningf("Error building subscription URLs for client %s: %v", email, err)
+		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.wentWrong")+"\r\n"+err.Error())
 		return
 	}
 	msg := "Subscription URL:\r\n<code>" + subURL + "</code>"
@@ -2148,7 +2310,8 @@ func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
 	// Build the HTML sub page URL; we'll call it with header Accept to get raw content
 	subURL, _, err := t.buildSubscriptionURLs(email)
 	if err != nil {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+		logger.Warningf("Error building subscription URLs for client %s: %v", email, err)
+		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.wentWrong")+"\r\n"+err.Error())
 		return
 	}
 
@@ -2229,7 +2392,8 @@ func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
 func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
 	subURL, subJsonURL, err := t.buildSubscriptionURLs(email)
 	if err != nil {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+		logger.Warningf("Error building subscription URLs for client %s: %v", email, err)
+		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.wentWrong")+"\r\n"+err.Error())
 		return
 	}
 
@@ -2925,8 +3089,10 @@ func (t *Tgbot) getInbounds() (*telego.InlineKeyboardMarkup, error) {
 		if inbound.Enable {
 			status = "✅"
 		}
+		// Format: Remark (ID: X, Port: Y) - Status
+		buttonText := fmt.Sprintf("%s (ID: %d, Port: %d) - %s", inbound.Remark, inbound.Id, inbound.Port, status)
 		callbackData := t.encodeQuery(fmt.Sprintf("%s %d", "get_clients", inbound.Id))
-		buttons = append(buttons, tu.InlineKeyboardButton(fmt.Sprintf("%v - %v", inbound.Remark, status)).WithCallbackData(callbackData))
+		buttons = append(buttons, tu.InlineKeyboardButton(buttonText).WithCallbackData(callbackData))
 	}
 
 	cols := 1
@@ -2957,8 +3123,10 @@ func (t *Tgbot) getInboundsFor(nextAction string) (*telego.InlineKeyboardMarkup,
 		if inbound.Enable {
 			status = "✅"
 		}
+		// Format: Remark (ID: X, Port: Y) - Status
+		buttonText := fmt.Sprintf("%s (ID: %d, Port: %d) - %s", inbound.Remark, inbound.Id, inbound.Port, status)
 		callbackData := t.encodeQuery(fmt.Sprintf("%s %d", nextAction, inbound.Id))
-		buttons = append(buttons, tu.InlineKeyboardButton(fmt.Sprintf("%v - %v", inbound.Remark, status)).WithCallbackData(callbackData))
+		buttons = append(buttons, tu.InlineKeyboardButton(buttonText).WithCallbackData(callbackData))
 	}
 
 	cols := 1
@@ -2986,7 +3154,12 @@ func (t *Tgbot) getInboundClientsFor(inboundID int, action string) (*telego.Inli
 	} else {
 		if len(clients) > 0 {
 			for _, client := range clients {
-				buttons = append(buttons, tu.InlineKeyboardButton(client.Email).WithCallbackData(t.encodeQuery(action+" "+client.Email)))
+				// Format: Email (Comment) if comment exists, otherwise just Email
+				buttonText := client.Email
+				if client.Comment != "" {
+					buttonText = fmt.Sprintf("%s (%s)", client.Email, client.Comment)
+				}
+				buttons = append(buttons, tu.InlineKeyboardButton(buttonText).WithCallbackData(t.encodeQuery(action+" "+client.Email)))
 			}
 
 		} else {
@@ -3035,8 +3208,10 @@ func (t *Tgbot) getInboundsAddClient() (*telego.InlineKeyboardMarkup, error) {
 		if inbound.Enable {
 			status = "✅"
 		}
+		// Format: Remark (ID: X, Port: Y) - Status
+		buttonText := fmt.Sprintf("%s (ID: %d, Port: %d) - %s", inbound.Remark, inbound.Id, inbound.Port, status)
 		callbackData := t.encodeQuery(fmt.Sprintf("%s %d", "add_client_to", inbound.Id))
-		buttons = append(buttons, tu.InlineKeyboardButton(fmt.Sprintf("%v - %v", inbound.Remark, status)).WithCallbackData(callbackData))
+		buttons = append(buttons, tu.InlineKeyboardButton(buttonText).WithCallbackData(callbackData))
 	}
 
 	cols := 1
@@ -3064,7 +3239,12 @@ func (t *Tgbot) getInboundClients(id int) (*telego.InlineKeyboardMarkup, error) 
 	} else {
 		if len(clients) > 0 {
 			for _, client := range clients {
-				buttons = append(buttons, tu.InlineKeyboardButton(client.Email).WithCallbackData(t.encodeQuery("client_get_usage "+client.Email)))
+				// Format: Email (Comment) if comment exists, otherwise just Email
+				buttonText := client.Email
+				if client.Comment != "" {
+					buttonText = fmt.Sprintf("%s (%s)", client.Email, client.Comment)
+				}
+				buttons = append(buttons, tu.InlineKeyboardButton(buttonText).WithCallbackData(t.encodeQuery("client_get_usage "+client.Email)))
 			}
 
 		} else {
@@ -3133,11 +3313,9 @@ func (t *Tgbot) clientInfoMsg(
 	}
 
 	enabled := ""
-	isEnabled, err := t.inboundService.checkIsEnabledByEmail(traffic.Email)
-	if err != nil {
-		logger.Warning(err)
-		enabled = t.I18nBot("tgbot.wentWrong")
-	} else if isEnabled {
+	// Use traffic.Enable directly (already set from ClientEntity in new architecture)
+	// This avoids calling checkIsEnabledByEmail which may fail with new architecture
+	if traffic.Enable {
 		enabled = t.I18nBot("tgbot.messages.yes")
 	} else {
 		enabled = t.I18nBot("tgbot.messages.no")
@@ -3195,14 +3373,58 @@ func (t *Tgbot) clientInfoMsg(
 	return output
 }
 
+// getClientTrafficTgBotNew gets clients by Telegram ID using new architecture
+func (t *Tgbot) getClientTrafficTgBotNew(tgUserID int64) ([]*xray.ClientTraffic, error) {
+	db := database.GetDB()
+	
+	// Find clients by TgID in ClientEntity (new architecture)
+	var clientEntities []model.ClientEntity
+	err := db.Where("tg_id = ?", tgUserID).Find(&clientEntities).Error
+	if err != nil {
+		return nil, err
+	}
+	
+	if len(clientEntities) == 0 {
+		return []*xray.ClientTraffic{}, nil
+	}
+	
+	// Convert ClientEntity to ClientTraffic
+	traffics := make([]*xray.ClientTraffic, len(clientEntities))
+	for i, entity := range clientEntities {
+		totalBytes := int64(entity.TotalGB * 1024 * 1024 * 1024)
+		traffics[i] = &xray.ClientTraffic{
+			Id:         0, // Not used in new architecture
+			InboundId:  0, // Will be set if needed
+			Enable:     entity.Enable,
+			Email:      entity.Email,
+			UUID:       entity.UUID,
+			SubId:      entity.SubID,
+			Up:         entity.Up,
+			Down:       entity.Down,
+			AllTime:    entity.AllTime,
+			ExpiryTime: entity.ExpiryTime,
+			Total:      totalBytes,
+			Reset:      entity.Reset,
+			LastOnline: entity.LastOnline,
+		}
+	}
+	
+	return traffics, nil
+}
+
 // getClientUsage retrieves and sends client usage information to the chat.
 func (t *Tgbot) getClientUsage(chatId int64, tgUserID int64, email ...string) {
-	traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
-	if err != nil {
-		logger.Warning(err)
-		msg := t.I18nBot("tgbot.wentWrong")
-		t.SendMsgToTgbot(chatId, msg)
-		return
+	// Try new architecture first
+	traffics, err := t.getClientTrafficTgBotNew(tgUserID)
+	if err != nil || len(traffics) == 0 {
+		// Fallback to old method
+		traffics, err = t.inboundService.GetClientTrafficTgBot(tgUserID)
+		if err != nil {
+			logger.Warning(err)
+			msg := t.I18nBot("tgbot.wentWrong")
+			t.SendMsgToTgbot(chatId, msg)
+			return
+		}
 	}
 
 	if len(traffics) == 0 {
@@ -3268,21 +3490,26 @@ func (t *Tgbot) searchClientIps(chatId int64, email string, messageID ...int) {
 
 // clientTelegramUserInfo retrieves and sends Telegram user info for the client.
 func (t *Tgbot) clientTelegramUserInfo(chatId int64, email string, messageID ...int) {
-	traffic, client, err := t.inboundService.GetClientByEmail(email)
+	// Use ClientEntity to find client by email (new architecture)
+	db := database.GetDB()
+	
+	var clientEntity model.ClientEntity
+	err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			msg := t.I18nBot("tgbot.noResult")
+			t.SendMsgToTgbot(chatId, msg)
+			return
+		}
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
 		t.SendMsgToTgbot(chatId, msg)
 		return
 	}
-	if client == nil {
-		msg := t.I18nBot("tgbot.noResult")
-		t.SendMsgToTgbot(chatId, msg)
-		return
-	}
+	
 	tgId := "None"
-	if client.TgID != 0 {
-		tgId = strconv.FormatInt(client.TgID, 10)
+	if clientEntity.TgID != 0 {
+		tgId = strconv.FormatInt(clientEntity.TgID, 10)
 	}
 
 	output := ""
@@ -3303,8 +3530,9 @@ func (t *Tgbot) clientTelegramUserInfo(chatId int64, email string, messageID ...
 		t.editMessageTgBot(chatId, messageID[0], output, inlineKeyboard)
 	} else {
 		t.SendMsgToTgbot(chatId, output, inlineKeyboard)
+		// Use client ID instead of traffic ID for RequestID
 		requestUser := telego.KeyboardButtonRequestUsers{
-			RequestID: int32(traffic.Id),
+			RequestID: int32(clientEntity.Id),
 			UserIsBot: new(bool),
 		}
 		keyboard := tu.Keyboard(
@@ -3321,17 +3549,39 @@ func (t *Tgbot) clientTelegramUserInfo(chatId int64, email string, messageID ...
 
 // searchClient searches for a client by email and sends the information.
 func (t *Tgbot) searchClient(chatId int64, email string, messageID ...int) {
-	traffic, err := t.inboundService.GetClientTrafficByEmail(email)
+	// Use ClientEntity to find client by email (new architecture)
+	db := database.GetDB()
+	
+	var clientEntity model.ClientEntity
+	err := db.Where("LOWER(email) = ?", strings.ToLower(email)).First(&clientEntity).Error
 	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			msg := t.I18nBot("tgbot.noResult")
+			t.SendMsgToTgbot(chatId, msg)
+			return
+		}
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
 		t.SendMsgToTgbot(chatId, msg)
 		return
 	}
-	if traffic == nil {
-		msg := t.I18nBot("tgbot.noResult")
-		t.SendMsgToTgbot(chatId, msg)
-		return
+
+	// Create ClientTraffic from ClientEntity for compatibility with clientInfoMsg
+	totalBytes := int64(clientEntity.TotalGB * 1024 * 1024 * 1024)
+	traffic := &xray.ClientTraffic{
+		Id:         0, // Not used in new architecture
+		InboundId:  0, // Will be set if needed
+		Enable:     clientEntity.Enable,
+		Email:      clientEntity.Email,
+		UUID:       clientEntity.UUID,
+		SubId:      clientEntity.SubID,
+		Up:         clientEntity.Up,
+		Down:       clientEntity.Down,
+		AllTime:    clientEntity.AllTime,
+		ExpiryTime: clientEntity.ExpiryTime,
+		Total:      totalBytes,
+		Reset:      clientEntity.Reset,
+		LastOnline: clientEntity.LastOnline,
 	}
 
 	output := t.clientInfoMsg(traffic, true, true, true, true, true, true)
@@ -3627,7 +3877,12 @@ func (t *Tgbot) notifyExhausted() {
 							if !int64Contains(chatIDsDone, chatID) && !checkAdmin(chatID) {
 								var disabledClients []xray.ClientTraffic
 								var exhaustedClients []xray.ClientTraffic
-								traffics, err := t.inboundService.GetClientTrafficTgBot(client.TgID)
+								// Try new architecture first
+								traffics, err := t.getClientTrafficTgBotNew(client.TgID)
+								if err != nil || len(traffics) == 0 {
+									// Fallback to old method
+									traffics, err = t.inboundService.GetClientTrafficTgBot(client.TgID)
+								}
 								if err == nil && len(traffics) > 0 {
 									output := t.I18nBot("tgbot.messages.exhaustedCount", "Type=="+t.I18nBot("tgbot.clients"))
 									for _, traffic := range traffics {
