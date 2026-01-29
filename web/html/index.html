@@ -134,13 +134,21 @@
                       <a-icon type="reload"></a-icon>
                       <span v-if="!isMobile">{{ i18n "pages.index.restartXray" }}</span>
                     </a-space>
-                    <a-space direction="horizontal" @click="openSelectV2rayVersion" class="jc-center">
+                    <a-space direction="horizontal" class="jc-center">
                       <a-icon type="tool"></a-icon>
                       <span v-if="!isMobile">
                         [[ status.xray.version != 'Unknown' ? `v${status.xray.version}` : '{{ i18n
                         "pages.index.xraySwitch" }}' ]]
                       </span>
                     </a-space>
+                    <!-- TODO: Re-enable version modal when ready -->
+                    <!-- <a-space direction="horizontal" @click="openSelectV2rayVersion" class="jc-center">
+                      <a-icon type="tool"></a-icon>
+                      <span v-if="!isMobile">
+                        [[ status.xray.version != 'Unknown' ? `v${status.xray.version}` : '{{ i18n
+                        "pages.index.xraySwitch" }}' ]]
+                      </span>
+                    </a-space> -->
                   </template>
                 </a-card>
               </a-col>
@@ -163,7 +171,7 @@
                 </a-card>
               </a-col>
               <a-col :sm="24" :lg="12">
-                <a-card title='3X-UI' hoverable>
+                <a-card title='SharX' hoverable>
                   <a rel="noopener" href="https://github.com/MHSanaei/3x-ui/releases" target="_blank">
                     <a-tag color="green">
                       <span>v{{ .cur_ver }}</span>
@@ -174,7 +182,7 @@
                       <span>@XrayUI</span>
                     </a-tag>
                   </a>
-                  <a rel="noopener" href="https://github.com/MHSanaei/3x-ui/wiki" target="_blank">
+                  <a rel="noopener" href="https://github.com/konstpic/SharX" target="_blank">
                     <a-tag color="purple">
                       <span>{{ i18n "pages.index.documentation" }}</span>
                     </a-tag>
