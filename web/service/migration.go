@@ -276,18 +276,14 @@ func (s *MigrationService) ExecuteMigration(sqliteFilePath string) (*MigrationRe
 		return result, err
 	}
 
-	// NOTE: Panel settings (webPort, webBasePath, webCertFile, webKeyFile, webListen, webDomain)
-	// are intentionally NOT migrated to preserve current panel configuration.
+	// NOTE: Panel settings are intentionally NOT migrated to preserve current panel configuration.
 	// This prevents accidentally changing the panel's access settings during migration.
-	result.PanelSettingsIgnored = []string{
-		"webPort",
-		"webBasePath",
-		"webCertFile",
-		"webKeyFile",
-		"webListen",
-		"webDomain",
+	// Collect all ignored settings for reporting
+	result.PanelSettingsIgnored = []string{}
+	for key := range ignoredPanelSettings {
+		result.PanelSettingsIgnored = append(result.PanelSettingsIgnored, key)
 	}
-	logger.Info("Migration completed. Panel settings (webPort, webBasePath, etc.) were NOT migrated to preserve current configuration.")
+	logger.Info("Migration completed. Panel settings were NOT migrated to preserve current configuration.")
 
 	result.Success = true
 	return result, nil
@@ -404,12 +400,74 @@ func (s *MigrationService) migrateUsers(sqliteDB *sql.DB, tx *gorm.DB) (int, err
 // ignoredPanelSettings contains settings that should NOT be migrated
 // to preserve the current panel configuration (port, paths, certificates, etc.)
 var ignoredPanelSettings = map[string]bool{
-	"webPort":     true,
-	"webBasePath": true,
-	"webCertFile": true,
-	"webKeyFile":  true,
-	"webListen":   true,
-	"webDomain":   true,
+	"webPort":                      true,
+	"webBasePath":                  true,
+	"secret":                       true,
+	"webCertFile":                  true,
+	"webKeyFile":                   true,
+	"xrayTemplateConfig":           true,
+	"webListen":                    true,
+	"webDomain":                    true,
+	"sessionMaxAge":                true,
+	"pageSize":                     true,
+	"expireDiff":                   true,
+	"trafficDiff":                  true,
+	"remarkModel":                  true,
+	"datepicker":                   true,
+	"tgBotEnable":                  true,
+	"tgBotToken":                   true,
+	"tgBotProxy":                   true,
+	"tgBotAPIServer":               true,
+	"tgBotChatId":                  true,
+	"tgRunTime":                    true,
+	"tgBotBackup":                  true,
+	"tgBotLoginNotify":             true,
+	"tgCpu":                        true,
+	"tgLang":                       true,
+	"timeLocation":                 true,
+	"twoFactorEnable":              true,
+	"twoFactorToken":               true,
+	"subEnable":                    true,
+	"subJsonEnable":                true,
+	"subTitle":                     true,
+	"subListen":                    true,
+	"subPort":                      true,
+	"subPath":                      true,
+	"subDomain":                    true,
+	"subCertFile":                  true,
+	"subKeyFile":                   true,
+	"subUpdates":                   true,
+	"externalTrafficInformEnable":  true,
+	"externalTrafficInformURI":     true,
+	"subEncrypt":                   true,
+	"subShowInfo":                  true,
+	"subURI":                       true,
+	"subJsonPath":                  true,
+	"subJsonURI":                   true,
+	"subJsonFragment":              true,
+	"subJsonNoises":                true,
+	"subJsonMux":                   true,
+	"subJsonRules":                 true,
+	"ldapEnable":                   true,
+	"ldapHost":                     true,
+	"ldapPort":                     true,
+	"ldapUseTLS":                   true,
+	"ldapBindDN":                   true,
+	"ldapPassword":                  true,
+	"ldapBaseDN":                   true,
+	"ldapUserFilter":               true,
+	"ldapUserAttr":                 true,
+	"ldapVlessField":               true,
+	"ldapSyncCron":                 true,
+	"ldapFlagField":                true,
+	"ldapTruthyValues":             true,
+	"ldapInvertFlag":               true,
+	"ldapInboundTags":              true,
+	"ldapAutoCreate":               true,
+	"ldapAutoDelete":               true,
+	"ldapDefaultTotalGB":           true,
+	"ldapDefaultExpiryDays":        true,
+	"ldapDefaultLimitIP":           true,
 }
 
 func (s *MigrationService) migrateSettings(sqliteDB *sql.DB, tx *gorm.DB) (int, error) {
