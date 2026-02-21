@@ -294,7 +294,7 @@ The update process:
    **Verify TLS Configuration:**
    - After saving settings, restart the container:
      ```bash
-     docker-compose restart 3xui
+     docker-compose restart sharx
      ```
    - Access the panel via HTTPS: `https://your-domain.com:2053`
    - Check that the browser shows a valid SSL certificate
@@ -433,7 +433,7 @@ SharX supports comprehensive configuration through environment variables. These 
 
 ```yaml
 services:
-  3xui:
+  sharx:
     environment:
       # Xray settings
       XRAY_VMESS_AEAD_FORCED: "false"

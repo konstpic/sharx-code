@@ -333,7 +333,7 @@ https://your-server-ip:2053
 **تایید پیکربندی TLS:**
 * پس از ذخیره تنظیمات، کانتینر را ریستارت کنید:
 ```bash
-docker-compose restart 3xui
+docker-compose restart sharx
 ```
 
 
@@ -490,7 +490,7 @@ SharX از پیکربندی جامع از طریق متغیرهای محیطی �
 
 ```yaml
 services:
-  3xui:
+  sharx:
     environment:
       # Xray settings
       XRAY_VMESS_AEAD_FORCED: "false"
