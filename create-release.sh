@@ -7,7 +7,6 @@
 set -e
 
 TAG="${1:-v1.0.0}"
-DESC_FILE="${2:-release-description.md}"
 
 if [ -z "$SHARX_REPO_TOKEN" ]; then
     echo "❌ Error: SHARX_REPO_TOKEN environment variable is not set"
@@ -15,9 +14,14 @@ if [ -z "$SHARX_REPO_TOKEN" ]; then
     exit 1
 fi
 
-# Check if description file exists
-if [ ! -f "$DESC_FILE" ]; then
-    echo "⚠️  Description file '$DESC_FILE' not found, using default description"
+# Try to load release notes from release-notes/ directory
+RELEASE_NOTES_FILE="release-notes/$TAG.md"
+
+if [ -f "$RELEASE_NOTES_FILE" ]; then
+    echo "📄 Found release notes file: $RELEASE_NOTES_FILE"
+    RELEASE_BODY=$(cat "$RELEASE_NOTES_FILE")
+else
+    echo "⚠️  Release notes file not found: $RELEASE_NOTES_FILE, using default description"
     RELEASE_BODY=$(cat <<EOF
 ## Release $TAG
 
@@ -55,9 +59,6 @@ sudo bash ./install_ru.sh
 See commit history for detailed changes.
 EOF
 )
-else
-    echo "📄 Using description from $DESC_FILE"
-    RELEASE_BODY=$(cat "$DESC_FILE")
 fi
 
 # Determine if it's a beta release

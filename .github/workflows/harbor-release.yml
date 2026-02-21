@@ -287,8 +287,32 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           IS_BETA="${{ needs.prepare.outputs.is_beta }}"
           
-          # Prepare release body
-          RELEASE_BODY=$(cat <<EOF
+          # Try to load release notes from release-notes/ directory
+          RELEASE_NOTES_FILE="release-notes/$TAG.md"
+          
+          if [ -f "$RELEASE_NOTES_FILE" ]; then
+            echo "📄 Found release notes file: $RELEASE_NOTES_FILE"
+            RELEASE_BODY=$(cat "$RELEASE_NOTES_FILE")
+            
+            # Replace placeholders with actual values using envsubst-like approach
+            HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
+            HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
+            SHARX_TAG_VERSION="${{ needs.prepare.outputs.sharx_tag_version }}"
+            SHARX_TAG_LATEST="${{ needs.prepare.outputs.sharx_tag_latest }}"
+            SHARXNODE_TAG_VERSION="${{ needs.prepare.outputs.sharxnode_tag_version }}"
+            SHARXNODE_TAG_LATEST="${{ needs.prepare.outputs.sharxnode_tag_latest }}"
+            
+            # Replace common placeholders
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{HARBOR_HOST}}|$HARBOR_HOST|g")
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{HARBOR_PROJECT}}|$HARBOR_PROJECT|g")
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{SHARX_TAG_VERSION}}|$SHARX_TAG_VERSION|g")
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{SHARX_TAG_LATEST}}|$SHARX_TAG_LATEST|g")
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{SHARXNODE_TAG_VERSION}}|$SHARXNODE_TAG_VERSION|g")
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{SHARXNODE_TAG_LATEST}}|$SHARXNODE_TAG_LATEST|g")
+          else
+            echo "⚠️  Release notes file not found: $RELEASE_NOTES_FILE, using default description"
+            # Prepare default release body
+            RELEASE_BODY=$(cat <<EOF
           ## Release $TAG
           
           ### 🐳 Docker Images
@@ -321,7 +345,8 @@ jobs:
           
           See commit history for detailed changes.
           EOF
-          )
+            )
+          fi
           
           # Create release using GitHub API
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
