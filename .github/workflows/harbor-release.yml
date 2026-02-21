@@ -111,38 +111,38 @@ jobs:
           
           if [ "$IS_BETA" = "true" ]; then
             # For beta: push version with -beta suffix and latest-beta
-            XUI_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/3xui:$VERSION"
-            XUI_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/3xui:latest-beta"
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest-beta"
             NODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/node:$VERSION"
             NODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/node:latest-beta"
           else
             # For main: push version and latest
-            XUI_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/3xui:$VERSION"
-            XUI_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/3xui:latest"
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest"
             NODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/node:$VERSION"
             NODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/node:latest"
           fi
           
-          echo "xui_tag_version=$XUI_TAG_VERSION" >> $GITHUB_OUTPUT
-          echo "xui_tag_latest=$XUI_TAG_LATEST" >> $GITHUB_OUTPUT
+          echo "sharx_tag_version=$SHARX_TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "sharx_tag_latest=$SHARX_TAG_LATEST" >> $GITHUB_OUTPUT
           echo "node_tag_version=$NODE_TAG_VERSION" >> $GITHUB_OUTPUT
           echo "node_tag_latest=$NODE_TAG_LATEST" >> $GITHUB_OUTPUT
           
-          echo "XUI tags: $XUI_TAG_VERSION, $XUI_TAG_LATEST"
+          echo "SharX tags: $SHARX_TAG_VERSION, $SHARX_TAG_LATEST"
           echo "Node tags: $NODE_TAG_VERSION, $NODE_TAG_LATEST"
 
-      - name: Build and push 3xui image
+      - name: Build and push sharx image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.tags.outputs.xui_tag_version }}
-            ${{ steps.tags.outputs.xui_tag_latest }}
+            ${{ steps.tags.outputs.sharx_tag_version }}
+            ${{ steps.tags.outputs.sharx_tag_latest }}
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          cache-from: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/3xui:buildcache
-          cache-to: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/3xui:buildcache,mode=max
+          cache-from: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache
+          cache-to: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache,mode=max
 
       - name: Build and push node image
         uses: docker/build-push-action@v6
@@ -186,7 +186,7 @@ jobs:
             
             Images are available in Harbor:
             
-            - **3xui**: `${{ steps.tags.outputs.xui_tag_version }}` / `${{ steps.tags.outputs.xui_tag_latest }}`
+            - **sharx**: `${{ steps.tags.outputs.sharx_tag_version }}` / `${{ steps.tags.outputs.sharx_tag_latest }}`
             - **node**: `${{ steps.tags.outputs.node_tag_version }}` / `${{ steps.tags.outputs.node_tag_latest }}`
             - **postgres**: `${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:16-alpine` / `${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest`
             
@@ -196,8 +196,8 @@ jobs:
             
             ```yaml
             services:
-              3xui:
-                image: ${{ steps.tags.outputs.xui_tag_latest }}
+              sharx:
+                image: ${{ steps.tags.outputs.sharx_tag_latest }}
               node:
                 image: ${{ steps.tags.outputs.node_tag_latest }}
               postgres:
