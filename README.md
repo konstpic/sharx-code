@@ -1,57 +1,258 @@
-[English](/README.md) | [فارسی](/README.fa_IR.md) | [العربية](/README.ar_EG.md) |  [中文](/README.zh_CN.md) | [Español](/README.es_ES.md) | [Русский](/README.ru_RU.md)
+<div align="center">
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./media/3x-ui-dark.png">
-    <img alt="3x-ui" src="./media/3x-ui-light.png">
-  </picture>
-</p>
+<!-- SharX Hero Section -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=0,2,3,5,30&height=300&section=header&text=SharX&fontSize=70&fontAlignY=40&animation=fadeIn&fontColor=gradient&desc=3XUI%20Fork%20%7C%20Grafana%20Integration%20%7C%20Multi-Node%20Management&descSize=25&descAlignY=60" width="100%"/>
 
-[![Release](https://img.shields.io/github/v/release/mhsanaei/3x-ui.svg)](https://github.com/MHSanaei/3x-ui/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/mhsanaei/3x-ui/release.yml.svg)](https://github.com/MHSanaei/3x-ui/actions)
-[![GO Version](https://img.shields.io/github/go-mod/go-version/mhsanaei/3x-ui.svg)](#)
-[![Downloads](https://img.shields.io/github/downloads/mhsanaei/3x-ui/total.svg)](https://github.com/MHSanaei/3x-ui/releases/latest)
-[![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Go Reference](https://pkg.go.dev/badge/github.com/mhsanaei/3x-ui/v2.svg)](https://pkg.go.dev/github.com/mhsanaei/3x-ui/v2)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mhsanaei/3x-ui/v2)](https://goreportcard.com/report/github.com/mhsanaei/3x-ui/v2)
+</div>
 
-**3X-UI** — advanced, open-source web-based control panel designed for managing Xray-core server. It offers a user-friendly interface for configuring and monitoring various VPN and proxy protocols.
+<div align="center">
 
-> [!IMPORTANT]
-> This project is only for personal usage, please do not use it for illegal purposes, and please do not use it in a production environment.
+[English](README_EN.md) | [Русский](README_RU.md) | [فارسی](README_FA.md)
 
-As an enhanced fork of the original X-UI project, 3X-UI provides improved stability, broader protocol support, and additional features.
+</div>
 
-## Quick Start
+## Welcome to SharX / Добро пожаловать в SharX
+
+**SharX** is a fork of the original **3XUI** panel with enhanced features and monitoring capabilities.
+
+**SharX** — это форк оригинальной панели **3XUI** с расширенными возможностями и функциями мониторинга.
+
+This version brings significant improvements, a modern architecture, streamlined installation process using Docker containers, and **Grafana integration** for advanced monitoring with Prometheus and Loki.
+
+Эта версия приносит значительные улучшения, современную архитектуру, упрощенный процесс установки с использованием Docker-контейнеров и **интеграцию с Grafana** для продвинутого мониторинга с Prometheus и Loki.
+
+## Quick Start / Быстрый старт
+
+### 🚀 Install / Установка 
+
+Клонируйте и запустите:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+git clone https://github.com/konstpic/SharX.git
+cd SharX
+sudo bash ./install_ru.sh
 ```
 
-For full documentation, please visit the [project Wiki](https://github.com/MHSanaei/3x-ui/wiki).
+---
 
-## A Special Thanks to
+<details>
+<summary><b>📜 Script Installation (Recommended) / Установка через скрипт (Рекомендуется)</b></summary>
 
-- [alireza0](https://github.com/alireza0/)
+### Automatic Installation / Автоматическая установка
 
-## Acknowledgment
+The install script supports multiple Linux distributions and automatically:
+- Installs Docker and Docker Compose
+- Configures network mode (host/bridge)
+- Sets up SSL certificates (Let's Encrypt for domain or IP)
+- Generates secure database password
+- Creates and starts all services
 
-- [Iran v2ray rules](https://github.com/chocolate4u/Iran-v2ray-rules) (License: **GPL-3.0**): _Enhanced v2ray/xray and v2ray/xray-clients routing rules with built-in Iranian domains and a focus on security and adblocking._
-- [Russia v2ray rules](https://github.com/runetfreedom/russia-v2ray-rules-dat) (License: **GPL-3.0**): _This repository contains automatically updated V2Ray routing rules based on data on blocked domains and addresses in Russia._
+Скрипт установки поддерживает множество дистрибутивов Linux и автоматически:
+- Устанавливает Docker и Docker Compose
+- Настраивает режим сети (host/bridge)
+- Настраивает SSL сертификаты (Let's Encrypt для домена или IP)
+- Генерирует безопасный пароль базы данных
+- Создаёт и запускает все сервисы
 
-## Support project
+#### Supported Systems / Поддерживаемые системы
 
-**If this project is helpful to you, you may wish to give it a**:star2:
+| Distribution | Package Manager |
+|--------------|-----------------|
+| Ubuntu/Debian | apt |
+| Fedora | dnf |
+| CentOS/RHEL | yum |
+| Arch Linux | pacman |
+| Alpine | apk |
+| openSUSE | zypper |
 
-<a href="https://www.buymeacoffee.com/MHSanaei" target="_blank">
-<img src="./media/default-yellow.png" alt="Buy Me A Coffee" style="height: 70px !important;width: 277px !important;" >
-</a>
+#### Panel Installation / Установка панели
 
-</br>
-<a href="https://nowpayments.io/donation/hsanaei" target="_blank" rel="noreferrer noopener">
-   <img src="./media/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
-</a>
+```bash
+sudo ./install.sh
+# Select: 1) Install Panel
+```
 
-## Stargazers over Time
+```bash
+sudo ./install_ru.sh
+# Выбрать: 1) Установить панель
+```
 
-[![Stargazers over time](https://starchart.cc/MHSanaei/3x-ui.svg?variant=adaptive)](https://starchart.cc/MHSanaei/3x-ui)
+#### Node Installation / Установка узла 
+
+```bash
+sudo ./install.sh
+# Select: 2) Install Node
+```
+
+```bash
+sudo ./install_ru.sh
+# Выбрать: 2) Установить узел
+```
+
+#### Management Menu / Меню управления
+
+After installation, run the script again to access the management menu:
+
+После установки запустите скрипт снова для доступа к меню управления:
+
+```bash
+sudo ./install.sh
+```
+
+**Menu options / Опции меню:**
+- Update Panel/Node
+- Start/Stop/Restart services
+- Change ports
+- Renew SSL certificates
+- View logs and status
+
+</details>
+
+---
+
+<details>
+<summary><b>🔧 Manual Installation / Ручная установка</b></summary>
+
+### Panel Installation / Установка панели
+
+1. **Clone the repository / Клонируйте репозиторий:**
+   ```bash
+   git clone https://github.com/konstpic/SharX.git
+   cd SharX
+   ```
+
+2. **Configure `docker-compose.yml` / Настройте `docker-compose.yml`:**
+   - Change `change_this_password` to a secure password
+   - Измените `change_this_password` на надёжный пароль
+   ```yaml
+   XUI_DB_PASSWORD: your_secure_password
+   POSTGRES_PASSWORD: your_secure_password
+   ```
+
+3. **Prepare SSL certificates / Подготовьте SSL сертификаты:**
+   ```bash
+   mkdir -p cert
+   cp /path/to/fullchain.pem cert/fullchain.pem
+   cp /path/to/privkey.pem cert/privkey.pem
+   ```
+
+4. **Start services / Запустите сервисы:**
+   ```bash
+   docker compose up -d
+   ```
+
+5. **Access the panel / Откройте панель:**
+   ```
+   http://your-server-ip:2053
+   ```
+
+6. **Configure TLS in panel settings / Настройте TLS в панели:**
+   - Certificate: `/app/cert/fullchain.pem`
+   - Private Key: `/app/cert/privkey.pem`
+
+### Node Installation / Установка узла
+
+1. **Navigate to node directory / Перейдите в папку узла:**
+   ```bash
+   cd node
+   ```
+
+2. **Prepare certificates / Подготовьте сертификаты:**
+   ```bash
+   mkdir -p cert
+   cp /path/to/fullchain.pem cert/fullchain.pem
+   cp /path/to/privkey.pem cert/privkey.pem
+   ```
+
+3. **Start the node / Запустите узел:**
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Connect to panel / Подключите к панели:**
+   - Add new node in panel's Node Management
+   - Добавьте новый узел в управлении узлами панели
+
+</details>
+
+---
+
+## Key Features / Основные возможности
+
+- **Node Mode**: One panel manages multiple nodes
+- **PostgreSQL**: Full migration from SQLite
+- **Redis Integration**: Enhanced performance with caching
+- **Grafana Integration**: Advanced monitoring with Prometheus metrics and Loki logs
+- **Docker-Based**: Easy deployment with pre-built images
+- **HWID Protection**: Device identification (Beta, Happ & V2RayTun)
+- **Auto SSL**: Let's Encrypt certificates with auto-renewal
+- **Environment-Based Configuration**: Flexible domain, port, and certificate management via environment variables
+
+- **Режим узлов**: Одна панель управляет несколькими узлами
+- **PostgreSQL**: Полная миграция с SQLite
+- **Интеграция Redis**: Повышенная производительность с кэшированием
+- **Интеграция Grafana**: Продвинутый мониторинг с метриками Prometheus и логами Loki
+- **На основе Docker**: Легкое развертывание с предварительно собранными образами
+- **Защита HWID**: Идентификация устройств (Бета, Happ & V2RayTun)
+- **Авто SSL**: Let's Encrypt сертификаты с автопродлением
+- **Настройка через переменные окружения**: Гибкое управление доменами, портами и сертификатами через env переменные
+
+## Documentation / Документация
+
+For detailed installation instructions, configuration, and migration guide, please see:
+
+Для подробных инструкций по установке, настройке и миграции, пожалуйста, смотрите:
+
+- **[Full English Documentation](README_EN.md)** - Complete guide in English
+- **[Полная русская документация](README_RU.md)** - Полное руководство на русском языке
+- **[API Documentation](docs/API.md)** - REST API reference / Справочник REST API
+
+## Requirements / Требования
+
+- Linux server (Ubuntu, Debian, CentOS, Fedora, Arch, Alpine, openSUSE)
+- Root access
+- Domain name (optional, for TLS with domain)
+- Port 80 open (for SSL certificate issuance)
+
+- Linux сервер (Ubuntu, Debian, CentOS, Fedora, Arch, Alpine, openSUSE)
+- Root доступ
+- Доменное имя (опционально, для TLS с доменом)
+- Открытый порт 80 (для выпуска SSL сертификата)
+
+## Support / Поддержка
+
+For issues, questions, or contributions, please refer to the project repository.
+
+По вопросам, проблемам или вкладу в проект обращайтесь в репозиторий проекта.
+
+## Authors / Авторы
+
+**Project Authors / Авторы проекта:**
+- @konspic
+- @alireza0
+- @MHSanaei
+
+## Donate / Донаты 💵
+
+**Crypto / Криптовалюта:**
+- [Donate via NowPayments - MHSanaei](https://nowpayments.io/donation/hsanaei)
+- [Donate via NowPayments - Alireza7](https://nowpayments.io/donation/alireza7)
+- [Donate via Tribute - konspic](https://t.me/tribute/app?startapp=dDMW)
+
+**Fiat (Card, Bank, Cash App Pay, G Pay, Link) / Фиат (Карта, Банк, Cash App Pay, G Pay, Link):**
+- [Buy Me a Coffee - MHSanaei](https://buymeacoffee.com/mhsanaei)
+- [Buy Me a Coffee - Alireza7](https://buymeacoffee.com/alireza7)
+- [Donate via Tribute - konspic](https://t.me/tribute/app?startapp=dDMW)
+
+---
+
+**Note**: This version uses Docker containers for easy deployment. All images are pre-built and ready to use.
+
+**Примечание**: Эта версия использует Docker-контейнеры для легкого развертывания. Все образы предварительно собраны и готовы к использованию.
+
+<div align="center">
+
+<!-- SharX Footer Section -->
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=0,2,3,5,30&height=300&section=footer&animation=fadeIn" width="100%"/>
+
+</div>
