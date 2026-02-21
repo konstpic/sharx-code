@@ -13,8 +13,17 @@ permissions:
   packages: write
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_for_file: ${{ steps.version.outputs.version_for_file }}
+      is_beta: ${{ steps.version.outputs.is_beta }}
+      tag: ${{ steps.version.outputs.tag }}
+      sharx_tag_version: ${{ steps.tags.outputs.sharx_tag_version }}
+      sharx_tag_latest: ${{ steps.tags.outputs.sharx_tag_latest }}
+      node_tag_version: ${{ steps.tags.outputs.node_tag_version }}
+      node_tag_latest: ${{ steps.tags.outputs.node_tag_latest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -91,16 +100,6 @@ jobs:
           # Go back to tag for build
           git checkout ${{ github.ref }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Harbor
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.HARBOR_HOST }}
-          username: ${{ secrets.HARBOR_USER }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
-
       - name: Determine image tags
         id: tags
         run: |
@@ -131,6 +130,27 @@ jobs:
           echo "SharX tags: $SHARX_TAG_VERSION, $SHARX_TAG_LATEST"
           echo "Node tags: $NODE_TAG_VERSION, $NODE_TAG_LATEST"
 
+  build-sharx:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_HOST }}
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Update version file
+        run: |
+          echo "${{ needs.prepare.outputs.version_for_file }}" > config/version
+
       - name: Build and push sharx image
         uses: docker/build-push-action@v6
         with:
@@ -138,9 +158,11 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.tags.outputs.sharx_tag_version }}
-            ${{ steps.tags.outputs.sharx_tag_latest }}
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+            ${{ needs.prepare.outputs.sharx_tag_version }}
+            ${{ needs.prepare.outputs.sharx_tag_latest }}
+          # Build only for amd64 by default for faster builds
+          # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
+          platforms: linux/amd64
           cache-from: |
             type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache
             type=gha
@@ -150,6 +172,23 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
+  build-node:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_HOST }}
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
       - name: Build and push node image
         uses: docker/build-push-action@v6
         with:
@@ -157,9 +196,11 @@ jobs:
           file: ./node/Dockerfile
           push: true
           tags: |
-            ${{ steps.tags.outputs.node_tag_version }}
-            ${{ steps.tags.outputs.node_tag_latest }}
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+            ${{ needs.prepare.outputs.node_tag_version }}
+            ${{ needs.prepare.outputs.node_tag_latest }}
+          # Build only for amd64 by default for faster builds
+          # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
+          platforms: linux/amd64
           cache-from: |
             type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/node:buildcache
             type=gha
@@ -168,6 +209,17 @@ jobs:
             type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
+
+  postgres:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_HOST }}
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
 
       - name: Pull postgres image and push to Harbor
         run: |
@@ -186,21 +238,25 @@ jobs:
           
           echo "✅ Postgres image pushed successfully"
 
+  release:
+    needs: [prepare, build-sharx, build-node, postgres]
+    runs-on: ubuntu-latest
+    steps:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Release ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Release ${{ needs.prepare.outputs.tag }}
           body: |
-            ## Release ${{ steps.version.outputs.tag }}
+            ## Release ${{ needs.prepare.outputs.tag }}
             
             ### Docker Images
             
             Images are available in Harbor:
             
-            - **sharx**: `${{ steps.tags.outputs.sharx_tag_version }}` / `${{ steps.tags.outputs.sharx_tag_latest }}`
-            - **node**: `${{ steps.tags.outputs.node_tag_version }}` / `${{ steps.tags.outputs.node_tag_latest }}`
-            - **postgres**: `${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:16-alpine` / `${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest`
+            - **sharx**: `${{ needs.prepare.outputs.sharx_tag_version }}` / `${{ needs.prepare.outputs.sharx_tag_latest }}`
+            - **node**: `${{ needs.prepare.outputs.node_tag_version }}` / `${{ needs.prepare.outputs.node_tag_latest }}`
+            - **postgres**: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:16-alpine / ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
             
             ### Usage
             
@@ -209,9 +265,9 @@ jobs:
             ```yaml
             services:
               sharx:
-                image: ${{ steps.tags.outputs.sharx_tag_latest }}
+                image: ${{ needs.prepare.outputs.sharx_tag_latest }}
               node:
-                image: ${{ steps.tags.outputs.node_tag_latest }}
+                image: ${{ needs.prepare.outputs.node_tag_latest }}
               postgres:
                 image: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
             ```
@@ -220,6 +276,6 @@ jobs:
             
             See commit history for detailed changes.
           draft: false
-          prerelease: ${{ steps.version.outputs.is_beta == 'true' }}
+          prerelease: ${{ needs.prepare.outputs.is_beta == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
