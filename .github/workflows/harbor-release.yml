@@ -20,10 +20,6 @@ jobs:
       version_for_file: ${{ steps.version.outputs.version_for_file }}
       is_beta: ${{ steps.version.outputs.is_beta }}
       tag: ${{ steps.version.outputs.tag }}
-      sharx_tag_version: ${{ steps.tags.outputs.sharx_tag_version }}
-      sharx_tag_latest: ${{ steps.tags.outputs.sharx_tag_latest }}
-      sharxnode_tag_version: ${{ steps.tags.outputs.sharxnode_tag_version }}
-      sharxnode_tag_latest: ${{ steps.tags.outputs.sharxnode_tag_latest }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -100,35 +96,6 @@ jobs:
           # Go back to tag for build
           git checkout ${{ github.ref }}
 
-      - name: Determine image tags
-        id: tags
-        run: |
-          HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
-          HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          IS_BETA="${{ steps.version.outputs.is_beta }}"
-          
-          if [ "$IS_BETA" = "true" ]; then
-            # For beta: push version with -beta suffix and latest-beta
-            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
-            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest-beta"
-            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
-            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest-beta"
-          else
-            # For main: push version and latest
-            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
-            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest"
-            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
-            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest"
-          fi
-          
-          echo "sharx_tag_version=$SHARX_TAG_VERSION" >> $GITHUB_OUTPUT
-          echo "sharx_tag_latest=$SHARX_TAG_LATEST" >> $GITHUB_OUTPUT
-          echo "sharxnode_tag_version=$SHARXNODE_TAG_VERSION" >> $GITHUB_OUTPUT
-          echo "sharxnode_tag_latest=$SHARXNODE_TAG_LATEST" >> $GITHUB_OUTPUT
-          
-          echo "SharX tags: $SHARX_TAG_VERSION, $SHARX_TAG_LATEST"
-          echo "SharXNode tags: $SHARXNODE_TAG_VERSION, $SHARXNODE_TAG_LATEST"
 
   build-sharx:
     needs: prepare
@@ -152,6 +119,27 @@ jobs:
         run: |
           echo "${{ needs.prepare.outputs.version_for_file }}" > config/version
 
+      - name: Determine image tags
+        id: tags
+        run: |
+          HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
+          HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          IS_BETA="${{ needs.prepare.outputs.is_beta }}"
+          
+          if [ "$IS_BETA" = "true" ]; then
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest-beta"
+          else
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest"
+          fi
+          
+          echo "sharx_tag_version=$SHARX_TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "sharx_tag_latest=$SHARX_TAG_LATEST" >> $GITHUB_OUTPUT
+          
+          echo "SharX tags: $SHARX_TAG_VERSION, $SHARX_TAG_LATEST"
+
       - name: Build and push sharx image
         uses: docker/build-push-action@v6
         with:
@@ -159,8 +147,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ needs.prepare.outputs.sharx_tag_version }}
-            ${{ needs.prepare.outputs.sharx_tag_latest }}
+            ${{ steps.tags.outputs.sharx_tag_version }}
+            ${{ steps.tags.outputs.sharx_tag_latest }}
           # Build only for amd64 by default for faster builds
           # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
           platforms: linux/amd64
@@ -191,6 +179,27 @@ jobs:
           username: ${{ secrets.HARBOR_USER }}
           password: ${{ secrets.HARBOR_PASSWORD }}
 
+      - name: Determine image tags
+        id: tags
+        run: |
+          HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
+          HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          IS_BETA="${{ needs.prepare.outputs.is_beta }}"
+          
+          if [ "$IS_BETA" = "true" ]; then
+            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
+            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest-beta"
+          else
+            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
+            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest"
+          fi
+          
+          echo "sharxnode_tag_version=$SHARXNODE_TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "sharxnode_tag_latest=$SHARXNODE_TAG_LATEST" >> $GITHUB_OUTPUT
+          
+          echo "SharXNode tags: $SHARXNODE_TAG_VERSION, $SHARXNODE_TAG_LATEST"
+
       - name: Build and push sharxnode image
         uses: docker/build-push-action@v6
         with:
@@ -198,8 +207,8 @@ jobs:
           file: ./node/Dockerfile
           push: true
           tags: |
-            ${{ needs.prepare.outputs.sharxnode_tag_version }}
-            ${{ needs.prepare.outputs.sharxnode_tag_latest }}
+            ${{ steps.tags.outputs.sharxnode_tag_version }}
+            ${{ steps.tags.outputs.sharxnode_tag_latest }}
           # Build only for amd64 by default for faster builds
           # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
           platforms: linux/amd64
@@ -244,6 +253,34 @@ jobs:
     needs: [prepare, build-sharx, build-sharxnode, postgres]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Determine image tags
+        id: tags
+        run: |
+          HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
+          HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          IS_BETA="${{ needs.prepare.outputs.is_beta }}"
+          
+          if [ "$IS_BETA" = "true" ]; then
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest-beta"
+            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
+            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest-beta"
+          else
+            SHARX_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharx:$VERSION"
+            SHARX_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharx:latest"
+            SHARXNODE_TAG_VERSION="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:$VERSION"
+            SHARXNODE_TAG_LATEST="$HARBOR_HOST/$HARBOR_PROJECT/sharxnode:latest"
+          fi
+          
+          echo "sharx_tag_version=$SHARX_TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "sharx_tag_latest=$SHARX_TAG_LATEST" >> $GITHUB_OUTPUT
+          echo "sharxnode_tag_version=$SHARXNODE_TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "sharxnode_tag_latest=$SHARXNODE_TAG_LATEST" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release in sharx-code
         uses: softprops/action-gh-release@v2
         with:
@@ -256,8 +293,8 @@ jobs:
             
             Images are available in Harbor:
             
-            - **sharx**: `${{ needs.prepare.outputs.sharx_tag_version }}` / `${{ needs.prepare.outputs.sharx_tag_latest }}`
-            - **sharxnode**: `${{ needs.prepare.outputs.sharxnode_tag_version }}` / `${{ needs.prepare.outputs.sharxnode_tag_latest }}`
+            - **sharx**: `${{ steps.tags.outputs.sharx_tag_version }}` / `${{ steps.tags.outputs.sharx_tag_latest }}`
+            - **sharxnode**: `${{ steps.tags.outputs.sharxnode_tag_version }}` / `${{ steps.tags.outputs.sharxnode_tag_latest }}`
             - **postgres**: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:16-alpine / ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
             
             ### Usage
@@ -267,9 +304,9 @@ jobs:
             ```yaml
             services:
               sharx:
-                image: ${{ needs.prepare.outputs.sharx_tag_latest }}
+                image: ${{ steps.tags.outputs.sharx_tag_latest }}
               sharxnode:
-                image: ${{ needs.prepare.outputs.sharxnode_tag_latest }}
+                image: ${{ steps.tags.outputs.sharxnode_tag_latest }}
               postgres:
                 image: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
             ```
@@ -301,13 +338,13 @@ jobs:
             echo "📄 Found release notes file: $RELEASE_NOTES_FILE"
             RELEASE_BODY=$(cat "$RELEASE_NOTES_FILE")
             
-            # Replace placeholders with actual values using envsubst-like approach
+            # Replace placeholders with actual values
             HARBOR_HOST="${{ secrets.HARBOR_HOST }}"
             HARBOR_PROJECT="${{ secrets.HARBOR_PROJECT }}"
-            SHARX_TAG_VERSION="${{ needs.prepare.outputs.sharx_tag_version }}"
-            SHARX_TAG_LATEST="${{ needs.prepare.outputs.sharx_tag_latest }}"
-            SHARXNODE_TAG_VERSION="${{ needs.prepare.outputs.sharxnode_tag_version }}"
-            SHARXNODE_TAG_LATEST="${{ needs.prepare.outputs.sharxnode_tag_latest }}"
+            SHARX_TAG_VERSION="${{ steps.tags.outputs.sharx_tag_version }}"
+            SHARX_TAG_LATEST="${{ steps.tags.outputs.sharx_tag_latest }}"
+            SHARXNODE_TAG_VERSION="${{ steps.tags.outputs.sharxnode_tag_version }}"
+            SHARXNODE_TAG_LATEST="${{ steps.tags.outputs.sharxnode_tag_latest }}"
             
             # Replace common placeholders
             RELEASE_BODY=$(echo "$RELEASE_BODY" | sed "s|{{HARBOR_HOST}}|$HARBOR_HOST|g")
@@ -326,9 +363,9 @@ jobs:
           
           Images are available in Harbor:
           
-          - **sharx**: \`${{ needs.prepare.outputs.sharx_tag_version }}\` / \`${{ needs.prepare.outputs.sharx_tag_latest }}\`
-          - **sharxnode**: \`${{ needs.prepare.outputs.sharxnode_tag_version }}\` / \`${{ needs.prepare.outputs.sharxnode_tag_latest }}\`
-          - **postgres**: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:16-alpine / ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
+          - **sharx**: \`$SHARX_TAG_VERSION\` / \`$SHARX_TAG_LATEST\`
+          - **sharxnode**: \`$SHARXNODE_TAG_VERSION\` / \`$SHARXNODE_TAG_LATEST\`
+          - **postgres**: $HARBOR_HOST/$HARBOR_PROJECT/postgres:16-alpine / $HARBOR_HOST/$HARBOR_PROJECT/postgres:latest
           
           ### 📦 Quick Start
           
@@ -337,9 +374,9 @@ jobs:
           \`\`\`yaml
           services:
             sharx:
-              image: ${{ needs.prepare.outputs.sharx_tag_latest }}
+              image: $SHARX_TAG_LATEST
             sharxnode:
-              image: ${{ needs.prepare.outputs.sharxnode_tag_latest }}
+              image: $SHARXNODE_TAG_LATEST
             postgres:
               image: ${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/postgres:latest
           \`\`\`
