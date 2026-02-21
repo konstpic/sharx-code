@@ -4,6 +4,7 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
+ARG BUILDKIT_INLINE_CACHE=1
 
 RUN apk --no-cache --update add \
   build-base \
@@ -12,6 +13,15 @@ RUN apk --no-cache --update add \
   unzip \
   bash
 
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+
+# Download dependencies (this layer will be cached if go.mod/go.sum don't change)
+# Using cache mount for Go modules to speed up builds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy source code
 COPY . .
 
 # Make all .sh files executable and fix line endings if needed
@@ -21,7 +31,12 @@ RUN chmod +x *.sh && \
 
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
-RUN go build -ldflags "-w -s" -o build/x-ui main.go
+
+# Build with cache mount for Go build cache
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -ldflags "-w -s" -o build/x-ui main.go
+
 RUN bash DockerInit.sh "$TARGETARCH"
 
 # ========================================================

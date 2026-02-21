@@ -1,0 +1,68 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+*.md
+!README.md
+docs/
+CONTRIBUTING.md
+ENV_VARIABLES.md
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+node/logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db/
+
+# Certificates (should be mounted as volumes)
+cert/
+node/cert/
+
+# Data folders (should be mounted as volumes)
+data/
+node/data/
+bin/
+node/bin/
+
+# Docker compose files (not needed in build context)
+docker-compose.yml
+docker-compose.*.yml
+node/docker-compose.yml
+node/docker-compose.harbor.yml
+
+# Scripts (keep only what's needed for build)
+push-harbor.sh
+
+# Media files (not needed in container)
+media/
+
+# Windows files
+windows_files/
+
+# Build artifacts
+build/
+dist/
+*.exe
+
+# Test files
+*_test.go
+test/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

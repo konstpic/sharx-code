@@ -141,8 +141,14 @@ jobs:
             ${{ steps.tags.outputs.sharx_tag_version }}
             ${{ steps.tags.outputs.sharx_tag_latest }}
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          cache-from: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache
-          cache-to: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache,mode=max
+          cache-from: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache
+            type=gha
+          cache-to: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache,mode=max
+            type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
 
       - name: Build and push node image
         uses: docker/build-push-action@v6
@@ -154,8 +160,14 @@ jobs:
             ${{ steps.tags.outputs.node_tag_version }}
             ${{ steps.tags.outputs.node_tag_latest }}
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          cache-from: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/node:buildcache
-          cache-to: type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/node:buildcache,mode=max
+          cache-from: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/node:buildcache
+            type=gha
+          cache-to: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/node:buildcache,mode=max
+            type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
 
       - name: Pull postgres image and push to Harbor
         run: |

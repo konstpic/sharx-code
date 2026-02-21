@@ -2,19 +2,25 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
+ARG BUILDKIT_INLINE_CACHE=1
 
 # Install build dependencies
 RUN apk --no-cache add curl unzip
 
-# Copy go mod files
+# Copy go mod files first for better caching
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
 
-# Build node service
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o node-service ./node/main.go
+# Build node service with cache mounts
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o node-service ./node/main.go
 
 # Download XRAY Core based on target architecture
 # TARGETARCH is automatically set by Docker BuildKit
