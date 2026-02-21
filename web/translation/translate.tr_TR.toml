@@ -66,6 +66,7 @@
 "secAlertPanelURI" = "Panel varsayılan URI yolu güvensiz. Karmaşık bir URI yolu yapılandırın."
 "secAlertSubURI" = "Abonelik varsayılan URI yolu güvensiz. Karmaşık bir URI yolu yapılandırın."
 "secAlertSubJsonURI" = "Abonelik JSON varsayılan URI yolu güvensiz. Karmaşık bir URI yolu yapılandırın."
+"dontShowAgain" = "Tekrar gösterme"
 "emptyDnsDesc" = "Eklenmiş DNS sunucusu yok."
 "emptyFakeDnsDesc" = "Eklenmiş Fake DNS sunucusu yok."
 "emptyBalancersDesc" = "Eklenmiş dengeleyici yok."

@@ -9,7 +9,13 @@
       <a-spin :spinning="loadingStates.spinning" :delay="0" :tip="loadingTip">
         <transition name="list">
           <a-alert type="error" v-if="showAlert && loadingStates.fetched" class="mb-10"
-            message='{{ i18n "secAlertTitle" }}' color="red" description='{{ i18n "secAlertSsl" }}' show-icon closable>
+            message='{{ i18n "secAlertTitle" }}' color="red" show-icon closable @close="handleSecAlertClose">
+            <template slot="description">
+              <div>{{ i18n "secAlertSsl" }}</div>
+              <a-checkbox v-model="dontShowSecAlert" :style="{ marginTop: '8px' }" @change="handleDontShowSecAlertChange">
+                {{ i18n "dontShowAgain" }}
+              </a-checkbox>
+            </template>
           </a-alert>
         </transition>
         <transition name="list">
@@ -141,14 +147,13 @@
                         "pages.index.xraySwitch" }}' ]]
                       </span>
                     </a-space>
-                    <!-- TODO: Re-enable version modal when ready -->
-                    <!-- <a-space direction="horizontal" @click="openSelectV2rayVersion" class="jc-center">
+                    <a-space direction="horizontal" @click="openSelectV2rayVersion" class="jc-center">
                       <a-icon type="tool"></a-icon>
                       <span v-if="!isMobile">
                         [[ status.xray.version != 'Unknown' ? `v${status.xray.version}` : '{{ i18n
                         "pages.index.xraySwitch" }}' ]]
                       </span>
-                    </a-space> -->
+                    </a-space>
                   </template>
                 </a-card>
               </a-col>
@@ -1024,6 +1029,7 @@
       backupModal,
       loadingTip: '{{ i18n "loading"}}',
       showAlert: false,
+      dontShowSecAlert: false,
       showIp: false,
       multiNodeMode: false,
     },
@@ -1363,6 +1369,16 @@
         });
         fileInput.click();
       },
+      handleSecAlertClose() {
+        if (this.dontShowSecAlert) {
+          localStorage.setItem('hideSecAlert', 'true');
+        }
+        this.showAlert = false;
+      },
+      handleDontShowSecAlertChange(e) {
+        // This is called when checkbox changes, but we'll save on close
+        // to allow user to uncheck before closing
+      }
     },
     watch: {
       'xraylogModal.visible'(newVal) {
@@ -1372,7 +1388,9 @@
       }
     },
     async mounted() {
-      if (window.location.protocol !== "https:") {
+      // Check if user chose to hide security alert
+      const hideSecAlert = localStorage.getItem('hideSecAlert') === 'true';
+      if (window.location.protocol !== "https:" && !hideSecAlert) {
         this.showAlert = true;
       }
 

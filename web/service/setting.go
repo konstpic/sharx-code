@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -126,6 +127,8 @@ var defaultValueMap = map[string]string{
 	"grafanaLokiUrl":        "",
 	"grafanaVictoriaMetricsUrl": "",
 	"grafanaEnable":         "false",
+	// Panel log level (overrides XUI_LOG_LEVEL env var)
+	"panelLogLevel": "info", // Valid values: "debug", "info", "notice", "warning", "error"
 }
 
 // SettingService provides business logic for application settings management.
@@ -1069,24 +1072,52 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 	
 	// Reinitialize logger and metrics exporter if Grafana settings changed
 	if allSetting.GrafanaEnable && allSetting.GrafanaLokiUrl != "" {
-		// Reinitialize with Loki - use DEBUG level when Grafana is enabled for full logging
-		logger.InitLoggerWithLoki(logging.DEBUG, allSetting.GrafanaLokiUrl, true, "")
+		// Validate Loki URL format before initializing
+		if _, err := url.Parse(allSetting.GrafanaLokiUrl); err != nil {
+			logger.Errorf("Invalid Grafana Loki URL format: %v", err)
+			// Continue without Loki rather than failing completely
+		} else {
+			// Reinitialize with Loki - use DEBUG level when Grafana is enabled for full logging
+			// InitLoggerWithLoki handles errors internally and falls back gracefully
+			logger.InitLoggerWithLoki(logging.DEBUG, allSetting.GrafanaLokiUrl, true, "")
+		}
 	} else {
 		// Reinitialize without Loki
+		// Use panel log level if set, otherwise fall back to env var
 		var logLevel logging.Level
-		switch config.GetLogLevel() {
-		case config.Debug:
-			logLevel = logging.DEBUG
-		case config.Info:
-			logLevel = logging.INFO
-		case config.Notice:
-			logLevel = logging.NOTICE
-		case config.Warning:
-			logLevel = logging.WARNING
-		case config.Error:
-			logLevel = logging.ERROR
-		default:
-			logLevel = logging.INFO
+		panelLogLevel, err := s.getString("panelLogLevel")
+		if err != nil || panelLogLevel == "" {
+			// Fall back to env var
+			switch config.GetLogLevel() {
+			case config.Debug:
+				logLevel = logging.DEBUG
+			case config.Info:
+				logLevel = logging.INFO
+			case config.Notice:
+				logLevel = logging.NOTICE
+			case config.Warning:
+				logLevel = logging.WARNING
+			case config.Error:
+				logLevel = logging.ERROR
+			default:
+				logLevel = logging.INFO
+			}
+		} else {
+			// Use panel log level setting
+			switch strings.ToLower(panelLogLevel) {
+			case "debug":
+				logLevel = logging.DEBUG
+			case "info":
+				logLevel = logging.INFO
+			case "notice":
+				logLevel = logging.NOTICE
+			case "warning":
+				logLevel = logging.WARNING
+			case "error":
+				logLevel = logging.ERROR
+			default:
+				logLevel = logging.INFO
+			}
 		}
 		logger.InitLogger(logLevel)
 	}

@@ -779,7 +779,18 @@ func (s *ServerService) UpdateXray(version string) error {
 		return err
 	}
 
-	// 5. Restart xray only if it was running before (in multi-node mode, xray may not be running)
+	// 5. Save version info to data folder
+	dataFolderPath := config.GetDataFolderPath()
+	if err := os.MkdirAll(dataFolderPath, 0755); err != nil {
+		logger.Warningf("Failed to create data folder: %v", err)
+	} else {
+		versionInfoPath := filepath.Join(dataFolderPath, "xray-version.txt")
+		if err := os.WriteFile(versionInfoPath, []byte(version), 0644); err != nil {
+			logger.Warningf("Failed to save version info: %v", err)
+		}
+	}
+
+	// 6. Restart xray only if it was running before (in multi-node mode, xray may not be running)
 	if wasRunning {
 		if err := s.xrayService.RestartXray(true); err != nil {
 			logger.Error("start xray failed:", err)
@@ -1657,12 +1668,18 @@ func (s *ServerService) UpdateGeofile(fileName string) error {
 		return nil
 	}
 
+	// Ensure data folder exists
+	dataFolderPath := config.GetDataFolderPath()
+	if err := os.MkdirAll(dataFolderPath, 0755); err != nil {
+		return common.NewErrorf("Failed to create data folder: %v", err)
+	}
+
 	var errorMessages []string
 
 	if fileName == "" {
 		for _, file := range files {
 			// Sanitize the filename from our allowlist as an extra precaution
-			destPath := filepath.Join(config.GetBinFolderPath(), filepath.Base(file.FileName))
+			destPath := filepath.Join(dataFolderPath, filepath.Base(file.FileName))
 
 			if err := downloadFile(file.URL, destPath); err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Error downloading Geofile '%s': %v", file.FileName, err))
@@ -1671,7 +1688,7 @@ func (s *ServerService) UpdateGeofile(fileName string) error {
 	} else {
 		// Use filepath.Base to ensure we only get the filename component, no path traversal
 		safeName := filepath.Base(fileName)
-		destPath := filepath.Join(config.GetBinFolderPath(), safeName)
+		destPath := filepath.Join(dataFolderPath, safeName)
 
 		var fileURL string
 		for _, file := range files {

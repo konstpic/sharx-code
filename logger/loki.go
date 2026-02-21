@@ -7,15 +7,18 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	lokiBufferSize    = 100                    // Maximum log entries in buffer before sending
-	lokiFlushInterval = 5 * time.Second        // Flush interval for sending logs
-	lokiMaxRetries    = 3                      // Maximum retry attempts
-	lokiRetryDelay    = 1 * time.Second        // Delay between retries
+	lokiBufferSize         = 100                    // Maximum log entries in buffer before sending
+	lokiFlushInterval      = 5 * time.Second        // Flush interval for sending logs
+	lokiMaxRetries         = 3                      // Maximum retry attempts
+	lokiRetryDelay         = 1 * time.Second        // Delay between retries
+	lokiCircuitBreakerFail = 5                      // Number of consecutive failures before circuit breaker opens
+	lokiCircuitBreakerReset = 30 * time.Second      // Time to wait before attempting to reset circuit breaker
 )
 
 // LokiClient handles sending logs to Loki
@@ -28,6 +31,12 @@ type LokiClient struct {
 	stopCh     chan struct{}
 	component  string // Component name: "x-ui", "xray", "node"
 	nodeID     string // Node ID for node logs (empty for panel)
+	
+	// Circuit breaker state
+	circuitBreakerMu    sync.RWMutex
+	consecutiveFailures int
+	circuitOpen         bool
+	circuitOpenTime     time.Time
 }
 
 // LokiLogEntry represents a single log entry for Loki
@@ -70,6 +79,11 @@ func InitLokiClient(url string, component string, nodeID string) error {
 		return nil
 	}
 
+	// Validate URL format
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("invalid Loki URL: must start with http:// or https://")
+	}
+
 	client := &LokiClient{
 		url:        url,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
@@ -101,10 +115,36 @@ func (lc *LokiClient) Stop() {
 	lc.flush()
 }
 
-// AddLog adds a log entry to the buffer
+// AddLog adds a log entry to the buffer with optional component and nodeID override
 func (lc *LokiClient) AddLog(level string, message string) {
+	lc.AddLogWithComponent(level, message, lc.component, lc.nodeID)
+}
+
+// AddLogWithComponent adds a log entry to the buffer with specified component and nodeID
+func (lc *LokiClient) AddLogWithComponent(level string, message string, component string, nodeID string) {
 	if lc == nil {
 		return
+	}
+
+	// Check circuit breaker - if open, silently drop logs
+	lc.circuitBreakerMu.RLock()
+	if lc.circuitOpen {
+		// Check if enough time has passed to attempt reset
+		if time.Since(lc.circuitOpenTime) > lokiCircuitBreakerReset {
+			lc.circuitBreakerMu.RUnlock()
+			// Try to reset circuit breaker
+			lc.circuitBreakerMu.Lock()
+			if lc.circuitOpen && time.Since(lc.circuitOpenTime) > lokiCircuitBreakerReset {
+				lc.circuitOpen = false
+				lc.consecutiveFailures = 0
+			}
+			lc.circuitBreakerMu.Unlock()
+		} else {
+			lc.circuitBreakerMu.RUnlock()
+			return // Circuit breaker is open, drop log
+		}
+	} else {
+		lc.circuitBreakerMu.RUnlock()
 	}
 
 	lc.bufferMu.Lock()
@@ -114,8 +154,8 @@ func (lc *LokiClient) AddLog(level string, message string) {
 		Timestamp: time.Now(),
 		Level:     level,
 		Message:   message,
-		Component: lc.component,
-		NodeID:    lc.nodeID,
+		Component: component,
+		NodeID:    nodeID,
 	}
 
 	lc.buffer = append(lc.buffer, entry)
@@ -205,39 +245,79 @@ func (lc *LokiClient) flush() {
 	lc.sendWithRetry(jsonData)
 }
 
-// sendWithRetry sends data to Loki with retry logic
+// sendWithRetry sends data to Loki with retry logic and circuit breaker
 func (lc *LokiClient) sendWithRetry(jsonData []byte) {
+	// Check circuit breaker before attempting
+	lc.circuitBreakerMu.RLock()
+	if lc.circuitOpen {
+		lc.circuitBreakerMu.RUnlock()
+		return // Circuit breaker is open, don't attempt
+	}
+	lc.circuitBreakerMu.RUnlock()
+
+	success := false
 	for attempt := 0; attempt < lokiMaxRetries; attempt++ {
+		// Create request with timeout context
 		req, err := http.NewRequest("POST", lc.url, bytes.NewBuffer(jsonData))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create Loki request: %v\n", err)
+			lc.recordFailure()
 			return
 		}
 
 		req.Header.Set("Content-Type", "application/json")
 
+		// Use httpClient with timeout (already set to 10s)
 		resp, err := lc.httpClient.Do(req)
 		if err != nil {
 			if attempt < lokiMaxRetries-1 {
 				time.Sleep(lokiRetryDelay)
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "Failed to send logs to Loki after %d attempts: %v\n", lokiMaxRetries, err)
+			// All retries failed
+			lc.recordFailure()
 			return
 		}
 
 		resp.Body.Close()
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			// Success
+			// Success - reset circuit breaker
+			lc.recordSuccess()
+			success = true
 			return
 		}
 
 		if attempt < lokiMaxRetries-1 {
 			time.Sleep(lokiRetryDelay)
 		} else {
-			fmt.Fprintf(os.Stderr, "Loki returned error status %d after %d attempts\n", resp.StatusCode, lokiMaxRetries)
+			// All retries failed
+			lc.recordFailure()
 		}
+	}
+
+	if !success {
+		lc.recordFailure()
+	}
+}
+
+// recordSuccess resets the circuit breaker failure count
+func (lc *LokiClient) recordSuccess() {
+	lc.circuitBreakerMu.Lock()
+	defer lc.circuitBreakerMu.Unlock()
+	lc.consecutiveFailures = 0
+	lc.circuitOpen = false
+}
+
+// recordFailure increments failure count and opens circuit breaker if threshold reached
+func (lc *LokiClient) recordFailure() {
+	lc.circuitBreakerMu.Lock()
+	defer lc.circuitBreakerMu.Unlock()
+	lc.consecutiveFailures++
+	if lc.consecutiveFailures >= lokiCircuitBreakerFail {
+		lc.circuitOpen = true
+		lc.circuitOpenTime = time.Now()
+		fmt.Fprintf(os.Stderr, "Loki circuit breaker opened after %d consecutive failures\n", lokiCircuitBreakerFail)
 	}
 }
 
@@ -247,24 +327,16 @@ func PushLogToLoki(level string, message string) {
 }
 
 // PushLogToLokiWithComponent pushes a log to Loki with specified component and node ID
+// All logs are routed through the main client buffer to avoid blocking
 func PushLogToLokiWithComponent(level string, message string, component string, nodeID string) {
 	lokiMu.RLock()
 	client := lokiClient
 	lokiMu.RUnlock()
 
 	if client != nil {
-		// Create a temporary client with the specified component/nodeID for this log
-		tempClient := &LokiClient{
-			url:        client.url,
-			httpClient: client.httpClient,
-			buffer:     make([]LokiLogEntry, 0, 1),
-			bufferMu:   sync.Mutex{},
-			component:  component,
-			nodeID:     nodeID,
-		}
-		tempClient.AddLog(level, message)
-		// Flush immediately for this single log
-		tempClient.flush()
+		// Route through main client buffer with component/nodeID override
+		// This is non-blocking and uses the existing async flush mechanism
+		client.AddLogWithComponent(level, message, component, nodeID)
 	}
 }
 

@@ -66,6 +66,7 @@
 "secAlertPanelURI" = "La ruta URI predeterminada del panel no es segura. Por favor, configure una ruta URI compleja."
 "secAlertSubURI" = "La ruta URI predeterminada de la suscripción no es segura. Por favor, configure una ruta URI compleja."
 "secAlertSubJsonURI" = "La ruta URI JSON predeterminada de la suscripción no es segura. Por favor, configure una ruta URI compleja."
+"dontShowAgain" = "No volver a mostrar"
 "emptyDnsDesc" = "No hay servidores DNS añadidos."
 "emptyFakeDnsDesc" = "No hay servidores Fake DNS añadidos."
 "emptyBalancersDesc" = "No hay balanceadores añadidos."

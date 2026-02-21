@@ -300,7 +300,9 @@ style attribute {
 .inbounds-page .ant-table:not(.ant-table-expanded-row .ant-table),
 .clients-page .ant-table,
 .hosts-page .ant-table,
-.nodes-page .ant-table {
+.nodes-page .ant-table,
+.groups-page .ant-table,
+.xray-core-config-profiles-page .ant-table {
   border-radius: 1rem !important;
 }
 .inbounds-page .ant-table .ant-table-content,
@@ -314,7 +316,13 @@ style attribute {
 .hosts-page .ant-table .ant-table-header,
 .nodes-page .ant-table .ant-table-content,
 .nodes-page .ant-table .ant-table-body,
-.nodes-page .ant-table .ant-table-header {
+.nodes-page .ant-table .ant-table-header,
+.groups-page .ant-table .ant-table-content,
+.groups-page .ant-table .ant-table-body,
+.groups-page .ant-table .ant-table-header,
+.xray-core-config-profiles-page .ant-table .ant-table-content,
+.xray-core-config-profiles-page .ant-table .ant-table-body,
+.xray-core-config-profiles-page .ant-table .ant-table-header {
   border-radius: 1rem !important;
 }
 .ant-table-bordered

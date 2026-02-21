@@ -16,6 +16,7 @@ services:
       - ./bin/config.json:/app/bin/config.json
       - ./logs:/app/logs
       - ./cert:/app/cert  # Mount directory for TLS certificates
+      - ./data:/app/data  # Data folder for core state and geo files
       # Note: config.json is mounted directly for persistence
       # If the file doesn't exist, it will be created when XRAY config is first applied
       # Place your TLS certificates in ./cert/ directory:

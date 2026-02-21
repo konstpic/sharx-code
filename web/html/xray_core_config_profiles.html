@@ -431,4 +431,34 @@
     },
   });
 </script>
+<style>
+  /* Fix selected row background in Glass Morphism theme */
+  [data-glass-morphism] .xray-core-config-profiles-table .ant-table-tbody > tr.ant-table-row-selected > td {
+    background-color: rgba(24, 144, 255, 0.15) !important;
+    color: inherit !important;
+  }
+  
+  [data-glass-morphism] .xray-core-config-profiles-table .ant-table-tbody > tr.ant-table-row-selected:hover > td {
+    background-color: rgba(24, 144, 255, 0.25) !important;
+  }
+  
+  /* Ensure text remains visible in selected rows */
+  [data-glass-morphism] .xray-core-config-profiles-table .ant-table-tbody > tr.ant-table-row-selected > td * {
+    color: inherit !important;
+  }
+  
+  .xray-core-config-profiles-page.dark .ant-table,
+  .xray-core-config-profiles-page.dark .ant-table-content,
+  .xray-core-config-profiles-page.dark .ant-table-body,
+  .xray-core-config-profiles-page.dark .ant-table-header,
+  .xray-core-config-profiles-page.dark .ant-table-scroll,
+  .xray-core-config-profiles-page.dark .ant-table-container {
+    outline-color: var(--dark-color-table-ring) !important;
+    background-color: transparent !important;
+  }
+  
+  .ant-tag {
+    min-height: 22px;
+  }
+</style>
 {{ template "page/body_end" .}}

@@ -256,7 +256,22 @@
             </template>
         </a-setting-list-item>
     </a-collapse-panel>
-    <a-collapse-panel key="8" header='Grafana'>
+    <a-collapse-panel key="8" header='Panel Logging'>
+        <a-setting-list-item paddings="small">
+            <template #title>Panel Log Level</template>
+            <template #description>Set the log level for the panel application (overrides XUI_LOG_LEVEL environment variable). When Grafana is enabled, this setting is ignored and DEBUG level is used.</template>
+            <template #control>
+                <a-select v-model="allSetting.panelLogLevel" :dropdown-class-name="themeSwitcher.currentTheme" :style="{ width: '100%' }" :disabled="allSetting.grafanaEnable">
+                    <a-select-option value="debug">Debug</a-select-option>
+                    <a-select-option value="info">Info</a-select-option>
+                    <a-select-option value="notice">Notice</a-select-option>
+                    <a-select-option value="warning">Warning</a-select-option>
+                    <a-select-option value="error">Error</a-select-option>
+                </a-select>
+            </template>
+        </a-setting-list-item>
+    </a-collapse-panel>
+    <a-collapse-panel key="9" header='Grafana'>
         <a-setting-list-item paddings="small">
             <template #title>{{ i18n "pages.settings.grafanaEnable" }}</template>
             <template #description>{{ i18n "pages.settings.grafanaEnableDesc" }}</template>

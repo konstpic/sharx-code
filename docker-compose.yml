@@ -12,10 +12,15 @@ services:
     volumes:
       - $PWD/db/:/etc/x-ui/
       - $PWD/cert/:/root/cert/
+      - $PWD/data/:/app/data/  # Data folder for core state and geo files
+      - $PWD/bin/:/app/bin/    # Bin folder for Xray binaries
     environment:
       # Xray настройки
       XRAY_VMESS_AEAD_FORCED: "false"
       XUI_ENABLE_FAIL2BAN: "true"
+      # Paths
+      XUI_DATA_FOLDER: "/app/data"
+      XUI_BIN_FOLDER: "/app/bin"
       # XUI_WEB_CERT_FILE:  /cert/fullchain.pem
       # XUI_WEB_KEY_FILE: /cert/privkey.pem
       # XUI_WEB_DOMAIN: panel.example.com

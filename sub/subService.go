@@ -296,6 +296,7 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 		err = db.Model(model.Inbound{}).Preload("ClientStats").
 			Where("id IN ? AND enable = ? AND protocol IN ?", 
 				inboundIds, true, []model.Protocol{model.VMESS, model.VLESS, model.Trojan, model.Shadowsocks}).
+			Order("id ASC").
 			Find(&inbounds).Error
 		if err != nil {
 			return nil, err
@@ -318,7 +319,7 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 		WHERE
 			protocol in ('vmess','vless','trojan','shadowsocks')
 			AND (client.value::jsonb)->>'subId' = ? AND enable = ?
-	)`, subId, true).Find(&inbounds).Error
+	)`, subId, true).Order("id ASC").Find(&inbounds).Error
 	if err != nil {
 		return nil, err
 	}

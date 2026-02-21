@@ -100,31 +100,33 @@
 {{template "component/aThemeSwitch" .}}
 {{template "modals/groupModal"}}
 <style>
-  .groups-table .ant-table:not(.ant-table-expanded-row .ant-table) {
-    border-radius: 1rem;
-    overflow: hidden;
+  /* Fix selected row background in Glass Morphism theme */
+  [data-glass-morphism] .groups-table .ant-table-tbody > tr.ant-table-row-selected > td {
+    background-color: rgba(24, 144, 255, 0.15) !important;
+    color: inherit !important;
   }
   
-  /* Ensure rounded corners in glass morphism theme */
-  [data-glass-morphism] .groups-table .ant-table:not(.ant-table-expanded-row .ant-table) {
-    border-radius: 1rem;
-    overflow: hidden;
+  [data-glass-morphism] .groups-table .ant-table-tbody > tr.ant-table-row-selected:hover > td {
+    background-color: rgba(24, 144, 255, 0.25) !important;
   }
   
-  [data-glass-morphism] .groups-table .ant-table-thead > tr > th:first-child {
-    border-top-left-radius: 1rem;
+  /* Ensure text remains visible in selected rows */
+  [data-glass-morphism] .groups-table .ant-table-tbody > tr.ant-table-row-selected > td * {
+    color: inherit !important;
   }
   
-  [data-glass-morphism] .groups-table .ant-table-thead > tr > th:last-child {
-    border-top-right-radius: 1rem;
+  .groups-page.dark .ant-table,
+  .groups-page.dark .ant-table-content,
+  .groups-page.dark .ant-table-body,
+  .groups-page.dark .ant-table-header,
+  .groups-page.dark .ant-table-scroll,
+  .groups-page.dark .ant-table-container {
+    outline-color: var(--dark-color-table-ring) !important;
+    background-color: transparent !important;
   }
   
-  [data-glass-morphism] .groups-table .ant-table-tbody > tr:last-child > td:first-child {
-    border-bottom-left-radius: 1rem;
-  }
-  
-  [data-glass-morphism] .groups-table .ant-table-tbody > tr:last-child > td:last-child {
-    border-bottom-right-radius: 1rem;
+  .ant-tag {
+    min-height: 22px;
   }
 </style>
 <script>

@@ -15,6 +15,7 @@ services:
       - ./bin:/app/bin
       - ./logs:/app/logs
       - ./cert:/app/cert  # Mount directory for TLS certificates
+      - ./data:/app/data  # Data folder for core state and geo files
       # Note: bin directory is mounted for persistence
       # If config.json doesn't exist, it will be created when XRAY config is first applied
       # If ./bin/config.json on host is a directory, XRAY will use an alternative path automatically

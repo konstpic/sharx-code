@@ -949,9 +949,9 @@
         } else {
           const searchKey = key.toLowerCase().trim();
           filteredClients.forEach(client => {
-            // Search by email (client name) starting from the first character
+            // Search by email (client name) - matches anywhere in the email
             const email = (client.email || '').toLowerCase();
-            if (email.startsWith(searchKey)) {
+            if (email.includes(searchKey)) {
               this.searchedClients.push(client);
             }
           });
@@ -1008,7 +1008,7 @@
           const searchKeyLower = this.searchKey.toLowerCase().trim();
           filteredClients = filteredClients.filter(client => {
             const email = (client.email || '').toLowerCase();
-            return email.startsWith(searchKeyLower);
+            return email.includes(searchKeyLower);
           });
         }
         

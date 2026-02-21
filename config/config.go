@@ -67,6 +67,18 @@ func GetBinFolderPath() string {
 	return binFolderPath
 }
 
+// GetDataFolderPath returns the path to the data folder for storing core state and geo files.
+// Defaults to "data" if not set via XUI_DATA_FOLDER, falling back to bin folder for compatibility.
+func GetDataFolderPath() string {
+	dataFolderPath := os.Getenv("XUI_DATA_FOLDER")
+	if dataFolderPath == "" {
+		// Use local "data" folder relative to executable
+		baseDir := getBaseDir()
+		dataFolderPath = filepath.Join(baseDir, "data")
+	}
+	return dataFolderPath
+}
+
 func getBaseDir() string {
 	exePath, err := os.Executable()
 	if err != nil {

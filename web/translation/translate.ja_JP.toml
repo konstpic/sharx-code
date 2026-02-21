@@ -66,6 +66,7 @@
 "secAlertPanelURI" = "デフォルトのURIパスは安全ではありません。複雑なURIパスを設定してください。"
 "secAlertSubURI" = "サブスクリプションのデフォルトURIパスは安全ではありません。複雑なURIパスを設定してください。"
 "secAlertSubJsonURI" = "JSONサブスクリプションのデフォルトURIパスは安全ではありません。複雑なURIパスを設定してください。"
+"dontShowAgain" = "再度表示しない"
 "emptyDnsDesc" = "追加されたDNSサーバーはありません。"
 "emptyFakeDnsDesc" = "追加されたFake DNSサーバーはありません。"
 "emptyBalancersDesc" = "追加されたバランサーはありません。"

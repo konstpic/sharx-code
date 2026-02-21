@@ -203,10 +203,26 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		}
 
 		// Add middleware to handle dynamic asset paths with subid
-		if LinksPath != "/" {
-			engine.Use(func(c *gin.Context) {
-				path := c.Request.URL.Path
-				// Check if this is an asset request with subid pattern: /sub/path/{subid}/assets/...
+		// This handles both LinksPath == "/" (pattern: /{subid}/assets/...) and LinksPath != "/" (pattern: /sub/path/{subid}/assets/...)
+		engine.Use(func(c *gin.Context) {
+			path := c.Request.URL.Path
+			
+			// Pattern 1: LinksPath == "/" -> /{subid}/assets/...
+			if LinksPath == "/" {
+				// Match pattern: /{subid}/assets/...
+				// Extract subid and asset path
+				parts := strings.Split(path, "/")
+				if len(parts) >= 4 && parts[1] != "" && parts[2] == "assets" {
+					// parts[0] is "", parts[1] is subid, parts[2] is "assets", parts[3:] is asset path
+					assetPath := strings.Join(parts[3:], "/")
+					if assetPath != "" {
+						c.FileFromFS(assetPath, assetsFS)
+						c.Abort()
+						return
+					}
+				}
+			} else {
+				// Pattern 2: LinksPath != "/" -> /sub/path/{subid}/assets/...
 				pathPrefix := strings.TrimRight(LinksPath, "/") + "/"
 				if strings.HasPrefix(path, pathPrefix) && strings.Contains(path, "/assets/") {
 					// Extract the asset path after /assets/
@@ -221,9 +237,9 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 						}
 					}
 				}
-				c.Next()
-			})
-		}
+			}
+			c.Next()
+		})
 	}
 
 	g := engine.Group("/")

@@ -394,4 +394,34 @@
     });
   }
 </script>
+<style>
+  /* Fix selected row background in Glass Morphism theme */
+  [data-glass-morphism] .hosts-table .ant-table-tbody > tr.ant-table-row-selected > td {
+    background-color: rgba(24, 144, 255, 0.15) !important;
+    color: inherit !important;
+  }
+  
+  [data-glass-morphism] .hosts-table .ant-table-tbody > tr.ant-table-row-selected:hover > td {
+    background-color: rgba(24, 144, 255, 0.25) !important;
+  }
+  
+  /* Ensure text remains visible in selected rows */
+  [data-glass-morphism] .hosts-table .ant-table-tbody > tr.ant-table-row-selected > td * {
+    color: inherit !important;
+  }
+  
+  .hosts-page.dark .ant-table,
+  .hosts-page.dark .ant-table-content,
+  .hosts-page.dark .ant-table-body,
+  .hosts-page.dark .ant-table-header,
+  .hosts-page.dark .ant-table-scroll,
+  .hosts-page.dark .ant-table-container {
+    outline-color: var(--dark-color-table-ring) !important;
+    background-color: transparent !important;
+  }
+  
+  .ant-tag {
+    min-height: 22px;
+  }
+</style>
 {{ template "page/body_end" .}}

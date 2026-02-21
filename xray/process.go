@@ -36,11 +36,21 @@ func GetConfigPath() string {
 
 // GetGeositePath returns the path to the geosite data file used by Xray.
 func GetGeositePath() string {
+	// Try data folder first, fallback to bin folder for compatibility
+	dataPath := config.GetDataFolderPath() + "/geosite.dat"
+	if _, err := os.Stat(dataPath); err == nil {
+		return dataPath
+	}
 	return config.GetBinFolderPath() + "/geosite.dat"
 }
 
 // GetGeoipPath returns the path to the geoip data file used by Xray.
 func GetGeoipPath() string {
+	// Try data folder first, fallback to bin folder for compatibility
+	dataPath := config.GetDataFolderPath() + "/geoip.dat"
+	if _, err := os.Stat(dataPath); err == nil {
+		return dataPath
+	}
 	return config.GetBinFolderPath() + "/geoip.dat"
 }
 

@@ -9,7 +9,13 @@
       <a-spin :spinning="loadingStates.spinning" :delay="0" tip='{{ i18n "loading"}}'>
         <transition name="list">
           <a-alert type="error" v-if="showAlert && loadingStates.fetched" :style="{ marginBottom: '10px' }"
-            message='{{ i18n "secAlertTitle" }}' color="red" description='{{ i18n "secAlertSsl" }}' show-icon closable>
+            message='{{ i18n "secAlertTitle" }}' color="red" show-icon closable @close="handleSecAlertClose">
+            <template slot="description">
+              <div>{{ i18n "secAlertSsl" }}</div>
+              <a-checkbox v-model="dontShowSecAlert" :style="{ marginTop: '8px' }" @change="handleDontShowSecAlertChange">
+                {{ i18n "dontShowAgain" }}
+              </a-checkbox>
+            </template>
           </a-alert>
         </transition>
         <transition name="list" appear>
@@ -117,6 +123,7 @@
                     :default-sort-order="'ascend'"
                     :default-sort-column="'id'"
                     :style="{ marginTop: '10px' }"
+                    class="inbounds-table"
                     :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}`, emptyText: `{{ i18n "noData" }}` }'>
                     <template slot="action" slot-scope="text, dbInbound">
                       <a-dropdown :trigger="['click']">
@@ -621,6 +628,7 @@
       datepicker: 'gregorian',
       tgBotEnable: false,
       showAlert: false,
+      dontShowSecAlert: false,
       pageSize: 0,
     },
     methods: {
@@ -1402,7 +1410,9 @@
     },
     async mounted() {
       await this.loadMultiNodeMode();
-      if (window.location.protocol !== "https:") {
+      // Check if user chose to hide security alert
+      const hideSecAlert = localStorage.getItem('hideSecAlert') === 'true';
+      if (window.location.protocol !== "https:" && !hideSecAlert) {
         this.showAlert = true;
       }
       this.loading();
@@ -1502,8 +1512,48 @@
           depleted: depleted,
           expiring: expiring,
         };
+      },
+      handleSecAlertClose() {
+        if (this.dontShowSecAlert) {
+          localStorage.setItem('hideSecAlert', 'true');
+        }
+        this.showAlert = false;
+      },
+      handleDontShowSecAlertChange(e) {
+        // This is called when checkbox changes, but we'll save on close
+        // to allow user to uncheck before closing
       }
     },
   });
 </script>
+<style>
+  /* Fix selected row background in Glass Morphism theme */
+  [data-glass-morphism] .inbounds-table .ant-table-tbody > tr.ant-table-row-selected > td {
+    background-color: rgba(24, 144, 255, 0.15) !important;
+    color: inherit !important;
+  }
+  
+  [data-glass-morphism] .inbounds-table .ant-table-tbody > tr.ant-table-row-selected:hover > td {
+    background-color: rgba(24, 144, 255, 0.25) !important;
+  }
+  
+  /* Ensure text remains visible in selected rows */
+  [data-glass-morphism] .inbounds-table .ant-table-tbody > tr.ant-table-row-selected > td * {
+    color: inherit !important;
+  }
+  
+  .inbounds-page.dark .ant-table,
+  .inbounds-page.dark .ant-table-content,
+  .inbounds-page.dark .ant-table-body,
+  .inbounds-page.dark .ant-table-header,
+  .inbounds-page.dark .ant-table-scroll,
+  .inbounds-page.dark .ant-table-container {
+    outline-color: var(--dark-color-table-ring) !important;
+    background-color: transparent !important;
+  }
+  
+  .ant-tag {
+    min-height: 22px;
+  }
+</style>
 {{ template "page/body_end" .}}

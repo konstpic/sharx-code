@@ -315,17 +315,22 @@
         },
         filterInboundOption(input, option) {
             const inboundId = option.componentOptions.propsData.value;
-            const inbound = typeof app !== 'undefined' && app.allInbounds 
-                ? app.allInbounds.find(ib => ib.id === inboundId) 
-                : null;
+            // Add null-safety checks for app and allInbounds
+            if (typeof app === 'undefined' || !app || !app.allInbounds || !Array.isArray(app.allInbounds)) {
+                return false;
+            }
+            const inbound = app.allInbounds.find(ib => ib && ib.id === inboundId);
             if (!inbound) return false;
-            const searchText = input.toLowerCase();
+            const searchText = (input || '').toLowerCase();
             const remark = (inbound.remark || '').toLowerCase();
             const port = String(inbound.port || '');
             const id = String(inbound.id || '');
+            const protocol = (inbound.protocol || '').toLowerCase();
+            // Also search by protocol
             return remark.indexOf(searchText) >= 0 || 
                    port.indexOf(searchText) >= 0 || 
-                   id.indexOf(searchText) >= 0;
+                   id.indexOf(searchText) >= 0 ||
+                   protocol.indexOf(searchText) >= 0;
         },
         filterGroupOption(input, option) {
             const groupId = option.componentOptions.propsData.value;

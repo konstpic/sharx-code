@@ -109,12 +109,13 @@ RUN echo "Contents of /app/bin after COPY:" && \
         exit 1; \
     fi
 
-# Create directories for config and logs
-RUN mkdir -p /app/config /app/logs
+# Create directories for config, logs, and data
+RUN mkdir -p /app/config /app/logs /app/data
 
 # Set environment variables for paths
 ENV XUI_BIN_FOLDER=/app/bin
 ENV XUI_LOG_FOLDER=/app/logs
+ENV XUI_DATA_FOLDER=/app/data
 
 # Expose API port
 EXPOSE 8080

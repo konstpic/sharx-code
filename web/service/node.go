@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/database"
@@ -379,7 +380,7 @@ func (s *NodeService) CheckNodeStatus(node *model.Node) (string, int64, error) {
 	return "error", 0, fmt.Errorf("node returned status code %d", resp.StatusCode)
 }
 
-// CheckAllNodesHealth checks health of all nodes.
+// CheckAllNodesHealth checks health of all nodes and waits for all checks to complete.
 func (s *NodeService) CheckAllNodesHealth() {
 	nodes, err := s.GetAllNodes()
 	if err != nil {
@@ -387,9 +388,21 @@ func (s *NodeService) CheckAllNodesHealth() {
 		return
 	}
 
-	for _, node := range nodes {
-		go s.CheckNodeHealth(node)
+	if len(nodes) == 0 {
+		return
 	}
+
+	// Use WaitGroup to wait for all health checks to complete
+	var wg sync.WaitGroup
+	for _, node := range nodes {
+		n := node // Capture loop variable
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.CheckNodeHealth(n)
+		}()
+	}
+	wg.Wait()
 }
 
 // GetNodeForInbound returns the node assigned to an inbound, or nil if not assigned.
@@ -728,6 +741,7 @@ func (s *NodeService) CollectNodeStats() error {
 	clientService := &ClientService{}
 
 	// Collect stats from nodes with assigned inbounds concurrently
+	// Each node is processed independently - failures are isolated
 	type nodeStatsResult struct {
 		node  *model.Node
 		stats *NodeStatsResponse
@@ -756,9 +770,14 @@ func (s *NodeService) CollectNodeStats() error {
 
 	onlineClientsMap := make(map[string]bool)
 
+	// Track success/failure counts for better logging
+	successCount := 0
+	failureCount := 0
+
 	for i := 0; i < len(nodesWithInbounds); i++ {
 		result := <-results
 		if result.err != nil {
+			failureCount++
 			// Check if error is expected (XRAY not running, 404 for old nodes, timeout, etc.)
 			errMsg := result.err.Error()
 			if strings.Contains(errMsg, "XRAY is not running") || 
@@ -768,13 +787,22 @@ func (s *NodeService) CollectNodeStats() error {
 			   strings.Contains(errMsg, "timeout") ||
 			   strings.Contains(errMsg, "Client.Timeout") {
 				// These are expected errors, log as debug only
-				logger.Debugf("[Node: %s] Skipping stats collection: %v", result.node.Name, result.err)
+				logger.Debugf("[Node: %s] Skipping stats collection (expected error): %v", result.node.Name, result.err)
 			} else {
 				// Unexpected errors should be logged as warning
-				logger.Warningf("[Node: %s] Failed to get stats: %v", result.node.Name, result.err)
+				logger.Warningf("[Node: %s] Failed to get stats (unexpected error): %v", result.node.Name, result.err)
 			}
+			// Continue processing other nodes - error isolation
 			continue
 		}
+
+		if result.stats == nil {
+			failureCount++
+			logger.Debugf("[Node: %s] Stats collection returned nil", result.node.Name)
+			continue
+		}
+
+		successCount++
 
 		if result.stats == nil {
 			continue
@@ -958,8 +986,15 @@ func (s *NodeService) CollectNodeStats() error {
 		p.SetOnlineClients(onlineClientsList)
 	}
 
-	logger.Debugf("Collected stats from nodes: %d node traffics updated, %d client traffics, %d online clients",
-		len(nodeTrafficMap), len(allClientTraffics), len(onlineClientsMap))
+	// Log summary with success/failure counts for better visibility
+	totalNodes := len(nodesWithInbounds)
+	if failureCount > 0 {
+		logger.Warningf("Node stats collection completed: %d/%d nodes succeeded, %d failed. Updated %d node traffics, %d client traffics, %d online clients",
+			successCount, totalNodes, failureCount, len(nodeTrafficMap), len(allClientTraffics), len(onlineClientsMap))
+	} else {
+		logger.Debugf("Collected stats from nodes: %d/%d nodes succeeded. Updated %d node traffics, %d client traffics, %d online clients",
+			successCount, totalNodes, len(nodeTrafficMap), len(allClientTraffics), len(onlineClientsMap))
+	}
 
 	return nil
 }

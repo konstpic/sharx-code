@@ -124,6 +124,10 @@ type AllSetting struct {
 	GrafanaLokiUrl            string `json:"grafanaLokiUrl" form:"grafanaLokiUrl"`                         // Loki API URL (e.g., http://localhost:3100/loki/api/v1/push)
 	GrafanaVictoriaMetricsUrl string `json:"grafanaVictoriaMetricsUrl" form:"grafanaVictoriaMetricsUrl"` // VictoriaMetrics API URL (e.g., http://localhost:8428/api/v1/import/prometheus)
 	GrafanaEnable             bool   `json:"grafanaEnable" form:"grafanaEnable"`                           // Enable Grafana integration (Loki logging and VictoriaMetrics metrics)
+	
+	// Panel log level setting (overrides XUI_LOG_LEVEL env var)
+	// Valid values: "debug", "info", "notice", "warning", "error"
+	PanelLogLevel string `json:"panelLogLevel" form:"panelLogLevel"` // Panel log level (default: "info")
 	// JSON subscription routing rules
 }
 

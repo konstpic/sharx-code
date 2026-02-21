@@ -66,6 +66,7 @@
 "secAlertPanelURI" = "مسار URI الافتراضي للبانل مش آمن. ياريت تضبط مسار URI معقد."
 "secAlertSubURI" = "مسار URI الافتراضي للاشتراك مش آمن. ياريت تضبط مسار URI معقد."
 "secAlertSubJsonURI" = "مسار URI الافتراضي لاشتراك JSON مش آمن. ياريت تضبط مسار URI معقد."
+"dontShowAgain" = "ما تعرضه تاني"
 "emptyDnsDesc" = "مفيش سيرفر DNS مضاف."
 "emptyFakeDnsDesc" = "مفيش سيرفر Fake DNS مضاف."
 "emptyBalancersDesc" = "مفيش موازن تحميل مضاف."
