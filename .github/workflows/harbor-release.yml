@@ -283,8 +283,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release in SharX repository
-        if: ${{ secrets.SHARX_REPO_TOKEN }}
         run: |
+          # Check if token is available
+          if [ -z "${{ secrets.SHARX_REPO_TOKEN }}" ]; then
+            echo "⚠️  SHARX_REPO_TOKEN not set, skipping release creation in SharX repository"
+            exit 0
+          fi
+          
           TAG="${{ needs.prepare.outputs.tag }}"
           VERSION="${{ needs.prepare.outputs.version }}"
           IS_BETA="${{ needs.prepare.outputs.is_beta }}"
