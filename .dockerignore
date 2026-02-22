@@ -17,10 +17,10 @@ ENV_VARIABLES.md
 *.swo
 *~
 
-# Logs
+# Logs (exclude log files but keep source code)
 *.log
-logs/
-node/logs/
+logs/*.log
+node/logs/*.log
 
 # Database
 *.db
