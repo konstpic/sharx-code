@@ -2255,7 +2255,7 @@ type PageData struct {
 	Result               []string
 	HideConfigLinks      bool
 	ShowOnlyHappV2RayTun bool   // Show only Happ and V2RayTun buttons
-	HappEncryptedUrl     string // Encrypted URL for Happ app (happ://crypt5/...)
+	HappEncryptedUrl     string // Encrypted URL for Happ app (happ://crypt4/...)
 	V2RayTunEncryptedUrl string // Encrypted URL for V2RayTun app (v2raytun://crypt/...)
 	Theme                string // Subscription page theme
 	LogoUrl              string // Logo URL for subscription page
