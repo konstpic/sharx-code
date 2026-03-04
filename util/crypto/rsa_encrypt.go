@@ -1,9 +1,9 @@
 package crypto
 
 import (
-	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
