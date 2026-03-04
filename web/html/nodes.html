@@ -194,6 +194,11 @@
     width: 100,
     scopedSlots: { customRender: 'responseTime' },
   }, {
+    title: '{{ i18n "pages.nodes.xrayVersion" }}',
+    align: 'center',
+    width: 120,
+    dataIndex: "xrayVersion",
+  }, {
     title: '{{ i18n "pages.nodes.assignedInbounds" }}',
     align: 'left',
     width: 300,
@@ -263,6 +268,7 @@
               address: node.address || '',
               status: node.status || 'unknown',
               responseTime: node.responseTime || 0,
+              xrayVersion: node.xrayVersion || '-',
               inbounds: node.inbounds || [],
               profiles: node.profiles || [],
               up: node.up || 0,
@@ -687,6 +693,7 @@
                 existingNode.address = updatedNode.address || existingNode.address || '';
                 existingNode.status = updatedNode.status || existingNode.status || 'unknown';
                 existingNode.responseTime = updatedNode.responseTime !== undefined ? updatedNode.responseTime : existingNode.responseTime;
+                existingNode.xrayVersion = updatedNode.xrayVersion !== undefined ? updatedNode.xrayVersion : existingNode.xrayVersion || '-';
                 existingNode.inbounds = updatedNode.inbounds || existingNode.inbounds || [];
                 // Only update profiles if they are provided (non-empty array or explicitly set)
                 // This prevents profiles from disappearing during traffic updates
@@ -706,6 +713,7 @@
                   address: updatedNode.address || '',
                   status: updatedNode.status || 'unknown',
                   responseTime: updatedNode.responseTime || 0,
+                  xrayVersion: updatedNode.xrayVersion || '-',
                   inbounds: updatedNode.inbounds || [],
                   profiles: updatedNode.profiles || [],
                   up: updatedNode.up || 0,

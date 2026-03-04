@@ -765,6 +765,7 @@ selectNodes = "Выберите ноды"
 
 [pages.nodes]
 responseTime = "Время ответа"
+xrayVersion = "Версия ядра"
 "title" = "Управление нодами"
 "addNewNode" = "Добавить новую ноду"
 "addNode" = "Добавить ноду"

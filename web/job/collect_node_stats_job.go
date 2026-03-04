@@ -37,8 +37,9 @@ func (j *CollectNodeStatsJob) Run() {
 		// Use the same structure as NodeController.broadcastNodesUpdate()
 		type NodeWithInbounds struct {
 			*model.Node
-			Inbounds []*model.Inbound                    `json:"inbounds,omitempty"`
-			Profiles []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+			Inbounds    []*model.Inbound                    `json:"inbounds,omitempty"`
+			Profiles    []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+			XrayVersion string                                `json:"xrayVersion,omitempty"`
 		}
 		
 		profileService := service.XrayCoreConfigProfileService{}
@@ -46,10 +47,16 @@ func (j *CollectNodeStatsJob) Run() {
 		for _, node := range nodes {
 			inbounds, _ := j.nodeService.GetInboundsForNode(node.Id)
 			profiles, _ := profileService.GetProfilesForNode(node.Id)
+			// Get Xray version from node (only if node is online)
+			xrayVersion := ""
+			if node.Status == "online" {
+				xrayVersion = j.nodeService.GetNodeXrayVersion(node)
+			}
 			result = append(result, NodeWithInbounds{
-				Node:     node,
-				Inbounds: inbounds,
-				Profiles: profiles,
+				Node:        node,
+				Inbounds:    inbounds,
+				Profiles:    profiles,
+				XrayVersion: xrayVersion,
 			})
 		}
 		websocket.BroadcastNodes(result)

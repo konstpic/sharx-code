@@ -97,8 +97,9 @@ func (a *NodeController) getNodes(c *gin.Context) {
 	// Enrich nodes with assigned inbounds and profiles information
 	type NodeWithInbounds struct {
 		*model.Node
-		Inbounds []*model.Inbound                    `json:"inbounds,omitempty"`
-		Profiles []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+		Inbounds    []*model.Inbound                    `json:"inbounds,omitempty"`
+		Profiles    []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+		XrayVersion string                                `json:"xrayVersion,omitempty"`
 	}
 	
 	profileService := service.XrayCoreConfigProfileService{}
@@ -106,10 +107,16 @@ func (a *NodeController) getNodes(c *gin.Context) {
 	for _, node := range nodes {
 		inbounds, _ := a.nodeService.GetInboundsForNode(node.Id)
 		profiles, _ := profileService.GetProfilesForNode(node.Id)
+		// Get Xray version from node (only if node is online)
+		xrayVersion := ""
+		if node.Status == "online" {
+			xrayVersion = a.nodeService.GetNodeXrayVersion(node)
+		}
 		result = append(result, NodeWithInbounds{
-			Node:     node,
-			Inbounds: inbounds,
-			Profiles: profiles,
+			Node:        node,
+			Inbounds:    inbounds,
+			Profiles:    profiles,
+			XrayVersion: xrayVersion,
 		})
 	}
 	
@@ -635,8 +642,9 @@ func (a *NodeController) broadcastNodesUpdate() {
 	// Enrich nodes with assigned inbounds and profiles information
 	type NodeWithInbounds struct {
 		*model.Node
-		Inbounds []*model.Inbound                    `json:"inbounds,omitempty"`
-		Profiles []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+		Inbounds    []*model.Inbound                    `json:"inbounds,omitempty"`
+		Profiles    []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+		XrayVersion string                                `json:"xrayVersion,omitempty"`
 	}
 
 	profileService := service.XrayCoreConfigProfileService{}
@@ -644,10 +652,16 @@ func (a *NodeController) broadcastNodesUpdate() {
 	for _, node := range nodes {
 		inbounds, _ := a.nodeService.GetInboundsForNode(node.Id)
 		profiles, _ := profileService.GetProfilesForNode(node.Id)
+		// Get Xray version from node (only if node is online)
+		xrayVersion := ""
+		if node.Status == "online" {
+			xrayVersion = a.nodeService.GetNodeXrayVersion(node)
+		}
 		result = append(result, NodeWithInbounds{
-			Node:     node,
-			Inbounds: inbounds,
-			Profiles: profiles,
+			Node:        node,
+			Inbounds:    inbounds,
+			Profiles:    profiles,
+			XrayVersion: xrayVersion,
 		})
 	}
 
