@@ -429,9 +429,6 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	if client.Password != "" {
 		updates["password"] = client.Password
 	}
-	if client.Flow != "" {
-		updates["flow"] = client.Flow
-	}
 	// Always update these fields - they can be 0 (unlimited/disabled) or empty
 	updates["total_gb"] = client.TotalGB
 	updates["expiry_time"] = client.ExpiryTime
@@ -440,6 +437,7 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	updates["tg_id"] = client.TgID
 	updates["sub_id"] = client.SubID
 	updates["comment"] = client.Comment
+	updates["flow"] = client.Flow
 	updates["reset"] = client.Reset
 	// Update group_id - can be nil (no group)
 	// Only update if it's different from existing value

@@ -283,8 +283,11 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if password, ok := updateData["password"].(string); ok && password != "" {
 				client.Password = password
 			}
-			if flow, ok := updateData["flow"].(string); ok && flow != "" {
-				client.Flow = flow
+			// Handle flow - check if key exists (can be empty to clear)
+			if flowVal, exists := updateData["flow"]; exists {
+				if flow, ok := flowVal.(string); ok {
+					client.Flow = flow
+				}
 			}
 			// Handle totalGB - can be 0 (unlimited), so check if key exists
 			if totalGBVal, exists := updateData["totalGB"]; exists {
@@ -392,10 +395,11 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			if updateClient.Password != "" {
 				client.Password = updateClient.Password
 			}
-		if updateClient.Flow != "" {
-			client.Flow = updateClient.Flow
-		}
-		// Handle totalGB - can be 0 (unlimited)
+			// Handle flow - can be empty to clear
+			if flowVal, exists := c.GetPostForm("flow"); exists {
+				client.Flow = flowVal
+			}
+			// Handle totalGB - can be 0 (unlimited)
 		totalGBStr := c.PostForm("totalGB")
 		if totalGBStr != "" {
 			if totalGB, err := strconv.ParseFloat(totalGBStr, 64); err == nil {
