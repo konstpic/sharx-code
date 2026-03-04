@@ -71,15 +71,26 @@ func (j *CheckNodeHealthJob) Run() {
 	// Enrich nodes with assigned inbounds information
 	type NodeWithInbounds struct {
 		*model.Node
-		Inbounds []*model.Inbound `json:"inbounds,omitempty"`
+		Inbounds    []*model.Inbound                    `json:"inbounds,omitempty"`
+		Profiles    []*model.XrayCoreConfigProfile       `json:"profiles,omitempty"`
+		XrayVersion string                                `json:"xrayVersion,omitempty"`
 	}
 	
+	profileService := service.XrayCoreConfigProfileService{}
 	result := make([]NodeWithInbounds, 0, len(updatedNodes))
 	for _, node := range updatedNodes {
 		inbounds, _ := j.nodeService.GetInboundsForNode(node.Id)
+		profiles, _ := profileService.GetProfilesForNode(node.Id)
+		// Get Xray version from node (only if node is online)
+		xrayVersion := ""
+		if node.Status == "online" {
+			xrayVersion = j.nodeService.GetNodeXrayVersion(node)
+		}
 		result = append(result, NodeWithInbounds{
-			Node:     node,
-			Inbounds: inbounds,
+			Node:        node,
+			Inbounds:    inbounds,
+			Profiles:    profiles,
+			XrayVersion: xrayVersion,
 		})
 	}
 	

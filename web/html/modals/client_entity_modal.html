@@ -51,7 +51,8 @@
             <a-input-number v-model.number="client.tgId" :min="0" :style="{ width: '100%' }"></a-input-number>
         </a-form-item>
         <a-form-item label='{{ i18n "pages.clients.inbounds" }}'>
-            <a-select v-model="client.inboundIds" mode="multiple" :dropdown-class-name="themeSwitcher.currentTheme">
+            <a-select v-model="client.inboundIds" mode="multiple" :dropdown-class-name="themeSwitcher.currentTheme" 
+                      :filter-option="clientEntityModal.filterInboundOption" show-search>
                 <a-select-option v-for="inbound in app.allInbounds" :key="inbound.id" :value="inbound.id">
                     [[ inbound.remark || `Port ${inbound.port}` ]] (ID: [[ inbound.id ]])
                 </a-select-option>

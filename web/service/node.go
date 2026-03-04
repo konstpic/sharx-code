@@ -1681,6 +1681,25 @@ func (s *NodeService) GetNodeStatus(node *model.Node) (map[string]interface{}, e
 	return status, nil
 }
 
+// GetNodeXrayVersion retrieves the Xray version from a node.
+// Returns empty string if version cannot be retrieved.
+func (s *NodeService) GetNodeXrayVersion(node *model.Node) string {
+	status, err := s.GetNodeStatus(node)
+	if err != nil {
+		return ""
+	}
+	
+	if version, ok := status["version"].(string); ok && version != "" {
+		// Return "Unknown" as empty string to match frontend display logic
+		if version == "Unknown" {
+			return ""
+		}
+		return version
+	}
+	
+	return ""
+}
+
 // GetNodeLogs retrieves XRAY access logs from a node.
 // Returns raw log lines as strings.
 func (s *NodeService) GetNodeLogs(node *model.Node, count int, filter string) ([]string, error) {

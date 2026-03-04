@@ -759,6 +759,7 @@ selectNodes = "Select Nodes"
 
 [pages.nodes]
 responseTime = "Response Time"
+xrayVersion = "Xray Version"
 "title" = "Nodes Management"
 "addNewNode" = "Add New Node"
 "addNode" = "Add Node"
