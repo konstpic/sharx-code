@@ -7,13 +7,14 @@ User documentation for the SharX admin panel.
 | Language | Main guide | Topic articles |
 |----------|------------|----------------|
 | **Русский** | [Руководство пользователя](./ru/rukovodstvo-polzovatelya.md) | [Оглавление](./ru/README.md) |
-| **English** | [User Guide](./en/user-guide.md) | [Index](./en/README.md) (topic articles in Russian for now) |
+| **English** | [User Guide](./en/user-guide.md) | [Index](./en/README.md) |
 
 ## Quick links
 
 ### English
 
 1. [User Guide](./en/user-guide.md) — complete manual
+2. [Topic index](./en/README.md) — installation, nodes, hosts, clients, subscription, and more
 
 ### Russian
 

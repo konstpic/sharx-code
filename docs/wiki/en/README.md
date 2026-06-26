@@ -10,23 +10,23 @@ User documentation for the SharX admin panel.
 
 ---
 
-## Reference sections (Russian)
+## Reference sections (by topic)
 
-Detailed topic articles are available in **[Russian](../ru/README.md)**. English topic pages may be added in future releases.
-
-| Topic | Russian article |
-|-------|-----------------|
-| Overview | [01-obzor.md](../ru/01-obzor.md) |
-| Installation | [02-ustanovka.md](../ru/02-ustanovka.md) |
-| Web interface | [03-veb-interfejs.md](../ru/03-veb-interfejs.md) |
-| Inbounds | [04-podklyucheniya.md](../ru/04-podklyucheniya.md) |
-| Nodes | [05-nody.md](../ru/05-nody.md) |
-| Hosts | [06-hosty.md](../ru/06-hosty.md) |
-| Clients | [07-klienty.md](../ru/07-klienty.md) |
-| Groups | [08-gruppy.md](../ru/08-gruppy.md) |
-| Subscription page | [09-stranica-podpiski.md](../ru/09-stranica-podpiski.md) |
-| Routing | [10-marshrutizaciya.md](../ru/10-marshrutizaciya.md) |
-| HWID & limits | [11-hwid-i-limity.md](../ru/11-hwid-i-limity.md) |
-| Settings | [12-nastrojki.md](../ru/12-nastrojki.md) |
+| # | Section | Description |
+|---|---------|-------------|
+| 1 | [Platform overview](./01-overview.md) | Architecture, protocols, ports |
+| 2 | [Installation](./02-installation.md) | Docker, SSL, first login |
+| 3 | [Web interface](./03-web-interface.md) | Navigation, dashboard |
+| 4 | [Inbounds](./04-inbounds.md) | Inbounds, protocols, examples |
+| 5 | [Nodes](./05-nodes.md) | Multi-node, workers |
+| 6 | [Hosts](./06-hosts.md) | CDN, domains in subscription |
+| 7 | [Clients](./07-clients.md) | End users |
+| 8 | [Groups](./08-groups.md) | Bulk operations |
+| 9 | [Subscription page](./09-subscription-page.md) | Page builder |
+| 10 | [Routing](./10-routing.md) | Client routing, Xray |
+| 11 | [HWID and limits](./11-hwid-and-limits.md) | Access restrictions |
+| 12 | [Settings](./12-settings.md) | All settings tabs |
 
 **Panel version:** 1.6.6
+
+**Русский:** [Руководство пользователя](../ru/rukovodstvo-polzovatelya.md)
