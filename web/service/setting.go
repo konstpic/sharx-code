@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"reflect"
@@ -381,50 +382,106 @@ func (s *SettingService) EnvOverridesSubPath() bool {
 	return strings.TrimSpace(os.Getenv("XUI_SUB_PATH")) != ""
 }
 
-// GenerateSecretPaths assigns a random webBasePath and optionally subPath.
-func (s *SettingService) GenerateSecretPaths(includeSub bool) (webPath, subPath string, err error) {
+// GenerateWebPathOnly assigns a random webBasePath.
+func (s *SettingService) GenerateWebPathOnly() (string, error) {
 	if s.EnvOverridesWebBasePath() {
-		return "", "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
+		return "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
 	}
-	if includeSub && s.EnvOverridesSubPath() {
-		return "", "", common.NewError("XUI_SUB_PATH is set in the environment")
-	}
-	webPath = secretpath.GenerateWebBasePath()
-	if err := s.SetBasePath(webPath); err != nil {
-		return "", "", err
-	}
-	if includeSub {
-		subPath = secretpath.GenerateSubPath()
-		if err := s.SetSubPath(subPath); err != nil {
-			return "", "", err
-		}
-		return webPath, subPath, nil
-	}
-	subPath, _ = s.GetSubPath()
-	return webPath, subPath, nil
+	webPath := secretpath.GenerateWebBasePath()
+	return webPath, s.SetBasePath(webPath)
 }
 
-// SaveSecretPaths stores manually entered path prefixes. When updateSub is false, subPath is unchanged.
-func (s *SettingService) SaveSecretPaths(webBasePath, subPath string, updateSub bool) (savedWeb, savedSub string, err error) {
+// GenerateSubPathOnly assigns a random subPath.
+func (s *SettingService) GenerateSubPathOnly() (string, error) {
+	if s.EnvOverridesSubPath() {
+		return "", common.NewError("XUI_SUB_PATH is set in the environment")
+	}
+	subPath := secretpath.GenerateSubPath()
+	return subPath, s.SetSubPath(subPath)
+}
+
+// SaveSecretPaths stores panel and subscription URL prefixes.
+func (s *SettingService) SaveSecretPaths(webBasePath, subPath string) (savedWeb, savedSub string, err error) {
 	if s.EnvOverridesWebBasePath() {
 		return "", "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
 	}
-	if updateSub && s.EnvOverridesSubPath() {
+	if s.EnvOverridesSubPath() {
 		return "", "", common.NewError("XUI_SUB_PATH is set in the environment")
 	}
 	if err := s.SetBasePath(webBasePath); err != nil {
 		return "", "", err
 	}
-	savedWeb, _ = s.GetBasePath()
-	if updateSub {
-		if err := s.SetSubPath(subPath); err != nil {
-			return "", "", err
-		}
-		savedSub, _ = s.GetSubPath()
-	} else {
-		savedSub, _ = s.GetSubPath()
+	if err := s.SetSubPath(subPath); err != nil {
+		return "", "", err
 	}
+	savedWeb, _ = s.GetBasePath()
+	savedSub, _ = s.GetSubPath()
 	return savedWeb, savedSub, nil
+}
+
+// LogAccessURLs prints panel and subscription URL hints to the container log on startup.
+func (s *SettingService) LogAccessURLs() {
+	webBasePath, err := s.GetBasePath()
+	if err != nil {
+		logger.Warning("get webBasePath for startup log failed:", err)
+		webBasePath = "/"
+	}
+	subPath, err := s.GetSubPath()
+	if err != nil {
+		logger.Warning("get subPath for startup log failed:", err)
+		subPath = "/"
+	}
+	port, _ := s.GetPort()
+	listen, _ := s.GetListen()
+	domain, _ := s.GetWebDomain()
+	host := strings.TrimSpace(domain)
+	if host == "" {
+		host = strings.TrimSpace(listen)
+		if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+			host = "localhost"
+		}
+	}
+	scheme := "http"
+	certFile, _ := s.GetCertFile()
+	keyFile, _ := s.GetKeyFile()
+	if strings.TrimSpace(certFile) != "" && strings.TrimSpace(keyFile) != "" {
+		scheme = "https"
+	}
+	panelHost := host
+	if port > 0 && !((port == 443 && scheme == "https") || (port == 80 && scheme == "http")) {
+		panelHost = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	panelLogin := scheme + "://" + panelHost
+	if webBasePath != "" && webBasePath != "/" {
+		if !strings.HasPrefix(webBasePath, "/") {
+			panelLogin += "/"
+		}
+		panelLogin += strings.TrimPrefix(webBasePath, "/")
+	}
+	logger.Info("Panel login URL:", panelLogin)
+	logger.Infof("Panel URL prefix (webBasePath): %s", webBasePath)
+
+	subPort, _ := s.GetSubPort()
+	subDomain, _ := s.GetSubDomain()
+	subHost := strings.TrimSpace(subDomain)
+	if subHost == "" {
+		subHost = host
+	}
+	subScheme := scheme
+	subKey, _ := s.GetSubKeyFile()
+	subCert, _ := s.GetSubCertFile()
+	if strings.TrimSpace(subKey) != "" && strings.TrimSpace(subCert) != "" {
+		subScheme = "https"
+	} else if subPort == 443 {
+		subScheme = "https"
+	}
+	subBaseHost := subHost
+	if subPort > 0 && !((subPort == 443 && subScheme == "https") || (subPort == 80 && subScheme == "http")) {
+		subBaseHost = net.JoinHostPort(subHost, strconv.Itoa(subPort))
+	}
+	subBase := subScheme + "://" + subBaseHost + subPath
+	logger.Info("Subscription URL prefix:", subBase+"{subId}")
+	logger.Infof("Subscription path prefix (subPath): %s", subPath)
 }
 
 // SecretPathsMeta describes whether env vars block editing path prefixes.

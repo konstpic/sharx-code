@@ -105,10 +105,9 @@ func (a *SettingController) getDefaultSettings(c *gin.Context) {
 }
 
 type secretPathsBody struct {
-	IncludeSub  bool   `json:"includeSub"`
+	Target      string `json:"target"`
 	WebBasePath string `json:"webBasePath"`
 	SubPath     string `json:"subPath"`
-	UpdateSub   bool   `json:"updateSub"`
 }
 
 func (a *SettingController) secretPathsMeta(c *gin.Context) {
@@ -119,20 +118,35 @@ func (a *SettingController) secretPathsMeta(c *gin.Context) {
 	}, nil)
 }
 
-// generateSecretPaths assigns random panel and optionally subscription URL prefixes.
+// generateSecretPaths assigns a random panel or subscription URL prefix.
 func (a *SettingController) generateSecretPaths(c *gin.Context) {
 	var body secretPathsBody
-	_ = c.ShouldBindJSON(&body)
-	webPath, subPath, err := a.settingService.GenerateSecretPaths(body.IncludeSub)
-	if err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsGenerateError"), err)
 		return
 	}
+	switch body.Target {
+	case "web":
+		if _, err := a.settingService.GenerateWebPathOnly(); err != nil {
+			jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsGenerateError"), err)
+			return
+		}
+	case "sub":
+		if _, err := a.settingService.GenerateSubPathOnly(); err != nil {
+			jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsGenerateError"), err)
+			return
+		}
+	default:
+		jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsGenerateError"), fmt.Errorf("target must be web or sub"))
+		return
+	}
+	webPath, _ := a.settingService.GetBasePath()
+	subPath, _ := a.settingService.GetSubPath()
 	jsonObj(c, gin.H{
 		"webBasePath":     webPath,
 		"subPath":         subPath,
 		"requiresRestart": true,
-		"subPathUpdated":  body.IncludeSub,
+		"target":          body.Target,
 	}, nil)
 }
 
@@ -146,7 +160,7 @@ func (a *SettingController) saveSecretPaths(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsSaveError"), fmt.Errorf("webBasePath is required"))
 		return
 	}
-	webPath, subPath, err := a.settingService.SaveSecretPaths(body.WebBasePath, body.SubPath, body.UpdateSub)
+	webPath, subPath, err := a.settingService.SaveSecretPaths(body.WebBasePath, body.SubPath)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsSaveError"), err)
 		return
@@ -155,7 +169,6 @@ func (a *SettingController) saveSecretPaths(c *gin.Context) {
 		"webBasePath":     webPath,
 		"subPath":         subPath,
 		"requiresRestart": true,
-		"subPathUpdated":  body.UpdateSub,
 	}, nil)
 }
 

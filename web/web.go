@@ -378,6 +378,7 @@ func (s *Server) Start() (err error) {
 	} else {
 		logger.Info("Web server running HTTP on", listener.Addr())
 	}
+	s.settingService.LogAccessURLs()
 	s.listener = listener
 
 	s.httpServer = &http.Server{

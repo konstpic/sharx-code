@@ -13,10 +13,10 @@ import {
   ListOrdered,
   Palette,
   Power,
+  RefreshCw,
   RotateCcw,
   Save,
   Send,
-  Server,
   Settings as SettingsGearIcon,
   Shield,
   SlidersHorizontal,
@@ -57,6 +57,7 @@ import {
   Button,
   ConfirmDialog,
   HelpTooltip,
+  IconButton,
   IconTile,
   Input,
   Modal,
@@ -207,15 +208,13 @@ export function SettingsPage() {
   const [apiTokenRevokeOpen, setApiTokenRevokeOpen] = useState(false);
   const [apiTokenRevokeId, setApiTokenRevokeId] = useState<number | null>(null);
   const [apiTokenRevoking, setApiTokenRevoking] = useState(false);
-  const [secretPathsGenerating, setSecretPathsGenerating] = useState(false);
+  const [secretPathsGenerating, setSecretPathsGenerating] = useState<"web" | "sub" | null>(null);
   const [secretPathsSaving, setSecretPathsSaving] = useState(false);
-  const [secretPathsUpdateSub, setSecretPathsUpdateSub] = useState(false);
   const [secretPathsEnv, setSecretPathsEnv] = useState({ web: false, sub: false });
   const [secretPathsDraft, setSecretPathsDraft] = useState({ webBasePath: "", subPath: "" });
   const [secretPathsResult, setSecretPathsResult] = useState<{
     webBasePath: string;
     subPath: string;
-    subPathUpdated: boolean;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -276,7 +275,7 @@ export function SettingsPage() {
   }, [form?.webBasePath, form?.subPath, form]);
 
   const applySecretPathsResult = (
-    paths: { webBasePath: string; subPath: string; subPathUpdated?: boolean },
+    paths: { webBasePath: string; subPath: string },
     toastKey: string,
   ) => {
     setForm((prev) =>
@@ -289,22 +288,18 @@ export function SettingsPage() {
         : prev,
     );
     setSecretPathsDraft({ webBasePath: paths.webBasePath, subPath: paths.subPath });
-    setSecretPathsResult({
-      webBasePath: paths.webBasePath,
-      subPath: paths.subPath,
-      subPathUpdated: paths.subPathUpdated ?? secretPathsUpdateSub,
-    });
+    setSecretPathsResult(paths);
     toast.success(t(toastKey));
   };
 
-  const onGenerateSecretPaths = async () => {
-    setSecretPathsGenerating(true);
+  const onGenerateSecretPath = async (target: "web" | "sub") => {
+    setSecretPathsGenerating(target);
     try {
-      const r = await postJson<{
-        webBasePath: string;
-        subPath: string;
-        subPathUpdated?: boolean;
-      }>(panel("setting/generateSecretPaths"), { includeSub: secretPathsUpdateSub }, true);
+      const r = await postJson<{ webBasePath: string; subPath: string }>(
+        panel("setting/generateSecretPaths"),
+        { target },
+        true,
+      );
       if (r.success && r.obj) {
         applySecretPathsResult(r.obj, "pages.settings.secretPathsGenerated");
       } else {
@@ -313,22 +308,21 @@ export function SettingsPage() {
     } catch {
       toast.error(t("fail"));
     } finally {
-      setSecretPathsGenerating(false);
+      setSecretPathsGenerating(null);
     }
   };
 
   const onSaveSecretPaths = async () => {
     setSecretPathsSaving(true);
     try {
-      const r = await postJson<{
-        webBasePath: string;
-        subPath: string;
-        subPathUpdated?: boolean;
-      }>(panel("setting/saveSecretPaths"), {
-        webBasePath: secretPathsDraft.webBasePath,
-        subPath: secretPathsDraft.subPath,
-        updateSub: secretPathsUpdateSub,
-      }, true);
+      const r = await postJson<{ webBasePath: string; subPath: string }>(
+        panel("setting/saveSecretPaths"),
+        {
+          webBasePath: secretPathsDraft.webBasePath,
+          subPath: secretPathsDraft.subPath,
+        },
+        true,
+      );
       if (r.success && r.obj) {
         applySecretPathsResult(r.obj, "pages.settings.secretPathsSaved");
       } else {
@@ -340,6 +334,37 @@ export function SettingsPage() {
       setSecretPathsSaving(false);
     }
   };
+
+  const secretPathField = (
+    target: "web" | "sub",
+    value: string,
+    disabled: boolean,
+    onChange: (value: string) => void,
+  ) => (
+    <div className="flex min-w-0 items-center gap-1">
+      <Input
+        value={value}
+        disabled={disabled}
+        className="min-w-0 flex-1 font-mono text-xs"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <IconButton
+        label={
+          target === "web"
+            ? t("pages.settings.secretPathsGenerateWebBtn")
+            : t("pages.settings.secretPathsGenerateSubBtn")
+        }
+        disabled={disabled || secretPathsGenerating != null}
+        className="shrink-0"
+        onClick={() => void onGenerateSecretPath(target)}
+      >
+        <RefreshCw
+          className={`size-4 ${secretPathsGenerating === target ? "animate-spin" : ""}`}
+          aria-hidden
+        />
+      </IconButton>
+    </div>
+  );
 
   const timeZoneListId = useId();
   const timeZoneOptions = useMemo(() => getPanelTimeZoneOptions(), []);
@@ -544,11 +569,18 @@ export function SettingsPage() {
           </SettingsSection>
 
           <SettingsSection
-            title={t("pages.settings.sections.generalPanelBind")}
-            hint={envHint}
-            icon={Server}
-            iconTone="info"
+            title={t("pages.settings.sections.secretPaths")}
+            hint={t("pages.settings.secretPathsSectionHint")}
+            icon={Shield}
+            iconTone="warning"
           >
+            <div className="px-4 pt-3">
+              <AlertBanner
+                type="info"
+                title={t("pages.settings.secretPathsInfoTitle")}
+                description={t("pages.settings.secretPathsInfoDesc")}
+              />
+            </div>
             <Row label={t("pages.settings.panelListeningIP")} hint={t("pages.settings.panelListeningIPDesc")}>
               <Input value={form.webListen} readOnly className="opacity-80" />
             </Row>
@@ -564,51 +596,15 @@ export function SettingsPage() {
             <Row label={t("pages.settings.privateKeyPath")} hint={t("pages.settings.privateKeyPathDesc")}>
               <Input value={form.webKeyFile} readOnly className="opacity-80" />
             </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.secretPaths")}
-            hint={t("pages.settings.secretPathsSectionHint")}
-            icon={Shield}
-            iconTone="warning"
-          >
-            <div className="px-4 pt-3">
-              <AlertBanner
-                type="info"
-                title={t("pages.settings.secretPathsInfoTitle")}
-                description={t("pages.settings.secretPathsInfoDesc")}
-              />
-            </div>
             <Row label={t("pages.settings.secretPathsPanelPrefix")} hint={t("pages.settings.secretPathsPanelPrefixDesc")}>
-              <Input
-                value={secretPathsDraft.webBasePath}
-                disabled={secretPathsEnv.web}
-                className="font-mono text-xs"
-                onChange={(e) =>
-                  setSecretPathsDraft((prev) => ({ ...prev, webBasePath: e.target.value }))
-                }
-              />
+              {secretPathField("web", secretPathsDraft.webBasePath, secretPathsEnv.web, (value) =>
+                setSecretPathsDraft((prev) => ({ ...prev, webBasePath: value })),
+              )}
             </Row>
             <Row label={t("pages.settings.secretPathsSubPrefix")} hint={t("pages.settings.secretPathsSubPrefixDesc")}>
-              <Input
-                value={secretPathsDraft.subPath}
-                disabled={secretPathsEnv.sub || !secretPathsUpdateSub}
-                className="font-mono text-xs"
-                onChange={(e) =>
-                  setSecretPathsDraft((prev) => ({ ...prev, subPath: e.target.value }))
-                }
-              />
-            </Row>
-            <Row
-              label={t("pages.settings.secretPathsIncludeSub")}
-              hint={t("pages.settings.secretPathsIncludeSubDesc")}
-            >
-              <Switch
-                checked={secretPathsUpdateSub}
-                disabled={secretPathsEnv.sub}
-                onChange={setSecretPathsUpdateSub}
-                ariaLabel={t("pages.settings.secretPathsIncludeSub")}
-              />
+              {secretPathField("sub", secretPathsDraft.subPath, secretPathsEnv.sub, (value) =>
+                setSecretPathsDraft((prev) => ({ ...prev, subPath: value })),
+              )}
             </Row>
             {(secretPathsEnv.web || secretPathsEnv.sub) ? (
               <div className="px-4 pb-3">
@@ -623,21 +619,19 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="primary"
-                disabled={secretPathsSaving || secretPathsEnv.web}
+                disabled={
+                  secretPathsSaving ||
+                  secretPathsEnv.web ||
+                  secretPathsEnv.sub ||
+                  secretPathsGenerating != null
+                }
                 onClick={() => void onSaveSecretPaths()}
               >
                 {secretPathsSaving ? t("loading") : t("pages.settings.secretPathsSaveBtn")}
               </Button>
             </Row>
-            <Row label={t("pages.settings.secretPathsGenerate")} hint={t("pages.settings.secretPathsGenerateDesc")}>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={secretPathsGenerating || secretPathsEnv.web}
-                onClick={() => void onGenerateSecretPaths()}
-              >
-                {secretPathsGenerating ? t("loading") : t("pages.settings.secretPathsGenerateBtn")}
-              </Button>
+            <Row label={t("pages.settings.secretPathsStartupLog")} hint={t("pages.settings.secretPathsStartupLogDesc")}>
+              <p className="text-sm text-[var(--fg-muted)]">{t("pages.settings.secretPathsStartupLogHint")}</p>
             </Row>
           </SettingsSection>
 
@@ -1883,20 +1877,11 @@ export function SettingsPage() {
               <code className="block break-all rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2 font-mono text-xs">
                 {secretPathsResult.subPath}
               </code>
-              {!secretPathsResult.subPathUpdated ? (
-                <p className="mt-2 text-xs text-[var(--fg-muted)]">
-                  {t("pages.settings.secretPathsSubUnchanged")}
-                </p>
-              ) : null}
             </div>
             <AlertBanner
               type="warning"
               title={t("pages.settings.secretPathsRestartTitle")}
-              description={
-                secretPathsResult.subPathUpdated
-                  ? t("pages.settings.secretPathsRestartDesc")
-                  : t("pages.settings.secretPathsRestartPanelOnlyDesc")
-              }
+              description={t("pages.settings.secretPathsRestartDesc")}
             />
           </div>
         ) : null}
