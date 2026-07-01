@@ -304,7 +304,7 @@ export function SettingsPage() {
         webBasePath: string;
         subPath: string;
         subPathUpdated?: boolean;
-      }>(panel("setting/generateSecretPaths"), { includeSub: secretPathsUpdateSub });
+      }>(panel("setting/generateSecretPaths"), { includeSub: secretPathsUpdateSub }, true);
       if (r.success && r.obj) {
         applySecretPathsResult(r.obj, "pages.settings.secretPathsGenerated");
       } else {
@@ -328,7 +328,7 @@ export function SettingsPage() {
         webBasePath: secretPathsDraft.webBasePath,
         subPath: secretPathsDraft.subPath,
         updateSub: secretPathsUpdateSub,
-      });
+      }, true);
       if (r.success && r.obj) {
         applySecretPathsResult(r.obj, "pages.settings.secretPathsSaved");
       } else {
@@ -563,9 +563,6 @@ export function SettingsPage() {
             </Row>
             <Row label={t("pages.settings.privateKeyPath")} hint={t("pages.settings.privateKeyPathDesc")}>
               <Input value={form.webKeyFile} readOnly className="opacity-80" />
-            </Row>
-            <Row label={t("pages.settings.panelUrlPath")} hint={t("pages.settings.panelUrlPathDesc")} helpKey="settings.panelUri">
-              <Input value={form.webBasePath} readOnly className="opacity-80" />
             </Row>
           </SettingsSection>
 
