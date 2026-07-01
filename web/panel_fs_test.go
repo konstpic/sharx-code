@@ -50,6 +50,28 @@ func min(a, b int) int {
 	return b
 }
 
+func TestRewritePanelHTMLSecretBase(t *testing.T) {
+	in := `<html><head></head><body><link href="/_next/static/css/x.css"/><script src="/_next/static/chunks/a.js"></script></body></html>`
+	out := rewritePanelHTML(in, "/s3cr3t/")
+	if !strings.Contains(out, `window.__SHARX_BASE_PATH__="/s3cr3t/"`) {
+		t.Fatal("missing runtime base injection")
+	}
+	if !strings.Contains(out, `href="/s3cr3t/_next/static/css/x.css"`) {
+		t.Fatalf("href not rewritten: %s", out)
+	}
+	if !strings.Contains(out, `src="/s3cr3t/_next/static/chunks/a.js"`) {
+		t.Fatalf("src not rewritten: %s", out)
+	}
+}
+
+func TestRewritePanelHTMLRootBaseUnchanged(t *testing.T) {
+	in := `<html><head></head><body><link href="/_next/static/css/x.css"/></body></html>`
+	out := rewritePanelHTML(in, "/")
+	if out != in {
+		t.Fatalf("expected unchanged, got %s", out)
+	}
+}
+
 func TestServePanelReactPageRscTxtWithSubpathBase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	if err := initPanelFileSystem(); err != nil {

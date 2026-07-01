@@ -75,6 +75,7 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/twoFactor/cancel", a.cancelTwoFactorSetup)
 	g.POST("/ui/get", a.getUIPreference)
 	g.POST("/ui/set", a.setUIPreference)
+	g.POST("/generateSecretPaths", a.generateSecretPaths)
 
 	// Initialize migration controller
 	NewMigrationController(g)
@@ -98,6 +99,20 @@ func (a *SettingController) getDefaultSettings(c *gin.Context) {
 		return
 	}
 	jsonObj(c, result, nil)
+}
+
+// generateSecretPaths assigns random panel and subscription URL prefixes.
+func (a *SettingController) generateSecretPaths(c *gin.Context) {
+	webPath, subPath, err := a.settingService.GenerateSecretPaths()
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.secretPathsGenerateError"), err)
+		return
+	}
+	jsonObj(c, gin.H{
+		"webBasePath":     webPath,
+		"subPath":         subPath,
+		"requiresRestart": true,
+	}, nil)
 }
 
 // updateSetting updates all settings with the provided data.

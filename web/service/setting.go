@@ -17,6 +17,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/common"
+	"github.com/konstpic/sharx-code/v2/util/secretpath"
 	"github.com/konstpic/sharx-code/v2/util/random"
 	"github.com/konstpic/sharx-code/v2/util/reflect_util"
 	"github.com/konstpic/sharx-code/v2/web/entity"
@@ -347,7 +348,58 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 		}
 	}
 
+	s.applyEffectiveRuntimePaths(result)
 	return result, nil
+}
+
+// applyEffectiveRuntimePaths overlays env-backed path settings for the settings UI.
+func (s *SettingService) applyEffectiveRuntimePaths(result *entity.AllSetting) {
+	if result == nil {
+		return
+	}
+	if bp, err := s.GetBasePath(); err == nil {
+		result.WebBasePath = bp
+	}
+	if sp, err := s.GetSubPath(); err == nil {
+		result.SubPath = sp
+	}
+}
+
+func (s *SettingService) SetSubPath(subPath string) error {
+	if !strings.HasPrefix(subPath, "/") {
+		subPath = "/" + subPath
+	}
+	if !strings.HasSuffix(subPath, "/") {
+		subPath += "/"
+	}
+	return s.setString("subPath", subPath)
+}
+
+func (s *SettingService) EnvOverridesWebBasePath() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_BASE_PATH")) != ""
+}
+
+func (s *SettingService) EnvOverridesSubPath() bool {
+	return strings.TrimSpace(os.Getenv("XUI_SUB_PATH")) != ""
+}
+
+// GenerateSecretPaths assigns random webBasePath and subPath (404 on bare :port when active).
+func (s *SettingService) GenerateSecretPaths() (webPath, subPath string, err error) {
+	if s.EnvOverridesWebBasePath() {
+		return "", "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
+	}
+	if s.EnvOverridesSubPath() {
+		return "", "", common.NewError("XUI_SUB_PATH is set in the environment")
+	}
+	webPath = secretpath.GenerateWebBasePath()
+	subPath = secretpath.GenerateSubPath()
+	if err := s.SetBasePath(webPath); err != nil {
+		return "", "", err
+	}
+	if err := s.SetSubPath(subPath); err != nil {
+		return "", "", err
+	}
+	return webPath, subPath, nil
 }
 
 func (s *SettingService) ResetSettings() error {

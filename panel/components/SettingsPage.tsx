@@ -207,6 +207,11 @@ export function SettingsPage() {
   const [apiTokenRevokeOpen, setApiTokenRevokeOpen] = useState(false);
   const [apiTokenRevokeId, setApiTokenRevokeId] = useState<number | null>(null);
   const [apiTokenRevoking, setApiTokenRevoking] = useState(false);
+  const [secretPathsGenerating, setSecretPathsGenerating] = useState(false);
+  const [secretPathsResult, setSecretPathsResult] = useState<{
+    webBasePath: string;
+    subPath: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -248,6 +253,29 @@ export function SettingsPage() {
     if (!form || !baseline) return false;
     return JSON.stringify(form) !== JSON.stringify(baseline);
   }, [form, baseline]);
+
+  const onGenerateSecretPaths = async () => {
+    setSecretPathsGenerating(true);
+    try {
+      const r = await postJson<{ webBasePath: string; subPath: string }>(
+        panel("setting/generateSecretPaths"),
+      );
+      if (r.success && r.obj) {
+        const paths = r.obj;
+        setForm((prev) =>
+          prev ? { ...prev, webBasePath: paths.webBasePath, subPath: paths.subPath } : prev,
+        );
+        setSecretPathsResult(paths);
+        toast.success(t("pages.settings.secretPathsGenerated"));
+      } else {
+        toast.error(r.msg || t("pages.settings.secretPathsGenerateError"));
+      }
+    } catch {
+      toast.error(t("fail"));
+    } finally {
+      setSecretPathsGenerating(false);
+    }
+  };
 
   const timeZoneListId = useId();
   const timeZoneOptions = useMemo(() => getPanelTimeZoneOptions(), []);
@@ -474,6 +502,37 @@ export function SettingsPage() {
             </Row>
             <Row label={t("pages.settings.panelUrlPath")} hint={t("pages.settings.panelUrlPathDesc")} helpKey="settings.panelUri">
               <Input value={form.webBasePath} readOnly className="opacity-80" />
+            </Row>
+          </SettingsSection>
+
+          <SettingsSection
+            title={t("pages.settings.sections.secretPaths")}
+            hint={t("pages.settings.secretPathsSectionHint")}
+            icon={Shield}
+            iconTone="warning"
+          >
+            <div className="px-4 pt-3">
+              <AlertBanner
+                type="info"
+                title={t("pages.settings.secretPathsInfoTitle")}
+                description={t("pages.settings.secretPathsInfoDesc")}
+              />
+            </div>
+            <Row label={t("pages.settings.secretPathsPanelPrefix")} hint={t("pages.settings.secretPathsPanelPrefixDesc")}>
+              <Input value={form.webBasePath} readOnly className="font-mono text-xs opacity-80" />
+            </Row>
+            <Row label={t("pages.settings.secretPathsSubPrefix")} hint={t("pages.settings.secretPathsSubPrefixDesc")}>
+              <Input value={form.subPath} readOnly className="font-mono text-xs opacity-80" />
+            </Row>
+            <Row label={t("pages.settings.secretPathsGenerate")} hint={t("pages.settings.secretPathsGenerateDesc")}>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={secretPathsGenerating}
+                onClick={() => void onGenerateSecretPaths()}
+              >
+                {secretPathsGenerating ? t("loading") : t("pages.settings.secretPathsGenerateBtn")}
+              </Button>
             </Row>
           </SettingsSection>
 
@@ -1686,6 +1745,47 @@ export function SettingsPage() {
           <p className="text-sm text-[var(--fg-muted)]">{t("pages.settings.security.apiTokenModalHint")}</p>
           <Input value={apiTokenModalValue} readOnly className="font-mono text-xs" />
         </div>
+      </Modal>
+
+      <Modal
+        open={secretPathsResult != null}
+        onClose={() => setSecretPathsResult(null)}
+        title={t("pages.settings.secretPathsModalTitle")}
+        width={520}
+        footer={
+          <Button type="button" variant="secondary" onClick={() => setSecretPathsResult(null)}>
+            {t("close")}
+          </Button>
+        }
+      >
+        {secretPathsResult ? (
+          <div className="space-y-4 px-5 py-4 text-sm">
+            <p className="text-[var(--fg-muted)]">{t("pages.settings.secretPathsModalHint")}</p>
+            <div>
+              <div className="mb-1 text-xs font-medium text-[var(--fg-muted)]">
+                {t("pages.settings.secretPathsPanelLoginUrl")}
+              </div>
+              <code className="block break-all rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2 font-mono text-xs">
+                {typeof window !== "undefined"
+                  ? `${window.location.origin}${secretPathsResult.webBasePath}`
+                  : secretPathsResult.webBasePath}
+              </code>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-medium text-[var(--fg-muted)]">
+                {t("pages.settings.secretPathsSubPrefix")}
+              </div>
+              <code className="block break-all rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2 font-mono text-xs">
+                {secretPathsResult.subPath}
+              </code>
+            </div>
+            <AlertBanner
+              type="warning"
+              title={t("pages.settings.secretPathsRestartTitle")}
+              description={t("pages.settings.secretPathsRestartDesc")}
+            />
+          </div>
+        ) : null}
       </Modal>
 
       <ConfirmDialog

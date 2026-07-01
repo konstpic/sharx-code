@@ -1,17 +1,33 @@
 /**
  * server-side basePath from env (e.g. "" or /prefix); must match SharX `webBasePath` when building the panel.
+ * At runtime the Go server may inject `window.__SHARX_BASE_PATH__` for secret-path mode without rebuild.
  */
-export function getBasePath(): string {
-  const b = (process.env.NEXT_PUBLIC_BASE_PATH || "").trim();
-  if (!b) return "";
+declare global {
+  interface Window {
+    __SHARX_BASE_PATH__?: string;
+  }
+}
+
+function normalizeBasePath(raw: string): string {
+  const b = raw.trim();
+  if (!b || b === "/") return "";
   return b.startsWith("/") ? b.replace(/\/$/, "") : `/${b.replace(/\/$/, "")}`;
 }
 
+function runtimeBasePath(): string {
+  if (typeof window !== "undefined" && window.__SHARX_BASE_PATH__) {
+    return normalizeBasePath(window.__SHARX_BASE_PATH__);
+  }
+  return normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH || "");
+}
+
+export function getBasePath(): string {
+  return runtimeBasePath();
+}
+
 /**
- * Path for `next/link` `href` only. Next prepends `next.config.js` `basePath` for you — do **not**
- * pass `p()` (which includes the web base) or client-side routing can break and the browser will
- * do a full `Document` load (menu reloads) on every click, especially with `output: "export"`.
- * Use `p()` / `panel()` for API URLs, `window.location`, and raw `<a href>`.
+ * Path for `next/link` `href` only. When runtime base path is injected, prepend it here
+ * (Next build-time basePath stays `/`). Use `p()` / `panel()` for API URLs.
  *
  * Must match `next.config` `trailingSlash: true`: without a final `/`, Next (or the server) may
  * issue a redirect — the browser then loads a new `Document` and the whole panel flashes like F5.
@@ -21,7 +37,8 @@ export function linkP(path: string): string {
   if (s.length > 1 && !s.endsWith("/")) {
     s += "/";
   }
-  return s;
+  const base = getBasePath();
+  return base ? `${base}${s}` : s;
 }
 
 /** Absolute web path, e.g. p("login") -> /login or /prefix/login */

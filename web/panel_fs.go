@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konstpic/sharx-code/v2/config"
+	"github.com/konstpic/sharx-code/v2/util/secretpath"
 )
 
 //go:embed all:panel
@@ -42,10 +43,31 @@ func initPanelFileSystem() error {
 	return nil
 }
 
+// rewritePanelHTML injects runtime base path and rewrites root-absolute asset URLs for secret-path mode.
+func rewritePanelHTML(html, basePath string) string {
+	if !secretpath.HidesBareRoot(basePath) {
+		return html
+	}
+	prefix := strings.TrimSuffix(basePath, "/")
+	inject := `<script>window.__SHARX_BASE_PATH__="` + basePath + `";</script>`
+	if idx := strings.Index(html, "<head>"); idx >= 0 {
+		html = html[:idx+6] + inject + html[idx+6:]
+	}
+	repl := []struct{ from, to string }{
+		{`href="/_next/`, `href="` + prefix + `/_next/`},
+		{`src="/_next/`, `src="` + prefix + `/_next/`},
+		{`href="/favicon.ico"`, `href="` + prefix + `/favicon.ico"`},
+		{`href="/locales/`, `href="` + prefix + `/locales/`},
+		{`"/_next/`, `"` + prefix + `/_next/`},
+	}
+	for _, r := range repl {
+		html = strings.ReplaceAll(html, r.from, r.to)
+	}
+	return html
+}
+
 // servePanelFile streams a file from panelRootHTTP using http.ServeContent.
-// Do not use gin.Context.FileFromFS here: it sets Request.URL.Path to a path without
-// a leading slash and delegates to http.FileServer, which can emit 301 with Location: ./
-// for directory-style path handling.
+// HTML responses are rewritten when webBasePath is a secret prefix (runtime, no rebuild).
 func servePanelFile(c *gin.Context, name string) bool {
 	f, err := panelRootHTTP.Open(name)
 	if err != nil {
@@ -55,6 +77,16 @@ func servePanelFile(c *gin.Context, name string) bool {
 	st, err := f.Stat()
 	if err != nil || st.IsDir() {
 		return false
+	}
+	basePath := normalizeWebBase(c)
+	if strings.HasSuffix(strings.ToLower(name), ".html") && secretpath.HidesBareRoot(basePath) {
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return false
+		}
+		out := rewritePanelHTML(string(data), basePath)
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(out))
+		return true
 	}
 	rs, ok := f.(io.ReadSeeker)
 	if !ok {

@@ -18,6 +18,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/common"
+	"github.com/konstpic/sharx-code/v2/util/secretpath"
 	"github.com/konstpic/sharx-code/v2/web/controller"
 	"github.com/konstpic/sharx-code/v2/web/job"
 	"github.com/konstpic/sharx-code/v2/web/locale"
@@ -158,13 +159,12 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		return nil, err
 	}
 
-	// If the app is served under a subpath (e.g. /xui/), send bare GET/HEAD / to the panel base.
-	if basePath != "/" {
-		toBase := func(c *gin.Context) {
-			c.Redirect(http.StatusFound, basePath)
-		}
-		engine.GET("/", toBase)
-		engine.HEAD("/", toBase)
+	// Bare GET/HEAD / returns 404 when the panel uses a secret URL prefix.
+	// Login and static assets live under webBasePath; do not redirect / → /secret/.
+	if secretpath.HidesBareRoot(basePath) {
+		bareRoot404 := func(c *gin.Context) { c.AbortWithStatus(http.StatusNotFound) }
+		engine.GET("/", bareRoot404)
+		engine.HEAD("/", bareRoot404)
 	}
 
 	engine.Use(middleware.RedirectMiddleware(basePath))
