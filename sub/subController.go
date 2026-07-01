@@ -198,6 +198,11 @@ func (a *SUBController) subs(c *gin.Context) {
 		a.writeSubscriptionFailure(c, "GetSubs", subId, err, len(subs) == 0)
 		return
 	}
+	subs = filterSubscriptionLinksForClient(subs, uaClient)
+	if len(subs) == 0 {
+		a.writeSubscriptionFailure(c, "GetSubs", subId, nil, true)
+		return
+	}
 
 	result := ""
 
@@ -347,7 +352,7 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSub
 	}
 
 	if rr != nil && service.ResponseHeaderDeliversHTTP(rr.AnnounceDelivery) {
-		if v := service.EffectiveAnnounce(clientAnnounce, rr.Announce); v != "" {
+		if v := service.AnnounceHTTPValue(service.EffectiveAnnounce(clientAnnounce, rr.Announce)); v != "" {
 			c.Writer.Header().Set("Announce", v)
 		}
 	}

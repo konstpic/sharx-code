@@ -628,6 +628,13 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 
 	SanitizeVLESSFlowInInboundSettings(inbound)
 
+	if model.NormalizeProtocol(inbound.Protocol) == model.Shadowsocks {
+		sanitized, errSS := SanitizeShadowsocksInboundSettings(inbound.Settings)
+		if errSS == nil {
+			inbound.Settings = sanitized
+		}
+	}
+
 	clients, err := s.GetClients(inbound)
 	if err != nil {
 		return inbound, false, err
@@ -2341,12 +2348,7 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, e
 				if err == nil {
 					cipher := ""
 					if string(inbound.Protocol) == "shadowsocks" {
-						var oldSettings map[string]any
-						err = json.Unmarshal([]byte(inbound.Settings), &oldSettings)
-						if err != nil {
-							return false, err
-						}
-						cipher = oldSettings["method"].(string)
+						cipher = ShadowsocksCipherForAddUser(inbound.Settings)
 					}
 					flowVal := ""
 					if model.NormalizeProtocol(inbound.Protocol) == model.VLESS {

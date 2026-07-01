@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/konstpic/sharx-code/v2/logger"
@@ -31,6 +33,15 @@ func main() {
 	var port int
 	flag.IntVar(&port, "port", defaults.APIListenPort, "API server port (default "+fmt.Sprint(defaults.APIListenPort)+", host network)")
 	flag.Parse()
+
+	if envPort := strings.TrimSpace(os.Getenv("SHARX_NODE_PORT")); envPort == "" {
+		envPort = strings.TrimSpace(os.Getenv("PORT"))
+	}
+	if envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 && p <= 65535 {
+			port = p
+		}
+	}
 
 	logger.InitLogger(logging.INFO)
 	logger.SetSource("node")

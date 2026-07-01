@@ -55,6 +55,17 @@ func (s *NodeService) GetAllNodes() ([]*model.Node, error) {
 	return nodes, err
 }
 
+// GetNodesByTrafficResetDay returns nodes configured to reset on the given day of month (1-31).
+func (s *NodeService) GetNodesByTrafficResetDay(day int) ([]*model.Node, error) {
+	if day < 1 || day > 31 {
+		return nil, nil
+	}
+	db := database.GetDB()
+	var nodes []*model.Node
+	err := db.Where("traffic_reset_day = ?", day).Find(&nodes).Error
+	return nodes, err
+}
+
 // GetNode retrieves a node by ID.
 func (s *NodeService) GetNode(id int) (*model.Node, error) {
 	db := database.GetDB()
@@ -243,6 +254,9 @@ func (s *NodeService) UpdateNode(node *model.Node) error {
 	// Update traffic limit if provided (can be 0 for unlimited)
 	if node.TrafficLimitGB >= 0 && node.TrafficLimitGB != existingNode.TrafficLimitGB {
 		updates["traffic_limit_gb"] = node.TrafficLimitGB
+	}
+	if node.TrafficResetDay >= 0 && node.TrafficResetDay <= 31 && node.TrafficResetDay != existingNode.TrafficResetDay {
+		updates["traffic_reset_day"] = node.TrafficResetDay
 	}
 
 	// Update status, response_time, and last_check if provided (these are usually set by health checks, not user edits)

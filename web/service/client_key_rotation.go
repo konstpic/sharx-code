@@ -65,8 +65,22 @@ func (s *ClientService) RotateAllClientKeys() (int, error) {
 			logger.Infof("RotateAllClientKeys: Rotating UUID for client %d (%s): %s -> %s",
 				client.Id, client.Name, client.UUID, updatedClient.UUID)
 		} else if client.Password != "" {
-			// Trojan/Shadowsocks client - rotate password
-			updatedClient.Password = random.Seq(32)
+			newPassword := random.Seq(32)
+			inboundService := InboundService{}
+			for _, inboundId := range inboundIds {
+				inb, err := inboundService.GetInbound(inboundId)
+				if err != nil || inb == nil {
+					continue
+				}
+				if model.NormalizeProtocol(inb.Protocol) == model.Shadowsocks {
+					method := ShadowsocksMethodFromSettings(inb.Settings)
+					if pw, err := RandomShadowsocksUserPassword(method); err == nil {
+						newPassword = pw
+					}
+					break
+				}
+			}
+			updatedClient.Password = newPassword
 			needsUpdate = true
 			logger.Infof("RotateAllClientKeys: Rotating password for client %d (%s)",
 				client.Id, client.Name)

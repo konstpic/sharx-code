@@ -22,6 +22,7 @@ const (
 	UAClashMeta
 	UAKaring
 	UANekobox
+	UAThrone
 	UASingBox
 )
 
@@ -68,6 +69,10 @@ func DispatchByUA(c *gin.Context) (UAClient, UAResponseFormat) {
 		return UAStreisand, FormatBase64
 	case strings.Contains(ua, "shadowrocket"):
 		return UAShadowrocket, FormatBase64
+	case strings.Contains(ua, "throne"):
+		// Throne UA often includes "Prefer ClashMeta Format"; still return share links
+		// (base64 URI list) — Clash YAML skips many Xray transports and WG blocks confuse Throne.
+		return UAThrone, FormatBase64
 	case strings.Contains(ua, "clash"):
 		// Clash / Clash Meta / Mihomo all contain "clash" or "mihomo"
 		return UAClashMeta, FormatClashYAML

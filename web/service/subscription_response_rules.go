@@ -33,6 +33,33 @@ func ProfileTitleBodyValue(title string) string {
 	return title
 }
 
+// AnnounceHTTPValue returns the Announce header value (base64-encoded UTF-8).
+func AnnounceHTTPValue(announce string) string {
+	announce = strings.TrimSpace(announce)
+	if announce == "" {
+		return ""
+	}
+	if strings.HasPrefix(announce, "base64:") {
+		return announce
+	}
+	return "base64:" + base64.StdEncoding.EncodeToString([]byte(announce))
+}
+
+// AnnounceBodyValue returns the announce body comment value (plain text).
+func AnnounceBodyValue(announce string) string {
+	announce = strings.TrimSpace(announce)
+	if announce == "" {
+		return ""
+	}
+	if strings.HasPrefix(announce, "base64:") {
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(announce, "base64:"))
+		if err == nil {
+			return string(raw)
+		}
+	}
+	return announce
+}
+
 // EffectiveAnnounce picks client-level announce over config announce.
 func EffectiveAnnounce(clientAnnounce, configAnnounce string) string {
 	if strings.TrimSpace(clientAnnounce) != "" {

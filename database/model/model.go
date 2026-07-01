@@ -326,6 +326,7 @@ type Node struct {
 	Down           int64   `json:"down" gorm:"default:0"`                                                         // Download traffic in bytes
 	AllTime        int64   `json:"allTime" gorm:"default:0"`                                                      // All-time traffic usage in bytes
 	TrafficLimitGB float64 `json:"trafficLimitGB" form:"trafficLimitGB" gorm:"column:traffic_limit_gb;default:0"` // Traffic limit in GB (0 = unlimited)
+	TrafficResetDay  int     `json:"trafficResetDay" form:"trafficResetDay" gorm:"column:traffic_reset_day;default:0"`   // Day of month to reset counters (0 = off, 1-31)
 
 	// Egress IP geolocation (map); optional, updated on node startup / push-geo.
 	GeoLat       *float64 `json:"geoLat,omitempty" gorm:"column:geo_lat"`

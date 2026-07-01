@@ -90,6 +90,7 @@ type NodeRow = {
   keyPath?: string;
   insecureTls?: boolean;
   trafficLimitGB?: number;
+  trafficResetDay?: number;
   inbounds?: InboundRef[];
   profiles?: ProfileRef[];
   xrayVersion?: string;
@@ -251,6 +252,7 @@ export function NodesPage() {
     keyPath: "",
     insecureTls: false,
     trafficLimitGB: "0",
+    trafficResetDay: "0",
   });
 
   const [editOpen, setEditOpen] = useState(false);
@@ -269,6 +271,7 @@ export function NodesPage() {
     host: "",
     port: DEFAULT_NODE_PORT,
     trafficLimitGB: "0",
+    trafficResetDay: "0",
     enable: true,
     useTls: false,
     certPath: "",
@@ -388,6 +391,7 @@ export function NodesPage() {
       keyPath: "",
       insecureTls: false,
       trafficLimitGB: "0",
+      trafficResetDay: "0",
     });
     setCreatedSecretKey(null);
     setProfileList([]);
@@ -466,6 +470,10 @@ export function NodesPage() {
     };
     if (tl > 0) {
       body.trafficLimitGB = tl;
+    }
+    const trafficResetDay = Number(form.trafficResetDay);
+    if (Number.isFinite(trafficResetDay) && trafficResetDay >= 0 && trafficResetDay <= 31) {
+      body.trafficResetDay = Math.floor(trafficResetDay);
     }
     return { name, address, body };
   }, [form]);
@@ -945,6 +953,7 @@ export function NodesPage() {
           ? row.trafficLimitGB
           : 0,
       ),
+      trafficResetDay: String(row.trafficResetDay ?? 0),
       enable: row.enable !== false,
       useTls: Boolean(row.useTls),
       certPath: row.certPath ?? "",
@@ -967,6 +976,7 @@ export function NodesPage() {
             ? o.trafficLimitGB
             : 0,
         ),
+        trafficResetDay: String(o.trafficResetDay ?? 0),
         enable: o.enable !== false,
         useTls: Boolean(o.useTls),
         certPath: o.certPath ?? "",
@@ -1015,6 +1025,11 @@ export function NodesPage() {
       Number.isFinite(trafficLimitGB) && trafficLimitGB >= 0
         ? trafficLimitGB
         : 0;
+    const trafficResetDay = Number(editForm.trafficResetDay);
+    const resetDay =
+      Number.isFinite(trafficResetDay) && trafficResetDay >= 0 && trafficResetDay <= 31
+        ? Math.floor(trafficResetDay)
+        : 0;
 
     setEditSubmitting(true);
     try {
@@ -1027,6 +1042,7 @@ export function NodesPage() {
         keyPath: editForm.keyPath.trim(),
         insecureTls: editForm.insecureTls,
         trafficLimitGB: tl,
+        trafficResetDay: resetDay,
       };
       const r = await postJson(panel(`node/update/${editId}`), body, true);
       if (r.success) {
@@ -1910,6 +1926,29 @@ export function NodesPage() {
                 {t("pages.nodes.trafficLimitGBHint")}
               </span>
             </label>
+            <label className="grid gap-1">
+              <span className="text-xs text-[var(--fg-muted)]">
+                {t("pages.nodes.trafficResetDay", {
+                  defaultValue: "Traffic reset day (month)",
+                })}
+              </span>
+              <Input
+                type="number"
+                min={0}
+                max={31}
+                step={1}
+                value={form.trafficResetDay}
+                onChange={(e) => {
+                  clearDraftFromFormEdit();
+                  setForm((f) => ({ ...f, trafficResetDay: e.target.value }));
+                }}
+              />
+              <span className="text-[11px] text-[var(--fg-subtle)]">
+                {t("pages.nodes.trafficResetDayHint", {
+                  defaultValue: "0 = off. 1–31 = reset node counters on that day each month.",
+                })}
+              </span>
+            </label>
             <div className="border-t border-[var(--border)] pt-3">
               <p className="mb-2 text-xs font-medium text-[var(--fg-muted)]">
                 {t("pages.nodes.tlsSettings")}
@@ -2058,6 +2097,31 @@ export function NodesPage() {
                 }))
               }
             />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">
+              {t("pages.nodes.trafficResetDay", {
+                defaultValue: "Traffic reset day (month)",
+              })}
+            </span>
+            <Input
+              type="number"
+              min={0}
+              max={31}
+              step={1}
+              value={editForm.trafficResetDay}
+              onChange={(e) =>
+                setEditForm((f) => ({
+                  ...f,
+                  trafficResetDay: e.target.value,
+                }))
+              }
+            />
+            <span className="text-[11px] text-[var(--fg-subtle)]">
+              {t("pages.nodes.trafficResetDayHint", {
+                defaultValue: "0 = off. 1–31 = reset node counters on that day each month.",
+              })}
+            </span>
           </label>
           <p className="text-[11px] text-[var(--fg-subtle)]">
             {t("pages.nodes.editPairingNote")}

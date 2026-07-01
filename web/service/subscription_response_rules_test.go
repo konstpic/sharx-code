@@ -14,6 +14,15 @@ func TestProfileTitleValues(t *testing.T) {
 	}
 }
 
+func TestAnnounceValues(t *testing.T) {
+	if got := AnnounceHTTPValue("Привет"); got == "" || got[:7] != "base64:" {
+		t.Fatalf("HTTP announce = %q", got)
+	}
+	if got := AnnounceBodyValue("Привет"); got != "Привет" {
+		t.Fatalf("body announce = %q", got)
+	}
+}
+
 func TestProfileUpdateIntervalBodyLine(t *testing.T) {
 	rr := &SharxSubpageResponseRules{
 		ProfileUpdateInterval:         6,

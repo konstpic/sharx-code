@@ -36,7 +36,7 @@ func prependSubscriptionBodyMetaComments(
 		prefix.WriteString(service.ProfileUpdateIntervalBodyLine(rr))
 
 		if service.ResponseHeaderDeliversBody(rr.AnnounceDelivery) {
-			if v := service.EffectiveAnnounce(clientAnnounce, rr.Announce); v != "" {
+			if v := service.AnnounceBodyValue(service.EffectiveAnnounce(clientAnnounce, rr.Announce)); v != "" {
 				prefix.WriteString(service.SubscriptionBodyMetaLine("announce", v))
 			}
 		}

@@ -142,17 +142,22 @@ export function ResponseRulesEditor({ config, onChange }: Props) {
       <ParamRow
         label={t("subBuilder.responseRules.announce", { defaultValue: "Announce message" })}
         hint={t("subBuilder.responseRules.announceHint", {
-          defaultValue: "Shown in-app (max 200 chars). Clients can override per-user.",
+          defaultValue:
+            "Shown in-app (max 200 chars). Panel sends base64 in the subscription header. Clients can override per-user.",
         })}
         delivery={rules.announceDelivery ?? "header"}
         onDeliveryChange={(delivery) => set({ announceDelivery: delivery })}
       >
-        <Input
+        <textarea
+          className="min-h-[72px] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--fg)] placeholder:text-[var(--fg-subtle)] outline-none transition-colors focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
           value={rules.announce}
           onChange={(e) => set({ announce: e.target.value })}
           placeholder={t("subBuilder.responseRules.announcePlaceholder")}
           maxLength={200}
         />
+        <p className="mt-1 text-[10px] text-[var(--fg-subtle)]">
+          {rules.announce.length}/200
+        </p>
       </ParamRow>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

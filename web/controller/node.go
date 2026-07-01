@@ -249,6 +249,9 @@ func (a *NodeController) updateNode(c *gin.Context) {
 			if trafficLimitGBVal, ok := jsonData["trafficLimitGB"].(float64); ok {
 				node.TrafficLimitGB = trafficLimitGBVal
 			}
+			if trafficResetDayVal, ok := jsonData["trafficResetDay"].(float64); ok {
+				node.TrafficResetDay = int(trafficResetDayVal)
+			}
 			if enableVal, ok := jsonData["enable"].(bool); ok {
 				jsonEnable = &enableVal
 			}

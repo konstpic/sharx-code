@@ -590,6 +590,32 @@ function Field({
   );
 }
 
+function RoutingListTextarea({
+  value,
+  onCommit,
+  placeholder,
+  className = "",
+}: {
+  value: string;
+  onCommit: (text: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [text, setText] = useState(value);
+  useEffect(() => {
+    setText(value);
+  }, [value]);
+  return (
+    <textarea
+      className={textareaClass + " min-h-[100px] " + className}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => onCommit(text)}
+      placeholder={placeholder}
+    />
+  );
+}
+
 function RoutingColumn({
   title,
   subtitle,
@@ -625,10 +651,9 @@ function RoutingColumn({
         <div className="mb-1 text-[10px] font-semibold uppercase text-[var(--fg-muted)]">
           {t("subBuilder.clientRouting.sites", { defaultValue: "Sites" })}
         </div>
-        <textarea
-          className={textareaClass + " min-h-[100px]"}
+        <RoutingListTextarea
           value={sites}
-          onChange={(e) => onSites(e.target.value)}
+          onCommit={(text) => onSites(text)}
           placeholder="geosite:category-ads-all"
         />
       </div>
@@ -636,10 +661,9 @@ function RoutingColumn({
         <div className="mb-1 text-[10px] font-semibold uppercase text-[var(--fg-muted)]">
           {t("subBuilder.clientRouting.ips", { defaultValue: "IPs" })}
         </div>
-        <textarea
-          className={textareaClass + " min-h-[100px]"}
+        <RoutingListTextarea
           value={ips}
-          onChange={(e) => onIps(e.target.value)}
+          onCommit={(text) => onIps(text)}
           placeholder="geoip:private"
         />
       </div>
