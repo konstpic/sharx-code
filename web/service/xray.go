@@ -410,15 +410,15 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		if !model.IsXrayInboundProtocol(inbound.Protocol) {
 			continue
 		}
-		// WireGuard peers live in settings.peers (not clients[]). Rebuild from ClientEntity so
-		// standalone Xray always gets active peers with email for user>>> stats.
-		if model.NormalizeProtocol(inbound.Protocol) == model.WireGuard {
+		// WireGuard / AmneziaWG / Shadowsocks: rebuild settings from ClientEntity so Xray gets
+		// valid peers or clients[] (SS2022 keys, classic SS per-client method, etc.).
+		if proto := model.NormalizeProtocol(inbound.Protocol); proto == model.WireGuard || proto == model.AmneziaWG || proto == model.Shadowsocks {
 			clientEntities, err := clientService.GetClientsForInbound(inbound.Id)
 			if err == nil {
-				if built, err := s.inboundService.BuildSettingsFromClientEntities(inbound, clientEntities); err == nil {
+				if built, err := s.inboundService.RebuildInboundSettingsForXray(inbound, clientEntities); err == nil && built != "" {
 					inbound.Settings = built
-				} else {
-					logger.Warningf("GetXrayConfig: wireguard inbound %d settings build: %v", inbound.Id, err)
+				} else if err != nil {
+					logger.Warningf("GetXrayConfig: inbound %d settings build: %v", inbound.Id, err)
 				}
 			}
 		}
@@ -702,9 +702,19 @@ func (s *XrayService) buildNodeWorkerConfigJSON(node *model.Node, inbounds []*mo
 		nodeConfig.InboundConfigs = append(nodeConfig.InboundConfigs, apiInbound)
 	}
 
+	nodeClientService := ClientService{}
 	for _, inbound := range inbounds {
 		if !model.IsXrayInboundProtocol(inbound.Protocol) {
 			continue
+		}
+		if proto := model.NormalizeProtocol(inbound.Protocol); proto == model.WireGuard || proto == model.AmneziaWG || proto == model.Shadowsocks {
+			if clientEntities, err := nodeClientService.GetClientsForInbound(inbound.Id); err == nil {
+				if built, err := s.inboundService.RebuildInboundSettingsForXray(inbound, clientEntities); err == nil && built != "" {
+					inbound.Settings = built
+				} else if err != nil {
+					logger.Warningf("buildNodeWorkerConfigJSON: inbound %d settings build: %v", inbound.Id, err)
+				}
+			}
 		}
 		settings := map[string]any{}
 		json.Unmarshal([]byte(inbound.Settings), &settings)

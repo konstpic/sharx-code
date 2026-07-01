@@ -444,10 +444,24 @@ func (s *InboundService) BuildSettingsFromClientEntities(inbound *model.Inbound,
 			// Explicit level 0 matches default Xray hysteria user; ensures policy.levels["0"] stats apply.
 			client["level"] = 0
 		case model.Shadowsocks:
+			ssMethod := ""
 			if method, ok := settings["method"].(string); ok {
-				ApplyShadowsocksClientFields(method, client)
+				ssMethod = strings.TrimSpace(method)
+				ApplyShadowsocksClientFields(ssMethod, client)
 			}
-			client["password"] = entity.Password
+			pw := strings.TrimSpace(entity.Password)
+			fixedPw, err := EnsureShadowsocksUserPassword(ssMethod, pw)
+			if err != nil {
+				return "", err
+			}
+			if fixedPw != pw && entity.Id > 0 {
+				if err := database.GetDB().Model(&model.ClientEntity{}).Where("id = ?", entity.Id).Update("password", fixedPw).Error; err != nil {
+					logger.Warningf("BuildSettingsFromClientEntities: fix Shadowsocks password for client %d: %v", entity.Id, err)
+				} else {
+					logger.Infof("BuildSettingsFromClientEntities: regenerated invalid Shadowsocks password for client %s (inbound %d)", entity.Name, inbound.Id)
+				}
+			}
+			client["password"] = fixedPw
 		case model.VMESS, model.VLESS:
 			client["id"] = entity.UUID
 			if proto == model.VMESS {
@@ -472,6 +486,20 @@ func (s *InboundService) BuildSettingsFromClientEntities(inbound *model.Inbound,
 		return SanitizeShadowsocksInboundSettings(string(settingsJSON))
 	}
 	return string(settingsJSON), nil
+}
+
+// RebuildInboundSettingsForXray rebuilds inbound.Settings from ClientEntity for protocols
+// where Xray expects normalized clients[] (WireGuard, AmneziaWG, Shadowsocks).
+func (s *InboundService) RebuildInboundSettingsForXray(inbound *model.Inbound, clients []*model.ClientEntity) (string, error) {
+	if inbound == nil {
+		return "", nil
+	}
+	switch model.NormalizeProtocol(inbound.Protocol) {
+	case model.WireGuard, model.AmneziaWG, model.Shadowsocks:
+		return s.BuildSettingsFromClientEntities(inbound, clients)
+	default:
+		return inbound.Settings, nil
+	}
 }
 
 func (s *InboundService) getAllEmails() ([]string, error) {

@@ -66,6 +66,42 @@ func (s *NodeService) GetNodesByTrafficResetDay(day int) ([]*model.Node, error) 
 	return nodes, err
 }
 
+// WaitForEnabledNodesOnline polls worker health until every enabled node is online or ctx expires.
+func (s *NodeService) WaitForEnabledNodesOnline(ctx context.Context, pollEvery time.Duration) error {
+	if pollEvery <= 0 {
+		pollEvery = 3 * time.Second
+	}
+
+	for {
+		nodes, err := s.GetAllNodes()
+		if err != nil {
+			return err
+		}
+
+		pending := 0
+		for _, node := range nodes {
+			if node == nil || !node.Enable {
+				continue
+			}
+			status, _, err := s.CheckNodeStatus(node)
+			if err != nil || status != "online" {
+				pending++
+				logger.Debugf("Docker update: waiting for node %s (status=%s err=%v)", node.Name, status, err)
+			}
+		}
+
+		if pending == 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for %d worker(s) to come online: %w", pending, ctx.Err())
+		case <-time.After(pollEvery):
+		}
+	}
+}
+
 // GetNode retrieves a node by ID.
 func (s *NodeService) GetNode(id int) (*model.Node, error) {
 	db := database.GetDB()

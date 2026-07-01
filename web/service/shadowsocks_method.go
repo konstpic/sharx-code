@@ -93,6 +93,26 @@ func shadowsocks2022KeyValid(method, password string) bool {
 	return len(raw) == shadowsocksServerKeyBytes(method)
 }
 
+// EnsureShadowsocksUserPassword returns a client secret valid for the inbound cipher.
+// For SS2022 it must be a base64 PSK of the correct byte length; regenerates when invalid or empty.
+func EnsureShadowsocksUserPassword(method, password string) (string, error) {
+	method = strings.TrimSpace(method)
+	if method == "" {
+		method = "aes-256-gcm"
+	}
+	password = strings.TrimSpace(password)
+	if IsShadowsocks2022Method(method) {
+		if shadowsocks2022KeyValid(method, password) {
+			return password, nil
+		}
+		return RandomShadowsocksUserPassword(method)
+	}
+	if password == "" {
+		return RandomShadowsocksUserPassword(method)
+	}
+	return password, nil
+}
+
 // ShadowsocksCipherForAddUser returns gRPC AddUser cipher for classic SS only (empty for 2022).
 func ShadowsocksCipherForAddUser(settingsJSON string) string {
 	method := ShadowsocksMethodFromSettings(settingsJSON)
@@ -147,6 +167,11 @@ func SanitizeShadowsocksInboundSettings(settingsJSON string) (string, error) {
 				continue
 			}
 			ApplyShadowsocksClientFields(method, cm)
+			if pw, _ := cm["password"].(string); pw != "" {
+				if fixed, err := EnsureShadowsocksUserPassword(method, pw); err == nil {
+					cm["password"] = fixed
+				}
+			}
 			clients[i] = cm
 		}
 		root["clients"] = clients

@@ -60,6 +60,11 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 
 	g.GET("/status", a.status)
 	g.GET("/updater", a.dockerUpdaterStatus)
+	g.GET("/updater/plan", a.dockerUpdaterPlan)
+	g.POST("/updater/workers/prep", a.dockerUpdaterWorkersPrep)
+	g.POST("/updater/workers/trigger", a.dockerUpdaterWorkersTrigger)
+	g.POST("/updater/workers/finish", a.dockerUpdaterWorkersFinish)
+	g.POST("/updater/panel/trigger", a.dockerUpdaterPanelTrigger)
 	g.POST("/updater/trigger", a.dockerUpdaterTrigger)
 	g.GET("/cpuHistory/:bucket", a.getCpuHistoryBucket)
 	g.GET("/memHistory/:bucket", a.getMemHistoryBucket)
@@ -241,20 +246,72 @@ func (a *ServerController) dockerUpdaterStatus(c *gin.Context) {
 	jsonObj(c, gin.H{"enabled": service.DockerUpdaterConfigured()}, nil)
 }
 
-func (a *ServerController) dockerUpdaterTrigger(c *gin.Context) {
+func (a *ServerController) dockerUpdaterPlan(c *gin.Context) {
+	plan, err := service.GetDockerUpdatePlan()
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
+		return
+	}
+	jsonObj(c, plan, nil)
+}
+
+func (a *ServerController) dockerUpdaterWorkersPrep(c *gin.Context) {
+	if err := service.PrepWorkersForDockerUpdate(); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "success"), nil)
+}
+
+func (a *ServerController) dockerUpdaterWorkersTrigger(c *gin.Context) {
+	ctx := c.Request.Context()
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Minute {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
+	results := service.TriggerWorkersDockerUpdate(ctx)
+	jsonObj(c, gin.H{"nodes": results}, nil)
+}
+
+func (a *ServerController) dockerUpdaterWorkersFinish(c *gin.Context) {
+	if err := service.FinishWorkersForDockerUpdate(); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "success"), nil)
+}
+
+func (a *ServerController) dockerUpdaterPanelTrigger(c *gin.Context) {
 	ctx := c.Request.Context()
 	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Minute {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 3*time.Minute)
 		defer cancel()
 	}
-	err := service.TriggerDockerUpdater(ctx)
+	if err := service.TriggerPanelDockerUpdate(ctx); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
+		return
+	}
+	tg := service.Tgbot{}
+	if tg.IsRunning() {
+		tg.NotifyPanelAction("Docker sidecar updater triggered (e.g. Watchtower)", "", getRemoteIp(c))
+	}
+	jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerSuccess"), nil)
+}
+
+func (a *ServerController) dockerUpdaterTrigger(c *gin.Context) {
+	ctx := c.Request.Context()
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Minute {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
+	nodeErrs, err := service.OrchestratePanelDockerUpdate(ctx)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
 		return
 	}
-	nodeSvc := service.NodeService{}
-	nodeErrs := nodeSvc.TriggerDockerUpdaterOnAllNodes(ctx)
 	if len(nodeErrs) > 0 {
 		logger.Warningf("Docker updater on workers: %d failure(s): %s", len(nodeErrs), strings.Join(nodeErrs, "; "))
 	}

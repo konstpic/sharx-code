@@ -5,17 +5,16 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Button, LinearProgress, Modal, useToast } from "@/components/ui";
-import { getJson, postJson } from "@/lib/api";
+import { Button, Modal, useToast } from "@/components/ui";
+import { getJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
 import { suggestedDockerUpdateCommand, usePublicAppMeta } from "@/lib/usePublicAppMeta";
+import { DockerUpdateProgressModal } from "@/components/panel/DockerUpdateProgressModal";
 
 type PanelHeaderAppMetaProps = {
   /** Slightly tighter styles on the login page */
   variant?: "shell" | "login";
 };
-
-const SIDE_CAR_UPDATE_RELOAD_DELAY_MS = 30_000;
 
 /** Tailwind `lg` breakpoint — split changelog layout matches this. */
 function useIsLgUp() {
@@ -39,8 +38,7 @@ export function PanelHeaderAppMeta({ variant = "shell" }: PanelHeaderAppMetaProp
   const [releaseDetailsOpen, setReleaseDetailsOpen] = useState(false);
   const [updaterEnabled, setUpdaterEnabled] = useState<boolean | null>(null);
   const [triggering, setTriggering] = useState(false);
-  const [sidecarUpdating, setSidecarUpdating] = useState(false);
-  const [sidecarUpdateProgress, setSidecarUpdateProgress] = useState(0);
+  const [updateProgressOpen, setUpdateProgressOpen] = useState(false);
 
   const closeModal = () => {
     setReleaseDetailsOpen(false);
@@ -68,44 +66,12 @@ export function PanelHeaderAppMeta({ variant = "shell" }: PanelHeaderAppMetaProp
     };
   }, [open, variant]);
 
-  useEffect(() => {
-    if (!sidecarUpdating) return;
-    const startedAt = Date.now();
-    setSidecarUpdateProgress(0);
-    const tick = () => {
-      const elapsed = Date.now() - startedAt;
-      const p = Math.min(100, (elapsed / SIDE_CAR_UPDATE_RELOAD_DELAY_MS) * 100);
-      setSidecarUpdateProgress(p);
-    };
-    const intervalId = window.setInterval(tick, 200);
-    const reloadId = window.setTimeout(() => {
-      setSidecarUpdateProgress(100);
-      window.location.reload();
-    }, SIDE_CAR_UPDATE_RELOAD_DELAY_MS);
-    tick();
-    return () => {
-      window.clearInterval(intervalId);
-      window.clearTimeout(reloadId);
-    };
-  }, [sidecarUpdating]);
-
-  const onTriggerSidecar = async () => {
+  const onTriggerSidecar = () => {
     setTriggering(true);
-    try {
-      const r = await postJson(panel("api/server/updater/trigger"), {}, true);
-      if (r.success) {
-        toast.success(r.msg || t("pages.settings.dockerUpdaterTriggerSuccess"));
-        setOpen(false);
-        setReleaseDetailsOpen(false);
-        setSidecarUpdating(true);
-      } else {
-        toast.error(r.msg || t("fail"));
-      }
-    } catch {
-      toast.error(t("fail"));
-    } finally {
-      setTriggering(false);
-    }
+    setOpen(false);
+    setReleaseDetailsOpen(false);
+    setUpdateProgressOpen(true);
+    setTriggering(false);
   };
 
   if (!meta?.version) return null;
@@ -300,25 +266,7 @@ export function PanelHeaderAppMeta({ variant = "shell" }: PanelHeaderAppMetaProp
         </Modal>
       ) : null}
 
-      <Modal
-        open={sidecarUpdating}
-        onClose={() => {}}
-        closeOnEscape={false}
-        closable={false}
-        title={t("pages.settings.dockerUpdaterTriggering", {
-          defaultValue: "Starting update",
-        })}
-        width={520}
-      >
-        <div className="space-y-3">
-          <p className="text-sm text-[var(--fg-muted)]">
-            {t("pages.settings.dockerUpdaterProgressHint", {
-              defaultValue: "Please wait while update is being applied.",
-            })}
-          </p>
-          <LinearProgress percent={sidecarUpdateProgress} strokeColor="var(--ifm-color-primary)" />
-        </div>
-      </Modal>
+      <DockerUpdateProgressModal open={updateProgressOpen} panelVersion={meta.version} />
     </>
   );
 }
