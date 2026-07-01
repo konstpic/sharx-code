@@ -111,11 +111,7 @@ type secretPathsBody struct {
 }
 
 func (a *SettingController) secretPathsMeta(c *gin.Context) {
-	envWeb, envSub := a.settingService.SecretPathsMeta()
-	jsonObj(c, gin.H{
-		"envOverridesWeb": envWeb,
-		"envOverridesSub": envSub,
-	}, nil)
+	jsonObj(c, a.settingService.PanelEnvMeta(), nil)
 }
 
 // generateSecretPaths assigns a random panel or subscription URL prefix.

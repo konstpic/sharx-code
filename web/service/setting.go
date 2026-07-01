@@ -349,20 +349,129 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 		}
 	}
 
-	s.applyEffectiveRuntimePaths(result)
+	s.applyEffectiveRuntimeSettings(result)
 	return result, nil
 }
 
-// applyEffectiveRuntimePaths overlays env-backed path settings for the settings UI.
-func (s *SettingService) applyEffectiveRuntimePaths(result *entity.AllSetting) {
+// applyEffectiveRuntimeSettings overlays env-backed settings for the settings UI.
+func (s *SettingService) applyEffectiveRuntimeSettings(result *entity.AllSetting) {
 	if result == nil {
 		return
 	}
-	if bp, err := s.GetBasePath(); err == nil {
-		result.WebBasePath = bp
+	if v, err := s.GetListen(); err == nil {
+		result.WebListen = v
 	}
-	if sp, err := s.GetSubPath(); err == nil {
-		result.SubPath = sp
+	if v, err := s.GetWebDomain(); err == nil {
+		result.WebDomain = v
+	}
+	if v, err := s.GetPort(); err == nil {
+		result.WebPort = v
+	}
+	if v, err := s.GetCertFile(); err == nil {
+		result.WebCertFile = v
+	}
+	if v, err := s.GetKeyFile(); err == nil {
+		result.WebKeyFile = v
+	}
+	if v, err := s.GetBasePath(); err == nil {
+		result.WebBasePath = v
+	}
+	if v, err := s.GetSubPort(); err == nil {
+		result.SubPort = v
+	}
+	if v, err := s.GetSubPath(); err == nil {
+		result.SubPath = v
+	}
+	if v, err := s.GetSubDomain(); err == nil {
+		result.SubDomain = v
+	}
+	if v, err := s.GetSubCertFile(); err == nil {
+		result.SubCertFile = v
+	}
+	if v, err := s.GetSubKeyFile(); err == nil {
+		result.SubKeyFile = v
+	}
+}
+
+func (s *SettingService) EnvOverridesWebListen() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_LISTEN")) != ""
+}
+
+func (s *SettingService) EnvOverridesWebDomain() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_DOMAIN")) != ""
+}
+
+func (s *SettingService) EnvOverridesWebPort() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_PORT")) != ""
+}
+
+func (s *SettingService) EnvOverridesWebCertFile() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_CERT_FILE")) != ""
+}
+
+func (s *SettingService) EnvOverridesWebKeyFile() bool {
+	return strings.TrimSpace(os.Getenv("XUI_WEB_KEY_FILE")) != ""
+}
+
+func (s *SettingService) EnvOverridesSubPort() bool {
+	return strings.TrimSpace(os.Getenv("XUI_SUB_PORT")) != ""
+}
+
+func (s *SettingService) EnvOverridesSubDomain() bool {
+	return strings.TrimSpace(os.Getenv("XUI_SUB_DOMAIN")) != ""
+}
+
+func (s *SettingService) EnvOverridesSubCertFile() bool {
+	return strings.TrimSpace(os.Getenv("XUI_SUB_CERT_FILE")) != ""
+}
+
+func (s *SettingService) EnvOverridesSubKeyFile() bool {
+	return strings.TrimSpace(os.Getenv("XUI_SUB_KEY_FILE")) != ""
+}
+
+// PanelEnvMeta describes settings locked by environment variables.
+func (s *SettingService) PanelEnvMeta() map[string]bool {
+	return map[string]bool{
+		"webListen":   s.EnvOverridesWebListen(),
+		"webDomain":   s.EnvOverridesWebDomain(),
+		"webPort":     s.EnvOverridesWebPort(),
+		"webCertFile": s.EnvOverridesWebCertFile(),
+		"webKeyFile":  s.EnvOverridesWebKeyFile(),
+		"webBasePath": s.EnvOverridesWebBasePath(),
+		"subPort":     s.EnvOverridesSubPort(),
+		"subPath":     s.EnvOverridesSubPath(),
+		"subDomain":   s.EnvOverridesSubDomain(),
+		"subCertFile": s.EnvOverridesSubCertFile(),
+		"subKeyFile":  s.EnvOverridesSubKeyFile(),
+	}
+}
+
+func (s *SettingService) saveEnvConfigurableSetting(key string, allSetting *entity.AllSetting) error {
+	switch key {
+	case "webListen":
+		return s.SetListen(allSetting.WebListen)
+	case "webDomain":
+		return s.setString("webDomain", allSetting.WebDomain)
+	case "webPort":
+		return s.SetPort(allSetting.WebPort)
+	case "webCertFile":
+		return s.SetCertFile(allSetting.WebCertFile)
+	case "webKeyFile":
+		return s.SetKeyFile(allSetting.WebKeyFile)
+	case "webBasePath":
+		return s.SetBasePath(allSetting.WebBasePath)
+	case "subPort":
+		return s.setInt("subPort", allSetting.SubPort)
+	case "subPath":
+		return s.SetSubPath(allSetting.SubPath)
+	case "subDomain":
+		return s.setString("subDomain", allSetting.SubDomain)
+	case "subCertFile":
+		return s.SetSubCertFile(allSetting.SubCertFile)
+	case "subKeyFile":
+		return s.SetSubKeyFile(allSetting.SubKeyFile)
+	default:
+		return nil
 	}
 }
 
@@ -1277,9 +1386,7 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 		allSetting.TwoFactorToken = ""
 	}
 
-	// Settings that should only be configured via environment variables
-	// These are ignored when saving from web UI
-	envOnlySettings := map[string]bool{
+	envConfigurable := map[string]bool{
 		"webPort":     true,
 		"webListen":   true,
 		"webDomain":   true,
@@ -1292,6 +1399,7 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 		"subCertFile": true,
 		"subKeyFile":  true,
 	}
+	envLocked := s.PanelEnvMeta()
 
 	v := reflect.ValueOf(allSetting).Elem()
 	t := reflect.TypeOf(allSetting).Elem()
@@ -1300,8 +1408,13 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 	for _, field := range fields {
 		key := field.Tag.Get("json")
 
-		// Skip settings that should only be configured via environment variables
-		if envOnlySettings[key] {
+		if envConfigurable[key] {
+			if envLocked[key] {
+				continue
+			}
+			if err := s.saveEnvConfigurableSetting(key, allSetting); err != nil {
+				errs = append(errs, err)
+			}
 			continue
 		}
 

@@ -210,8 +210,7 @@ export function SettingsPage() {
   const [apiTokenRevoking, setApiTokenRevoking] = useState(false);
   const [secretPathsGenerating, setSecretPathsGenerating] = useState<"web" | "sub" | null>(null);
   const [secretPathsSaving, setSecretPathsSaving] = useState(false);
-  const [secretPathsEnv, setSecretPathsEnv] = useState({ web: false, sub: false });
-  const [secretPathsDraft, setSecretPathsDraft] = useState({ webBasePath: "", subPath: "" });
+  const [panelEnv, setPanelEnv] = useState<Record<string, boolean>>({});
   const [secretPathsResult, setSecretPathsResult] = useState<{
     webBasePath: string;
     subPath: string;
@@ -260,19 +259,17 @@ export function SettingsPage() {
 
   useEffect(() => {
     void (async () => {
-      const r = await getJson<{ envOverridesWeb: boolean; envOverridesSub: boolean }>(
-        panel("setting/secretPathsMeta"),
-      );
+      const r = await getJson<Record<string, boolean>>(panel("setting/secretPathsMeta"));
       if (r.success && r.obj) {
-        setSecretPathsEnv({ web: r.obj.envOverridesWeb, sub: r.obj.envOverridesSub });
+        setPanelEnv(r.obj);
       }
     })();
   }, []);
 
-  useEffect(() => {
-    if (!form) return;
-    setSecretPathsDraft({ webBasePath: form.webBasePath, subPath: form.subPath });
-  }, [form?.webBasePath, form?.subPath, form]);
+  const panelEnvLocked = useMemo(
+    () => Object.values(panelEnv).some(Boolean),
+    [panelEnv],
+  );
 
   const applySecretPathsResult = (
     paths: { webBasePath: string; subPath: string },
@@ -287,7 +284,6 @@ export function SettingsPage() {
           }
         : prev,
     );
-    setSecretPathsDraft({ webBasePath: paths.webBasePath, subPath: paths.subPath });
     setSecretPathsResult(paths);
     toast.success(t(toastKey));
   };
@@ -313,25 +309,16 @@ export function SettingsPage() {
   };
 
   const onSaveSecretPaths = async () => {
+    if (!form) return;
     setSecretPathsSaving(true);
-    try {
-      const r = await postJson<{ webBasePath: string; subPath: string }>(
-        panel("setting/saveSecretPaths"),
-        {
-          webBasePath: secretPathsDraft.webBasePath,
-          subPath: secretPathsDraft.subPath,
-        },
-        true,
-      );
-      if (r.success && r.obj) {
-        applySecretPathsResult(r.obj, "pages.settings.secretPathsSaved");
-      } else {
-        toast.error(r.msg || t("pages.settings.secretPathsSaveError"));
-      }
-    } catch {
-      toast.error(t("fail"));
-    } finally {
-      setSecretPathsSaving(false);
+    const r = await postJson(panel("setting/update"), form, true);
+    setSecretPathsSaving(false);
+    if (r.success) {
+      setSecretPathsResult({ webBasePath: form.webBasePath, subPath: form.subPath });
+      toast.success(t("pages.settings.secretPathsSaved"));
+      await load();
+    } else {
+      toast.error(r.msg || t("pages.settings.secretPathsSaveError"));
     }
   };
 
@@ -582,31 +569,50 @@ export function SettingsPage() {
               />
             </div>
             <Row label={t("pages.settings.panelListeningIP")} hint={t("pages.settings.panelListeningIPDesc")}>
-              <Input value={form.webListen} readOnly className="opacity-80" />
+              <Input
+                value={form.webListen}
+                disabled={panelEnv.webListen}
+                onChange={(e) => patch("webListen", e.target.value)}
+              />
             </Row>
             <Row label={t("pages.settings.panelListeningDomain")} hint={t("pages.settings.panelListeningDomainDesc")}>
-              <Input value={form.webDomain} readOnly className="opacity-80" />
+              <Input
+                value={form.webDomain}
+                disabled={panelEnv.webDomain}
+                onChange={(e) => patch("webDomain", e.target.value)}
+              />
             </Row>
             <Row label={t("pages.settings.panelPort")} hint={t("pages.settings.panelPortDesc")} helpKey="settings.panelPort">
-              <Input type="number" value={form.webPort} readOnly className="opacity-80" />
+              <Input
+                type="number"
+                value={form.webPort}
+                disabled={panelEnv.webPort}
+                onChange={(e) => patch("webPort", parseInt(e.target.value, 10) || 0)}
+              />
             </Row>
             <Row label={t("pages.settings.publicKeyPath")} hint={t("pages.settings.publicKeyPathDesc")}>
-              <Input value={form.webCertFile} readOnly className="opacity-80" />
+              <Input
+                value={form.webCertFile}
+                disabled={panelEnv.webCertFile}
+                onChange={(e) => patch("webCertFile", e.target.value)}
+              />
             </Row>
             <Row label={t("pages.settings.privateKeyPath")} hint={t("pages.settings.privateKeyPathDesc")}>
-              <Input value={form.webKeyFile} readOnly className="opacity-80" />
+              <Input
+                value={form.webKeyFile}
+                disabled={panelEnv.webKeyFile}
+                onChange={(e) => patch("webKeyFile", e.target.value)}
+              />
             </Row>
             <Row label={t("pages.settings.secretPathsPanelPrefix")} hint={t("pages.settings.secretPathsPanelPrefixDesc")}>
-              {secretPathField("web", secretPathsDraft.webBasePath, secretPathsEnv.web, (value) =>
-                setSecretPathsDraft((prev) => ({ ...prev, webBasePath: value })),
+              {secretPathField("web", form.webBasePath, panelEnv.webBasePath, (value) =>
+                patch("webBasePath", value),
               )}
             </Row>
             <Row label={t("pages.settings.secretPathsSubPrefix")} hint={t("pages.settings.secretPathsSubPrefixDesc")}>
-              {secretPathField("sub", secretPathsDraft.subPath, secretPathsEnv.sub, (value) =>
-                setSecretPathsDraft((prev) => ({ ...prev, subPath: value })),
-              )}
+              {secretPathField("sub", form.subPath, panelEnv.subPath, (value) => patch("subPath", value))}
             </Row>
-            {(secretPathsEnv.web || secretPathsEnv.sub) ? (
+            {panelEnvLocked ? (
               <div className="px-4 pb-3">
                 <AlertBanner
                   type="warning"
@@ -619,12 +625,7 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="primary"
-                disabled={
-                  secretPathsSaving ||
-                  secretPathsEnv.web ||
-                  secretPathsEnv.sub ||
-                  secretPathsGenerating != null
-                }
+                disabled={secretPathsSaving || secretPathsGenerating != null}
                 onClick={() => void onSaveSecretPaths()}
               >
                 {secretPathsSaving ? t("loading") : t("pages.settings.secretPathsSaveBtn")}
