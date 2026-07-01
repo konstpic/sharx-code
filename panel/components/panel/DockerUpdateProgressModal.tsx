@@ -45,6 +45,27 @@ type DockerUpdateProgressModalProps = {
   panelVersion?: string;
 };
 
+function formatRequestError(err: unknown, fallback: string): string {
+  if (err && typeof err === "object" && "response" in err) {
+    const resp = (err as { response?: { data?: { msg?: string }; status?: number } }).response;
+    if (resp?.data?.msg) return resp.data.msg;
+    if (resp?.status) return `${fallback} (HTTP ${resp.status})`;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+async function checkNodeOnline(nodeId: number): Promise<{ online: boolean; status?: string }> {
+  try {
+    const checkRes = await postJson<{ status?: string }>(panel(`node/check/${nodeId}`));
+    const nodeObj = checkRes.obj as { status?: string } | undefined;
+    const status = (nodeObj?.status ?? "").toLowerCase();
+    return { online: checkRes.success && status === "online", status: nodeObj?.status };
+  } catch {
+    return { online: false };
+  }
+}
+
 function sleep(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     const id = window.setTimeout(() => resolve(), ms);
@@ -221,6 +242,14 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
           );
           if (runRef.current !== runId) return;
 
+          if (!triggerRes.success) {
+            setPanelRow({
+              status: "error",
+              error: triggerRes.msg || t("menu.dockerUpdateWorkersTriggerError", { defaultValue: "Failed to trigger worker updates" }),
+            });
+            return;
+          }
+
           const triggerResults = triggerRes.obj?.nodes ?? [];
           for (const res of triggerResults) {
             if (res.skipped) {
@@ -249,10 +278,8 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
             if (runRef.current !== runId) return;
 
             for (const id of [...waitTargets]) {
-              const checkRes = await postJson<{ status?: string }>(panel(`api/node/check/${id}`));
-              const nodeObj = checkRes.obj as { status?: string } | undefined;
-              const online = (nodeObj?.status ?? "").toLowerCase() === "online";
-              if (checkRes.success && online) {
+              const { online } = await checkNodeOnline(id);
+              if (online) {
                 waitTargets.delete(id);
                 setNodeStatus(id, { status: "success" });
               } else {
@@ -305,14 +332,14 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
       } catch (err) {
         if (runRef.current !== runId) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setPanelRow({ status: "error", error: t("fail") });
+        setPanelRow({ status: "error", error: formatRequestError(err, t("fail")) });
       }
     })();
 
     return () => {
       abort.abort();
     };
-  }, [open, t]);
+  }, [open]);
 
   const panelLabel = t("menu.dockerUpdatePanelLabel", { defaultValue: "Panel" });
   const nodesLabel = t("menu.dockerUpdateNodesLabel", { defaultValue: "Worker nodes" });
@@ -369,9 +396,16 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
                     className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-[var(--bg-muted)]/40"
                   >
                     <span className="min-w-0 truncate text-sm text-[var(--fg)]">{node.name}</span>
-                    <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--fg-muted)]">
-                      <StepIcon status={node.status} />
-                      <span className="max-w-[10rem] truncate">{statusLabel(t, node.status)}</span>
+                    <div className="flex min-w-0 flex-col items-end gap-0.5">
+                      <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--fg-muted)]">
+                        <StepIcon status={node.status} />
+                        <span className="max-w-[10rem] truncate">{statusLabel(t, node.status)}</span>
+                      </div>
+                      {node.error ? (
+                        <span className="max-w-[14rem] truncate text-[10px] text-red-500" title={node.error}>
+                          {node.error}
+                        </span>
+                      ) : null}
                     </div>
                   </li>
                 ))}
