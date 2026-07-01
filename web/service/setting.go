@@ -366,13 +366,11 @@ func (s *SettingService) applyEffectiveRuntimePaths(result *entity.AllSetting) {
 }
 
 func (s *SettingService) SetSubPath(subPath string) error {
-	if !strings.HasPrefix(subPath, "/") {
-		subPath = "/" + subPath
+	normalized, err := secretpath.NormalizeSubPath(subPath)
+	if err != nil {
+		return err
 	}
-	if !strings.HasSuffix(subPath, "/") {
-		subPath += "/"
-	}
-	return s.setString("subPath", subPath)
+	return s.setString("subPath", normalized)
 }
 
 func (s *SettingService) EnvOverridesWebBasePath() bool {
@@ -383,23 +381,55 @@ func (s *SettingService) EnvOverridesSubPath() bool {
 	return strings.TrimSpace(os.Getenv("XUI_SUB_PATH")) != ""
 }
 
-// GenerateSecretPaths assigns random webBasePath and subPath (404 on bare :port when active).
-func (s *SettingService) GenerateSecretPaths() (webPath, subPath string, err error) {
+// GenerateSecretPaths assigns a random webBasePath and optionally subPath.
+func (s *SettingService) GenerateSecretPaths(includeSub bool) (webPath, subPath string, err error) {
 	if s.EnvOverridesWebBasePath() {
 		return "", "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
 	}
-	if s.EnvOverridesSubPath() {
+	if includeSub && s.EnvOverridesSubPath() {
 		return "", "", common.NewError("XUI_SUB_PATH is set in the environment")
 	}
 	webPath = secretpath.GenerateWebBasePath()
-	subPath = secretpath.GenerateSubPath()
 	if err := s.SetBasePath(webPath); err != nil {
 		return "", "", err
 	}
-	if err := s.SetSubPath(subPath); err != nil {
+	if includeSub {
+		subPath = secretpath.GenerateSubPath()
+		if err := s.SetSubPath(subPath); err != nil {
+			return "", "", err
+		}
+		return webPath, subPath, nil
+	}
+	subPath, _ = s.GetSubPath()
+	return webPath, subPath, nil
+}
+
+// SaveSecretPaths stores manually entered path prefixes. When updateSub is false, subPath is unchanged.
+func (s *SettingService) SaveSecretPaths(webBasePath, subPath string, updateSub bool) (savedWeb, savedSub string, err error) {
+	if s.EnvOverridesWebBasePath() {
+		return "", "", common.NewError("XUI_WEB_BASE_PATH is set in the environment")
+	}
+	if updateSub && s.EnvOverridesSubPath() {
+		return "", "", common.NewError("XUI_SUB_PATH is set in the environment")
+	}
+	if err := s.SetBasePath(webBasePath); err != nil {
 		return "", "", err
 	}
-	return webPath, subPath, nil
+	savedWeb, _ = s.GetBasePath()
+	if updateSub {
+		if err := s.SetSubPath(subPath); err != nil {
+			return "", "", err
+		}
+		savedSub, _ = s.GetSubPath()
+	} else {
+		savedSub, _ = s.GetSubPath()
+	}
+	return savedWeb, savedSub, nil
+}
+
+// SecretPathsMeta describes whether env vars block editing path prefixes.
+func (s *SettingService) SecretPathsMeta() (envWeb, envSub bool) {
+	return s.EnvOverridesWebBasePath(), s.EnvOverridesSubPath()
 }
 
 func (s *SettingService) ResetSettings() error {
@@ -713,13 +743,11 @@ func (s *SettingService) GetSecret() ([]byte, error) {
 }
 
 func (s *SettingService) SetBasePath(basePath string) error {
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
+	normalized, err := secretpath.NormalizeWebBasePath(basePath)
+	if err != nil {
+		return err
 	}
-	if !strings.HasSuffix(basePath, "/") {
-		basePath += "/"
-	}
-	return s.setString("webBasePath", basePath)
+	return s.setString("webBasePath", normalized)
 }
 
 func (s *SettingService) GetBasePath() (string, error) {

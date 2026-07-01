@@ -208,9 +208,14 @@ export function SettingsPage() {
   const [apiTokenRevokeId, setApiTokenRevokeId] = useState<number | null>(null);
   const [apiTokenRevoking, setApiTokenRevoking] = useState(false);
   const [secretPathsGenerating, setSecretPathsGenerating] = useState(false);
+  const [secretPathsSaving, setSecretPathsSaving] = useState(false);
+  const [secretPathsUpdateSub, setSecretPathsUpdateSub] = useState(false);
+  const [secretPathsEnv, setSecretPathsEnv] = useState({ web: false, sub: false });
+  const [secretPathsDraft, setSecretPathsDraft] = useState({ webBasePath: "", subPath: "" });
   const [secretPathsResult, setSecretPathsResult] = useState<{
     webBasePath: string;
     subPath: string;
+    subPathUpdated: boolean;
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -254,19 +259,54 @@ export function SettingsPage() {
     return JSON.stringify(form) !== JSON.stringify(baseline);
   }, [form, baseline]);
 
+  useEffect(() => {
+    void (async () => {
+      const r = await getJson<{ envOverridesWeb: boolean; envOverridesSub: boolean }>(
+        panel("setting/secretPathsMeta"),
+      );
+      if (r.success && r.obj) {
+        setSecretPathsEnv({ web: r.obj.envOverridesWeb, sub: r.obj.envOverridesSub });
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!form) return;
+    setSecretPathsDraft({ webBasePath: form.webBasePath, subPath: form.subPath });
+  }, [form?.webBasePath, form?.subPath, form]);
+
+  const applySecretPathsResult = (
+    paths: { webBasePath: string; subPath: string; subPathUpdated?: boolean },
+    toastKey: string,
+  ) => {
+    setForm((prev) =>
+      prev
+        ? {
+            ...prev,
+            webBasePath: paths.webBasePath,
+            subPath: paths.subPath,
+          }
+        : prev,
+    );
+    setSecretPathsDraft({ webBasePath: paths.webBasePath, subPath: paths.subPath });
+    setSecretPathsResult({
+      webBasePath: paths.webBasePath,
+      subPath: paths.subPath,
+      subPathUpdated: paths.subPathUpdated ?? secretPathsUpdateSub,
+    });
+    toast.success(t(toastKey));
+  };
+
   const onGenerateSecretPaths = async () => {
     setSecretPathsGenerating(true);
     try {
-      const r = await postJson<{ webBasePath: string; subPath: string }>(
-        panel("setting/generateSecretPaths"),
-      );
+      const r = await postJson<{
+        webBasePath: string;
+        subPath: string;
+        subPathUpdated?: boolean;
+      }>(panel("setting/generateSecretPaths"), { includeSub: secretPathsUpdateSub });
       if (r.success && r.obj) {
-        const paths = r.obj;
-        setForm((prev) =>
-          prev ? { ...prev, webBasePath: paths.webBasePath, subPath: paths.subPath } : prev,
-        );
-        setSecretPathsResult(paths);
-        toast.success(t("pages.settings.secretPathsGenerated"));
+        applySecretPathsResult(r.obj, "pages.settings.secretPathsGenerated");
       } else {
         toast.error(r.msg || t("pages.settings.secretPathsGenerateError"));
       }
@@ -274,6 +314,30 @@ export function SettingsPage() {
       toast.error(t("fail"));
     } finally {
       setSecretPathsGenerating(false);
+    }
+  };
+
+  const onSaveSecretPaths = async () => {
+    setSecretPathsSaving(true);
+    try {
+      const r = await postJson<{
+        webBasePath: string;
+        subPath: string;
+        subPathUpdated?: boolean;
+      }>(panel("setting/saveSecretPaths"), {
+        webBasePath: secretPathsDraft.webBasePath,
+        subPath: secretPathsDraft.subPath,
+        updateSub: secretPathsUpdateSub,
+      });
+      if (r.success && r.obj) {
+        applySecretPathsResult(r.obj, "pages.settings.secretPathsSaved");
+      } else {
+        toast.error(r.msg || t("pages.settings.secretPathsSaveError"));
+      }
+    } catch {
+      toast.error(t("fail"));
+    } finally {
+      setSecretPathsSaving(false);
     }
   };
 
@@ -519,16 +583,60 @@ export function SettingsPage() {
               />
             </div>
             <Row label={t("pages.settings.secretPathsPanelPrefix")} hint={t("pages.settings.secretPathsPanelPrefixDesc")}>
-              <Input value={form.webBasePath} readOnly className="font-mono text-xs opacity-80" />
+              <Input
+                value={secretPathsDraft.webBasePath}
+                disabled={secretPathsEnv.web}
+                className="font-mono text-xs"
+                onChange={(e) =>
+                  setSecretPathsDraft((prev) => ({ ...prev, webBasePath: e.target.value }))
+                }
+              />
             </Row>
             <Row label={t("pages.settings.secretPathsSubPrefix")} hint={t("pages.settings.secretPathsSubPrefixDesc")}>
-              <Input value={form.subPath} readOnly className="font-mono text-xs opacity-80" />
+              <Input
+                value={secretPathsDraft.subPath}
+                disabled={secretPathsEnv.sub || !secretPathsUpdateSub}
+                className="font-mono text-xs"
+                onChange={(e) =>
+                  setSecretPathsDraft((prev) => ({ ...prev, subPath: e.target.value }))
+                }
+              />
+            </Row>
+            <Row
+              label={t("pages.settings.secretPathsIncludeSub")}
+              hint={t("pages.settings.secretPathsIncludeSubDesc")}
+            >
+              <Switch
+                checked={secretPathsUpdateSub}
+                disabled={secretPathsEnv.sub}
+                onChange={setSecretPathsUpdateSub}
+                ariaLabel={t("pages.settings.secretPathsIncludeSub")}
+              />
+            </Row>
+            {(secretPathsEnv.web || secretPathsEnv.sub) ? (
+              <div className="px-4 pb-3">
+                <AlertBanner
+                  type="warning"
+                  title={t("pages.settings.secretPathsEnvTitle")}
+                  description={t("pages.settings.secretPathsEnvDesc")}
+                />
+              </div>
+            ) : null}
+            <Row label={t("pages.settings.secretPathsSave")} hint={t("pages.settings.secretPathsSaveDesc")}>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={secretPathsSaving || secretPathsEnv.web}
+                onClick={() => void onSaveSecretPaths()}
+              >
+                {secretPathsSaving ? t("loading") : t("pages.settings.secretPathsSaveBtn")}
+              </Button>
             </Row>
             <Row label={t("pages.settings.secretPathsGenerate")} hint={t("pages.settings.secretPathsGenerateDesc")}>
               <Button
                 type="button"
                 variant="secondary"
-                disabled={secretPathsGenerating}
+                disabled={secretPathsGenerating || secretPathsEnv.web}
                 onClick={() => void onGenerateSecretPaths()}
               >
                 {secretPathsGenerating ? t("loading") : t("pages.settings.secretPathsGenerateBtn")}
@@ -1778,11 +1886,20 @@ export function SettingsPage() {
               <code className="block break-all rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2 font-mono text-xs">
                 {secretPathsResult.subPath}
               </code>
+              {!secretPathsResult.subPathUpdated ? (
+                <p className="mt-2 text-xs text-[var(--fg-muted)]">
+                  {t("pages.settings.secretPathsSubUnchanged")}
+                </p>
+              ) : null}
             </div>
             <AlertBanner
               type="warning"
               title={t("pages.settings.secretPathsRestartTitle")}
-              description={t("pages.settings.secretPathsRestartDesc")}
+              description={
+                secretPathsResult.subPathUpdated
+                  ? t("pages.settings.secretPathsRestartDesc")
+                  : t("pages.settings.secretPathsRestartPanelOnlyDesc")
+              }
             />
           </div>
         ) : null}
