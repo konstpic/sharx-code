@@ -34,7 +34,8 @@ func main() {
 	flag.IntVar(&port, "port", defaults.APIListenPort, "API server port (default "+fmt.Sprint(defaults.APIListenPort)+", host network)")
 	flag.Parse()
 
-	if envPort := strings.TrimSpace(os.Getenv("SHARX_NODE_PORT")); envPort == "" {
+	envPort := strings.TrimSpace(os.Getenv("SHARX_NODE_PORT"))
+	if envPort == "" {
 		envPort = strings.TrimSpace(os.Getenv("PORT"))
 	}
 	if envPort != "" {
