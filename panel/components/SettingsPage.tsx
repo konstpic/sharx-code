@@ -115,6 +115,10 @@ function SettingsGrid({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">{children}</div>;
 }
 
+function SectionAlert({ children }: { children: ReactNode }) {
+  return <div className="px-4 py-3">{children}</div>;
+}
+
 function Row({
   label,
   hint,
@@ -561,13 +565,13 @@ export function SettingsPage() {
             icon={Shield}
             iconTone="warning"
           >
-            <div className="px-4 pt-3">
+            <SectionAlert>
               <AlertBanner
                 type="info"
                 title={t("pages.settings.secretPathsInfoTitle")}
                 description={t("pages.settings.secretPathsInfoDesc")}
               />
-            </div>
+            </SectionAlert>
             <Row label={t("pages.settings.panelListeningIP")} hint={t("pages.settings.panelListeningIPDesc")}>
               <Input
                 value={form.webListen}
@@ -613,13 +617,13 @@ export function SettingsPage() {
               {secretPathField("sub", form.subPath, panelEnv.subPath, (value) => patch("subPath", value))}
             </Row>
             {panelEnvLocked ? (
-              <div className="px-4 pb-3">
+              <SectionAlert>
                 <AlertBanner
                   type="warning"
                   title={t("pages.settings.secretPathsEnvTitle")}
                   description={t("pages.settings.secretPathsEnvDesc")}
                 />
-              </div>
+              </SectionAlert>
             ) : null}
             <Row label={t("pages.settings.secretPathsSave")} hint={t("pages.settings.secretPathsSaveDesc")}>
               <Button
@@ -1269,13 +1273,13 @@ export function SettingsPage() {
             icon={Type}
             iconTone="neutral"
           >
-            <div className="px-4 pt-3">
+            <SectionAlert>
               <AlertBanner
                 type="info"
                 title={t("pages.settings.envOnlyNetworkTitle")}
                 description={t("pages.settings.envOnlyNetworkDesc")}
               />
-            </div>
+            </SectionAlert>
             <Row label={t("pages.settings.subURI")} hint={t("pages.settings.subURIDesc")} helpKey="settings.subUri">
               <Input
                 value={form.subURI}
