@@ -31,19 +31,11 @@ func (s *NodeService) signNodeJWT(_ *model.Node) (string, error) {
 		"exp": time.Now().Add(3 * time.Minute).Unix(),
 		"iat": time.Now().Unix(),
 	}
-	if authSecret != "" {
-		t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		return t.SignedString([]byte(authSecret))
-	}
-	priv, err := pairing.GetJWTPrivateKey()
-	if err != nil {
-		return "", err
-	}
-	t := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return t.SignedString(priv)
+	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return t.SignedString([]byte(authSecret))
 }
 
-// bearerTokenForNode returns the Bearer JWT for panel → node requests (pairing-only).
+// bearerTokenForNode returns the Bearer JWT for panel → node requests.
 func (s *NodeService) bearerTokenForNode(node *model.Node) (string, error) {
 	if node.Id == 0 {
 		return s.signNodeJWT(node)

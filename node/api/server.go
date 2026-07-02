@@ -57,7 +57,7 @@ type Server struct {
 	keyFile            string
 	// clientCAFile, if set with cert/key, enables mTLS (panel must present a cert signed by this CA).
 	clientCAFile string
-	// pairing, if set, enables HTTPS + mandatory mTLS + JWT (SECRET_KEY bundle); overrides file-based TLS.
+	// pairing, if set, enables JWT auth for API routes (plain HTTP).
 	pairing *auth.Bundle
 }
 
@@ -113,7 +113,7 @@ func (s *Server) SetMTLSClientCA(caFile string) {
 	s.clientCAFile = caFile
 }
 
-// SetPairing configures TLS and JWT verification from a SECRET_KEY (base64 JSON) bundle.
+// SetPairing configures JWT verification from SECRET_KEY.
 func (s *Server) SetPairing(b *auth.Bundle) {
 	s.pairing = b
 }
@@ -184,20 +184,8 @@ func (s *Server) Start() error {
 	}
 
 	if s.pairing != nil {
-		tlsCfg := &tls.Config{
-			Certificates: []tls.Certificate{s.pairing.TLSCert},
-			ClientCAs:    s.pairing.ClientCAPool,
-			ClientAuth:   tls.RequireAndVerifyClientCert,
-			MinVersion:   tls.VersionTLS12,
-		}
-		addr := fmt.Sprintf(":%d", s.port)
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			return err
-		}
-		tlsLn := tls.NewListener(ln, tlsCfg)
-		logger.Infof("API server listening on port %d with HTTPS + mTLS + JWT (SECRET_KEY bundle)", s.port)
-		return s.httpServer.Serve(tlsLn)
+		logger.Infof("API server listening on port %d with JWT auth (SECRET_KEY)", s.port)
+		return s.httpServer.ListenAndServe()
 	}
 
 	if s.certFile != "" && s.keyFile != "" {
@@ -280,34 +268,20 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 }
 
 func verifyBearerJWT(authHeader string, bundle *auth.Bundle) error {
-	if bundle == nil {
+	if bundle == nil || strings.TrimSpace(bundle.AuthSecret) == "" {
 		return fmt.Errorf("jwt not configured")
 	}
 	if len(authHeader) < 8 || !strings.HasPrefix(authHeader, "Bearer ") {
 		return fmt.Errorf("missing bearer")
 	}
 	tokenStr := strings.TrimSpace(authHeader[7:])
-	if bundle.UsesAuthSecret() {
-		parser := jwt.NewParser(
-			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-			jwt.WithIssuer(auth.JWTIssuer),
-			jwt.WithAudience(auth.JWTAudience),
-		)
-		_, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			return []byte(bundle.AuthSecret), nil
-		})
-		return err
-	}
-	if bundle.JWTPublicKey == nil {
-		return fmt.Errorf("jwt not configured")
-	}
 	parser := jwt.NewParser(
-		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(auth.JWTIssuer),
 		jwt.WithAudience(auth.JWTAudience),
 	)
 	_, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		return bundle.JWTPublicKey, nil
+		return []byte(bundle.AuthSecret), nil
 	})
 	return err
 }

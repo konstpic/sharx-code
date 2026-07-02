@@ -1,6 +1,6 @@
 // Package main is the entry point for the SharX node service (worker).
 // This service runs XRAY Core and provides a REST API for the master panel to manage it.
-// Authentication is pairing-only: SECRET_KEY (TLS + mTLS + JWT); log push uses HMAC.
+// Authentication is pairing-only: SECRET_KEY (JWT + HMAC); log push uses HMAC.
 package main
 
 import (
@@ -69,7 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 	if bundle == nil {
-		logger.Error("SECRET_KEY is required (set env SECRET_KEY to the base64 JSON bundle from the panel)")
+		logger.Error("SECRET_KEY is required (set env SECRET_KEY to the plain secret from the panel)")
 		os.Exit(1)
 	}
 	h := bundle.OutboundHMACKey()
@@ -108,7 +108,7 @@ func main() {
 	}
 	server := api.NewServer(port, xrayManager, telemtManager, amneziawgManager)
 	server.SetPairing(bundle)
-	logger.Info("SECRET_KEY: TLS + mTLS + JWT; log push uses HMAC (optional PANEL_URL in config or env)")
+	logger.Info("SECRET_KEY: JWT auth; log push uses HMAC (optional PANEL_URL in config or env)")
 
 	logger.Infof("Starting SharX Node Service on port %d", port)
 	// Must run before Start(): Start blocks on Serve(), so code after it never runs.

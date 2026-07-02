@@ -179,7 +179,6 @@ func (s *NodeService) UpdateNodeGeography(id int, lat, lng float64, source strin
 }
 
 // nodeRequestBaseURL is the base URL the panel uses for requests to a node.
-// Pairing workers only accept HTTPS (mTLS). Legacy nodes honor use_tls: plain http when UseTLS is false.
 func nodeRequestBaseURL(n *model.Node) string {
 	if n == nil {
 		return ""
@@ -195,12 +194,8 @@ func nodeRequestBaseURL(n *model.Node) string {
 	trim := func(s string) string { return strings.TrimRight(s, "/") }
 
 	if n.IsPairingMode() {
-		if u.Scheme == "" || u.Scheme == "http" {
-			if u.Scheme == "" {
-				u, _ = url.Parse("https://" + raw)
-			} else {
-				u.Scheme = "https"
-			}
+		if u.Scheme == "" {
+			u, _ = url.Parse("http://" + raw)
 		}
 		return trim(u.String())
 	}
@@ -979,19 +974,10 @@ func (s *NodeService) notifyNodeStatusChange(node *model.Node, oldStatus, newSta
 	tgbotService.SendMsgToTgbotAdmins(msg)
 }
 
-// createHTTPClient returns an HTTP client for panel→node calls.
-// Pairing (and legacy with UseTLS) use mTLS; legacy with UseTLS false uses plain HTTP.
+// createHTTPClient returns an HTTP client for panel→node calls (JWT auth, no mTLS).
 func (s *NodeService) createHTTPClient(node *model.Node, timeout time.Duration) (*http.Client, error) {
-	if node != nil && !node.IsPairingMode() && !node.UseTLS {
-		return &http.Client{Timeout: timeout}, nil
-	}
-	pairing := &PanelPairingService{}
-	cfg, err := pairing.GetClientTLSConfig()
-	if err != nil {
-		return nil, err
-	}
-	transport := &http.Transport{TLSClientConfig: cfg}
-	return &http.Client{Timeout: timeout, Transport: transport}, nil
+	_ = node
+	return &http.Client{Timeout: timeout}, nil
 }
 
 // CheckNodeStatus performs a health check on a given node and measures response time.
