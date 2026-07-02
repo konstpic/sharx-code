@@ -17,6 +17,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const nodeAuthSecretLen = 128
+
 // PanelPairingService owns the panel-wide SECRET_KEY shared by every SharX node.
 // It is a persistent random string used for JWT (panel→node) and HMAC (node→panel).
 type PanelPairingService struct{}
@@ -107,7 +109,7 @@ func (s *PanelPairingService) get() (*pairingCache, error) {
 }
 
 func (s *PanelPairingService) generateAndStore(db *gorm.DB) (model.PanelPairing, error) {
-	secret := random.Seq(32)
+	secret := random.Seq(nodeAuthSecretLen)
 	now := time.Now().Unix()
 	row := model.PanelPairing{
 		Id:         1,
@@ -132,7 +134,7 @@ func (s *PanelPairingService) normalizeRow(db *gorm.DB, row model.PanelPairing) 
 		secret = extractSecretFromStoredKey(row.SecretKey)
 	}
 	if secret == "" {
-		secret = random.Seq(32)
+		secret = random.Seq(nodeAuthSecretLen)
 	}
 	changed := secret != strings.TrimSpace(row.AuthSecret) || secret != strings.TrimSpace(row.SecretKey)
 	if !changed {
