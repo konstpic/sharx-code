@@ -11,12 +11,15 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
+	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
+	"github.com/konstpic/sharx-code/v2/util/random"
 
 	"gorm.io/gorm"
 )
@@ -77,12 +80,23 @@ func (s *PanelPairingService) GetJWTPrivateKey() (*rsa.PrivateKey, error) {
 	return c.jwtPrivate, nil
 }
 
+// GetAuthSecret returns the persistent symmetric secret for panel↔node JWT/HMAC.
+func (s *PanelPairingService) GetAuthSecret() (string, error) {
+	c, err := s.get()
+	if err != nil {
+		return "", err
+	}
+	return c.row.AuthSecret, nil
+}
+
 // GetOutboundHMACKey returns the 32-byte key used for node→panel HMAC (log push, etc.).
-// It is derived from the same public material as the SECRET_KEY bundle (no per-node API key).
 func (s *PanelPairingService) GetOutboundHMACKey() ([32]byte, error) {
 	c, err := s.get()
 	if err != nil {
 		return [32]byte{}, err
+	}
+	if strings.TrimSpace(c.row.AuthSecret) != "" {
+		return pairing_outbound.KeyFromAuthSecret(c.row.AuthSecret), nil
 	}
 	return pairing_outbound.OutboundHMACKey(c.row.CaCertPem, c.row.JwtPublicKeyPem), nil
 }
@@ -118,6 +132,11 @@ func (s *PanelPairingService) get() (*pairingCache, error) {
 		}
 	}
 
+	row, err = s.ensureAuthSecret(db, row)
+	if err != nil {
+		return nil, err
+	}
+
 	cache, err := buildPairingCache(row)
 	if err != nil {
 		return nil, err
@@ -131,9 +150,12 @@ func buildPairingCache(row model.PanelPairing) (*pairingCache, error) {
 	if err != nil {
 		return nil, err
 	}
-	priv, err := parseRSAPrivateKeyFromPEM(row.JwtPrivateKeyPem)
-	if err != nil {
-		return nil, fmt.Errorf("panel JWT key: %w", err)
+	var priv *rsa.PrivateKey
+	if strings.TrimSpace(row.AuthSecret) == "" {
+		priv, err = parseRSAPrivateKeyFromPEM(row.JwtPrivateKeyPem)
+		if err != nil {
+			return nil, fmt.Errorf("panel JWT key: %w", err)
+		}
 	}
 	return &pairingCache{
 		loaded:     true,
@@ -178,6 +200,7 @@ func (s *PanelPairingService) generateAndStore(db *gorm.DB) (model.PanelPairing,
 		PanelClientKeyPem:  material.panelClientKeyPem,
 		JwtPrivateKeyPem:   material.jwtPrivateKeyPem,
 		JwtPublicKeyPem:    material.jwtPublicKeyPem,
+		AuthSecret:         material.authSecret,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
@@ -194,6 +217,7 @@ func (s *PanelPairingService) generateAndStore(db *gorm.DB) (model.PanelPairing,
 
 type pairingMaterial struct {
 	secretKey          string
+	authSecret         string
 	caCertPem          string
 	caKeyPem           string
 	nodeCertPem        string
@@ -204,7 +228,50 @@ type pairingMaterial struct {
 	jwtPublicKeyPem    string
 }
 
+func ensurePanelAuthSecret(row model.PanelPairing) (model.PanelPairing, bool) {
+	if strings.TrimSpace(row.AuthSecret) != "" {
+		return row, false
+	}
+	row.AuthSecret = random.Seq(32)
+	row.SecretKey = encodeSecretKeyBundle(row)
+	row.UpdatedAt = time.Now().Unix()
+	return row, true
+}
+
+func (s *PanelPairingService) ensureAuthSecret(db *gorm.DB, row model.PanelPairing) (model.PanelPairing, error) {
+	updated, changed := ensurePanelAuthSecret(row)
+	if !changed {
+		return updated, nil
+	}
+	if err := db.Model(&model.PanelPairing{}).Where("id = ?", 1).Updates(map[string]any{
+		"auth_secret": updated.AuthSecret,
+		"secret_key":  updated.SecretKey,
+		"updated_at":  updated.UpdatedAt,
+	}).Error; err != nil {
+		return model.PanelPairing{}, fmt.Errorf("backfill panel auth secret: %w", err)
+	}
+	logger.Info("Panel node auth secret initialized (persistent JWT/HMAC key). Update SECRET_KEY on all nodes from Settings → Nodes.")
+	return updated, nil
+}
+
+func encodeSecretKeyBundle(row model.PanelPairing) string {
+	payload := struct {
+		CACertPem   string `json:"caCertPem"`
+		NodeCertPem string `json:"nodeCertPem"`
+		NodeKeyPem  string `json:"nodeKeyPem"`
+		AuthSecret  string `json:"authSecret"`
+	}{
+		CACertPem:   row.CaCertPem,
+		NodeCertPem: row.NodeCertPem,
+		NodeKeyPem:  row.NodeKeyPem,
+		AuthSecret:  row.AuthSecret,
+	}
+	raw, _ := json.Marshal(payload)
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
 func generatePanelPairingMaterial() (*pairingMaterial, error) {
+	authSecret := random.Seq(32)
 	caPriv, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
 		return nil, err
@@ -301,15 +368,15 @@ func generatePanelPairingMaterial() (*pairingMaterial, error) {
 	jwtPrivPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(jwtPriv)})
 
 	payload := struct {
-		CACertPem    string `json:"caCertPem"`
-		JWTPublicKey string `json:"jwtPublicKey"`
-		NodeCertPem  string `json:"nodeCertPem"`
-		NodeKeyPem   string `json:"nodeKeyPem"`
+		CACertPem   string `json:"caCertPem"`
+		NodeCertPem string `json:"nodeCertPem"`
+		NodeKeyPem  string `json:"nodeKeyPem"`
+		AuthSecret  string `json:"authSecret"`
 	}{
-		CACertPem:    string(caCertPEM),
-		JWTPublicKey: string(jwtPubPEM),
-		NodeCertPem:  string(nodeCertPEM),
-		NodeKeyPem:   string(nodeKeyPEM),
+		CACertPem:   string(caCertPEM),
+		NodeCertPem: string(nodeCertPEM),
+		NodeKeyPem:  string(nodeKeyPEM),
+		AuthSecret:  authSecret,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -318,6 +385,7 @@ func generatePanelPairingMaterial() (*pairingMaterial, error) {
 
 	return &pairingMaterial{
 		secretKey:          base64.StdEncoding.EncodeToString(raw),
+		authSecret:         authSecret,
 		caCertPem:          string(caCertPEM),
 		caKeyPem:           string(caKeyPEM),
 		nodeCertPem:        string(nodeCertPEM),
@@ -331,4 +399,23 @@ func generatePanelPairingMaterial() (*pairingMaterial, error) {
 
 func randomSerial() (*big.Int, error) {
 	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+}
+
+func parseRSAPrivateKeyFromPEM(pemStr string) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("jwt private key: no PEM block")
+	}
+	if k, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return k, nil
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	rsaKey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("jwt private key is not RSA")
+	}
+	return rsaKey, nil
 }

@@ -1,8 +1,4 @@
-// Package pairing_outbound derives a shared symmetric key from the public pairing material
-// (caCertPem + jwt public PEM) that is present in the base64 SECRET_KEY bundle on the node
-// and in the panel_pairing table on the panel. Node→panel log push and similar requests
-// can authenticate with HMAC-SHA256 over the raw body; nodes are disambiguated by nodeAddress
-// in the body (shared SECRET_KEY for all workers).
+// Package pairing_outbound signs node→panel requests with a shared symmetric key.
 package pairing_outbound
 
 import (
@@ -12,8 +8,13 @@ import (
 	"strings"
 )
 
-// OutboundHMACKey derives a 32-byte key from the same strings encoded in the SECRET_KEY JSON
-// and stored in the panel's panel_pairing row. Trailing whitespace is ignored so DB vs env match.
+// KeyFromAuthSecret derives a 32-byte HMAC/JWT key from the persistent panel auth secret.
+func KeyFromAuthSecret(authSecret string) [32]byte {
+	return sha256.Sum256([]byte(strings.TrimSpace(authSecret)))
+}
+
+// OutboundHMACKey derives a 32-byte key from legacy public pairing material (ca + JWT public PEM).
+// Deprecated: use KeyFromAuthSecret when authSecret is present in the bundle.
 func OutboundHMACKey(caCertPem, jwtPublicKeyPem string) [32]byte {
 	s := strings.TrimSpace(caCertPem) + "\n" + strings.TrimSpace(jwtPublicKeyPem)
 	return sha256.Sum256([]byte(s))

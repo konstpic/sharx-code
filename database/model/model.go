@@ -365,6 +365,7 @@ type PanelPairing struct {
 	PanelClientKeyPem  string `json:"-" gorm:"column:panel_client_key_pem;type:text;not null"`
 	JwtPrivateKeyPem   string `json:"-" gorm:"column:jwt_private_key_pem;type:text;not null"`
 	JwtPublicKeyPem    string `json:"-" gorm:"column:jwt_public_key_pem;type:text;not null"`
+	AuthSecret         string `json:"-" gorm:"column:auth_secret;type:text;not null"`
 	CreatedAt          int64  `json:"createdAt" gorm:"column:created_at"`
 	UpdatedAt          int64  `json:"updatedAt" gorm:"column:updated_at"`
 }

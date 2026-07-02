@@ -25,7 +25,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/xray"
-	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 	"github.com/op/go-logging"
 )
 
@@ -73,7 +72,7 @@ func main() {
 		logger.Error("SECRET_KEY is required (set env SECRET_KEY to the base64 JSON bundle from the panel)")
 		os.Exit(1)
 	}
-	h := pairing_outbound.OutboundHMACKey(bundle.Payload.CACertPem, bundle.Payload.JWTPublicKey)
+	h := bundle.OutboundHMACKey()
 	nodeLogs.SetOutboundHMACKey(h)
 
 	savedConfig := nodeConfig.GetConfig()

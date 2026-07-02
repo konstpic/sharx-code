@@ -1,10 +1,6 @@
 package service
 
 import (
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
-	"fmt"
 	"sync"
 	"time"
 
@@ -23,28 +19,9 @@ var (
 	nodeJWTCache = map[int]nodeJWTCacheEntry{}
 )
 
-func parseRSAPrivateKeyFromPEM(pemStr string) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(pemStr))
-	if block == nil {
-		return nil, fmt.Errorf("jwt private key: no PEM block")
-	}
-	if k, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
-		return k, nil
-	}
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
-	rsaKey, ok := key.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("jwt private key is not RSA")
-	}
-	return rsaKey, nil
-}
-
 func (s *NodeService) signNodeJWT(_ *model.Node) (string, error) {
 	pairing := &PanelPairingService{}
-	priv, err := pairing.GetJWTPrivateKey()
+	authSecret, err := pairing.GetAuthSecret()
 	if err != nil {
 		return "", err
 	}
@@ -53,6 +30,14 @@ func (s *NodeService) signNodeJWT(_ *model.Node) (string, error) {
 		"aud": auth.JWTAudience,
 		"exp": time.Now().Add(3 * time.Minute).Unix(),
 		"iat": time.Now().Unix(),
+	}
+	if authSecret != "" {
+		t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		return t.SignedString([]byte(authSecret))
+	}
+	priv, err := pairing.GetJWTPrivateKey()
+	if err != nil {
+		return "", err
 	}
 	t := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	return t.SignedString(priv)

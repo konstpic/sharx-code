@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -35,7 +34,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/node/xray"
 	telemtinstall "github.com/konstpic/sharx-code/v2/telemt/install"
 	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
-	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 )
 
 // try executes a function and recovers from panics, logging them as warnings
@@ -271,7 +269,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if err := verifyBearerJWT(authHeader, s.pairing.JWTPublicKey); err != nil {
+		if err := verifyBearerJWT(authHeader, s.pairing); err != nil {
 			logger.Warningf("Request to %s rejected: JWT: %v", c.Request.URL.Path, err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			c.Abort()
@@ -281,21 +279,35 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 	}
 }
 
-func verifyBearerJWT(authHeader string, pub *rsa.PublicKey) error {
-	if pub == nil {
+func verifyBearerJWT(authHeader string, bundle *auth.Bundle) error {
+	if bundle == nil {
 		return fmt.Errorf("jwt not configured")
 	}
 	if len(authHeader) < 8 || !strings.HasPrefix(authHeader, "Bearer ") {
 		return fmt.Errorf("missing bearer")
 	}
 	tokenStr := strings.TrimSpace(authHeader[7:])
+	if bundle.UsesAuthSecret() {
+		parser := jwt.NewParser(
+			jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+			jwt.WithIssuer(auth.JWTIssuer),
+			jwt.WithAudience(auth.JWTAudience),
+		)
+		_, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			return []byte(bundle.AuthSecret), nil
+		})
+		return err
+	}
+	if bundle.JWTPublicKey == nil {
+		return fmt.Errorf("jwt not configured")
+	}
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
 		jwt.WithIssuer(auth.JWTIssuer),
 		jwt.WithAudience(auth.JWTAudience),
 	)
 	_, err := parser.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		return pub, nil
+		return bundle.JWTPublicKey, nil
 	})
 	return err
 }
@@ -384,7 +396,7 @@ func (s *Server) applyConfig(c *gin.Context) {
 				logger.Infof("Panel URL updated in log pusher: %s", panelURL)
 				// Startup geopush may have skipped with empty PANEL_URL; panel sends URL on first apply-config.
 				if s.pairing != nil {
-					hk := pairing_outbound.OutboundHMACKey(s.pairing.Payload.CACertPem, s.pairing.Payload.JWTPublicKey)
+					hk := s.pairing.OutboundHMACKey()
 					nodeAddr := nodeConfig.GetConfig().NodeAddress
 					if nodeAddr == "" {
 						nodeAddr = os.Getenv("NODE_ADDRESS")
