@@ -460,8 +460,7 @@ func (a *ClientGroupController) bulkAssignInbounds(c *gin.Context) {
 	}
 	jsonMsg(c, "Inbounds assigned successfully", nil)
 	if needRestart {
-		// Restart asynchronously to avoid blocking the response
-		a.xrayService.RestartXrayAsync(false)
+		a.xrayService.RestartOrSyncWorkersForInboundsAsync(req.InboundIds)
 	}
 }
 

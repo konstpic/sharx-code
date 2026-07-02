@@ -636,6 +636,7 @@ func (s *XrayService) ApplySessionIPBlockHotAfterDB(clientId int, email, normali
 // buildNodeWorkerConfigJSON builds the same Xray JSON that ApplyConfigToNode sends for one node.
 // The returned core profile hash is SHA-256 hex of the selected profile's ConfigJson (DB), or "" if none.
 func (s *XrayService) buildNodeWorkerConfigJSON(node *model.Node, inbounds []*model.Inbound, baseConfig *xray.Config, hyCert, hyKey string) ([]byte, string, error) {
+	sortInboundsForWorkerConfig(inbounds)
 	// Determine which core config profile to use
 	var coreConfigProfile *model.XrayCoreConfigProfile
 	profileService := XrayCoreConfigProfileService{}
@@ -707,62 +708,22 @@ func (s *XrayService) buildNodeWorkerConfigJSON(node *model.Node, inbounds []*mo
 		if !model.IsXrayInboundProtocol(inbound.Protocol) {
 			continue
 		}
-		if proto := model.NormalizeProtocol(inbound.Protocol); proto == model.WireGuard || proto == model.AmneziaWG || proto == model.Shadowsocks {
-			if clientEntities, err := nodeClientService.GetClientsForInbound(inbound.Id); err == nil {
+		proto := model.NormalizeProtocol(inbound.Protocol)
+		if clientEntities, err := nodeClientService.GetClientsForInbound(inbound.Id); err == nil {
+			switch proto {
+			case model.WireGuard, model.AmneziaWG, model.Shadowsocks:
 				if built, err := s.inboundService.RebuildInboundSettingsForXray(inbound, clientEntities); err == nil && built != "" {
 					inbound.Settings = built
 				} else if err != nil {
 					logger.Warningf("buildNodeWorkerConfigJSON: inbound %d settings build: %v", inbound.Id, err)
 				}
-			}
-		}
-		settings := map[string]any{}
-		json.Unmarshal([]byte(inbound.Settings), &settings)
-		clients, ok := settings["clients"].([]any)
-		if ok {
-			clientStats := inbound.ClientStats
-			for _, clientTraffic := range clientStats {
-				indexDecrease := 0
-				for index, client := range clients {
-					c := client.(map[string]any)
-					if c["email"] == clientTraffic.Email {
-						if !clientTraffic.Enable {
-							clients = RemoveIndex(clients, index-indexDecrease)
-							indexDecrease++
-						}
-					}
+			default:
+				if built, err := s.inboundService.BuildSettingsFromClientEntities(inbound, clientEntities); err == nil {
+					inbound.Settings = built
+				} else if err != nil {
+					logger.Warningf("buildNodeWorkerConfigJSON: inbound %d settings build: %v", inbound.Id, err)
 				}
 			}
-
-			var final_clients []any
-			proto := model.NormalizeProtocol(inbound.Protocol)
-			for _, client := range clients {
-				c := client.(map[string]any)
-				if c["enable"] != nil {
-					if enable, ok := c["enable"].(bool); ok && !enable {
-						continue
-					}
-				}
-				for key := range c {
-					if key != "email" && key != "id" && key != "password" && key != "auth" && key != "flow" && key != "method" {
-						delete(c, key)
-					}
-					if c["flow"] == "xtls-rprx-vision-udp443" {
-						c["flow"] = "xtls-rprx-vision"
-					}
-				}
-				if proto != model.VLESS {
-					delete(c, "flow")
-				}
-				if model.IsHysteria(inbound.Protocol) {
-					normalizeHysteriaClientAuth(c)
-				}
-				final_clients = append(final_clients, any(c))
-			}
-
-			settings["clients"] = final_clients
-			modifiedSettings, _ := json.MarshalIndent(settings, "", "  ")
-			inbound.Settings = string(modifiedSettings)
 		}
 
 		if len(inbound.StreamSettings) > 0 {

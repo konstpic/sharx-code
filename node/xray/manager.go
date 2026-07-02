@@ -63,7 +63,11 @@ func ensureNodeXrayLoggingDefaults(cfg *xray.Config) {
 	logObj["error"] = nodeXrayErrorLogPath
 
 	if b, err := json.Marshal(logObj); err == nil {
-		cfg.LogConfig = json_util.RawMessage(b)
+		if cb, err2 := json_util.CanonicalJSONBytes(b); err2 == nil {
+			cfg.LogConfig = json_util.RawMessage(cb)
+		} else {
+			cfg.LogConfig = json_util.RawMessage(b)
+		}
 	}
 }
 
@@ -359,7 +363,7 @@ func (m *Manager) ApplyConfig(configJSON []byte) error {
 	// If XRAY is running and config is the same, skip restart
 	if m.process != nil && m.process.IsRunning() {
 		oldConfig := m.process.GetConfig()
-		if oldConfig != nil && oldConfig.Equals(&newConfig) {
+		if oldConfig != nil && oldConfig.EqualCanonical(&newConfig) {
 			logger.Infof("ApplyConfig(manager): compare result=unchanged, inbound_count=%d, action=skip-restart", len(newConfig.InboundConfigs))
 			return nil
 		}

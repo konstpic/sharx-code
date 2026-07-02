@@ -954,8 +954,12 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 			xrayService.SyncWorkerSidecarsAsync()
 		}
 		if needXrayRestart {
-			logger.Debugf("UpdateClient: scheduling async Xray restart to apply changes")
-			xrayService.RestartXrayAsync(false)
+			inboundIDs := make([]int, 0, len(affectedInboundIds))
+			for inboundID := range affectedInboundIds {
+				inboundIDs = append(inboundIDs, inboundID)
+			}
+			logger.Debugf("UpdateClient: syncing worker Xray for %d inbound(s) on assigned nodes only", len(inboundIDs))
+			xrayService.SyncWorkerXrayForInboundsAsync(inboundIDs)
 		}
 	}()
 
@@ -1132,12 +1136,17 @@ func (s *ClientService) DeleteClient(userId int, id int) (bool, error) {
 		}()
 	}
 	if needXrayRestart {
-		logger.Debugf("DeleteClient: scheduling async Xray restart to apply changes")
+		inboundIDs := make([]int, 0, len(affectedInboundIds))
+		for inboundID := range affectedInboundIds {
+			inboundIDs = append(inboundIDs, inboundID)
+		}
+		logger.Debugf("DeleteClient: syncing worker Xray for %d inbound(s) on assigned nodes only", len(inboundIDs))
 		go func() {
-			if err := xrayService.RestartXray(false); err != nil {
-				logger.Warningf("DeleteClient: failed to restart Xray: %v", err)
+			xs := XrayService{}
+			if err := xs.syncWorkerXrayForInbounds(inboundIDs); err != nil {
+				logger.Warningf("DeleteClient: failed to sync worker Xray: %v", err)
 			} else {
-				logger.Debugf("DeleteClient: Xray restarted successfully (config synced)")
+				logger.Debugf("DeleteClient: worker Xray synced for affected inbounds")
 			}
 		}()
 
@@ -1317,7 +1326,7 @@ func (s *ClientService) SyncClientInboundAssignments(tx *gorm.DB, clientId int, 
 func (s *ClientService) GetClientsForInbound(inboundId int) ([]*model.ClientEntity, error) {
 	db := database.GetDB()
 	var mappings []model.ClientInboundMapping
-	err := db.Where("inbound_id = ?", inboundId).Find(&mappings).Error
+	err := db.Where("inbound_id = ?", inboundId).Order("sort_order ASC, id ASC").Find(&mappings).Error
 	if err != nil {
 		return nil, err
 	}
@@ -1332,7 +1341,7 @@ func (s *ClientService) GetClientsForInbound(inboundId int) ([]*model.ClientEnti
 	}
 
 	var clients []*model.ClientEntity
-	err = db.Where("id IN ?", clientIds).Find(&clients).Error
+	err = db.Where("id IN ?", clientIds).Order("id ASC").Find(&clients).Error
 	if err != nil {
 		return nil, err
 	}
@@ -2444,10 +2453,17 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 		}
 	}
 
-	// Single mode: restart Xray asynchronously to apply changes
-	if !multiMode && needRestart {
+	// Multi-node: sync only workers hosting affected inbounds; single-node: async local restart.
+	if needRestart {
+		inboundIDs := make([]int, 0, len(affectedInboundIds))
+		for inboundID := range affectedInboundIds {
+			inboundIDs = append(inboundIDs, inboundID)
+		}
+		if multiMode {
+			xrayService.SyncWorkerXrayForInboundsAsync(inboundIDs)
+			return false, nil
+		}
 		logger.Debugf("BulkEnable: scheduling async restart to apply changes")
-		xrayService := XrayService{}
 		go func() {
 			if err := xrayService.RestartXray(false); err != nil {
 				logger.Warningf("BulkEnable: failed to restart Xray: %v", err)
@@ -2455,11 +2471,7 @@ func (s *ClientService) BulkEnable(userId int, clientIds []int, enable bool) (bo
 				logger.Debugf("BulkEnable: Xray restarted successfully (config synced)")
 			}
 		}()
-
-		// Note: Notifications are now handled by the caller (e.g., bulkEnable controller)
-		// to allow sending group-level notifications instead of per-client notifications
-
-		return false, nil // No need for synchronous restart
+		return false, nil
 	}
 
 	// Note: Notifications are now handled by the caller (e.g., bulkEnable controller)

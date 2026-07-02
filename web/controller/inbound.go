@@ -123,17 +123,16 @@ func NewInboundController(g *gin.RouterGroup) *InboundController {
 	return a
 }
 
-// syncWorkerAfterInboundMutation schedules multi-node pushes: Telemt inbounds restart workers immediately so
-// sidecars refresh without waiting on the cron need-restart ticker.
-func (a *InboundController) syncWorkerAfterInboundMutation(needRestart bool, inboundProtocol model.Protocol) {
-	if !needRestart {
+// syncWorkerAfterInboundMutation schedules multi-node pushes to workers hosting the mutated inbound only.
+func (a *InboundController) syncWorkerAfterInboundMutation(needRestart bool, inboundId int, inboundProtocol model.Protocol) {
+	if !needRestart || inboundId <= 0 {
 		return
 	}
 	if model.IsSidecarProtocol(inboundProtocol) {
 		a.xrayService.SyncWorkerSidecarsAsync()
 		return
 	}
-	a.xrayService.SetToNeedRestart()
+	a.xrayService.SyncWorkerXrayForInboundsAsync([]int{inboundId})
 }
 
 // initRouter initializes the routes for inbound-related operations.
@@ -630,7 +629,7 @@ func (a *InboundController) addInbound(c *gin.Context) {
 	logger.Infof("[DEBUG-AGENT] addInbound controller: SUCCESS, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
 	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, nil)
-	a.syncWorkerAfterInboundMutation(needRestart, inbound.Protocol)
+	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	// Broadcast inbounds update via WebSocket
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
@@ -648,8 +647,17 @@ func (a *InboundController) delInbound(c *gin.Context) {
 	logger.Infof("[DEBUG-AGENT] delInbound controller: parsed ID=%d", id)
 	logger.Infof("[DEBUG-AGENT] delInbound controller: calling DelInbound, id=%d", id)
 	var delProto model.Protocol
+	var delNodeIDs []int
 	if oldIb, _ := a.inboundService.GetInbound(id); oldIb != nil {
 		delProto = oldIb.Protocol
+		nodeService := service.NodeService{}
+		if nodes, nerr := nodeService.GetNodesForInbound(id); nerr == nil {
+			for _, n := range nodes {
+				if n != nil {
+					delNodeIDs = append(delNodeIDs, n.Id)
+				}
+			}
+		}
 	}
 	needRestart, err := a.inboundService.DelInbound(id)
 	if err != nil {
@@ -659,7 +667,15 @@ func (a *InboundController) delInbound(c *gin.Context) {
 	}
 	logger.Infof("[DEBUG-AGENT] delInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), id, nil)
-	a.syncWorkerAfterInboundMutation(needRestart, delProto)
+	if needRestart {
+		if model.IsSidecarProtocol(delProto) {
+			a.xrayService.SyncWorkerSidecarsAsync()
+		} else if len(delNodeIDs) > 0 {
+			a.xrayService.ApplyWorkerConfigToNodeIDsAsync(delNodeIDs)
+		} else {
+			a.xrayService.RestartXrayAsync(false)
+		}
+	}
 	// Broadcast inbounds update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -852,7 +868,7 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	logger.Infof("[DEBUG-AGENT] updateInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
 	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), inbound, nil)
-	a.syncWorkerAfterInboundMutation(needRestart, inbound.Protocol)
+	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	// Broadcast inbounds update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -903,7 +919,7 @@ func (a *InboundController) addInboundClient(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(data.Id); ierr == nil && ib != nil {
 		proto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(needRestart, proto)
+	a.syncWorkerAfterInboundMutation(needRestart, data.Id, proto)
 	// Broadcast inbounds and clients update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -948,7 +964,7 @@ func (a *InboundController) delInboundClient(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(id); ierr == nil && ib != nil {
 		delClProto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(needRestart, delClProto)
+	a.syncWorkerAfterInboundMutation(needRestart, id, delClProto)
 	// Broadcast inbounds and clients update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -998,7 +1014,7 @@ func (a *InboundController) updateInboundClient(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(inbound.Id); ierr == nil && ib != nil {
 		updClProto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(needRestart, updClProto)
+	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, updClProto)
 	// Broadcast inbounds and clients update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -1028,7 +1044,7 @@ func (a *InboundController) resetClientTraffic(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(id); ierr == nil && ib != nil {
 		rtProto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(needRestart, rtProto)
+	a.syncWorkerAfterInboundMutation(needRestart, id, rtProto)
 }
 
 // resetAllTraffics resets all traffic counters across all inbounds.
@@ -1060,7 +1076,7 @@ func (a *InboundController) resetAllClientTraffics(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(id); ierr == nil && ib != nil {
 		racProto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(true, racProto)
+	a.syncWorkerAfterInboundMutation(true, id, racProto)
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetAllClientTrafficSuccess"), nil)
 }
 
@@ -1085,7 +1101,7 @@ func (a *InboundController) importInbound(c *gin.Context) {
 	inbound, needRestart, err = a.inboundService.AddInbound(inbound)
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, err)
 	if err == nil {
-		a.syncWorkerAfterInboundMutation(needRestart, inbound.Protocol)
+		a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	}
 }
 
@@ -1162,7 +1178,7 @@ func (a *InboundController) delInboundClientByEmail(c *gin.Context) {
 	if ib, ierr := a.inboundService.GetInbound(inboundId); ierr == nil && ib != nil {
 		byEmailProto = ib.Protocol
 	}
-	a.syncWorkerAfterInboundMutation(needRestart, byEmailProto)
+	a.syncWorkerAfterInboundMutation(needRestart, inboundId, byEmailProto)
 	// Broadcast inbounds and clients update via WebSocket
 	user := session.GetLoginUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)

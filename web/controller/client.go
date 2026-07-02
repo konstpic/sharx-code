@@ -317,10 +317,7 @@ func (a *ClientController) addClient(c *gin.Context) {
 
 	jsonMsgObj(c, I18nWeb(c, "pages.clients.toasts.clientCreateSuccess"), client, nil)
 	if needRestart {
-		// In multi-node mode, this will send config to nodes immediately
-		// In single mode, this will restart local Xray
-		// Restart asynchronously to avoid blocking the response
-		a.xrayService.RestartXrayAsync(false)
+		a.xrayService.RestartOrSyncWorkersForInboundsAsync(client.InboundIds)
 	}
 	// Broadcast clients and inbounds update via WebSocket
 	clients, _ := a.clientService.GetClients(user.Id)
