@@ -134,8 +134,7 @@ type PendingRegistration = {
 };
 
 /** Host-network worker + Watchtower sidecar (127.0.0.1:8081) for in-panel image updates, same contract as the panel stack. */
-function buildNodeDockerComposeYaml(secretKey: string, panelUrl: string) {
-  const p = panelUrl || "https://your-panel.example";
+function buildNodeDockerComposeYaml(secretKey: string) {
   return `services:
   node:
     image: ${NODE_DOCKER_IMAGE}
@@ -152,7 +151,6 @@ function buildNodeDockerComposeYaml(secretKey: string, panelUrl: string) {
       - sharx-node-cert:/app/cert
       - sharx-node-data:/app/data
     environment:
-      PANEL_URL: ${JSON.stringify(p)}
       SECRET_KEY: ${JSON.stringify(secretKey)}
       XUI_DOCKER_UPDATER_URL: http://127.0.0.1:8081/v1/update
       XUI_DOCKER_UPDATER_TOKEN: \${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
@@ -229,7 +227,6 @@ export function NodesPage() {
   // Panel-wide pairing secret: same for every node, fetched once on modal open.
   const [panelSecretKey, setPanelSecretKey] = useState<string | null>(null);
   const [panelSecretLoading, setPanelSecretLoading] = useState(false);
-  const [panelOrigin, setPanelOrigin] = useState("");
 
   const [metricsNode, setMetricsNode] = useState<{ id: number; name: string } | null>(null);
   const [multiNode, setMultiNode] = useState<boolean | null>(null);
@@ -431,9 +428,6 @@ export function NodesPage() {
 
   const openAdd = () => {
     resetAddModal();
-    if (typeof window !== "undefined") {
-      setPanelOrigin(window.location.origin);
-    }
     setAddOpen(true);
     void loadPanelSecret();
     void loadMultiNode();
@@ -537,10 +531,6 @@ export function NodesPage() {
             setCreatedSecretKey(sk0);
           }
         }
-        if (typeof window !== "undefined") {
-          setPanelOrigin((prev) => prev || window.location.origin);
-        }
-
         setRegisterPhase("verify");
         await wait(REGISTER_HANDSHAKE_PREVIEW_MS);
         const checkR = await postJson<unknown>(
@@ -619,9 +609,6 @@ export function NodesPage() {
       }
       toast.error(t("pages.nodes.enterNodeAddress"));
       return;
-    }
-    if (typeof window !== "undefined") {
-      setPanelOrigin(window.location.origin);
     }
     setForm((f) => ({
       ...f,
@@ -731,7 +718,7 @@ export function NodesPage() {
   const copyDockerCompose = async () => {
     if (!createdSecretKey) return;
     try {
-      const yaml = buildNodeDockerComposeYaml(createdSecretKey, panelOrigin);
+      const yaml = buildNodeDockerComposeYaml(createdSecretKey);
       await copyTextToClipboard(yaml);
       toast.success(t("copied"));
     } catch {
@@ -742,7 +729,7 @@ export function NodesPage() {
   const copyPanelCompose = async () => {
     if (!panelSecretKey) return;
     try {
-      const yaml = buildNodeDockerComposeYaml(panelSecretKey, panelOrigin);
+      const yaml = buildNodeDockerComposeYaml(panelSecretKey);
       await copyTextToClipboard(yaml);
       toast.success(t("copied"));
     } catch {

@@ -2,8 +2,6 @@
 package auth
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -39,32 +37,11 @@ func LoadBundleFromEnv() (*Bundle, error) {
 	return ParseSecretKey(raw)
 }
 
-// ParseSecretKey accepts a plain secret or legacy base64 JSON bundle (authSecret field only).
+// ParseSecretKey accepts a plain 128-char secret or legacy base64 JSON with authSecret only.
 func ParseSecretKey(raw string) (*Bundle, error) {
-	secret := extractSecret(raw)
+	secret := pairing_outbound.ExtractAuthSecretFromStored(raw)
 	if secret == "" {
-		return nil, fmt.Errorf("SECRET_KEY is empty or invalid")
+		return nil, fmt.Errorf("SECRET_KEY is empty or invalid (use plain secret from panel Settings → Nodes)")
 	}
 	return &Bundle{AuthSecret: secret}, nil
-}
-
-func extractSecret(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
-		var payload struct {
-			AuthSecret string `json:"authSecret"`
-		}
-		if json.Unmarshal(decoded, &payload) == nil {
-			if s := strings.TrimSpace(payload.AuthSecret); s != "" {
-				return s
-			}
-		}
-	}
-	if len(raw) >= 16 && !strings.HasPrefix(raw, "{") {
-		return raw
-	}
-	return ""
 }

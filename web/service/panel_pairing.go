@@ -1,8 +1,6 @@
 package service
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -74,7 +72,10 @@ func (s *PanelPairingService) get() (*pairingCache, error) {
 	panelPairingOnce.Lock()
 	defer panelPairingOnce.Unlock()
 	if panelPairingRef != nil && panelPairingRef.loaded {
-		return panelPairingRef, nil
+		if !pairing_outbound.IsLegacyCertBundle(panelPairingRef.secret) {
+			return panelPairingRef, nil
+		}
+		panelPairingRef = nil
 	}
 
 	db := database.GetDB()
@@ -129,11 +130,11 @@ func (s *PanelPairingService) generateAndStore(db *gorm.DB) (model.PanelPairing,
 }
 
 func (s *PanelPairingService) normalizeRow(db *gorm.DB, row model.PanelPairing) (model.PanelPairing, error) {
-	secret := strings.TrimSpace(row.AuthSecret)
+	secret := pairing_outbound.ExtractAuthSecretFromStored(row.AuthSecret)
 	if secret == "" {
-		secret = extractSecretFromStoredKey(row.SecretKey)
+		secret = pairing_outbound.ExtractAuthSecretFromStored(row.SecretKey)
 	}
-	if secret == "" {
+	if secret == "" || pairing_outbound.IsLegacyCertBundle(secret) {
 		secret = random.Seq(nodeAuthSecretLen)
 	}
 	changed := secret != strings.TrimSpace(row.AuthSecret) || secret != strings.TrimSpace(row.SecretKey)
@@ -152,23 +153,4 @@ func (s *PanelPairingService) normalizeRow(db *gorm.DB, row model.PanelPairing) 
 	}
 	logger.Info("Panel node SECRET_KEY is a plain auth secret. Update SECRET_KEY on all nodes from Settings → Nodes.")
 	return row, nil
-}
-
-func extractSecretFromStoredKey(stored string) string {
-	stored = strings.TrimSpace(stored)
-	if stored == "" {
-		return ""
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(stored); err == nil {
-		var payload struct {
-			AuthSecret string `json:"authSecret"`
-		}
-		if json.Unmarshal(decoded, &payload) == nil && strings.TrimSpace(payload.AuthSecret) != "" {
-			return strings.TrimSpace(payload.AuthSecret)
-		}
-	}
-	if len(stored) >= 16 && !strings.HasPrefix(stored, "{") {
-		return stored
-	}
-	return ""
 }

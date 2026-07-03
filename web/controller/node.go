@@ -78,9 +78,7 @@ func (a *NodeController) getClientTrafficPerNode(c *gin.Context) {
 	jsonObj(c, out, nil)
 }
 
-// getPairingSecret returns the shared SECRET_KEY (base64 JSON) that every pairing-mode node
-// needs in its docker-compose.yml. The same value is reused for all nodes so a single compose
-// file can be deployed across many hosts.
+// getPairingSecret returns the shared plain SECRET_KEY for node docker-compose (128 chars).
 func (a *NodeController) getPairingSecret(c *gin.Context) {
 	pairing := &service.PanelPairingService{}
 	secret, err := pairing.GetSecretKey()
