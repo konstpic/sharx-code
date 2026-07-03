@@ -82,6 +82,16 @@ func (x *XrayAPI) Close() {
 	x.isConnected = false
 }
 
+// ValidateInboundConfigJSON checks that inbound JSON can be parsed and built for HandlerService.AddInbound.
+func ValidateInboundConfigJSON(inbound []byte) error {
+	conf := new(conf.InboundDetourConfig)
+	if err := json.Unmarshal(inbound, conf); err != nil {
+		return err
+	}
+	_, err := conf.Build()
+	return err
+}
+
 // AddInbound adds a new inbound configuration to the Xray core via gRPC.
 func (x *XrayAPI) AddInbound(inbound []byte) error {
 	client := *x.HandlerServiceClient

@@ -45,13 +45,19 @@ func (s *InboundService) getXrayAPI(apiPort int) (*xray.XrayAPI, error) {
 }
 
 func marshalInboundJSONForXray(inbound *model.Inbound) ([]byte, error) {
-	if inbound != nil && !model.IsXrayInboundProtocol(inbound.Protocol) {
+	if inbound == nil {
+		return nil, fmt.Errorf("inbound is nil")
+	}
+	if !model.IsXrayInboundProtocol(inbound.Protocol) {
 		return nil, fmt.Errorf("protocol %s is not an Xray inbound", inbound.Protocol)
 	}
-	ss := SettingService{}
-	cf, _ := ss.GetCertFile()
-	kf, _ := ss.GetKeyFile()
-	return json.MarshalIndent(BuildInboundXrayConfig(inbound, cf, kf), "", "  ")
+	ibCopy := *inbound
+	xs := XrayService{settingService: SettingService{}}
+	cfg, err := xs.PreviewInboundCoreConfig(&ibCopy)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(cfg, "", "  ")
 }
 
 // inboundUpdateMutexes provides per-inbound mutexes to prevent concurrent updates

@@ -338,6 +338,7 @@ func (s *Server) applyConfig(c *gin.Context) {
 		AmneziaWG            json.RawMessage `json:"amneziawg"`
 		CoreProfileHash      string          `json:"coreProfileHash,omitempty"`
 		ExpectedConfigSha256 string          `json:"expectedConfigSha256,omitempty"`
+		ForceReload          bool            `json:"forceReload,omitempty"`
 		LogRotate            json.RawMessage `json:"logRotate,omitempty"`
 	}
 
@@ -404,9 +405,15 @@ func (s *Server) applyConfig(c *gin.Context) {
 	}
 
 	logger.Infof("Applying XRAY configuration...")
-	if err := s.xrayManager.ApplyConfig(configBytes); err != nil {
-		logger.Errorf("Failed to apply config: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	var applyErr error
+	if requestData.ForceReload {
+		applyErr = s.xrayManager.ApplyConfigForce(configBytes)
+	} else {
+		applyErr = s.xrayManager.ApplyConfig(configBytes)
+	}
+	if applyErr != nil {
+		logger.Errorf("Failed to apply config: %v", applyErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": applyErr.Error()})
 		return
 	}
 

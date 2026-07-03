@@ -2662,6 +2662,8 @@ type ApplyWorkerConfigMeta struct {
 	CoreProfileHash string
 	// ExpectedPayloadSha256 is SHA-256 hex of the exact Xray JSON bytes in the request "config" field (optional).
 	ExpectedPayloadSha256 string
+	// ForceReload skips the canonical unchanged check and always restarts Xray when it is running.
+	ForceReload bool
 }
 
 // NewApplyWorkerConfigMeta builds metadata for apply-config: payload hash always set; core profile hash may be empty.
@@ -2719,6 +2721,9 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 		}
 		if meta.ExpectedPayloadSha256 != "" {
 			requestBody["expectedConfigSha256"] = meta.ExpectedPayloadSha256
+		}
+		if meta.ForceReload {
+			requestBody["forceReload"] = true
 		}
 	}
 	settingSvc := SettingService{}
@@ -2997,7 +3002,7 @@ func (s *NodeService) RemoveUserFromNode(node *model.Node, inboundTag, email str
 }
 
 // applyFullWorkerConfigToNode pushes the full Xray + sidecar payload (apply-config).
-func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node) error {
+func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node, forceReload bool) error {
 	xs := NewXrayService()
 	cfgJSON, coreH, cfgErr := xs.BuildWorkerXrayConfigForNodeWithMeta(node)
 	if cfgErr != nil {
@@ -3006,10 +3011,17 @@ func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node) error {
 	ibs, _ := xs.InboundsForWorkerNode(node)
 	telm, awg, _ := BuildWorkerSidecarPayloadsForNode(node, ibs)
 	meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
+	if meta != nil {
+		meta.ForceReload = forceReload
+	}
 	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, meta); apErr != nil {
 		return apErr
 	}
-	logger.Infof("[Node: %s] Full worker config applied via apply-config", node.Name)
+	if forceReload {
+		logger.Infof("[Node: %s] Full worker config applied via apply-config (force reload)", node.Name)
+	} else {
+		logger.Infof("[Node: %s] Full worker config applied via apply-config", node.Name)
+	}
 	return nil
 }
 
@@ -3033,8 +3045,8 @@ func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundC
 	if !inboundAPIFailureWarrantsFullConfigFallback(err) {
 		return err
 	}
-	logger.Warningf("[Node: %s] update-inbound failed (%v), falling back to apply-config", node.Name, err)
-	if fbErr := s.applyFullWorkerConfigToNode(node); fbErr != nil {
+	logger.Warningf("[Node: %s] update-inbound failed (%v), falling back to apply-config with force reload", node.Name, err)
+	if fbErr := s.applyFullWorkerConfigToNode(node, true); fbErr != nil {
 		return fmt.Errorf("update-inbound failed: %w; apply-config fallback failed: %v", err, fbErr)
 	}
 	return nil

@@ -346,9 +346,19 @@ func (m *Manager) GetStatus() map[string]interface{} {
 
 // ApplyConfig applies a new XRAY configuration and restarts if needed.
 func (m *Manager) ApplyConfig(configJSON []byte) error {
+	return m.applyConfig(configJSON, false)
+}
+
+// ApplyConfigForce applies config and always restarts Xray when it is already running,
+// even if the canonical config matches (used after failed hot-path inbound updates).
+func (m *Manager) ApplyConfigForce(configJSON []byte) error {
+	return m.applyConfig(configJSON, true)
+}
+
+func (m *Manager) applyConfig(configJSON []byte, forceRestart bool) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	logger.Infof("ApplyConfig(manager): accepted config payload, bytes=%d", len(configJSON))
+	logger.Infof("ApplyConfig(manager): accepted config payload, bytes=%d force=%v", len(configJSON), forceRestart)
 
 	var newConfig xray.Config
 	if err := json.Unmarshal(configJSON, &newConfig); err != nil {
@@ -361,7 +371,7 @@ func (m *Manager) ApplyConfig(configJSON []byte) error {
 	logger.Infof("ApplyConfig(manager): parsed config, inbound_count=%d", len(newConfig.InboundConfigs))
 
 	// If XRAY is running and config is the same, skip restart
-	if m.process != nil && m.process.IsRunning() {
+	if !forceRestart && m.process != nil && m.process.IsRunning() {
 		oldConfig := m.process.GetConfig()
 		if oldConfig != nil && oldConfig.EqualCanonical(&newConfig) {
 			logger.Infof("ApplyConfig(manager): compare result=unchanged, inbound_count=%d, action=skip-restart", len(newConfig.InboundConfigs))
@@ -388,6 +398,23 @@ func (m *Manager) ApplyConfig(configJSON []byte) error {
 	}
 
 	logger.Infof("XRAY configuration applied successfully, running_inbounds=%d", len(newConfig.InboundConfigs))
+	return nil
+}
+
+func (m *Manager) restartWithStoredConfigLocked() error {
+	if m.config == nil {
+		return errors.New("no config to restart")
+	}
+	if m.process != nil && m.process.IsRunning() {
+		if err := m.process.Stop(); err != nil {
+			logger.Warningf("Failed to stop XRAY during recovery restart: %v", err)
+		}
+	}
+	m.process = xray.NewProcess(m.config)
+	if err := m.process.Start(); err != nil {
+		return fmt.Errorf("failed to restart XRAY: %w", err)
+	}
+	logger.Infof("XRAY restarted from stored config after inbound update failure, inbound_count=%d", len(m.config.InboundConfigs))
 	return nil
 }
 
@@ -966,6 +993,10 @@ func (m *Manager) UpdateInbound(inboundConfig []byte) error {
 		return errors.New("inbound tag is required")
 	}
 
+	if err := xray.ValidateInboundConfigJSON(inboundConfig); err != nil {
+		return fmt.Errorf("invalid inbound config for API update: %w", err)
+	}
+
 	// Initialize XrayAPI
 	xrayAPI := &xray.XrayAPI{}
 	if err := xrayAPI.Init(apiPort); err != nil {
@@ -996,7 +1027,13 @@ func (m *Manager) UpdateInbound(inboundConfig []byte) error {
 				logger.Errorf("Failed to rollback inbound %s after update error: %v (original: %v)", tag, rollbackErr, err)
 			} else {
 				logger.Warningf("Rolled back inbound %s to previous config after failed update: %v", tag, err)
+				return fmt.Errorf("failed to add updated inbound: %w", err)
 			}
+		}
+		if recoveryErr := m.restartWithStoredConfigLocked(); recoveryErr != nil {
+			logger.Errorf("Failed to recover XRAY after inbound %s update error: %v (original: %v)", tag, recoveryErr, err)
+		} else {
+			logger.Warningf("Recovered XRAY from stored config after failed inbound %s update: %v", tag, err)
 		}
 		return fmt.Errorf("failed to add updated inbound: %w", err)
 	}
