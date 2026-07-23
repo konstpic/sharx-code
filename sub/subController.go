@@ -215,8 +215,11 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 	}
 
-	for _, sub := range subs {
-		result += sub + "\n"
+	for i, sub := range subs {
+		if i > 0 {
+			result += subscriptionEntrySeparator(uaClient)
+		}
+		result += sub
 	}
 
 	header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, traffic.ExpiryTime/1000)

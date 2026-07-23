@@ -2,6 +2,7 @@ package sub
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -48,10 +49,47 @@ func TestFilterSubscriptionLinksForClient_ThroneDropsWireGuard(t *testing.T) {
 	}
 }
 
-func TestFilterSubscriptionLinksForClient_OtherClientsUnchanged(t *testing.T) {
-	links := []string{"wg-block\n[Interface]\n[Peer]"}
-	got := filterSubscriptionLinksForClient(links, UANekobox)
-	if len(got) != 1 {
-		t.Fatalf("nekobox should keep wg block, got %v", got)
+func TestFilterSubscriptionLinksForClient_INCYNormalizesWireGuard(t *testing.T) {
+	panel := "" +
+		"AmneziaWG (UDP) — use the .conf block below\n\n" +
+		"Inbound: DE-Frankfurt\n" +
+		"Endpoint: 203.0.113.1:51820\n\n" +
+		"[Interface]\n" +
+		"PrivateKey = clientPriv=\n" +
+		"Address = 10.8.0.2/32\n" +
+		"Jc = 4\n\n" +
+		"[Peer]\n" +
+		"PublicKey = serverPub=\n" +
+		"Endpoint = 203.0.113.1:51820\n" +
+		"AllowedIPs = 0.0.0.0/0, ::/0\n"
+	links := []string{
+		"vless://uuid@host:443?security=tls",
+		panel,
+		"vmess://base64",
+	}
+	got := filterSubscriptionLinksForClient(links, UAINCY)
+	if len(got) != 3 {
+		t.Fatalf("len = %d, want 3: %v", len(got), got)
+	}
+	if got[0] != links[0] || got[2] != links[2] {
+		t.Fatalf("xray links must stay unchanged: %v", got)
+	}
+	if strings.Contains(got[1], "AmneziaWG (UDP)") {
+		t.Fatalf("panel boilerplate must be stripped: %q", got[1])
+	}
+	if !strings.Contains(got[1], "# DE-Frankfurt") {
+		t.Fatalf("expected inbound remark comment: %q", got[1])
+	}
+	if !strings.Contains(got[1], "Jc = 4") {
+		t.Fatalf("AWG obfuscation must remain in conf: %q", got[1])
+	}
+}
+
+func TestSubscriptionEntrySeparator_INCYUsesBlankLine(t *testing.T) {
+	if subscriptionEntrySeparator(UAINCY) != "\n\n" {
+		t.Fatalf("incy separator = %q", subscriptionEntrySeparator(UAINCY))
+	}
+	if subscriptionEntrySeparator(UAHapp) != "\n" {
+		t.Fatalf("happ separator = %q", subscriptionEntrySeparator(UAHapp))
 	}
 }
