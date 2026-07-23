@@ -3,7 +3,10 @@ package service
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,6 +171,9 @@ func (s *ClientService) GetClient(id int) (*model.ClientEntity, error) {
 	if err == nil {
 		client.InboundIds = inboundIds
 	}
+	if tags, tagErr := s.GetTelemtAdTagsForClient(client.Id); tagErr == nil {
+		client.TelemtAdTags = tags
+	}
 
 	// Traffic statistics (Up, Down, AllTime, LastOnline) are already loaded from ClientEntity table
 	// No need to load from client_traffics
@@ -216,6 +222,64 @@ func (s *ClientService) GetInboundIdsForClient(clientId int) ([]int, error) {
 	}
 
 	return inboundIds, nil
+}
+
+var telemtAdTagHexRe = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+
+func normalizeTelemtAdTag(raw string) (string, error) {
+	tag := strings.ToLower(strings.TrimSpace(raw))
+	if tag == "" {
+		return "", nil
+	}
+	if !telemtAdTagHexRe.MatchString(tag) {
+		return "", fmt.Errorf("telemt ad tag must be exactly 32 hex characters")
+	}
+	return tag, nil
+}
+
+// GetTelemtAdTagsForClient loads per-inbound Telemt ad tags for a client.
+func (s *ClientService) GetTelemtAdTagsForClient(clientId int) (map[string]string, error) {
+	db := database.GetDB()
+	var mappings []model.ClientInboundMapping
+	if err := db.Where("client_id = ?", clientId).Find(&mappings).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]string)
+	for _, m := range mappings {
+		tag := strings.TrimSpace(m.TelemtAdTag)
+		if tag != "" {
+			out[strconv.Itoa(m.InboundId)] = tag
+		}
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// SyncClientTelemtAdTags updates telemt_ad_tag on existing mappings. Nil tags means unchanged.
+func (s *ClientService) SyncClientTelemtAdTags(tx *gorm.DB, clientId int, tags map[string]string) error {
+	if tags == nil {
+		return nil
+	}
+	var mappings []model.ClientInboundMapping
+	if err := tx.Where("client_id = ?", clientId).Find(&mappings).Error; err != nil {
+		return err
+	}
+	for _, m := range mappings {
+		raw, ok := tags[strconv.Itoa(m.InboundId)]
+		if !ok {
+			continue
+		}
+		tag, err := normalizeTelemtAdTag(raw)
+		if err != nil {
+			return err
+		}
+		if err := tx.Model(&model.ClientInboundMapping{}).Where("id = ?", m.Id).Update("telemt_ad_tag", tag).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // vlessFlowFromAssignedInboundList returns VLESS flow from the first assigned VLESS inbound (lowest
@@ -395,6 +459,11 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 	if len(client.InboundIds) > 0 {
 		err = s.AssignClientToInbounds(tx, client.Id, client.InboundIds)
 		if err != nil {
+			return false, err
+		}
+	}
+	if client.TelemtAdTags != nil {
+		if err = s.SyncClientTelemtAdTags(tx, client.Id, client.TelemtAdTags); err != nil {
 			return false, err
 		}
 	}
@@ -705,6 +774,17 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		}
 	} else {
 		logger.Debugf("UpdateClient: inboundIds is nil for client %d, keeping existing assignments", client.Id)
+	}
+
+	if client.TelemtAdTags != nil {
+		if err = s.SyncClientTelemtAdTags(tx, client.Id, client.TelemtAdTags); err != nil {
+			return false, err
+		}
+		for inboundIdStr := range client.TelemtAdTags {
+			if inboundId, convErr := strconv.Atoi(inboundIdStr); convErr == nil && inboundId > 0 {
+				affectedInboundIds[inboundId] = true
+			}
+		}
 	}
 
 	var mappingRows []model.ClientInboundMapping

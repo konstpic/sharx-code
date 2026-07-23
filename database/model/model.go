@@ -207,6 +207,8 @@ type ClientEntity struct {
 
 	// Relations (not stored in DB, loaded via joins)
 	InboundIds []int `json:"inboundIds,omitempty" form:"-" gorm:"-"` // Inbound IDs this client is assigned to
+	// Per-inbound Telemt ad tags (inboundId string -> 32 hex); stored on client_inbound_mappings.telemt_ad_tag.
+	TelemtAdTags map[string]string `json:"telemtAdTags,omitempty" form:"-" gorm:"-"`
 
 	// Group assignment
 	GroupId *int `json:"groupId,omitempty" form:"groupId" gorm:"column:group_id;index"` // Group ID (nullable, client can belong to one group)
@@ -481,6 +483,7 @@ type ClientInboundMapping struct {
 	InboundId    int    `json:"inboundId" form:"inboundId" gorm:"uniqueIndex:idx_client_inbound"` // Inbound ID
 	SortOrder    int    `json:"sortOrder" gorm:"column:sort_order;default:0"`                     // Order in subscription output
 	TelemtSecret string `json:"telemtSecret,omitempty" gorm:"column:telemt_secret"`               // 32 hex; Telemt [access.users] secret for this mapping
+	TelemtAdTag  string `json:"telemtAdTag,omitempty" gorm:"column:telemt_ad_tag"`                // 32 hex; Telemt [access.user_ad_tags] for this mapping
 }
 
 // ClientNodeTraffic stores cumulative per-node client traffic (multi-node).

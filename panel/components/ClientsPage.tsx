@@ -1335,6 +1335,7 @@ type ClientDetail = {
   maxHwid?: number;
   ipLimitEnabled?: boolean;
   maxIPs?: number;
+  telemtAdTags?: Record<string, string>;
 };
 
 type ClientFormState = {
@@ -1443,6 +1444,8 @@ type ClientUnifiedCardProps = {
   onToggleInboundId: (id: number) => void;
   onMoveInboundSubscription: (idx: number, dir: -1 | 1) => void;
   inbounds: InboundOption[];
+  telemtAdTags: Record<string, string>;
+  setTelemtAdTags: Dispatch<SetStateAction<Record<string, string>>>;
   groups: GroupOption[];
   isEdit: boolean;
   sheetActionBusy: "reset" | "clearHwid" | null;
@@ -1469,6 +1472,8 @@ function ClientUnifiedCard({
   onToggleInboundId,
   onMoveInboundSubscription,
   inbounds,
+  telemtAdTags,
+  setTelemtAdTags,
   groups,
   isEdit,
   sheetActionBusy,
@@ -2138,6 +2143,57 @@ function ClientUnifiedCard({
                   })}
                 </div>
               ) : null}
+              {inboundSubscriptionOrder.some((iid) => {
+                const ib = inbounds.find((x) => x.id === iid);
+                return ib?.protocol === "telemt" && inboundIds[iid];
+              }) ? (
+                <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--fg-subtle)]">
+                    {t("pages.clients.telemtAdTagsTitle", {
+                      defaultValue: "Telemt AD tags (per inbound)",
+                    })}
+                  </p>
+                  <p className="text-xs text-[var(--fg-subtle)]">
+                    {t("pages.clients.telemtAdTagsHint", {
+                      defaultValue:
+                        "Optional 32 hex chars from @MTProxybot per Telemt inbound. Overrides the inbound global ad_tag for this client only.",
+                    })}
+                  </p>
+                  {inboundSubscriptionOrder
+                    .filter((iid) => {
+                      const ib = inbounds.find((x) => x.id === iid);
+                      return ib?.protocol === "telemt" && inboundIds[iid];
+                    })
+                    .map((iid) => {
+                      const ib = inbounds.find((x) => x.id === iid);
+                      const label = ib?.remark?.trim() || `Inbound ${iid}`;
+                      const key = String(iid);
+                      return (
+                        <div key={iid}>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor={id(`telemt-ad-${iid}`)}
+                          >
+                            {label}
+                          </label>
+                          <Input
+                            id={id(`telemt-ad-${iid}`)}
+                            className="font-mono text-xs"
+                            placeholder="32 hex from MTProxybot"
+                            value={telemtAdTags[key] ?? ""}
+                            onChange={(e) =>
+                              setTelemtAdTags((prev) => ({
+                                ...prev,
+                                [key]: e.target.value,
+                              }))
+                            }
+                            spellCheck={false}
+                          />
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : null}
               {isEdit ? (
                 <p className="mt-2 text-xs text-[var(--fg-subtle)]">
                   {t("pages.clients.editInboundsHint", {
@@ -2284,6 +2340,7 @@ export function ClientsPage() {
   const [form, setForm] = useState<ClientFormState>(FORM_DEFAULT);
   const [inboundIds, setInboundIds] = useState<Record<number, boolean>>({});
   const [inboundSubscriptionOrder, setInboundSubscriptionOrder] = useState<number[]>([]);
+  const [telemtAdTags, setTelemtAdTags] = useState<Record<string, string>>({});
 
   const [keysModalClientId, setKeysModalClientId] = useState<number | null>(null);
   const [keysLoading, setKeysLoading] = useState(false);
@@ -3264,6 +3321,7 @@ export function ClientsPage() {
     setForm({ ...FORM_DEFAULT });
     setInboundIds({});
     setInboundSubscriptionOrder([]);
+    setTelemtAdTags({});
     setEditingId(null);
     setFetchingClient(false);
   }, []);
@@ -3427,6 +3485,9 @@ export function ClientsPage() {
       }
       setInboundIds(m);
       setInboundSubscriptionOrder(ids);
+      setTelemtAdTags(
+        c.telemtAdTags && typeof c.telemtAdTags === "object" ? { ...c.telemtAdTags } : {},
+      );
     } catch {
       toast.error(t("pages.clients.addError"));
       closeSheet();
@@ -3458,6 +3519,26 @@ export function ClientsPage() {
       return;
     }
     const selectedInboundIds = inboundSubscriptionOrder.filter((id) => inboundIds[id]);
+
+    const telemtAdTagsPayload: Record<string, string> = {};
+    for (const iid of selectedInboundIds) {
+      const ib = inbounds.find((x) => x.id === iid);
+      if (ib?.protocol !== "telemt") continue;
+      const raw = (telemtAdTags[String(iid)] ?? "").trim();
+      if (raw === "") {
+        telemtAdTagsPayload[String(iid)] = "";
+        continue;
+      }
+      if (!/^[0-9a-fA-F]{32}$/.test(raw)) {
+        toast.error(
+          t("pages.clients.telemtAdTagInvalid", {
+            defaultValue: "Telemt AD tag must be empty or exactly 32 hex characters.",
+          }),
+        );
+        return;
+      }
+      telemtAdTagsPayload[String(iid)] = raw.toLowerCase();
+    }
 
     const totalGB = Number(form.totalGB);
     if (Number.isNaN(totalGB) || totalGB < 0) {
@@ -3535,6 +3616,9 @@ export function ClientsPage() {
         if (selectedInboundIds.length > 0) {
           body.inboundIds = selectedInboundIds;
         }
+      }
+      if (Object.keys(telemtAdTagsPayload).length > 0) {
+        body.telemtAdTags = telemtAdTagsPayload;
       }
 
       const url = isEdit
@@ -4303,6 +4387,8 @@ export function ClientsPage() {
             onToggleInboundId={toggleInboundSelection}
             onMoveInboundSubscription={moveInboundSubscription}
             inbounds={inbounds}
+            telemtAdTags={telemtAdTags}
+            setTelemtAdTags={setTelemtAdTags}
             groups={groups}
             isEdit={isEdit}
             sheetActionBusy={sheetInlineBusy}

@@ -5643,6 +5643,297 @@ export function InboundsPage() {
                     spellCheck={false}
                   />
                 </div>
+
+                <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionAdvanced", { defaultValue: "Advanced (general)" })}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    {(
+                      [
+                        ["fastMode", "fast_mode"],
+                        ["me2dcFallback", "me2dc_fallback"],
+                        ["me2dcFast", "me2dc_fast"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <div key={field}>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                          {label}
+                        </label>
+                        <SelectNative
+                          inputSize="sm"
+                          className="w-full min-w-0 font-mono shadow-none"
+                          value={form.telemtForm[field]}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                [field]: e.target.value as "" | "true" | "false",
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">
+                            {t("pages.inbounds.telemtUseDefault", { defaultValue: "(default / omit)" })}
+                          </option>
+                          <option value="true">true</option>
+                          <option value="false">false</option>
+                        </SelectNative>
+                      </div>
+                    ))}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-nat-ip">
+                        middle_proxy_nat_ip
+                      </label>
+                      <Input
+                        id="in-tm-nat-ip"
+                        className="font-mono text-xs"
+                        value={form.telemtForm.middleProxyNatIp}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, middleProxyNatIp: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-tg-connect">
+                        tg_connect (seconds)
+                      </label>
+                      <Input
+                        id="in-tm-tg-connect"
+                        type="number"
+                        min={1}
+                        className="font-mono text-xs"
+                        value={form.telemtForm.tgConnect}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, tgConnect: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionNetwork", { defaultValue: "Network" })}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    {(
+                      [
+                        ["networkIpv4", "ipv4"],
+                        ["networkIpv6", "ipv6"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <div key={field}>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                          {label}
+                        </label>
+                        <SelectNative
+                          inputSize="sm"
+                          className="w-full min-w-0 font-mono shadow-none"
+                          value={form.telemtForm[field]}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                [field]: e.target.value as "" | "true" | "false",
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">
+                            {t("pages.inbounds.telemtUseDefault", { defaultValue: "(default / omit)" })}
+                          </option>
+                          <option value="true">true</option>
+                          <option value="false">false</option>
+                        </SelectNative>
+                      </div>
+                    ))}
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                        prefer
+                      </label>
+                      <SelectNative
+                        inputSize="sm"
+                        className="w-full min-w-0 font-mono shadow-none"
+                        value={form.telemtForm.networkPrefer}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: {
+                              ...f.telemtForm,
+                              networkPrefer: e.target.value as "" | "4" | "6",
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {t("pages.inbounds.telemtUseDefault", { defaultValue: "(default / omit)" })}
+                        </option>
+                        <option value="4">4</option>
+                        <option value="6">6</option>
+                      </SelectNative>
+                    </div>
+                  </div>
+                </details>
+
+                <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionTimeouts", { defaultValue: "Timeouts" })}
+                  </summary>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {(
+                      [
+                        ["timeoutsClientHandshake", "client_handshake", "in-tm-th"],
+                        ["timeoutsClientFirstByteIdleSecs", "client_first_byte_idle_secs", "in-tm-tfb"],
+                        ["timeoutsClientKeepalive", "client_keepalive", "in-tm-tk"],
+                        ["timeoutsClientAck", "client_ack", "in-tm-ta"],
+                      ] as const
+                    ).map(([field, label, id]) => (
+                      <div key={field}>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor={id}>
+                          {label}
+                        </label>
+                        <Input
+                          id={id}
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm[field]}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, [field]: e.target.value },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
+
+                <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionCensorshipExtra", {
+                      defaultValue: "Censorship (mask upstream)",
+                    })}
+                  </summary>
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-mask-host">
+                        mask_host
+                      </label>
+                      <Input
+                        id="in-tm-mask-host"
+                        className="font-mono text-xs"
+                        value={form.telemtForm.censorshipMaskHost}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, censorshipMaskHost: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-mask-port">
+                        mask_port
+                      </label>
+                      <Input
+                        id="in-tm-mask-port"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        className="font-mono text-xs"
+                        value={form.telemtForm.censorshipMaskPort}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, censorshipMaskPort: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionAccess", { defaultValue: "Access (global limits)" })}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <CheckboxField
+                      checked={form.telemtForm.accessIgnoreTimeSkew}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          telemtForm: { ...f.telemtForm, accessIgnoreTimeSkew: e.target.checked },
+                        }))
+                      }
+                      label={t("pages.inbounds.telemtIgnoreTimeSkew", {
+                        defaultValue: "ignore_time_skew",
+                      })}
+                    />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-max-ips">
+                          user_max_unique_ips_global_each
+                        </label>
+                        <Input
+                          id="in-tm-max-ips"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.accessUserMaxUniqueIpsGlobalEach}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                accessUserMaxUniqueIpsGlobalEach: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-max-tcp">
+                          user_max_tcp_conns_global_each
+                        </label>
+                        <Input
+                          id="in-tm-max-tcp"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.accessUserMaxTcpConnsGlobalEach}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                accessUserMaxTcpConnsGlobalEach: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </details>
               </div>
             ) : null}
             {form.protocol === "wireguard" ? (

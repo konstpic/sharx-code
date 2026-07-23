@@ -47,10 +47,33 @@ type telemtSettingsJSON struct {
 		TLSEmulation     *bool  `json:"tlsEmulation"`
 		TLSFrontDir      string `json:"tlsFrontDir"`
 		UnknownSniAction string `json:"unknownSniAction"`
+		MaskHost         string `json:"maskHost"`
+		MaskPort         *int   `json:"maskPort"`
 	} `json:"censorship"`
 	APIEnabled    *bool  `json:"apiEnabled"`
 	APIListen     string `json:"apiListen"`
 	ProxyProtocol *bool  `json:"proxyProtocol"`
+	FastMode      *bool  `json:"fastMode"`
+	Me2dcFallback *bool  `json:"me2dcFallback"`
+	Me2dcFast     *bool  `json:"me2dcFast"`
+	MiddleProxyNatIp string `json:"middleProxyNatIp"`
+	TgConnect     *int   `json:"tgConnect"`
+	Network       *struct {
+		IPv4   *bool `json:"ipv4"`
+		IPv6   *bool `json:"ipv6"`
+		Prefer *int  `json:"prefer"`
+	} `json:"network"`
+	Timeouts *struct {
+		ClientHandshake         *int `json:"clientHandshake"`
+		ClientKeepalive         *int `json:"clientKeepalive"`
+		ClientAck               *int `json:"clientAck"`
+		ClientFirstByteIdleSecs *int `json:"clientFirstByteIdleSecs"`
+	} `json:"timeouts"`
+	Access *struct {
+		IgnoreTimeSkew            *bool `json:"ignoreTimeSkew"`
+		UserMaxUniqueIpsGlobalEach  *int  `json:"userMaxUniqueIpsGlobalEach"`
+		UserMaxTcpConnsGlobalEach   *int  `json:"userMaxTcpConnsGlobalEach"`
+	} `json:"access"`
 }
 
 var telemtBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -100,6 +123,8 @@ type TelemtAccessUser struct {
 	MaxUniqueIPs      int
 	// SourceDenyCIDRs become [access.user_source_deny] (per-username CIDRs, Telemt SharX fork).
 	SourceDenyCIDRs []string
+	// Optional per-user ad tag → [access.user_ad_tags].
+	AdTag string
 }
 
 // BuildTelemtToml builds a Telemt config.toml for one inbound.
@@ -192,6 +217,21 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	if tag := strings.TrimSpace(cfg.AdTag); tag != "" {
 		fmt.Fprintf(&b, "ad_tag = %q\n", tag)
 	}
+	if cfg.FastMode != nil {
+		fmt.Fprintf(&b, "fast_mode = %v\n", *cfg.FastMode)
+	}
+	if cfg.Me2dcFallback != nil {
+		fmt.Fprintf(&b, "me2dc_fallback = %v\n", *cfg.Me2dcFallback)
+	}
+	if cfg.Me2dcFast != nil {
+		fmt.Fprintf(&b, "me2dc_fast = %v\n", *cfg.Me2dcFast)
+	}
+	if natIP := strings.TrimSpace(cfg.MiddleProxyNatIp); natIP != "" {
+		fmt.Fprintf(&b, "middle_proxy_nat_ip = %q\n", natIP)
+	}
+	if cfg.TgConnect != nil && *cfg.TgConnect > 0 {
+		fmt.Fprintf(&b, "tg_connect = %d\n", *cfg.TgConnect)
+	}
 	fmt.Fprintf(&b, "log_level = %q\n\n", logLevel)
 	fmt.Fprintf(&b, "[general.modes]\nclassic = %v\nsecure = %v\ntls = %v\n\n", classic, secure, tlsMode)
 	fmt.Fprintf(&b, "[general.links]\nshow = %q\n", show)
@@ -201,7 +241,21 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 			fmt.Fprintf(&b, "public_port = %d\n", cfg.Links.PublicPort)
 		}
 	}
-	fmt.Fprintf(&b, "\n[server]\nport = %d\n", inbound.Port)
+	fmt.Fprintf(&b, "\n")
+	if cfg.Network != nil && (cfg.Network.IPv4 != nil || cfg.Network.IPv6 != nil || cfg.Network.Prefer != nil) {
+		fmt.Fprintf(&b, "[network]\n")
+		if cfg.Network.IPv4 != nil {
+			fmt.Fprintf(&b, "ipv4 = %v\n", *cfg.Network.IPv4)
+		}
+		if cfg.Network.IPv6 != nil {
+			fmt.Fprintf(&b, "ipv6 = %v\n", *cfg.Network.IPv6)
+		}
+		if cfg.Network.Prefer != nil && (*cfg.Network.Prefer == 4 || *cfg.Network.Prefer == 6) {
+			fmt.Fprintf(&b, "prefer = %d\n", *cfg.Network.Prefer)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+	fmt.Fprintf(&b, "[server]\nport = %d\n", inbound.Port)
 	metricsPort := 0
 	if cfg.MetricsPort != nil && *cfg.MetricsPort > 0 {
 		metricsPort = *cfg.MetricsPort
@@ -222,10 +276,59 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	}
 	fmt.Fprintf(&b, "[[server.listeners]]\nip = %q\n\n", listenIP)
 	fmt.Fprintf(&b, "[censorship]\ntls_domain = %q\nmask = %v\ntls_emulation = %v\ntls_front_dir = %q\n", tlsDomain, mask, tlsEmu, tlsFront)
+	if cfg.Censorship != nil {
+		if mh := strings.TrimSpace(cfg.Censorship.MaskHost); mh != "" {
+			fmt.Fprintf(&b, "mask_host = %q\n", mh)
+		}
+		if cfg.Censorship.MaskPort != nil && *cfg.Censorship.MaskPort > 0 {
+			fmt.Fprintf(&b, "mask_port = %d\n", *cfg.Censorship.MaskPort)
+		}
+	}
 	if unknownSni != "" {
 		fmt.Fprintf(&b, "unknown_sni_action = %q\n", unknownSni)
 	}
 	fmt.Fprintf(&b, "\n")
+	if cfg.Timeouts != nil {
+		var timeoutLines []string
+		if cfg.Timeouts.ClientHandshake != nil && *cfg.Timeouts.ClientHandshake > 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("client_handshake = %d\n", *cfg.Timeouts.ClientHandshake))
+		}
+		if cfg.Timeouts.ClientFirstByteIdleSecs != nil && *cfg.Timeouts.ClientFirstByteIdleSecs >= 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("client_first_byte_idle_secs = %d\n", *cfg.Timeouts.ClientFirstByteIdleSecs))
+		}
+		if cfg.Timeouts.ClientKeepalive != nil && *cfg.Timeouts.ClientKeepalive > 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("client_keepalive = %d\n", *cfg.Timeouts.ClientKeepalive))
+		}
+		if cfg.Timeouts.ClientAck != nil && *cfg.Timeouts.ClientAck > 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("client_ack = %d\n", *cfg.Timeouts.ClientAck))
+		}
+		if len(timeoutLines) > 0 {
+			fmt.Fprintf(&b, "[timeouts]\n")
+			for _, line := range timeoutLines {
+				fmt.Fprint(&b, line)
+			}
+			fmt.Fprintf(&b, "\n")
+		}
+	}
+	var accessScalars []string
+	if cfg.Access != nil {
+		if cfg.Access.IgnoreTimeSkew != nil && *cfg.Access.IgnoreTimeSkew {
+			accessScalars = append(accessScalars, "ignore_time_skew = true\n")
+		}
+		if cfg.Access.UserMaxUniqueIpsGlobalEach != nil && *cfg.Access.UserMaxUniqueIpsGlobalEach >= 0 {
+			accessScalars = append(accessScalars, fmt.Sprintf("user_max_unique_ips_global_each = %d\n", *cfg.Access.UserMaxUniqueIpsGlobalEach))
+		}
+		if cfg.Access.UserMaxTcpConnsGlobalEach != nil && *cfg.Access.UserMaxTcpConnsGlobalEach >= 0 {
+			accessScalars = append(accessScalars, fmt.Sprintf("user_max_tcp_conns_global_each = %d\n", *cfg.Access.UserMaxTcpConnsGlobalEach))
+		}
+	}
+	if len(accessScalars) > 0 {
+		fmt.Fprintf(&b, "[access]\n")
+		for _, line := range accessScalars {
+			fmt.Fprint(&b, line)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
 	var written []TelemtAccessUser
 	fmt.Fprintf(&b, "[access.users]\n")
 	for _, u := range users {
@@ -292,6 +395,20 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 			fmt.Fprint(&b, line)
 		}
 	}
+	var adTagLines []string
+	for _, u := range written {
+		tag := strings.ToLower(strings.TrimSpace(u.AdTag))
+		if len(tag) != 32 {
+			continue
+		}
+		adTagLines = append(adTagLines, fmt.Sprintf("%s = %q\n", telemtTomlUserKey(u.Email), tag))
+	}
+	if len(adTagLines) > 0 {
+		fmt.Fprintf(&b, "\n[access.user_ad_tags]\n")
+		for _, line := range adTagLines {
+			fmt.Fprint(&b, line)
+		}
+	}
 	return b.String(), nil
 }
 
@@ -344,6 +461,9 @@ func TelemtAccessUsersForInbound(inboundId int) ([]TelemtAccessUser, error) {
 		}
 		if d := denyByClient[c.Id]; len(d) > 0 {
 			u.SourceDenyCIDRs = append([]string(nil), d...)
+		}
+		if tag := strings.TrimSpace(m.TelemtAdTag); tag != "" {
+			u.AdTag = tag
 		}
 		out = append(out, u)
 	}

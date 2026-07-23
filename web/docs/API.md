@@ -4907,21 +4907,46 @@ Panel and API store Telemt options inside `settings` as:
   "telemt": {
     "useMiddleProxy": true,
     "logLevel": "normal",
+    "adTag": "00000000000000000000000000000000",
+    "fastMode": true,
+    "me2dcFallback": true,
+    "me2dcFast": false,
+    "middleProxyNatIp": "203.0.113.1",
+    "tgConnect": 10,
     "modes": { "classic": false, "secure": false, "tls": true },
     "links": { "show": "*", "publicHost": "", "publicPort": 0 },
+    "network": { "ipv4": true, "ipv6": true, "prefer": 4 },
+    "timeouts": {
+      "clientHandshake": 15,
+      "clientKeepalive": 60,
+      "clientAck": 300,
+      "clientFirstByteIdleSecs": 5
+    },
     "censorship": {
       "tlsDomain": "example.com",
       "mask": true,
       "tlsEmulation": true,
-      "tlsFrontDir": "tlsfront"
+      "tlsFrontDir": "tlsfront",
+      "maskHost": "example.com",
+      "maskPort": 443,
+      "unknownSniAction": "mask"
     },
+    "access": {
+      "ignoreTimeSkew": false,
+      "userMaxUniqueIpsGlobalEach": 0,
+      "userMaxTcpConnsGlobalEach": 0
+    },
+    "metricsPort": 9090,
     "apiEnabled": false,
-    "apiListen": "127.0.0.1:9091"
+    "apiListen": "127.0.0.1:9091",
+    "proxyProtocol": false
   }
 }
 ```
 
-`links.publicHost` / `links.publicPort` are optional; per-node **published** address/port from inbound node bindings usually override them when building node TOML and subscription `tg://proxy` links. Client secrets are **not** in `settings`; they live on `client_inbound_mappings.telemt_secret`. Optional `censorship.sni` is accepted as an alias for `censorship.tlsDomain` (Fake-TLS / SNI host in [Telemt `config.toml`](https://github.com/telemt/telemt/blob/main/config.toml)). Subscription `tg://proxy` links use lowercase **hex** in `secret` (`ee…` / `dd…` prefixes for TLS / secure modes), not base64.
+Optional keys may be omitted; the panel only writes non-empty / explicitly set values into generated `config.toml` (Telemt defaults apply otherwise).
+
+`links.publicHost` / `links.publicPort` are optional; per-node **published** address/port from inbound node bindings usually override them when building node TOML and subscription `tg://proxy` links. Client secrets are **not** in `settings`; they live on `client_inbound_mappings.telemt_secret`. Per-client Telemt AD tags (32 hex, optional) live on `client_inbound_mappings.telemt_ad_tag` and are exposed on the client API as `telemtAdTags` (`inboundId` string → tag). The inbound-level `adTag` is the global fallback when a mapping has no per-client tag. Optional `censorship.sni` is accepted as an alias for `censorship.tlsDomain` (Fake-TLS / SNI host in [Telemt `config.toml`](https://github.com/telemt/telemt/blob/main/config.toml)). Subscription `tg://proxy` links use lowercase **hex** in `secret` (`ee…` / `dd…` prefixes for TLS / secure modes), not base64.
 
 ### Flow Types (VLESS)
 

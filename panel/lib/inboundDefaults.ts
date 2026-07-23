@@ -167,6 +167,9 @@ export function buildWireguardInboundApiPayload(
   return out;
 }
 
+/** Tri-state bool for optional Telemt fields: "" = omit (Telemt default). */
+export type TelemtTriBool = "" | "true" | "false";
+
 /** Telemt (MTProto) inbound: stored under `settings` as `{ "telemt": { ... } }`. */
 export type TelemtFormState = {
   useMiddleProxy: boolean;
@@ -186,12 +189,40 @@ export type TelemtFormState = {
   censorshipTlsFrontDir: string;
   /** [censorship].unknown_sni_action — empty = omit. */
   censorshipUnknownSniAction: string;
+  /** Optional [censorship].mask_host */
+  censorshipMaskHost: string;
+  /** Optional [censorship].mask_port */
+  censorshipMaskPort: string;
   /** Optional [server].metrics_port */
   metricsPort: string;
   apiEnabled: boolean;
   apiListen: string;
   /** [server].proxy_protocol — accept PROXY Protocol from upstream (nginx/haproxy). */
   proxyProtocol: boolean;
+  /** [general].fast_mode — empty = omit. */
+  fastMode: TelemtTriBool;
+  /** [general].me2dc_fallback — empty = omit. */
+  me2dcFallback: TelemtTriBool;
+  /** [general].me2dc_fast — empty = omit. */
+  me2dcFast: TelemtTriBool;
+  /** [general].middle_proxy_nat_ip */
+  middleProxyNatIp: string;
+  /** [general].tg_connect (seconds) */
+  tgConnect: string;
+  /** [network].ipv4 — empty = omit. */
+  networkIpv4: TelemtTriBool;
+  /** [network].ipv6 — empty = omit. */
+  networkIpv6: TelemtTriBool;
+  /** [network].prefer — empty = omit; "4" or "6". */
+  networkPrefer: "" | "4" | "6";
+  timeoutsClientHandshake: string;
+  timeoutsClientKeepalive: string;
+  timeoutsClientAck: string;
+  timeoutsClientFirstByteIdleSecs: string;
+  /** [access].ignore_time_skew */
+  accessIgnoreTimeSkew: boolean;
+  accessUserMaxUniqueIpsGlobalEach: string;
+  accessUserMaxTcpConnsGlobalEach: string;
 };
 
 export function defaultTelemtForm(): TelemtFormState {
@@ -210,11 +241,49 @@ export function defaultTelemtForm(): TelemtFormState {
     censorshipTlsEmulation: true,
     censorshipTlsFrontDir: "tlsfront",
     censorshipUnknownSniAction: "",
+    censorshipMaskHost: "",
+    censorshipMaskPort: "",
     metricsPort: "",
     apiEnabled: true,
     apiListen: "127.0.0.1:9091",
     proxyProtocol: false,
+    fastMode: "",
+    me2dcFallback: "",
+    me2dcFast: "",
+    middleProxyNatIp: "",
+    tgConnect: "",
+    networkIpv4: "",
+    networkIpv6: "",
+    networkPrefer: "",
+    timeoutsClientHandshake: "",
+    timeoutsClientKeepalive: "",
+    timeoutsClientAck: "",
+    timeoutsClientFirstByteIdleSecs: "",
+    accessIgnoreTimeSkew: false,
+    accessUserMaxUniqueIpsGlobalEach: "",
+    accessUserMaxTcpConnsGlobalEach: "",
   };
+}
+
+function parseTelemtTriBool(v: unknown): TelemtTriBool {
+  if (v === true || v === "true") return "true";
+  if (v === false || v === "false") return "false";
+  return "";
+}
+
+function parseTelemtOptionalIntField(v: unknown): string {
+  if (typeof v === "number" && Number.isFinite(v) && v >= 0) return String(Math.trunc(v));
+  if (typeof v === "string" && v.trim()) return v.trim();
+  return "";
+}
+
+function applyTelemtTriBoolToJson(
+  target: Record<string, unknown>,
+  key: string,
+  value: TelemtTriBool,
+) {
+  if (value === "true") target[key] = true;
+  else if (value === "false") target[key] = false;
 }
 
 export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState {
@@ -263,6 +332,41 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       if (typeof c.unknownSniAction === "string") {
         base.censorshipUnknownSniAction = c.unknownSniAction.trim();
       }
+      if (typeof c.maskHost === "string") base.censorshipMaskHost = c.maskHost.trim();
+      base.censorshipMaskPort = parseTelemtOptionalIntField(c.maskPort);
+    }
+    base.fastMode = parseTelemtTriBool(tm.fastMode);
+    base.me2dcFallback = parseTelemtTriBool(tm.me2dcFallback);
+    base.me2dcFast = parseTelemtTriBool(tm.me2dcFast);
+    if (typeof tm.middleProxyNatIp === "string") {
+      base.middleProxyNatIp = tm.middleProxyNatIp.trim();
+    }
+    base.tgConnect = parseTelemtOptionalIntField(tm.tgConnect);
+    const net = tm.network as Record<string, unknown> | undefined;
+    if (net && typeof net === "object") {
+      base.networkIpv4 = parseTelemtTriBool(net.ipv4);
+      base.networkIpv6 = parseTelemtTriBool(net.ipv6);
+      if (net.prefer === 4 || net.prefer === "4") base.networkPrefer = "4";
+      else if (net.prefer === 6 || net.prefer === "6") base.networkPrefer = "6";
+    }
+    const to = tm.timeouts as Record<string, unknown> | undefined;
+    if (to && typeof to === "object") {
+      base.timeoutsClientHandshake = parseTelemtOptionalIntField(to.clientHandshake);
+      base.timeoutsClientKeepalive = parseTelemtOptionalIntField(to.clientKeepalive);
+      base.timeoutsClientAck = parseTelemtOptionalIntField(to.clientAck);
+      base.timeoutsClientFirstByteIdleSecs = parseTelemtOptionalIntField(
+        to.clientFirstByteIdleSecs,
+      );
+    }
+    const acc = tm.access as Record<string, unknown> | undefined;
+    if (acc && typeof acc === "object") {
+      if (typeof acc.ignoreTimeSkew === "boolean") base.accessIgnoreTimeSkew = acc.ignoreTimeSkew;
+      base.accessUserMaxUniqueIpsGlobalEach = parseTelemtOptionalIntField(
+        acc.userMaxUniqueIpsGlobalEach,
+      );
+      base.accessUserMaxTcpConnsGlobalEach = parseTelemtOptionalIntField(
+        acc.userMaxTcpConnsGlobalEach,
+      );
     }
     if (typeof tm.metricsPort === "number" && tm.metricsPort > 0) {
       base.metricsPort = String(tm.metricsPort);
@@ -316,6 +420,50 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
   }
   if (Number.isFinite(mp) && mp > 0) telemt.metricsPort = mp;
   if (form.proxyProtocol) telemt.proxyProtocol = true;
+
+  applyTelemtTriBoolToJson(telemt, "fastMode", form.fastMode);
+  applyTelemtTriBoolToJson(telemt, "me2dcFallback", form.me2dcFallback);
+  applyTelemtTriBoolToJson(telemt, "me2dcFast", form.me2dcFast);
+  const natIp = form.middleProxyNatIp.trim();
+  if (natIp) telemt.middleProxyNatIp = natIp;
+  const tgConnect = parseInt(form.tgConnect.trim(), 10);
+  if (Number.isFinite(tgConnect) && tgConnect > 0) telemt.tgConnect = tgConnect;
+
+  const network: Record<string, unknown> = {};
+  applyTelemtTriBoolToJson(network, "ipv4", form.networkIpv4);
+  applyTelemtTriBoolToJson(network, "ipv6", form.networkIpv6);
+  if (form.networkPrefer === "4" || form.networkPrefer === "6") {
+    network.prefer = Number(form.networkPrefer);
+  }
+  if (Object.keys(network).length > 0) telemt.network = network;
+
+  const timeouts: Record<string, unknown> = {};
+  const th = parseInt(form.timeoutsClientHandshake.trim(), 10);
+  if (Number.isFinite(th) && th > 0) timeouts.clientHandshake = th;
+  const tk = parseInt(form.timeoutsClientKeepalive.trim(), 10);
+  if (Number.isFinite(tk) && tk > 0) timeouts.clientKeepalive = tk;
+  const ta = parseInt(form.timeoutsClientAck.trim(), 10);
+  if (Number.isFinite(ta) && ta > 0) timeouts.clientAck = ta;
+  const tf = parseInt(form.timeoutsClientFirstByteIdleSecs.trim(), 10);
+  if (Number.isFinite(tf) && tf >= 0) timeouts.clientFirstByteIdleSecs = tf;
+  if (Object.keys(timeouts).length > 0) telemt.timeouts = timeouts;
+
+  const maskPort = parseInt(form.censorshipMaskPort.trim(), 10);
+  if (form.censorshipMaskHost.trim()) {
+    (telemt.censorship as Record<string, unknown>).maskHost = form.censorshipMaskHost.trim();
+  }
+  if (Number.isFinite(maskPort) && maskPort > 0) {
+    (telemt.censorship as Record<string, unknown>).maskPort = maskPort;
+  }
+
+  const access: Record<string, unknown> = {};
+  if (form.accessIgnoreTimeSkew) access.ignoreTimeSkew = true;
+  const maxIps = parseInt(form.accessUserMaxUniqueIpsGlobalEach.trim(), 10);
+  if (Number.isFinite(maxIps) && maxIps >= 0) access.userMaxUniqueIpsGlobalEach = maxIps;
+  const maxTcp = parseInt(form.accessUserMaxTcpConnsGlobalEach.trim(), 10);
+  if (Number.isFinite(maxTcp) && maxTcp >= 0) access.userMaxTcpConnsGlobalEach = maxTcp;
+  if (Object.keys(access).length > 0) telemt.access = access;
+
   return JSON.stringify({ telemt });
 }
 
