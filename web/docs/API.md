@@ -30,6 +30,9 @@ Complete API reference for the SharX panel. This documentation covers all endpoi
 - [17. Backup Endpoint](#17-backup-endpoint)
 - [18. API Documentation](#18-api-documentation)
 - [19. Worker Node HTTP API](#19-worker-node-http-api)
+- [20. Public Panel API](#20-public-panel-api)
+- [21. DB Inspector](#21-db-inspector)
+- [22. Prometheus Metrics](#22-prometheus-metrics)
 
 ---
 
@@ -935,6 +938,60 @@ curl -X POST "http://localhost:2053/panel/api/inbounds/updateClientTraffic/user1
 
 ---
 
+### POST `/panel/api/inbounds/previewXray`
+
+Preview the Xray core inbound JSON as it would appear in the generated worker config (not the panel save payload). Request body matches `add` / `update` (inbound fields plus optional `wireguard` / `amneziawg` sidecar forms).
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/api/inbounds/previewXray" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d @inbound-draft.json
+```
+
+**Response (`obj`):** Xray inbound object (`listen`, `port`, `tag`, `protocol`, `settings`, `streamSettings`, `sniffing`, …).
+
+---
+
+### POST `/panel/api/inbounds/previewTelemt`
+
+Preview Telemt `config.toml` for a `telemt` protocol inbound. Same request shape as `previewXray`; returns TOML text in `obj`.
+
+---
+
+### POST `/panel/api/inbounds/previewAmneziaWg`
+
+Preview AmneziaWG sidecar configuration for a draft inbound. Same request shape as `previewXray`.
+
+---
+
+### POST `/panel/api/inbounds/generateSelfSignedTls`
+
+Generate a self-signed TLS certificate for the inbound form.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `domain` | string | Yes | CN / SAN domain |
+| `days` | integer | No | Validity in days (default panel default) |
+
+**Response (`obj`):** `{ "certPem", "keyPem" }`.
+
+---
+
+### POST `/panel/api/inbounds/computeTlsPin`
+
+Compute TLS certificate pin hash from PEM or uploaded cert material (used for REALITY / pinning fields in the UI).
+
+**Request Body (JSON):** `{ "certPem": "-----BEGIN CERTIFICATE-----..." }` or multipart file field per panel form.
+
+**Response (`obj`):** `{ "pin": "sha256/..." }`.
+
+---
+
 ## 3. Server API
 
 Base path: `/panel/api/server`
@@ -1048,6 +1105,132 @@ curl -X GET "http://localhost:2053/panel/api/server/cpuHistory/60" \
 Same as CPU history but **host memory usage percent** (0–100) per bucket. Point field is `mem`.
 
 **Allowed `bucket` values:** `2`, `30`, `60`, `120`, `180`, `300`.
+
+---
+
+### GET `/panel/api/server/diskHistory/{bucket}`
+
+Disk usage history for the panel host and worker nodes. Path parameter `bucket` uses the same allowed values as `cpuHistory/{bucket}`.
+
+---
+
+### GET `/panel/api/server/getTelemtVersion`
+
+Installed Telemt version on the **panel host** (standalone mode).
+
+---
+
+### GET `/panel/api/server/metrics`
+
+Returns Prometheus text metrics (`text/plain`) for the panel. Same collector as [`GET /panel/metrics`](#get-panelmetrics) but requires session cookie or Bearer token.
+
+---
+
+### GET `/panel/api/server/updater`
+
+Docker image updater status (Watchtower / panel self-update integration).
+
+---
+
+### GET `/panel/api/server/updater/plan`
+
+Planned docker update steps (panel + workers) before triggering an update.
+
+---
+
+### POST `/panel/api/server/stopTelemtService`
+
+Stop Telemt on the panel host (standalone).
+
+---
+
+### POST `/panel/api/server/restartTelemtService`
+
+Restart Telemt on the panel host (standalone).
+
+---
+
+### POST `/panel/api/server/installTelemt/{version}`
+
+Install or switch Telemt version on the panel host. Path parameter: release tag or version string understood by the Telemt installer.
+
+---
+
+### POST `/panel/api/server/installTelemtOnNodes/{version}`
+
+Install Telemt on **all** worker nodes (multi-node mode).
+
+---
+
+### POST `/panel/api/server/downloadGeofileByUrl/{fileName}`
+
+Start asynchronous geofile download from URL. Returns a task id for polling.
+
+**Path Parameters:** `fileName` — e.g. `geoip.dat`, `geosite.dat`.
+
+---
+
+### GET `/panel/api/server/downloadGeofileTask/{taskID}`
+
+Poll status of an async geofile download started by `downloadGeofileByUrl`.
+
+---
+
+### GET `/panel/api/server/logs/unified/{count}`
+
+Unified logs from panel and nodes (structured entries).
+
+**Path Parameters:** `count` — max entries to return.
+
+---
+
+### GET `/panel/api/server/logs/stream`
+
+Server-Sent Events stream of live logs.
+
+**Query Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `level` | `debug` | Minimum level: `debug`, `info`, `warn`, `error` |
+| `source` | `all` | `panel`, `xray`, `node`, or `all` |
+
+**Example:**
+
+```bash
+curl -N "http://localhost:2053/panel/api/server/logs/stream?level=info&source=all" \
+  -b cookies.txt
+```
+
+---
+
+### POST `/panel/api/server/updater/workers/prep`
+
+Prepare worker nodes before a coordinated docker update.
+
+---
+
+### POST `/panel/api/server/updater/workers/trigger`
+
+Trigger docker update on worker nodes.
+
+---
+
+### POST `/panel/api/server/updater/workers/finish`
+
+Finalize worker docker update flow after images were pulled/restarted.
+
+---
+
+### POST `/panel/api/server/updater/panel/trigger`
+
+Trigger docker update for the **panel** container only.
+
+---
+
+### POST `/panel/api/server/updater/trigger`
+
+Trigger combined panel + workers docker update (UI “Update” modal flow).
 
 ---
 
@@ -1793,6 +1976,111 @@ Get the default Xray configuration template.
 curl -X GET "http://localhost:2053/panel/setting/getDefaultJsonConfig" \
   -b cookies.txt
 ```
+
+---
+
+### GET `/panel/setting/grafana/dashboard`
+
+Download bundled Grafana dashboard JSON (for Prometheus metrics scraped from `/panel/metrics`).
+
+**Response:** JSON file attachment.
+
+---
+
+### GET `/panel/setting/secretPathsMeta`
+
+Read-only metadata for secret URL path settings: env-locked fields and current `webBasePath` / `subPath` values.
+
+---
+
+### POST `/panel/setting/generateSecretPaths`
+
+Generate a random secret prefix for panel and/or subscription URLs.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `target` | string | Yes | `web` — panel prefix only; `sub` — subscription prefix only |
+
+**Response (`obj`):** `{ "webBasePath", "subPath", "requiresRestart": true, "target" }`.
+
+---
+
+### POST `/panel/setting/saveSecretPaths`
+
+Save manually edited secret URL paths.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `webBasePath` | string | Yes | Panel URL prefix (e.g. `/s3cr3t/`) |
+| `subPath` | string | No | Subscription path prefix |
+
+**Response (`obj`):** `{ "webBasePath", "subPath", "requiresRestart": true }`. Panel restart required.
+
+---
+
+### POST `/panel/setting/subscriptionPageConfig/list`
+
+List saved subscription page builder themes/configs.
+
+---
+
+### POST `/panel/setting/subscriptionPageConfig/get`
+
+Get one subscription page config by UUID.
+
+**Request Body (JSON):** `{ "uuid": "<config-uuid>" }`.
+
+---
+
+### POST `/panel/setting/subscriptionPageConfig/save`
+
+Create or update a subscription page config (public page at `/panel/sub/?id=`).
+
+**Request Body (JSON):** config object with `uuid`, `name`, `config` (builder JSON).
+
+---
+
+### POST `/panel/setting/twoFactor/begin`
+
+Start TOTP 2FA setup for the logged-in admin.
+
+**Response (`obj`):** `{ "secret", "provisioningUri", "qrPngBase64" }`.
+
+---
+
+### POST `/panel/setting/twoFactor/complete`
+
+Confirm TOTP code and enable 2FA.
+
+**Request Body (JSON):** `{ "code": "123456" }`.
+
+---
+
+### POST `/panel/setting/twoFactor/cancel`
+
+Cancel pending 2FA setup.
+
+---
+
+### POST `/panel/setting/ui/get`
+
+Get a per-admin UI preference.
+
+**Request Body (JSON):** `{ "key": "panelTheme" }`.
+
+**Response (`obj`):** `{ "key", "value" }`.
+
+---
+
+### POST `/panel/setting/ui/set`
+
+Set a per-admin UI preference.
+
+**Request Body (JSON):** `{ "key": "panelLang", "value": "ru" }`.
 
 ---
 
@@ -2959,6 +3247,62 @@ curl -X POST "http://localhost:2053/panel/node/resetTraffic/1" \
 
 ---
 
+### GET `/panel/node/secret`
+
+Return the current plain `SECRET_KEY` for node docker-compose (pairing auth secret). Requires session login.
+
+**Response (`obj`):** `{ "secretKey": "<128-char-plain-secret>" }`.
+
+---
+
+### GET `/panel/node/geography`
+
+Node map data: last known latitude/longitude per worker (from `push-geo`).
+
+---
+
+### GET `/panel/node/client-traffic-per-node`
+
+Client traffic matrix aggregated per node (statistics / geography UI).
+
+---
+
+### POST `/panel/node/stopXray/{id}`
+
+Stop Xray process on a worker node.
+
+---
+
+### POST `/panel/node/restartXray/{id}`
+
+Restart Xray on a worker node.
+
+---
+
+### POST `/panel/node/stopTelemt/{id}`
+
+Stop Telemt sidecar on a worker node.
+
+---
+
+### POST `/panel/node/restartTelemt/{id}`
+
+Restart Telemt sidecar on a worker node.
+
+---
+
+### POST `/panel/node/stopAmneziaWg/{id}`
+
+Stop AmneziaWG sidecar on a worker node.
+
+---
+
+### POST `/panel/node/restartAmneziaWg/{id}`
+
+Restart AmneziaWG sidecar on a worker node.
+
+---
+
 ## 10. Clients
 
 Base path: `/panel/client`
@@ -3540,6 +3884,36 @@ curl -X POST "http://localhost:2053/panel/client/sessions/drop/1" \
 
 ---
 
+### GET `/panel/client/links/{id}`
+
+Per-inbound share links for a client (admin copy/QR). Returns one entry per assigned inbound.
+
+**Path Parameters:** `id` — client entity ID.
+
+**Response (`obj`):** array of `{ "inboundId", "remark", "protocol", "link", "wgConf?" }`. `wgConf` is wg-quick `[Interface]/[Peer]` for WireGuard / AmneziaWG.
+
+**Example:**
+
+```bash
+curl -X GET "http://localhost:2053/panel/client/links/1" \
+  -b cookies.txt
+```
+
+---
+
+### POST `/panel/client/sessions/block/{id}`
+
+Block or unblock a client session IP (subscription session blocklist).
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ip` | string | Yes | Source IP to block/unblock |
+| `blocked` | boolean | Yes | `true` to block, `false` to unblock |
+
+---
+
 ### Mass Assignment to Group
 
 To assign selected clients to a group, use the group assignment endpoint:
@@ -4027,6 +4401,51 @@ curl -X POST "http://localhost:2053/panel/group/1/bulk/setHwidLimit" \
 
 ---
 
+### GET `/panel/group/{id}/effectiveSettings`
+
+Resolved settings shared by all clients in the group. Fields omitted when values differ across clients (“mixed” state in UI).
+
+**Response (`obj`):** `{ "clientCount", "inboundIdsConsistent", "expiryTime?", "totalGB?", "hwidEnabled?", "maxHwid?", "ipLimitEnabled?", "maxIPs?", "inboundIds?" }`.
+
+---
+
+### POST `/panel/group/{id}/bulk/assignInbounds`
+
+Assign inbounds to every client in the group.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `inboundIds` | integer[] | Yes | Inbound IDs |
+| `mode` | string | No | `replace` (default) or `add` |
+
+---
+
+### POST `/panel/group/{id}/bulk/setExpiry`
+
+Set expiry timestamp for all clients in the group.
+
+**Request Body (JSON):** `{ "expiryTime": 1767225600000 }` (ms; `0` = never).
+
+---
+
+### POST `/panel/group/{id}/bulk/setTrafficLimit`
+
+Set traffic limit (GB) for all clients in the group.
+
+**Request Body (JSON):** `{ "totalGB": 50 }` (`0` = unlimited).
+
+---
+
+### POST `/panel/group/{id}/bulk/setIPLimit`
+
+Set concurrent IP limit for all clients in the group.
+
+**Request Body (JSON):** `{ "ipLimitEnabled": true, "maxIPs": 2 }`.
+
+---
+
 ## 12. Client HWID
 
 Base path: `/panel/client/hwid`
@@ -4240,6 +4659,16 @@ curl -X POST "http://localhost:2053/panel/client/hwid/fix-timestamps" \
 
 ---
 
+### POST `/panel/client/hwid/block/{id}`
+
+Admin block/unblock a HWID device row (sets `blocked_at` without deleting the record).
+
+**Path Parameters:** `id` — HWID record ID.
+
+**Request Body (JSON):** `{ "blocked": true }`.
+
+---
+
 ## 13. Hosts
 
 Base path: `/panel/host`
@@ -4420,48 +4849,63 @@ curl -X POST "http://localhost:2053/panel/host/del/1" \
 
 Base path: `/panel/api/node`
 
-This endpoint is used by nodes to push logs to the panel. It uses API key authentication instead of session authentication.
+Worker → panel callbacks use **HMAC authentication**, not session cookies. Sign the **raw JSON body** with the panel pairing outbound key and send:
+
+```http
+X-Sharx-Signature: v1=<hex-hmac-sha256>
+```
+
+The panel resolves the worker by **`nodeId`** (preferred, assigned on first pull/apply) or falls back to **`nodeAddress`**.
 
 ### POST `/panel/api/node/push-logs`
 
-Receive logs from a node (called by node applications).
+Receive structured logs from a worker.
 
-**Request Body** (JSON):
+**Request Body (JSON):**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `apiKey` | string | Yes | Node API key |
-| `nodeId` | integer | No | Panel-assigned node id (echoed back by the worker; takes precedence over `nodeAddress` when present). Set by the panel via `apply-config` / `pull-xray-config` and persisted by the worker in `node-config.json`. |
-| `nodeAddress` | string | Conditional | Node's own address. Required when `nodeId` is not set (e.g. first contact before the panel has assigned an id, or legacy workers). |
-| `entries` | array | Yes | Array of structured log entries (`logger.Entry`), one object per log line |
+| `nodeId` | integer | No | Panel-assigned node id (preferred) |
+| `nodeAddress` | string | Conditional | Worker address when `nodeId` unknown |
+| `entries` | array | Yes | Array of log entries (`level`, `msg`, `ts`, `source`, `channel`, …) |
 
 **Example Request:**
 
 ```bash
+BODY='{"nodeId":7,"entries":[{"ts":"2026/01/01 12:00:00","level":"info","msg":"started"}]}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$HMAC_KEY" | awk '{print $2}')
 curl -X POST "http://localhost:2053/panel/api/node/push-logs" \
   -H "Content-Type: application/json" \
-  -d '{
-    "apiKey": "node-api-key",
-    "nodeId": 7,
-    "nodeAddress": "http://192.168.1.100:8080",
-    "entries": [
-      { "ts": "2024/01/01 12:00:00", "level": "info", "source": "node", "msg": "Connection established", "channel": "service", "component": "node" },
-      { "ts": "2024/01/01 12:00:01", "level": "debug", "source": "node", "msg": "Processing request", "channel": "service", "component": "node" }
-    ]
-  }'
+  -H "X-Sharx-Signature: v1=$SIG" \
+  -d "$BODY"
 ```
 
-**Response:**
+**Response:** `{ "message": "Logs received" }`.
 
-```json
-{
-  "message": "Logs received"
-}
-```
+---
+
+### POST `/panel/api/node/push-geo`
+
+Worker pushes approximate coordinates for the node map.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `nodeId` | integer | No | Panel-assigned node id |
+| `nodeAddress` | string | Conditional | Worker address |
+| `lat` | number | Yes | Latitude (−90…90) |
+| `lng` | number | Yes | Longitude (−180…180) |
+| `source` | string | No | e.g. `geoip`, `manual` |
+| `ip` | string | No | Source IP used for lookup |
+
+Same `X-Sharx-Signature: v1=…` header as `push-logs`.
+
+---
 
 ### POST `/panel/api/node/pull-xray-config`
 
-HMAC-authenticated pull for worker nodes (no session cookie).
+HMAC-authenticated pull for worker nodes (no session cookie). Use the same `X-Sharx-Signature: v1=<hex>` header as `push-logs` / `push-geo`.
 
 **Request Body** (JSON):
 
@@ -4740,6 +5184,105 @@ curl -s -X POST "https://NODE:8080/api/v1/drop-ips" \
 **Response:** `{ "ok": true }` on success.
 
 **Deployment:** Install `conntrack-tools` in the image and grant **`CAP_NET_ADMIN`** to the node container if drops must work; see comments in `node/docker-compose.yml`. Bridge vs `network_mode: host` affects which network namespace conntrack sees; use the same namespace as the Xray process for reliable kicks.
+
+---
+
+## 20. Public Panel API
+
+Base path: `/panel/api/public`
+
+Unauthenticated JSON used by the first-party subscription page (`/panel/sub/?id=`). Rate-limited per client IP (~120 req/min).
+
+### GET `/panel/api/public/subscription`
+
+Subscription page payload for a client.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | Client `subId` |
+
+**Response (`obj`):** `{ "config", "configUuid", "subscriptionUrl", "subscriptionJsonUrl", "subscriptionPageUrl?", "links", "mtProtoLinks", "happEncryptedUrl?", "v2raytunEncryptedUrl?", "user": { … } }`.
+
+**Example:**
+
+```bash
+curl "http://localhost:2053/panel/api/public/subscription?id=abcd1234"
+```
+
+---
+
+### GET `/panel/api/public/appMeta`
+
+Public panel theme/language metadata for the subscription page shell.
+
+**Response (`obj`):** `{ "panelLang", "panelTheme", … }`.
+
+---
+
+## 21. DB Inspector
+
+Base path: `/panel/db`
+
+Session-authenticated database introspection (admin UI **DB Inspector**). Destructive writes affect live data — use with care.
+
+### GET `/panel/db/tables`
+
+List accessible tables with estimated row counts.
+
+---
+
+### GET `/panel/db/tables/{table}/schema`
+
+Column metadata and primary key for a table.
+
+---
+
+### GET `/panel/db/tables/{table}/rows`
+
+Paginated table rows.
+
+**Query Parameters:** `page`, `pageSize`, `sort`, `order`, `search` (column-specific filters per UI).
+
+---
+
+### POST `/panel/db/tables/{table}/rows`
+
+Insert a row. Body: JSON object keyed by column name.
+
+---
+
+### POST `/panel/db/tables/{table}/rows/{pk}`
+
+Update row by primary key value. Body: partial column map.
+
+---
+
+### POST `/panel/db/tables/{table}/rows/{pk}/delete`
+
+Delete row by primary key value.
+
+---
+
+## 22. Prometheus Metrics
+
+### GET `/panel/metrics`
+
+Prometheus text exposition format (`text/plain; version=0.0.4`). **No session required** — intended for Prometheus/Grafana scrape jobs.
+
+When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}panel/metrics`.
+
+**Example scrape config:**
+
+```yaml
+- job_name: sharx
+  metrics_path: /panel/metrics
+  static_configs:
+    - targets: ['panel-host:2053']
+```
+
+**Note:** `GET /panel/api/server/metrics` returns the same metric set but requires authentication (session or Bearer token).
 
 ---
 
