@@ -43,27 +43,36 @@ func initPanelFileSystem() error {
 	return nil
 }
 
-// rewritePanelHTML injects runtime base path and rewrites root-absolute asset URLs for secret-path mode.
-func rewritePanelHTML(html, basePath string) string {
+// rewritePanelAssetURLs prefixes root-absolute static asset URLs for secret-path mode.
+func rewritePanelAssetURLs(content, basePath string) string {
 	if !secretpath.HidesBareRoot(basePath) {
-		return html
+		return content
 	}
 	prefix := strings.TrimSuffix(basePath, "/")
-	inject := `<script>window.__SHARX_BASE_PATH__="` + basePath + `";</script>`
-	if idx := strings.Index(html, "<head>"); idx >= 0 {
-		html = html[:idx+6] + inject + html[idx+6:]
-	}
 	repl := []struct{ from, to string }{
 		{`href="/_next/`, `href="` + prefix + `/_next/`},
 		{`src="/_next/`, `src="` + prefix + `/_next/`},
 		{`href="/favicon.ico"`, `href="` + prefix + `/favicon.ico"`},
 		{`href="/locales/`, `href="` + prefix + `/locales/`},
 		{`"/_next/`, `"` + prefix + `/_next/`},
+		{`:HL["/_next/`, `:HL["` + prefix + `/_next/`},
 	}
 	for _, r := range repl {
-		html = strings.ReplaceAll(html, r.from, r.to)
+		content = strings.ReplaceAll(content, r.from, r.to)
 	}
-	return html
+	return content
+}
+
+// rewritePanelHTML injects runtime base path and rewrites root-absolute asset URLs for secret-path mode.
+func rewritePanelHTML(html, basePath string) string {
+	if !secretpath.HidesBareRoot(basePath) {
+		return html
+	}
+	inject := `<script>window.__SHARX_BASE_PATH__="` + basePath + `";</script>`
+	if idx := strings.Index(html, "<head>"); idx >= 0 {
+		html = html[:idx+6] + inject + html[idx+6:]
+	}
+	return rewritePanelAssetURLs(html, basePath)
 }
 
 // servePanelFile streams a file from panelRootHTTP using http.ServeContent.
@@ -79,13 +88,20 @@ func servePanelFile(c *gin.Context, name string) bool {
 		return false
 	}
 	basePath := normalizeWebBase(c)
-	if strings.HasSuffix(strings.ToLower(name), ".html") && secretpath.HidesBareRoot(basePath) {
+	lower := strings.ToLower(name)
+	if secretpath.HidesBareRoot(basePath) && (strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".txt")) {
 		data, err := io.ReadAll(f)
 		if err != nil {
 			return false
 		}
-		out := rewritePanelHTML(string(data), basePath)
-		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(out))
+		out := string(data)
+		if strings.HasSuffix(lower, ".html") {
+			out = rewritePanelHTML(out, basePath)
+			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(out))
+		} else {
+			out = rewritePanelAssetURLs(out, basePath)
+			c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(out))
+		}
 		return true
 	}
 	rs, ok := f.(io.ReadSeeker)

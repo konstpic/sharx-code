@@ -16,17 +16,17 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { postJson } from "@/lib/api";
 import { changeLanguage } from "@/lib/i18n";
 import { applyPanelTheme, parsePanelTheme } from "@/lib/panelTheme";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
-import { linkP, panel, p } from "@/lib/paths";
+import { linkP, panel, p, stripBasePath } from "@/lib/paths";
 import { SETTINGS_TAB_IDS, tSettingsTabLabel } from "@/lib/settingsTabs";
 import { getUiPref } from "@/lib/uiPrefs";
 import { PanelHeaderAppMeta } from "@/components/panel/PanelHeaderAppMeta";
+import { PanelNavLink } from "@/components/panel/PanelNavLink";
 import { PanelTelegramNavLink } from "@/components/panel/PanelTelegramNavLink";
 import { PanelDonateNavLink } from "@/components/panel/PanelDonateNavLink";
 import { PanelGitHubStarLink } from "@/components/panel/PanelGitHubStarLink";
@@ -40,6 +40,10 @@ type NavEntry =
 
 function navLinkClass(active: boolean) {
   return active ? "panel-menu-link panel-menu-link--active" : "panel-menu-link";
+}
+
+function routePath(path: string) {
+  return stripBasePath(path);
 }
 
 export function PanelShell({ children }: { children: React.ReactNode }) {
@@ -100,10 +104,10 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     setMobileNav(false);
   }, [pathname]);
 
-  const dbInspectorHref = useMemo(() => p("panel/db-inspector").replace(/\/$/, ""), []);
-  const settingsPrefix = useMemo(() => p("panel/settings").replace(/\/$/, ""), []);
+  const dbInspectorHref = useMemo(() => routePath(p("panel/db-inspector")), []);
+  const settingsPrefix = useMemo(() => routePath(p("panel/settings")), []);
   const inSettings = useMemo(() => {
-    const u = (pathname || "").replace(/\/$/, "") || "/";
+    const u = routePath(pathname || "");
     return (
       u === settingsPrefix ||
       u.startsWith(`${settingsPrefix}/`) ||
@@ -112,37 +116,37 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     );
   }, [pathname, settingsPrefix, dbInspectorHref]);
 
-  const nodesListHref = useMemo(() => p("panel/nodes").replace(/\/$/, ""), []);
+  const nodesListHref = useMemo(() => routePath(p("panel/nodes")), []);
   const nodesStatsHref = useMemo(
-    () => p("panel/nodes/statistics").replace(/\/$/, ""),
+    () => routePath(p("panel/nodes/statistics")),
     [],
   );
   const nodesGeoHref = useMemo(
-    () => p("panel/nodes/geography").replace(/\/$/, ""),
+    () => routePath(p("panel/nodes/geography")),
     [],
   );
-  const clientsListHref = useMemo(() => p("panel/clients").replace(/\/$/, ""), []);
+  const clientsListHref = useMemo(() => routePath(p("panel/clients")), []);
   const clientsStatsHref = useMemo(
-    () => p("panel/clients/statistics").replace(/\/$/, ""),
+    () => routePath(p("panel/clients/statistics")),
     [],
   );
   const inClients = useMemo(() => {
-    const u = (pathname || "").replace(/\/$/, "") || "/";
+    const u = routePath(pathname || "");
     return u === clientsListHref || u.startsWith(`${clientsListHref}/`);
   }, [pathname, clientsListHref]);
   const inNodes = useMemo(() => {
-    const u = (pathname || "").replace(/\/$/, "") || "/";
+    const u = routePath(pathname || "");
     return u === nodesListHref || u.startsWith(`${nodesListHref}/`);
   }, [pathname, nodesListHref]);
 
-  const xrayListHref = useMemo(() => p("panel/xray").replace(/\/$/, ""), []);
+  const xrayListHref = useMemo(() => routePath(p("panel/xray")), []);
   const xrayProfilesHref = useMemo(
-    () => p("panel/xray-core-config-profiles").replace(/\/$/, ""),
+    () => routePath(p("panel/xray-core-config-profiles")),
     [],
   );
-  const xrayGeoHref = useMemo(() => p("panel/xray/geo").replace(/\/$/, ""), []);
+  const xrayGeoHref = useMemo(() => routePath(p("panel/xray/geo")), []);
   const inXray = useMemo(() => {
-    const u = (pathname || "").replace(/\/$/, "") || "/";
+    const u = routePath(pathname || "");
     return (
       u === xrayListHref ||
       u.startsWith(`${xrayListHref}/`) ||
@@ -224,14 +228,14 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
 
   const isActive = (item: NavItem) => {
     if (item.key === p("logout/")) return false;
-    const u = pathname.replace(/\/$/, "") || "/";
-    const k = item.key.replace(/\/$/, "");
+    const u = routePath(pathname || "");
+    const k = routePath(item.key);
     return u === k || u.startsWith(`${k}/`);
   };
 
   const isSettingsSubActive = (id: (typeof SETTINGS_TAB_IDS)[number]) => {
-    const u = pathname.replace(/\/$/, "") || "/";
-    const k = p(`panel/settings/${id}`).replace(/\/$/, "");
+    const u = routePath(pathname || "");
+    const k = routePath(p(`panel/settings/${id}`));
     return u === k;
   };
 
@@ -297,14 +301,14 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                 return (
                   <div key="nav-settings" className="flex flex-col gap-0.5">
                     <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <Link
+                      <PanelNavLink
                         href={linkP("panel/settings/general")}
                         className={`${navLinkClass(inSettings)} min-w-0 flex-1`}
                         onClick={closeMobile}
                       >
                         <Settings className="size-[18px] shrink-0 opacity-90" />
                         <span className="min-w-0">{t("menu.settings")}</span>
-                      </Link>
+                      </PanelNavLink>
                       <button
                         type="button"
                         className="panel-menu-link shrink-0 rounded-xl px-2.5"
@@ -323,32 +327,32 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                     {settingsOpen ? (
                       <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
                         {SETTINGS_TAB_IDS.map((id) => (
-                          <Link
+                          <PanelNavLink
                             key={id}
                             href={linkP(`panel/settings/${id}`)}
                             className={`${navLinkClass(isSettingsSubActive(id))} panel-menu-link--sub`}
                             onClick={closeMobile}
                           >
                             <span className="min-w-0 pl-0.5">{tSettingsTabLabel(t, id)}</span>
-                          </Link>
+                          </PanelNavLink>
                         ))}
-                        <Link
+                        <PanelNavLink
                           href={linkP("panel/db-inspector")}
-                          className={`${navLinkClass((pathname || "").replace(/\/$/, "") === dbInspectorHref)} panel-menu-link--sub`}
+                          className={`${navLinkClass(routePath(pathname || "") === dbInspectorHref)} panel-menu-link--sub`}
                           onClick={closeMobile}
                         >
                           <Database className="size-3.5 shrink-0 opacity-80" />
                           <span className="min-w-0 pl-0.5">
                             {t("menu.dbInspector")}
                           </span>
-                        </Link>
+                        </PanelNavLink>
                       </div>
                     ) : null}
                   </div>
                 );
               }
               if ("kind" in item && item.kind === "xray") {
-                const u = (pathname || "").replace(/\/$/, "") || "/";
+                const u = routePath(pathname || "");
                 const isTemplate = u === xrayListHref;
                 const isProfiles =
                   u === xrayProfilesHref || u.startsWith(`${xrayProfilesHref}/`);
@@ -356,14 +360,14 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                 return (
                   <div key="nav-xray" className="flex flex-col gap-0.5">
                     <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <Link
+                      <PanelNavLink
                         href={linkP("panel/xray")}
                         className={`${navLinkClass(inXray)} min-w-0 flex-1`}
                         onClick={closeMobile}
                       >
                         <Wrench className="size-[18px] shrink-0 opacity-90" />
                         <span className="min-w-0">{t("menu.xray")}</span>
-                      </Link>
+                      </PanelNavLink>
                       <button
                         type="button"
                         className="panel-menu-link shrink-0 rounded-xl px-2.5"
@@ -381,14 +385,14 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                     </div>
                     {xrayOpen ? (
                       <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <Link
+                        <PanelNavLink
                           href={linkP("panel/xray")}
                           className={`${navLinkClass(isTemplate)} panel-menu-link--sub`}
                           onClick={closeMobile}
                         >
                           <span className="min-w-0 pl-0.5">{t("menu.xrayTemplate")}</span>
-                        </Link>
-                        <Link
+                        </PanelNavLink>
+                        <PanelNavLink
                           href={linkP("panel/xray/geo")}
                           className={`${navLinkClass(isGeo)} panel-menu-link--sub`}
                           onClick={closeMobile}
@@ -396,8 +400,8 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                           <span className="min-w-0 pl-0.5">
                             {t("menu.xrayGeoFiles", { defaultValue: "Geo-files" })}
                           </span>
-                        </Link>
-                        <Link
+                        </PanelNavLink>
+                        <PanelNavLink
                           href={linkP("panel/xray-core-config-profiles")}
                           className={`${navLinkClass(isProfiles)} panel-menu-link--sub`}
                           onClick={closeMobile}
@@ -405,27 +409,27 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                           <span className="min-w-0 pl-0.5">
                             {t("menu.xrayCoreConfigProfiles")}
                           </span>
-                        </Link>
+                        </PanelNavLink>
                       </div>
                     ) : null}
                   </div>
                 );
               }
               if ("kind" in item && item.kind === "clients") {
-                const u = (pathname || "").replace(/\/$/, "") || "/";
+                const u = routePath(pathname || "");
                 const isManage = u === clientsListHref;
                 const isStats = u === clientsStatsHref || u.startsWith(`${clientsStatsHref}/`);
                 return (
                   <div key="nav-clients" className="flex flex-col gap-0.5">
                     <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <Link
+                      <PanelNavLink
                         href={linkP("panel/clients")}
                         className={`${navLinkClass(inClients)} min-w-0 flex-1`}
                         onClick={closeMobile}
                       >
                         <Users className="size-[18px] shrink-0 opacity-90" />
                         <span className="min-w-0">{t("menu.clients")}</span>
-                      </Link>
+                      </PanelNavLink>
                       <button
                         type="button"
                         className="panel-menu-link shrink-0 rounded-xl px-2.5"
@@ -443,27 +447,27 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                     </div>
                     {clientsOpen ? (
                       <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <Link
+                        <PanelNavLink
                           href={linkP("panel/clients")}
                           className={`${navLinkClass(isManage)} panel-menu-link--sub`}
                           onClick={closeMobile}
                         >
                           <span className="min-w-0 pl-0.5">{t("menu.clientsManage")}</span>
-                        </Link>
-                        <Link
+                        </PanelNavLink>
+                        <PanelNavLink
                           href={linkP("panel/clients/statistics")}
                           className={`${navLinkClass(isStats)} panel-menu-link--sub`}
                           onClick={closeMobile}
                         >
                           <span className="min-w-0 pl-0.5">{t("menu.clientsStatistics")}</span>
-                        </Link>
+                        </PanelNavLink>
                       </div>
                     ) : null}
                   </div>
                 );
               }
               if ("kind" in item && item.kind === "nodes") {
-                const u = (pathname || "").replace(/\/$/, "") || "/";
+                const u = routePath(pathname || "");
                 const isManage = u === nodesListHref;
                 const isStats =
                   u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`);
@@ -471,14 +475,14 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                 return (
                   <div key="nav-nodes" className="flex flex-col gap-0.5">
                     <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <Link
+                      <PanelNavLink
                         href={linkP("panel/nodes")}
                         className={`${navLinkClass(inNodes)} min-w-0 flex-1`}
                         onClick={closeMobile}
                       >
                         <Network className="size-[18px] shrink-0 opacity-90" />
                         <span className="min-w-0">{t("menu.nodes")}</span>
-                      </Link>
+                      </PanelNavLink>
                       <button
                         type="button"
                         className="panel-menu-link shrink-0 rounded-xl px-2.5"
@@ -496,7 +500,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                     </div>
                     {nodesOpen ? (
                       <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <Link
+                        <PanelNavLink
                           href={linkP("panel/nodes")}
                           className={`${navLinkClass(isManage)} panel-menu-link--sub`}
                           onClick={closeMobile}
@@ -504,8 +508,8 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                           <span className="min-w-0 pl-0.5">
                             {t("menu.nodesManage")}
                           </span>
-                        </Link>
-                        <Link
+                        </PanelNavLink>
+                        <PanelNavLink
                           href={linkP("panel/nodes/statistics")}
                           className={`${navLinkClass(isStats)} panel-menu-link--sub`}
                           onClick={closeMobile}
@@ -513,8 +517,8 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                           <span className="min-w-0 pl-0.5">
                             {t("menu.nodesStatistics")}
                           </span>
-                        </Link>
-                        <Link
+                        </PanelNavLink>
+                        <PanelNavLink
                           href={linkP("panel/nodes/geography")}
                           className={`${navLinkClass(isGeo)} panel-menu-link--sub`}
                           onClick={closeMobile}
@@ -522,7 +526,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                           <span className="min-w-0 pl-0.5">
                             {t("menu.nodesGeography")}
                           </span>
-                        </Link>
+                        </PanelNavLink>
                       </div>
                     ) : null}
                   </div>
@@ -543,7 +547,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                 );
               }
               return (
-                <Link
+                <PanelNavLink
                   key={item.key}
                   href={item.href}
                   className={navLinkClass(isActive(item))}
@@ -551,7 +555,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                 >
                   {item.icon}
                   <span>{item.label}</span>
-                </Link>
+                </PanelNavLink>
               );
             })}
           </nav>

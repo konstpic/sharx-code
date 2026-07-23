@@ -25,6 +25,22 @@ export function getBasePath(): string {
   return runtimeBasePath();
 }
 
+/** True when the Go server injected `window.__SHARX_BASE_PATH__` (secret path without rebuild). */
+export function hasRuntimeBasePath(): boolean {
+  return typeof window !== "undefined" && Boolean(window.__SHARX_BASE_PATH__);
+}
+
+/** Normalize pathname for route matching (strip secret/build prefix, no trailing slash). */
+export function stripBasePath(pathname: string): string {
+  let p = pathname.replace(/\/$/, "") || "/";
+  const base = getBasePath();
+  if (base && (p === base || p.startsWith(`${base}/`))) {
+    p = p.slice(base.length) || "/";
+    if (!p.startsWith("/")) p = `/${p}`;
+  }
+  return p.replace(/\/$/, "") || "/";
+}
+
 /**
  * Path for `next/link` `href` only. When runtime base path is injected, prepend it here
  * (Next build-time basePath stays `/`). Use `p()` / `panel()` for API URLs.

@@ -43,6 +43,39 @@ func TestServePanelReactPageRscTxt(t *testing.T) {
 	}
 }
 
+func TestRewritePanelAssetURLsRscTxt(t *testing.T) {
+	in := `:HL["/_next/static/css/x.css","style"]\n0:{"P":null,"p":"","c":["","panel","nodes",""]}`
+	out := rewritePanelAssetURLs(in, "/s3cr3t/")
+	if !strings.Contains(out, `:HL["/s3cr3t/_next/static/css/x.css"`) {
+		t.Fatalf("RSC :HL not rewritten: %s", out)
+	}
+	if !strings.Contains(out, `"/_next/`) && !strings.Contains(out, `"/s3cr3t/_next/`) {
+		t.Fatalf("expected _next rewrite in RSC payload: %s", out)
+	}
+}
+
+func TestServePanelReactPageRscTxtRewritesAssetsWithSecretBase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	if err := initPanelFileSystem(); err != nil {
+		t.Fatalf("initPanelFileSystem: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/s3cr3t/panel/nodes/index.txt", nil)
+	c.Set("base_path", "/s3cr3t/")
+
+	ServePanelReactPage(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, `"/_next/`) && !strings.Contains(body, `"/s3cr3t/_next/`) {
+		t.Fatalf("expected prefixed _next URLs in RSC body: %q", body[:min(120, len(body))])
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

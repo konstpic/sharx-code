@@ -4414,7 +4414,7 @@ export function ClientsPage() {
                setSubscriptionQrUrl(url);
                const id = new URL(url).pathname.split("/").filter(Boolean).pop();
                if(!id) return;
-               fetch(`/panel/api/public/subscription?id=${id}`).then(res => res.json())
+               fetch(`${panel("api/public/subscription")}?id=${id}`).then(res => res.json())
                   .then(res => {
                     if(res?.success) setSubscriptionEncryptionData(res.obj);
                     else console.error("API Err", res);
