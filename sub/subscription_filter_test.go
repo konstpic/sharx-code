@@ -113,6 +113,43 @@ func TestFilterSubscriptionLinksForClient_INCYWireGuardShareLink(t *testing.T) {
 	}
 }
 
+func TestRewriteHysteriaLinkForINCY_stripsPin(t *testing.T) {
+	in := "hysteria2://token@host:443?alpn=h3&pinSHA256=deadbeef&sni=m1.vk.com#Hy2"
+	got := rewriteHysteriaLinkForINCY(in)
+	if strings.Contains(got, "pinSHA256") {
+		t.Fatalf("pinSHA256 must be removed: %q", got)
+	}
+	if !strings.Contains(got, "insecure=1") {
+		t.Fatalf("expected insecure=1: %q", got)
+	}
+	if !strings.Contains(got, "sni=m1.vk.com") {
+		t.Fatalf("other params must remain: %q", got)
+	}
+}
+
+func TestFilterSubscriptionLinksForClient_INCYRewritesHy2Pin(t *testing.T) {
+	links := []string{
+		"amneziawg://abc#AWG",
+		"hysteria2://token@host:443?pinSHA256=abc&alpn=h3#Hy2",
+	}
+	got := filterSubscriptionLinksForClient(links, UAINCY)
+	if len(got) != 2 {
+		t.Fatalf("len = %d", len(got))
+	}
+	hy2 := got[0]
+	if strings.HasPrefix(got[1], "hysteria2://") {
+		hy2 = got[1]
+	}
+	if strings.Contains(hy2, "pinSHA256") || !strings.Contains(hy2, "insecure=1") {
+		t.Fatalf("INCY hy2 rewrite failed: %q", hy2)
+	}
+	// Other clients keep the pin.
+	other := filterSubscriptionLinksForClient(links, UAV2RayNG)
+	if !strings.Contains(strings.Join(other, "\n"), "pinSHA256=abc") {
+		t.Fatalf("non-INCY clients must keep pin: %v", other)
+	}
+}
+
 func TestSubscriptionEntrySeparator_INCYUsesBlankLine(t *testing.T) {
 	if subscriptionEntrySeparator(UAINCY) != "\n\n" {
 		t.Fatalf("incy separator = %q", subscriptionEntrySeparator(UAINCY))

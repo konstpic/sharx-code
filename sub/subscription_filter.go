@@ -1,6 +1,7 @@
 package sub
 
 import (
+	"net/url"
 	"strings"
 )
 
@@ -129,6 +130,31 @@ func normalizeWireGuardSubscriptionEntry(link string, _ UAClient) string {
 	return conf
 }
 
+// rewriteHysteriaLinkForINCY strips pinSHA256 from hysteria2:// / hy2:// links.
+// INCY maps pinSHA256 → tlsSettings.pinnedPeerCertSha256 as a JSON array, while its
+// bundled Xray expects a string ("cannot unmarshal array into ... string").
+// Fallback: insecure=1 so the profile still connects without pinning.
+func rewriteHysteriaLinkForINCY(link string) string {
+	trimmed := strings.TrimSpace(link)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "hysteria2://") && !strings.HasPrefix(lower, "hy2://") && !strings.HasPrefix(lower, "hysteria://") {
+		return link
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u == nil {
+		return link
+	}
+	q := u.Query()
+	if strings.TrimSpace(q.Get("pinSHA256")) == "" && strings.TrimSpace(q.Get("pcs")) == "" {
+		return link
+	}
+	q.Del("pinSHA256")
+	q.Del("pcs")
+	q.Set("insecure", "1")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // filterSubscriptionLinksForClient drops or normalizes entries the target client cannot use.
 func filterSubscriptionLinksForClient(links []string, client UAClient) []string {
 	if client == UAThrone {
@@ -148,6 +174,9 @@ func filterSubscriptionLinksForClient(links []string, client UAClient) []string 
 	for _, link := range links {
 		if isWireGuardPanelSubscriptionEntry(link) {
 			link = normalizeWireGuardSubscriptionEntry(link, client)
+		}
+		if client == UAINCY {
+			link = rewriteHysteriaLinkForINCY(link)
 		}
 		link = strings.TrimSpace(link)
 		if link != "" {
