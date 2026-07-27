@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   forwardRef,
   useCallback,
@@ -21,6 +20,7 @@ import {
   mergeSectionIntoTemplate,
 } from "@/lib/xrayTemplateSlice";
 import { linkP } from "@/lib/paths";
+import { PanelNavLink } from "@/components/panel/PanelNavLink";
 import {
   buildXrayTemplateStepperItems,
   getActiveStepId,
@@ -266,12 +266,12 @@ export const XrayConfigTemplateEditor = forwardRef<XrayConfigTemplateEditorHandl
                       defaultValue:
                         "User-facing inbounds are usually managed under Inbounds. This template slice is for defaults and the API inbound.",
                     })}{" "}
-                    <Link
+                    <PanelNavLink
                       href={linkP("panel/inbounds")}
                       className="text-[var(--accent)] underline-offset-2 hover:underline"
                     >
                       {t("menu.inbounds", { defaultValue: "Inbounds" })}
-                    </Link>
+                    </PanelNavLink>
                   </p>
                 ) : null}
                 {sectionParseError ? (

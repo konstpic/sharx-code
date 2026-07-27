@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konstpic/sharx-code/v2/config"
+	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/secretpath"
 )
 
@@ -61,6 +62,23 @@ func rewritePanelAssetURLs(content, basePath string) string {
 		content = strings.ReplaceAll(content, r.from, r.to)
 	}
 	return content
+}
+
+// MountPanelStaticAssets registers Next export static trees (_next, locales, custom.min.css) on r.
+func MountPanelStaticAssets(r gin.IRoutes) {
+	if nxt, err := fs.Sub(panelFsys, "_next"); err == nil {
+		r.StaticFS("/_next", http.FS(nxt))
+	} else {
+		logger.Warning("panel: _next not found in static export: ", err)
+	}
+	if loc, err := fs.Sub(panelFsys, "locales"); err == nil {
+		r.StaticFS("/locales", http.FS(loc))
+	} else {
+		logger.Warning("panel: locales not found: ", err)
+	}
+	r.GET("/custom.min.css", func(c *gin.Context) {
+		c.FileFromFS("custom.min.css", panelRootHTTP)
+	})
 }
 
 // rewritePanelHTML injects runtime base path and rewrites root-absolute asset URLs for secret-path mode.

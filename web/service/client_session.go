@@ -21,6 +21,20 @@ type ClientSessionNodeResult struct {
 	Error                 string                 `json:"error,omitempty"`
 }
 
+// offlineBlockedDropAvailable reports whether conntrack drop can run for offline blocklist IPs
+// (local panel in single-node mode, or any worker that already reported dropAvailable).
+func offlineBlockedDropAvailable(results []ClientSessionNodeResult) bool {
+	if conndrop.Available() {
+		return true
+	}
+	for _, block := range results {
+		if block.DropAvailable {
+			return true
+		}
+	}
+	return false
+}
+
 // mergeOfflineBlockedSessionRows appends a synthetic group for IPs on the session blocklist that no
 // longer appear in Xray user-online stats (e.g. after IP routing block), so the UI can still unblock.
 func mergeOfflineBlockedSessionRows(results []ClientSessionNodeResult, blockedIPs []string) []ClientSessionNodeResult {
@@ -54,7 +68,7 @@ func mergeOfflineBlockedSessionRows(results []ClientSessionNodeResult, blockedIP
 		NodeName:              "",
 		IsOfflineBlockedGroup: true,
 		Sessions:              extra,
-		DropAvailable:         false,
+		DropAvailable:         offlineBlockedDropAvailable(results),
 	})
 }
 

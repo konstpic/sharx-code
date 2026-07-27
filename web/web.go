@@ -8,7 +8,6 @@ import (
 	"embed"
 	"encoding/json"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"strconv"
@@ -138,7 +137,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	})
 	engine.Use(func(c *gin.Context) {
 		uri := c.Request.RequestURI
-		if strings.HasPrefix(uri, basePath+"_next/") || strings.HasPrefix(uri, basePath+"locales/") {
+		staticAsset :=
+			strings.HasPrefix(uri, basePath+"_next/") ||
+				strings.HasPrefix(uri, basePath+"locales/") ||
+				(secretpath.HidesBareRoot(basePath) && (strings.HasPrefix(uri, "/_next/") || strings.HasPrefix(uri, "/locales/")))
+		if staticAsset {
 			c.Header("Cache-Control", "max-age=31536000, public, immutable")
 		} else if strings.HasPrefix(uri, basePath+"custom.min.css") {
 			c.Header("Cache-Control", "max-age=31536000, public, immutable")
@@ -170,19 +173,13 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	engine.Use(middleware.RedirectMiddleware(basePath))
 
 	g := engine.Group(basePath)
-	if nxt, err := fs.Sub(panelFsys, "_next"); err == nil {
-		g.StaticFS("/_next", http.FS(nxt))
-	} else {
-		logger.Warning("panel: _next not found in static export: ", err)
+	MountPanelStaticAssets(g)
+	// Webpack dynamic imports (e.g. Monaco in profile editor) request /_next/… without the
+	// secret prefix because the panel is built with empty next basePath. Mirror static assets
+	// at the site root when webBasePath hides GET /.
+	if secretpath.HidesBareRoot(basePath) {
+		MountPanelStaticAssets(engine)
 	}
-	if loc, err := fs.Sub(panelFsys, "locales"); err == nil {
-		g.StaticFS("/locales", http.FS(loc))
-	} else {
-		logger.Warning("panel: locales not found: ", err)
-	}
-	g.GET("/custom.min.css", func(c *gin.Context) {
-		c.FileFromFS("custom.min.css", panelRootHTTP)
-	})
 
 	// Prometheus metrics endpoint (no auth required for scraping)
 	panelMetrics := g.Group("/panel")

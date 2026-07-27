@@ -105,6 +105,27 @@ func TestRewritePanelHTMLRootBaseUnchanged(t *testing.T) {
 	}
 }
 
+func TestMountPanelStaticAssetsServesNextAtRoot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	if err := initPanelFileSystem(); err != nil {
+		t.Fatalf("initPanelFileSystem: %v", err)
+	}
+
+	engine := gin.New()
+	MountPanelStaticAssets(engine)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/_next/static/chunks/webpack-1e39574c95636457.js", nil)
+	engine.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Fatalf("Content-Type = %q, want javascript", ct)
+	}
+}
+
 func TestServePanelReactPageRscTxtWithSubpathBase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	if err := initPanelFileSystem(); err != nil {
