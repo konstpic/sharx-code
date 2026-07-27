@@ -158,6 +158,13 @@ func (s *SubService) buildWireguardPanelInfo(inbound *model.Inbound, clientEmail
 	b.WriteString("\n")
 
 	addrs, _ := s.getAddressesForInbound(inbound)
+	for _, ap := range addrs {
+		if desc := strings.TrimSpace(ap.ServerDescription); desc != "" {
+			b.WriteString("Server description: " + desc + "\n")
+			break
+		}
+	}
+
 	var firstEndpoint string
 	if len(addrs) == 0 {
 		b.WriteString("Endpoint: (set panel Host / node address, or subscription web domain, so a host:port appears here.)\n\n")
@@ -313,10 +320,10 @@ func appendWgQuickClientConf(b *strings.Builder, settings map[string]any, client
 func wireguardConfBlockFromPanelInfo(text string) string {
 	const header = "\n[Interface]\n"
 	if i := strings.Index(text, header); i >= 0 {
-		return strings.TrimSpace(text[i+1:])
+		return trimWireguardConfBlock(strings.TrimSpace(text[i+1:]))
 	}
 	if strings.HasPrefix(text, "[Interface]\n") {
-		return strings.TrimSpace(text)
+		return trimWireguardConfBlock(strings.TrimSpace(text))
 	}
 	return ""
 }

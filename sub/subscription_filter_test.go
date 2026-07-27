@@ -53,6 +53,7 @@ func TestFilterSubscriptionLinksForClient_INCYNormalizesWireGuard(t *testing.T) 
 	panel := "" +
 		"AmneziaWG (UDP) — use the .conf block below\n\n" +
 		"Inbound: DE-Frankfurt\n" +
+		"Server description: Ultra fast\n" +
 		"Endpoint: 203.0.113.1:51820\n\n" +
 		"[Interface]\n" +
 		"PrivateKey = clientPriv=\n" +
@@ -71,17 +72,44 @@ func TestFilterSubscriptionLinksForClient_INCYNormalizesWireGuard(t *testing.T) 
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3: %v", len(got), got)
 	}
-	if got[0] != links[0] || got[2] != links[2] {
-		t.Fatalf("xray links must stay unchanged: %v", got)
+	var awgLink string
+	for _, entry := range got {
+		switch {
+		case entry == links[0], entry == links[2]:
+			continue
+		case strings.HasPrefix(entry, "amneziawg://"):
+			awgLink = entry
+		default:
+			t.Fatalf("unexpected entry: %q in %v", entry, got)
+		}
 	}
-	if strings.Contains(got[1], "AmneziaWG (UDP)") {
-		t.Fatalf("panel boilerplate must be stripped: %q", got[1])
+	if awgLink == "" {
+		t.Fatalf("expected amneziawg share link in %v", got)
 	}
-	if !strings.Contains(got[1], "# DE-Frankfurt") {
-		t.Fatalf("expected inbound remark comment: %q", got[1])
+	if !strings.Contains(awgLink, "#DE-Frankfurt?serverDescription=") {
+		t.Fatalf("expected serverDescription in fragment: %q", awgLink)
 	}
-	if !strings.Contains(got[1], "Jc = 4") {
-		t.Fatalf("AWG obfuscation must remain in conf: %q", got[1])
+}
+
+func TestFilterSubscriptionLinksForClient_INCYWireGuardShareLink(t *testing.T) {
+	panel := "" +
+		"WireGuard (UDP) — panel text\n\n" +
+		"Inbound: NL-Amsterdam\n\n" +
+		"[Interface]\n" +
+		"PrivateKey = clientPriv=\n" +
+		"Address = 10.9.0.2/32\n\n" +
+		"[Peer]\n" +
+		"PublicKey = serverPub=\n" +
+		"Endpoint = 203.0.113.2:51820\n"
+	got := filterSubscriptionLinksForClient([]string{panel}, UAINCY)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if !strings.HasPrefix(got[0], "wireguard://") {
+		t.Fatalf("expected wireguard share link, got %q", got[0])
+	}
+	if !strings.Contains(got[0], "publickey=serverPub") {
+		t.Fatalf("missing server public key: %q", got[0])
 	}
 }
 
@@ -91,5 +119,31 @@ func TestSubscriptionEntrySeparator_INCYUsesBlankLine(t *testing.T) {
 	}
 	if subscriptionEntrySeparator(UAHapp) != "\n" {
 		t.Fatalf("happ separator = %q", subscriptionEntrySeparator(UAHapp))
+	}
+}
+
+func TestOrderSubscriptionLinksForClient_INCYPutsWireGuardLast(t *testing.T) {
+	awg := "[Interface]\nPrivateKey = x\n\n[Peer]\nPublicKey = y\n"
+	links := []string{awg, "hysteria2://token@host:443", "vless://uuid@host:443"}
+	got := orderSubscriptionLinksForClient(links, UAINCY)
+	if len(got) != 3 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if got[2] != awg {
+		t.Fatalf("AWG must be last: %v", got)
+	}
+	if got[0] != links[1] || got[1] != links[2] {
+		t.Fatalf("URI entries first: %v", got)
+	}
+}
+
+func TestTrimWireguardConfBlock_stopsAtURI(t *testing.T) {
+	in := "[Interface]\nPrivateKey = x\n\n[Peer]\nPublicKey = y\n\nhysteria2://auth@host:443?alpn=h3\n"
+	got := trimWireguardConfBlock(in)
+	if strings.Contains(got, "hysteria2://") {
+		t.Fatalf("URI must not remain in conf block: %q", got)
+	}
+	if !strings.Contains(got, "[Peer]") {
+		t.Fatalf("peer section must remain: %q", got)
 	}
 }

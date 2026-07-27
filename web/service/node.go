@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
@@ -2276,6 +2277,7 @@ type InboundNodeBindingInput struct {
 	PublishedPort            int    `json:"publishedPort"`
 	IncludeInSubscription    *bool  `json:"includeInSubscription,omitempty"`
 	SubscriptionRemarkSuffix string `json:"subscriptionRemarkSuffix"`
+	ServerDescription        string `json:"serverDescription"`
 }
 
 func (in InboundNodeBindingInput) effectiveIncludeInSubscription() bool {
@@ -2283,6 +2285,19 @@ func (in InboundNodeBindingInput) effectiveIncludeInSubscription() bool {
 		return true
 	}
 	return *in.IncludeInSubscription
+}
+
+func normalizeSubscriptionServerDescription(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	const maxRunes = 30
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxRunes])
 }
 
 // InboundNodeSubRow pairs a mapping row with its node for subscription link generation.
@@ -2323,6 +2338,7 @@ func (s *NodeService) GetInboundNodeBindingViews(inboundId int) ([]model.Inbound
 			PublishedPort:            m.PublishedPort,
 			IncludeInSubscription:    m.IncludeInSubscription,
 			SubscriptionRemarkSuffix: m.SubscriptionRemarkSuffix,
+			ServerDescription:        m.ServerDescription,
 		}
 		if node, err := s.GetNode(m.NodeId); err == nil && node != nil {
 			v.NodeName = node.Name
@@ -2430,7 +2446,8 @@ func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings [
 		hasExplicitPubAddr := strings.TrimSpace(b.PublishedAddress) != ""
 		hasExplicitPubPort := b.PublishedPort != 0
 		hasExplicitSuffix := strings.TrimSpace(b.SubscriptionRemarkSuffix) != ""
-		legacyRow := !hasExplicitInclude && !hasExplicitPubAddr && !hasExplicitPubPort && !hasExplicitSuffix
+		hasExplicitDesc := strings.TrimSpace(b.ServerDescription) != ""
+		legacyRow := !hasExplicitInclude && !hasExplicitPubAddr && !hasExplicitPubPort && !hasExplicitSuffix && !hasExplicitDesc
 
 		m := model.InboundNodeMapping{
 			InboundId:                inboundId,
@@ -2440,11 +2457,13 @@ func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings [
 			PublishedPort:            b.PublishedPort,
 			IncludeInSubscription:    b.effectiveIncludeInSubscription(),
 			SubscriptionRemarkSuffix: strings.TrimSpace(b.SubscriptionRemarkSuffix),
+			ServerDescription:        normalizeSubscriptionServerDescription(b.ServerDescription),
 		}
 		if prev, ok := oldByNode[b.NodeId]; ok && legacyRow {
 			m.PublishedAddress = prev.PublishedAddress
 			m.PublishedPort = prev.PublishedPort
 			m.SubscriptionRemarkSuffix = prev.SubscriptionRemarkSuffix
+			m.ServerDescription = prev.ServerDescription
 			m.IncludeInSubscription = prev.IncludeInSubscription
 		}
 		if err := db.Create(&m).Error; err != nil {

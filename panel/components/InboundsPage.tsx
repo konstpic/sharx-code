@@ -327,6 +327,7 @@ type InboundNodeBindingApi = {
   publishedPort?: number;
   includeInSubscription?: boolean;
   subscriptionRemarkSuffix?: string;
+  serverDescription?: string;
 };
 
 type NodeBindingFormRow = {
@@ -335,6 +336,7 @@ type NodeBindingFormRow = {
   publishedPort: string;
   includeInSubscription: boolean;
   subscriptionRemarkSuffix: string;
+  serverDescription: string;
 };
 
 function inboundBindingsToForm(ib: {
@@ -349,6 +351,7 @@ function inboundBindingsToForm(ib: {
       publishedPort: String(b.publishedPort ?? 0),
       includeInSubscription: b.includeInSubscription !== false,
       subscriptionRemarkSuffix: (b.subscriptionRemarkSuffix ?? "").trim(),
+      serverDescription: (b.serverDescription ?? "").trim(),
     }));
   }
   return (ib.nodeIds ?? [])
@@ -359,6 +362,7 @@ function inboundBindingsToForm(ib: {
       publishedPort: "0",
       includeInSubscription: true,
       subscriptionRemarkSuffix: "",
+      serverDescription: "",
     }));
 }
 
@@ -1186,6 +1190,7 @@ export function InboundsPage() {
         publishedPort: Math.max(0, Math.floor(Number(b.publishedPort)) || 0),
         includeInSubscription: b.includeInSubscription,
         subscriptionRemarkSuffix: b.subscriptionRemarkSuffix.trim(),
+        serverDescription: b.serverDescription.trim(),
       }));
 
     const body: Record<string, unknown> = {
@@ -1411,6 +1416,7 @@ export function InboundsPage() {
             publishedPort: b.publishedPort ?? 0,
             includeInSubscription: b.includeInSubscription !== false,
             subscriptionRemarkSuffix: (b.subscriptionRemarkSuffix ?? "").trim(),
+            serverDescription: (b.serverDescription ?? "").trim(),
           }));
         } else {
           const nids = ib.nodeIds?.filter((n) => n > 0) ?? [];
@@ -6513,6 +6519,22 @@ export function InboundsPage() {
                               }
                             />
                           </label>
+                          <label className="mt-2 grid gap-1">
+                            <span className="text-[11px] text-[var(--fg-muted)]">
+                              {t("pages.inbounds.serverDescription", {
+                                defaultValue: "Server description (optional, max 30)",
+                              })}
+                            </span>
+                            <Input
+                              maxLength={30}
+                              value={row.serverDescription}
+                              onChange={(e) =>
+                                patchNodeBinding(row.nodeId, {
+                                  serverDescription: e.target.value,
+                                })
+                              }
+                            />
+                          </label>
                         </div>
                       );
                     })}
@@ -6532,6 +6554,7 @@ export function InboundsPage() {
                             publishedPort: "0",
                             includeInSubscription: true,
                             subscriptionRemarkSuffix: "",
+                            serverDescription: "",
                           })),
                         )
                       }
@@ -6565,6 +6588,7 @@ export function InboundsPage() {
                                   publishedPort: "0",
                                   includeInSubscription: true,
                                   subscriptionRemarkSuffix: "",
+                                  serverDescription: "",
                                 },
                               ];
                             }

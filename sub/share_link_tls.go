@@ -1,6 +1,9 @@
 package sub
 
 import (
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/konstpic/sharx-code/v2/xray"
@@ -39,6 +42,18 @@ func tlsAllowInsecureFromSettings(tlsSetting map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// buildCredentialShareURL builds scheme://auth@host:port with proper userinfo escaping.
+func buildCredentialShareURL(scheme, auth, host string, port int) *url.URL {
+	u := &url.URL{
+		Scheme: scheme,
+		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
+	}
+	if auth != "" {
+		u.User = url.User(auth)
+	}
+	return u
 }
 
 // applyXrayQueryTLSPin adds pcs to vless:// / trojan:// / ss:// query params.
@@ -84,22 +99,21 @@ func finalizeVmessTLSBase(tlsSetting map[string]any, baseObj map[string]any) {
 	}
 }
 
-// applyHysteriaTLSPinParams copies certificate pinning into hysteria2:// query params.
-// Uses pcs (Xray) and pinSHA256 (native hy2). Removes insecure=1 when pin is set.
+// applyHysteriaTLSPinParams copies certificate pinning into hysteria2:// query params (INCY: pinSHA256).
 func applyHysteriaTLSPinParams(tlsSetting map[string]interface{}, params map[string]string) {
 	pin := tlsPinFromSettings(tlsSettingToAnyMap(tlsSetting))
 	if pin == "" || params == nil {
 		return
 	}
-	params["pcs"] = pin
 	params["pinSHA256"] = pin
 	delete(params, "insecure")
+	delete(params, "pcs")
 }
 
 // finalizeHysteriaTLSParams applies cert pin or legacy insecure=1 to hysteria2:// query params.
 func finalizeHysteriaTLSParams(tlsSetting map[string]interface{}, params map[string]string) {
 	applyHysteriaTLSPinParams(tlsSetting, params)
-	if params["pcs"] != "" {
+	if params["pinSHA256"] != "" {
 		return
 	}
 	if tlsAllowInsecureFromSettings(tlsSettingToAnyMap(tlsSetting)) {

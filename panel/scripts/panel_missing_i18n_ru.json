@@ -135,6 +135,7 @@
   "pages.inbounds.streamTransport": "Поток / транспорт",
   "pages.inbounds.subscriptionNodeOrder": "Порядок подписки и переопределения",
   "pages.inbounds.subscriptionRemarkSuffix": "Суффикс remark (необязательно)",
+  "pages.inbounds.serverDescription": "Описание сервера (необязательно, до 30 символов)",
   "pages.inbounds.tcpHeaderType": "TCP-заголовок",
   "pages.inbounds.telemtAdTag": "ad_tag (необязательно, @MTProxybot)",
   "pages.inbounds.telemtApi": "Серверный API",

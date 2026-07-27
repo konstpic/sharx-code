@@ -64,6 +64,7 @@ type HostInboundDetailBindingsFragment = {
     publishedPort?: number;
     includeInSubscription?: boolean;
     subscriptionRemarkSuffix?: string;
+    serverDescription?: string;
   }>;
 };
 
@@ -74,6 +75,7 @@ type HostNodeBindingFormRow = {
   publishedPort: string;
   includeInSubscription: boolean;
   subscriptionRemarkSuffix: string;
+  serverDescription: string;
 };
 
 function hostInboundDetailToBindingRows(
@@ -90,6 +92,7 @@ function hostInboundDetailToBindingRows(
         publishedPort: String(b.publishedPort ?? 0),
         includeInSubscription: b.includeInSubscription !== false,
         subscriptionRemarkSuffix: (b.subscriptionRemarkSuffix ?? "").trim(),
+        serverDescription: (b.serverDescription ?? "").trim(),
       };
     });
   }
@@ -101,6 +104,7 @@ function hostInboundDetailToBindingRows(
       publishedPort: "0",
       includeInSubscription: true,
       subscriptionRemarkSuffix: "",
+      serverDescription: "",
     }));
 }
 
@@ -314,6 +318,7 @@ function hostBindingRowsToPayload(rows: HostNodeBindingFormRow[]) {
       publishedPort: Math.max(0, Math.floor(Number(r.publishedPort)) || 0),
       includeInSubscription: r.includeInSubscription,
       subscriptionRemarkSuffix: r.subscriptionRemarkSuffix.trim(),
+      serverDescription: r.serverDescription.trim(),
     }));
 }
 
@@ -1508,6 +1513,23 @@ export function HostsPage() {
                                           patchHostSubRow(iid, row.nodeId, {
                                             subscriptionRemarkSuffix:
                                               e.target.value,
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                    <label className="mt-2 grid gap-1">
+                                      <span className="text-[11px] text-[var(--fg-muted)]">
+                                        {t("pages.inbounds.serverDescription", {
+                                          defaultValue:
+                                            "Server description (optional, max 30)",
+                                        })}
+                                      </span>
+                                      <Input
+                                        maxLength={30}
+                                        value={row.serverDescription}
+                                        onChange={(e) =>
+                                          patchHostSubRow(iid, row.nodeId, {
+                                            serverDescription: e.target.value,
                                           })
                                         }
                                       />

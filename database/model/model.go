@@ -406,6 +406,7 @@ type InboundNodeMapping struct {
 	PublishedPort            int    `json:"publishedPort" gorm:"column:published_port"` // 0 = use inbound port
 	IncludeInSubscription    bool   `json:"includeInSubscription" gorm:"column:include_in_subscription;default:true"`
 	SubscriptionRemarkSuffix string `json:"subscriptionRemarkSuffix" gorm:"column:subscription_remark_suffix"`
+	ServerDescription        string `json:"serverDescription" gorm:"column:server_description"`
 }
 
 // InboundNodeBindingView is returned to the panel for editing subscription-facing node rows.
@@ -417,6 +418,7 @@ type InboundNodeBindingView struct {
 	PublishedPort            int    `json:"publishedPort"`
 	IncludeInSubscription    bool   `json:"includeInSubscription"`
 	SubscriptionRemarkSuffix string `json:"subscriptionRemarkSuffix"`
+	ServerDescription        string `json:"serverDescription"`
 }
 
 // Outbound represents an Xray outbound configuration.

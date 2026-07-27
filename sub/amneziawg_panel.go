@@ -45,6 +45,13 @@ func (s *SubService) buildAmneziaWgPanelInfo(inbound *model.Inbound, clientEmail
 	b.WriteString("\n")
 
 	addrs, _ := s.getAddressesForInbound(inbound)
+	for _, ap := range addrs {
+		if desc := strings.TrimSpace(ap.ServerDescription); desc != "" {
+			b.WriteString("Server description: " + desc + "\n")
+			break
+		}
+	}
+
 	var firstEndpoint string
 	if len(addrs) == 0 {
 		b.WriteString("Endpoint: (set panel Host / node address, or subscription web domain.)\n\n")

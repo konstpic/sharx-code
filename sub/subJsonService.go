@@ -337,14 +337,12 @@ func (s *SubJsonService) genMixed(inbound *model.Inbound, streamSettings json_ut
 }
 
 func (s *SubJsonService) streamData(stream string) map[string]any {
-	var streamSettings map[string]any
-	json.Unmarshal([]byte(stream), &streamSettings)
+	streamSettings := parseInboundStreamSettings(stream)
 	security, _ := streamSettings["security"].(string)
-	switch security {
-	case "tls":
-		streamSettings["tlsSettings"] = s.tlsData(streamSettings["tlsSettings"].(map[string]any))
-	case "reality":
-		streamSettings["realitySettings"] = s.realityData(streamSettings["realitySettings"].(map[string]any))
+	if security == "reality" {
+		if rs, ok := streamSettings["realitySettings"].(map[string]any); ok {
+			streamSettings["realitySettings"] = s.realityData(rs)
+		}
 	}
 	delete(streamSettings, "sockopt")
 
@@ -554,6 +552,9 @@ func (s *SubJsonService) genHy(inbound *model.Inbound, newStream map[string]any,
 
 	newStream["network"] = "hysteria"
 	newStream["security"] = "tls"
+	if tls, ok := newStream["tlsSettings"].(map[string]any); ok {
+		newStream["tlsSettings"] = s.tlsData(tls)
+	}
 
 	outbound.StreamSettings, _ = json.MarshalIndent(newStream, "", "  ")
 

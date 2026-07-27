@@ -135,6 +135,7 @@
   "pages.inbounds.streamTransport": "Stream / transport",
   "pages.inbounds.subscriptionNodeOrder": "Subscription order & overrides",
   "pages.inbounds.subscriptionRemarkSuffix": "Remark suffix (optional)",
+  "pages.inbounds.serverDescription": "Server description (optional, max 30 chars)",
   "pages.inbounds.tcpHeaderType": "TCP header",
   "pages.inbounds.telemtAdTag": "ad_tag (optional, @MTProxybot)",
   "pages.inbounds.telemtApi": "Server API",

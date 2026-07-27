@@ -466,13 +466,18 @@ func (s *SubService) getFallbackMaster(dest string, streamSettings string) (stri
 		return "", 0, "", fmt.Errorf("fallback master inbound not found for %s", dest)
 	}
 
-	var stream map[string]any
-	json.Unmarshal([]byte(streamSettings), &stream)
-	var masterStream map[string]any
-	json.Unmarshal([]byte(inbound.StreamSettings), &masterStream)
+	stream := parseInboundStreamSettings(streamSettings)
+	masterStream := parseInboundStreamSettings(inbound.StreamSettings)
 	stream["security"] = masterStream["security"]
-	stream["tlsSettings"] = masterStream["tlsSettings"]
+	if tls, ok := masterStream["tlsSettings"].(map[string]any); ok {
+		stream["tlsSettings"] = tls
+	} else {
+		delete(stream, "tlsSettings")
+	}
 	stream["externalProxy"] = masterStream["externalProxy"]
+	if masterStream["security"] != "tls" {
+		delete(stream, "tlsSettings")
+	}
 	modifiedStream, _ := json.MarshalIndent(stream, "", "  ")
 
 	return inbound.Listen, inbound.Port, string(modifiedStream), nil
@@ -804,6 +809,7 @@ type AddressPort struct {
 	Address           string
 	Port              int // 0 means use inbound.Port
 	RemarkSuffix      string
+	ServerDescription string
 	RemarkNodeName    string
 	RemarkDisplayHost string
 	// ApplyHostSubscriptionOverrides is true only for the endpoint row derived from the panel Host (CDN/front).
@@ -888,6 +894,7 @@ func (s *SubService) buildNodeAddressPorts(inbound *model.Inbound) []AddressPort
 			Address:           addr,
 			Port:              row.Mapping.PublishedPort,
 			RemarkSuffix:      row.Mapping.SubscriptionRemarkSuffix,
+			ServerDescription: row.Mapping.ServerDescription,
 			RemarkNodeName:    row.Node.Name,
 			RemarkDisplayHost: addr,
 		})
@@ -1534,7 +1541,7 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 			}
 
 			url.RawQuery = q.Encode()
-			url.Fragment = s.genRemarkWithClient(inbound, client, ep["remark"].(string), nil)
+			url.Fragment = s.genShareLinkFragmentWithClient(inbound, client, ep["remark"].(string), nil, "")
 			links = append(links, url.String())
 		}
 		return strings.Join(links, "\n")
@@ -1560,7 +1567,7 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 		}
 
 		url.RawQuery = q.Encode()
-		url.Fragment = s.genRemarkWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		url.Fragment = s.genShareLinkFragmentWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 		links = append(links, url.String())
 	}
 
@@ -1763,7 +1770,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 			// Set the new query values on the URL
 			url.RawQuery = q.Encode()
 
-			url.Fragment = s.genRemark(inbound, email, ep["remark"].(string), nil)
+			url.Fragment = s.genShareLinkFragment(inbound, email, ep["remark"].(string), nil, "")
 
 			links = append(links, url.String())
 		}
@@ -1793,7 +1800,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		// Set the new query values on the URL
 		url.RawQuery = q.Encode()
 
-		url.Fragment = s.genRemark(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		url.Fragment = s.genShareLinkFragment(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 
 		links = append(links, url.String())
 	}
@@ -1964,7 +1971,7 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 			}
 
 			url.RawQuery = q.Encode()
-			url.Fragment = s.genRemarkWithClient(inbound, client, ep["remark"].(string), nil)
+			url.Fragment = s.genShareLinkFragmentWithClient(inbound, client, ep["remark"].(string), nil, "")
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -1994,7 +2001,7 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 		}
 
 		url.RawQuery = q.Encode()
-		url.Fragment = s.genRemarkWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		url.Fragment = s.genShareLinkFragmentWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -2180,7 +2187,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 			// Set the new query values on the URL
 			url.RawQuery = q.Encode()
 
-			url.Fragment = s.genRemark(inbound, email, ep["remark"].(string), nil)
+			url.Fragment = s.genShareLinkFragment(inbound, email, ep["remark"].(string), nil, "")
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -2214,7 +2221,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		// Set the new query values on the URL
 		url.RawQuery = q.Encode()
 
-		url.Fragment = s.genRemark(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		url.Fragment = s.genShareLinkFragment(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -2435,7 +2442,7 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 				}
 			}
 			u.RawQuery = q.Encode()
-			u.Fragment = s.genRemarkWithClient(inbound, client, mapGetString(ep, "remark"), nil)
+			u.Fragment = s.genShareLinkFragmentWithClient(inbound, client, mapGetString(ep, "remark"), nil, "")
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -2469,7 +2476,7 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 			q.Add(k, v)
 		}
 		u.RawQuery = q.Encode()
-		u.Fragment = s.genRemarkWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		u.Fragment = s.genShareLinkFragmentWithClient(inbound, client, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -2651,7 +2658,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 				}
 			}
 			u.RawQuery = q.Encode()
-			u.Fragment = s.genRemark(inbound, email, mapGetString(ep, "remark"), nil)
+			u.Fragment = s.genShareLinkFragment(inbound, email, mapGetString(ep, "remark"), nil, "")
 
 			if linkIndex > 0 {
 				links += "\n"
@@ -2685,7 +2692,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 			q.Add(k, v)
 		}
 		u.RawQuery = q.Encode()
-		u.Fragment = s.genRemark(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort))
+		u.Fragment = s.genShareLinkFragment(inbound, email, strings.TrimSpace(addrPort.RemarkSuffix), remarkTplFromAP(addrPort), addrPort.ServerDescription)
 
 		if linkIndex > 0 {
 			links += "\n"
@@ -2739,7 +2746,6 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 	json.Unmarshal([]byte(inbound.StreamSettings), &stream)
 	params := make(map[string]string)
 
-	params["security"] = "tls"
 	tlsSetting, _ := stream["tlsSettings"].(map[string]interface{})
 	alpns, _ := tlsSetting["alpn"].([]interface{})
 	var alpn []string
@@ -2807,14 +2813,13 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 			}
 			epRemark, _ := ep["remark"].(string)
 
-			link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, dest, int(portF))
-			u, _ := url.Parse(link)
+			u := buildCredentialShareURL(protocol, auth, dest, int(portF))
 			q := u.Query()
 			for k, v := range params {
 				q.Add(k, v)
 			}
 			u.RawQuery = q.Encode()
-			u.Fragment = s.genRemark(inbound, email, epRemark, nil)
+			u.Fragment = s.genShareLinkFragment(inbound, email, epRemark, nil, "")
 			links = append(links, u.String())
 		}
 		return strings.Join(links, "\n")
@@ -2839,14 +2844,13 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 			applyHostOverridesToHysteriaParams(subHost, rowParams)
 		}
 
-		link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, addr, linkPort)
-		u, _ := url.Parse(link)
+		u := buildCredentialShareURL(protocol, auth, addr, linkPort)
 		q := u.Query()
 		for k, v := range rowParams {
 			q.Add(k, v)
 		}
 		u.RawQuery = q.Encode()
-		u.Fragment = s.genRemark(inbound, email, strings.TrimSpace(ap.RemarkSuffix), remarkTplFromAP(ap))
+		u.Fragment = s.genShareLinkFragment(inbound, email, strings.TrimSpace(ap.RemarkSuffix), remarkTplFromAP(ap), ap.ServerDescription)
 		links = append(links, u.String())
 	}
 	return strings.Join(links, "\n")
@@ -2979,6 +2983,14 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 		}
 	}
 	return strings.Join(remark, separationChar)
+}
+
+func (s *SubService) genShareLinkFragment(inbound *model.Inbound, email, extra string, tpl *RemarkTplNode, serverDescription string) string {
+	return FormatShareLinkFragment(s.genRemark(inbound, email, extra, tpl), serverDescription)
+}
+
+func (s *SubService) genShareLinkFragmentWithClient(inbound *model.Inbound, client *model.ClientEntity, extra string, tpl *RemarkTplNode, serverDescription string) string {
+	return FormatShareLinkFragment(s.genRemarkWithClient(inbound, client, extra, tpl), serverDescription)
 }
 
 // genRemarkWithClient generates remark for ClientEntity, checking Enable and Status

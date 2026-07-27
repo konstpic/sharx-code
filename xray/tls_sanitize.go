@@ -57,7 +57,7 @@ func SanitizeClientTLSSettings(tls map[string]any) map[string]any {
 		switch k {
 		case "allowInsecure", "settings":
 			continue
-		case "pinnedPeerCertificateChainSha256":
+		case "pinnedPeerCertSha256", "pinnedPeerCertificateChainSha256":
 			continue
 		default:
 			out[k] = v
@@ -77,8 +77,29 @@ func SanitizeClientTLSSettings(tls map[string]any) map[string]any {
 	}
 	if pin := PinnedPeerCertSha256FromTLS(tls); pin != "" {
 		out["pinnedPeerCertSha256"] = pin
+	} else {
+		delete(out, "pinnedPeerCertSha256")
 	}
 	delete(out, "allowInsecure")
 	delete(out, "pinnedPeerCertificateChainSha256")
 	return out
+}
+
+// NormalizeSubscriptionStreamSettings sanitizes inbound streamSettings for client subscriptions.
+// Legacy panel / Xray 2026+ configs may store pinnedPeerCertSha256 as a JSON array; INCY and
+// older Xray clients expect a comma-separated string in tlsSettings.
+func NormalizeSubscriptionStreamSettings(stream map[string]any) map[string]any {
+	if stream == nil {
+		return map[string]any{}
+	}
+	security, _ := stream["security"].(string)
+	if tls, ok := stream["tlsSettings"].(map[string]any); ok {
+		stream["tlsSettings"] = SanitizeClientTLSSettings(tls)
+	} else if security == "tls" {
+		stream["tlsSettings"] = SanitizeClientTLSSettings(nil)
+	}
+	if security != "tls" {
+		delete(stream, "tlsSettings")
+	}
+	return stream
 }

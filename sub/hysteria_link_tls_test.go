@@ -39,11 +39,11 @@ func TestApplyHysteriaTLSPinParams(t *testing.T) {
 		"pinnedPeerCertificateChainSha256": []interface{}{"deadbeef"},
 	}
 	applyHysteriaTLSPinParams(tls, params)
-	if got := params["pcs"]; got != "deadbeef" {
-		t.Fatalf("pcs = %q, want deadbeef", got)
-	}
 	if got := params["pinSHA256"]; got != "deadbeef" {
 		t.Fatalf("pinSHA256 = %q, want deadbeef", got)
+	}
+	if _, ok := params["pcs"]; ok {
+		t.Fatal("pcs must not be set for hysteria2 share links")
 	}
 	if _, ok := params["insecure"]; ok {
 		t.Fatal("insecure must be removed when pin is set")
@@ -73,8 +73,8 @@ func TestFinalizeHysteriaTLSParams_insecureFallback(t *testing.T) {
 	if params["insecure"] != "1" {
 		t.Fatalf("insecure = %q, want 1", params["insecure"])
 	}
-	if params["pcs"] != "" {
-		t.Fatal("pcs should be empty without pin")
+	if params["pinSHA256"] != "" {
+		t.Fatal("pinSHA256 should be empty without pin")
 	}
 }
 
