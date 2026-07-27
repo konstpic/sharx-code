@@ -56,7 +56,7 @@ func TestAppendWgQuickClientConf_matchesWireGuardAndAWGShape(t *testing.T) {
 	var awg strings.Builder
 	appendWgQuickClientConf(&awg, settings, "u@example.com", "203.0.113.1:51820", "serverPub=", &wgQuickClientConfOpts{
 		writeInterfaceExtras: func(b *strings.Builder, settings map[string]any) {
-			service.AppendAmneziaWGObfuscationToConf(b, service.AmneziaWGObfuscation{Jc: 3, H1: 1})
+			service.AppendAmneziaWGObfuscationToConf(b, service.AmneziaWGObfuscation{Jc: 3, H1: "1"})
 		},
 	})
 	awgConf := awg.String()

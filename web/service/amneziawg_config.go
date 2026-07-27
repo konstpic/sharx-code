@@ -1,19 +1,69 @@
 package service
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 )
 
-// AmneziaWGObfuscation holds transport-layer AWG params (Jc/H/S). Server and client must match.
-// See https://docs.amnezia.org/documentation/amnezia-wg/
+// AWGConfValue is an AmneziaWG config scalar that accepts legacy JSON numbers or strings
+// (e.g. H1 ranges "123-456", ContentPaddingAddition "8-32").
+type AWGConfValue string
+
+func (v AWGConfValue) String() string { return strings.TrimSpace(string(v)) }
+
+func (v AWGConfValue) IsZero() bool { return v.String() == "" }
+
+func (v *AWGConfValue) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || string(data) == "null" {
+		*v = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*v = AWGConfValue(strings.TrimSpace(s))
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err == nil {
+		*v = AWGConfValue(n.String())
+		return nil
+	}
+	var f float64
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	*v = AWGConfValue(strconv.FormatInt(int64(f), 10))
+	return nil
+}
+
+func (v AWGConfValue) MarshalJSON() ([]byte, error) {
+	s := v.String()
+	if s == "" {
+		return []byte(`""`), nil
+	}
+	// Pure integers stay numbers for legacy panel / older tools.
+	if i, err := strconv.Atoi(s); err == nil && strconv.Itoa(i) == s {
+		return []byte(s), nil
+	}
+	return json.Marshal(s)
+}
+
+// AmneziaWGObfuscation holds transport-layer AWG params (Jc/H/S + AWG 3.0 extras).
+// Empty / zero fields are omitted from conf for legacy clients and older amneziawg-go.
+// See https://github.com/amnezia-vpn/amneziawg-go and https://docs.amnezia.org/documentation/amnezia-wg/
 type AmneziaWGObfuscation struct {
 	Jc   int `json:"jc,omitempty"`
 	Jmin int `json:"jmin,omitempty"`
@@ -22,21 +72,36 @@ type AmneziaWGObfuscation struct {
 	S2   int `json:"s2,omitempty"`
 	S3   int `json:"s3,omitempty"`
 	S4   int `json:"s4,omitempty"`
-	H1   int `json:"h1,omitempty"`
-	H2   int `json:"h2,omitempty"`
-	H3   int `json:"h3,omitempty"`
-	H4   int `json:"h4,omitempty"`
+	// H1–H4: legacy single uint or AWG 3 range "x-y".
+	H1 AWGConfValue `json:"h1,omitempty"`
+	H2 AWGConfValue `json:"h2,omitempty"`
+	H3 AWGConfValue `json:"h3,omitempty"`
+	H4 AWGConfValue `json:"h4,omitempty"`
+	// I1–I5: custom signature packets (AWG; typically client-side).
+	I1 string `json:"i1,omitempty"`
+	I2 string `json:"i2,omitempty"`
+	I3 string `json:"i3,omitempty"`
+	I4 string `json:"i4,omitempty"`
+	I5 string `json:"i5,omitempty"`
+	// AWG 3.0+
+	HeaderProtectionKey    string `json:"headerProtectionKey,omitempty"`
+	ContentPaddingAddition string `json:"contentPaddingAddition,omitempty"` // uint or "min-max"
+	RekeyAfterTime         string `json:"rekeyAfterTime,omitempty"`
+	RekeyTimeout           string `json:"rekeyTimeout,omitempty"`
+	RejectAfterTime        string `json:"rejectAfterTime,omitempty"`
+	KeepaliveTimeout       string `json:"keepaliveTimeout,omitempty"`
+	MaxHandshakeAttempts   string `json:"maxHandshakeAttempts,omitempty"`
 }
 
 // AmneziaWGInboundSettings is panel JSON for protocol `amneziawg` (sidecar, not Xray).
 type AmneziaWGInboundSettings struct {
-	ListenPort   int                    `json:"listenPort"`
-	MTU          int                    `json:"mtu"`
-	SecretKey    string                 `json:"secretKey"`
-	Address      []string               `json:"address"`
-	ClientDNS    []string               `json:"clientDns,omitempty"`
-	Obfuscation  AmneziaWGObfuscation   `json:"obfuscation"`
-	Peers        []AmneziaWGPeerSettings `json:"peers,omitempty"`
+	ListenPort         int                     `json:"listenPort"`
+	MTU                int                     `json:"mtu"`
+	SecretKey          string                  `json:"secretKey"`
+	Address            []string                `json:"address"`
+	ClientDNS          []string                `json:"clientDns,omitempty"`
+	Obfuscation        AmneziaWGObfuscation    `json:"obfuscation"`
+	Peers              []AmneziaWGPeerSettings `json:"peers,omitempty"`
 	PanelInactivePeers []AmneziaWGPeerSettings `json:"panelWgInactivePeers,omitempty"`
 }
 
@@ -49,7 +114,7 @@ type AmneziaWGPeerSettings struct {
 	KeepAlive    int      `json:"keepAlive,omitempty"`
 }
 
-// RandomAmneziaWGObfuscation returns DPI-oriented defaults.
+// RandomAmneziaWGObfuscation returns DPI-oriented defaults (legacy-compatible; no AWG 3 keys).
 func RandomAmneziaWGObfuscation() AmneziaWGObfuscation {
 	return AmneziaWGObfuscation{
 		Jc:   4,
@@ -57,10 +122,10 @@ func RandomAmneziaWGObfuscation() AmneziaWGObfuscation {
 		Jmax: 70,
 		S1:   randomIntRange(50, 120),
 		S2:   randomIntRange(0, 40),
-		H1:   randomUint32(),
-		H2:   randomUint32(),
-		H3:   randomUint32(),
-		H4:   randomUint32(),
+		H1:   AWGConfValue(strconv.Itoa(randomUint32())),
+		H2:   AWGConfValue(strconv.Itoa(randomUint32())),
+		H3:   AWGConfValue(strconv.Itoa(randomUint32())),
+		H4:   AWGConfValue(strconv.Itoa(randomUint32())),
 	}
 }
 
@@ -83,11 +148,55 @@ func randomUint32() int {
 	return int(v)
 }
 
+// EnsureAmneziaWGHeaderProtectionPadding raises S1–S4 to at least 8 when HeaderProtectionKey is set.
+func EnsureAmneziaWGHeaderProtectionPadding(o *AmneziaWGObfuscation) {
+	if o == nil || strings.TrimSpace(o.HeaderProtectionKey) == "" {
+		return
+	}
+	if o.S1 < 8 {
+		o.S1 = 8
+	}
+	if o.S2 < 8 {
+		o.S2 = 8
+	}
+	if o.S3 < 8 {
+		o.S3 = 8
+	}
+	if o.S4 < 8 {
+		o.S4 = 8
+	}
+}
+
+// ValidateAmneziaWGObfuscation checks AWG 3 constraints (HeaderProtectionKey requires S1–S4 ≥ 8).
+func ValidateAmneziaWGObfuscation(o AmneziaWGObfuscation) error {
+	if strings.TrimSpace(o.HeaderProtectionKey) == "" {
+		return nil
+	}
+	for _, pair := range []struct {
+		name string
+		v    int
+	}{
+		{"S1", o.S1}, {"S2", o.S2}, {"S3", o.S3}, {"S4", o.S4},
+	} {
+		if pair.v < 8 {
+			return fmt.Errorf("HeaderProtectionKey requires %s >= 8 (got %d); use awg genkey-compatible key and raise S1–S4", pair.name, pair.v)
+		}
+	}
+	return nil
+}
+
 // AppendAmneziaWGObfuscationToConf writes AWG key=value lines into a wg-quick [Interface] section.
+// Zero / empty values are skipped so legacy confs stay unchanged when AWG 3 fields are unused.
 func AppendAmneziaWGObfuscationToConf(b *strings.Builder, o AmneziaWGObfuscation) {
 	writeInt := func(key string, val int) {
 		if val != 0 {
 			b.WriteString(fmt.Sprintf("%s = %d\n", key, val))
+		}
+	}
+	writeStr := func(key, val string) {
+		val = strings.TrimSpace(val)
+		if val != "" {
+			b.WriteString(fmt.Sprintf("%s = %s\n", key, val))
 		}
 	}
 	writeInt("Jc", o.Jc)
@@ -97,10 +206,22 @@ func AppendAmneziaWGObfuscationToConf(b *strings.Builder, o AmneziaWGObfuscation
 	writeInt("S2", o.S2)
 	writeInt("S3", o.S3)
 	writeInt("S4", o.S4)
-	writeInt("H1", o.H1)
-	writeInt("H2", o.H2)
-	writeInt("H3", o.H3)
-	writeInt("H4", o.H4)
+	writeStr("H1", o.H1.String())
+	writeStr("H2", o.H2.String())
+	writeStr("H3", o.H3.String())
+	writeStr("H4", o.H4.String())
+	writeStr("I1", o.I1)
+	writeStr("I2", o.I2)
+	writeStr("I3", o.I3)
+	writeStr("I4", o.I4)
+	writeStr("I5", o.I5)
+	writeStr("HeaderProtectionKey", o.HeaderProtectionKey)
+	writeStr("ContentPaddingAddition", o.ContentPaddingAddition)
+	writeStr("RekeyAfterTime", o.RekeyAfterTime)
+	writeStr("RekeyTimeout", o.RekeyTimeout)
+	writeStr("RejectAfterTime", o.RejectAfterTime)
+	writeStr("KeepaliveTimeout", o.KeepaliveTimeout)
+	writeStr("MaxHandshakeAttempts", o.MaxHandshakeAttempts)
 }
 
 // ParseAmneziaWGInboundSettings parses inbound settings JSON for protocol amneziawg.
@@ -124,11 +245,11 @@ func ParseAmneziaWGInboundSettings(settingsJSON string) (*AmneziaWGInboundSettin
 
 // AmneziaWGInboundRequest is the panel form payload for protocol amneziawg.
 type AmneziaWGInboundRequest struct {
-	MTU         int                    `json:"mtu"`
-	SecretKey   string                 `json:"secretKey"`
-	Address     []string               `json:"address"`
-	ClientDNS   []string               `json:"clientDns"`
-	Obfuscation *AmneziaWGObfuscation  `json:"obfuscation,omitempty"`
+	MTU         int                   `json:"mtu"`
+	SecretKey   string                `json:"secretKey"`
+	Address     []string              `json:"address"`
+	ClientDNS   []string              `json:"clientDns"`
+	Obfuscation *AmneziaWGObfuscation `json:"obfuscation,omitempty"`
 }
 
 const defaultAmneziaWGMTU = 1420
@@ -164,6 +285,10 @@ func BuildAmneziaWGInboundSettingsJSON(r *AmneziaWGInboundRequest) (string, erro
 	obf := AmneziaWGObfuscation{}
 	if r.Obfuscation != nil {
 		obf = *r.Obfuscation
+	}
+	EnsureAmneziaWGHeaderProtectionPadding(&obf)
+	if err := ValidateAmneziaWGObfuscation(obf); err != nil {
+		return "", err
 	}
 	out := AmneziaWGInboundSettings{
 		MTU:         mtu,

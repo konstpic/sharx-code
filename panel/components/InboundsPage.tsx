@@ -27,6 +27,7 @@ import { getJson, postJson } from "@/lib/api";
 import {
   buildAmneziaWgInboundApiPayload,
   defaultAmneziaWgInboundForm,
+  ensureAmneziaWgHeaderProtectionPadding,
   parseAmneziaWgSettingsToForm,
   randomAmneziaWgObfuscationFields,
 } from "@/lib/amneziawgInbound";
@@ -6241,10 +6242,12 @@ export function InboundsPage() {
                     spellCheck={false}
                   />
                 </div>
-                <div className="rounded-xl border border-[var(--border)] p-3 space-y-2">
+                <div className="rounded-xl border border-[var(--border)] p-3 space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-xs font-medium text-[var(--fg-muted)]">
-                      {t("pages.inbounds.amneziawgObfuscation", { defaultValue: "Obfuscation (Jc / H / S)" })}
+                      {t("pages.inbounds.amneziawgObfuscation", {
+                        defaultValue: "Obfuscation (Jc / H / S)",
+                      })}
                     </p>
                     <Button
                       type="button"
@@ -6253,18 +6256,38 @@ export function InboundsPage() {
                       onClick={() =>
                         setForm((f) => ({
                           ...f,
-                          amneziawgForm: { ...f.amneziawgForm, ...randomAmneziaWgObfuscationFields() },
+                          amneziawgForm: {
+                            ...f.amneziawgForm,
+                            ...randomAmneziaWgObfuscationFields(),
+                          },
                         }))
                       }
                     >
-                      {t("pages.inbounds.amneziawgRegenObfuscation", { defaultValue: "Randomize" })}
+                      {t("pages.inbounds.amneziawgRegenObfuscation", {
+                        defaultValue: "Randomize",
+                      })}
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {(["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"] as const).map((key) => (
+                    {(
+                      [
+                        "jc",
+                        "jmin",
+                        "jmax",
+                        "s1",
+                        "s2",
+                        "s3",
+                        "s4",
+                        "h1",
+                        "h2",
+                        "h3",
+                        "h4",
+                      ] as const
+                    ).map((key) => (
                       <div key={key}>
                         <label className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
                           {key}
+                          {key.startsWith("h") ? " (n or n-m)" : ""}
                         </label>
                         <Input
                           className="font-mono text-xs"
@@ -6272,13 +6295,164 @@ export function InboundsPage() {
                           onChange={(e) =>
                             setForm((f) => ({
                               ...f,
-                              amneziawgForm: { ...f.amneziawgForm, [key]: e.target.value },
+                              amneziawgForm: {
+                                ...f.amneziawgForm,
+                                [key]: e.target.value,
+                              },
                             }))
                           }
                           spellCheck={false}
+                          placeholder={key.startsWith("h") ? "123 or 10-99" : undefined}
                         />
                       </div>
                     ))}
+                  </div>
+
+                  <div className="space-y-2 border-t border-[var(--border)] pt-3">
+                    <p className="text-xs font-medium text-[var(--fg-muted)]">
+                      {t("pages.inbounds.amneziawg3HeaderProtection", {
+                        defaultValue: "AWG 3 — Header protection",
+                      })}
+                    </p>
+                    <p className="text-[11px] text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.amneziawg3HeaderProtectionHint", {
+                        defaultValue:
+                          "Server-side key (same on client). Requires S1–S4 ≥ 8. Leave empty for legacy AWG.",
+                      })}
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        className="font-mono text-xs"
+                        value={form.amneziawgForm.headerProtectionKey}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            amneziawgForm: ensureAmneziaWgHeaderProtectionPadding({
+                              ...f.amneziawgForm,
+                              headerProtectionKey: e.target.value,
+                            }),
+                          }))
+                        }
+                        spellCheck={false}
+                        placeholder="awg genkey"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="shrink-0 text-xs"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            amneziawgForm: ensureAmneziaWgHeaderProtectionPadding({
+                              ...f.amneziawgForm,
+                              headerProtectionKey: newWireGuardSecretKeyBase64(),
+                            }),
+                          }))
+                        }
+                      >
+                        {t("pages.inbounds.amneziawgGenHeaderKey", {
+                          defaultValue: "Generate",
+                        })}
+                      </Button>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
+                        ContentPaddingAddition
+                      </label>
+                      <Input
+                        className="font-mono text-xs"
+                        value={form.amneziawgForm.contentPaddingAddition}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            amneziawgForm: {
+                              ...f.amneziawgForm,
+                              contentPaddingAddition: e.target.value,
+                            },
+                          }))
+                        }
+                        spellCheck={false}
+                        placeholder="16 or 8-32"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-[var(--border)] pt-3">
+                    <p className="text-xs font-medium text-[var(--fg-muted)]">
+                      {t("pages.inbounds.amneziawg3Timings", {
+                        defaultValue: "AWG 3 — Timings (optional)",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {(
+                        [
+                          ["rekeyAfterTime", "RekeyAfterTime"],
+                          ["rekeyTimeout", "RekeyTimeout"],
+                          ["rejectAfterTime", "RejectAfterTime"],
+                          ["keepaliveTimeout", "KeepaliveTimeout"],
+                          ["maxHandshakeAttempts", "MaxHandshakeAttempts"],
+                        ] as const
+                      ).map(([field, label]) => (
+                        <div key={field}>
+                          <label className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
+                            {label}
+                          </label>
+                          <Input
+                            className="font-mono text-xs"
+                            value={form.amneziawgForm[field]}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                amneziawgForm: {
+                                  ...f.amneziawgForm,
+                                  [field]: e.target.value,
+                                },
+                              }))
+                            }
+                            spellCheck={false}
+                            placeholder="sec or min-max"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-[var(--border)] pt-3">
+                    <p className="text-xs font-medium text-[var(--fg-muted)]">
+                      {t("pages.inbounds.amneziawg3Signatures", {
+                        defaultValue: "AWG 3 — Signature packets I1–I5 (optional)",
+                      })}
+                    </p>
+                    <p className="text-[11px] text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.amneziawg3SignaturesHint", {
+                        defaultValue:
+                          "Usually client-only. Tags: <b 0x..>, <r N>, <rd N>, <rc N>, <t>",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {(["i1", "i2", "i3", "i4", "i5"] as const).map((key) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <label className="w-8 shrink-0 text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
+                            {key}
+                          </label>
+                          <Input
+                            className="font-mono text-xs"
+                            value={form.amneziawgForm[key]}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                amneziawgForm: {
+                                  ...f.amneziawgForm,
+                                  [key]: e.target.value,
+                                },
+                              }))
+                            }
+                            spellCheck={false}
+                            placeholder="<b 0xdead><r 10>"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <Button
