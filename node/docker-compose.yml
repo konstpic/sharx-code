@@ -6,7 +6,7 @@ services:
     build:
       context: ..
       dockerfile: node/Dockerfile
-    # image: registry.konstpic.ru/sharx/sharxnode:latest
+    # image: harbor.sharxconnect.app/sharx/sharxnode:latest
     container_name: sharx-node
     restart: unless-stopped
     labels:

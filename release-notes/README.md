@@ -38,7 +38,7 @@ When creating a new release notes file, include:
 
 You can use the following placeholders in release notes files. They will be automatically replaced with actual values:
 
-- `{{SHARX_TAG_VERSION}}` - SharX image with version tag (e.g., `registry.konstpic.ru/sharx/sharx:1.0.0`)
+- `{{SHARX_TAG_VERSION}}` - SharX image with version tag (e.g., `harbor.sharxconnect.app/sharx/sharx:1.0.0`)
 - `{{SHARX_TAG_LATEST}}` - SharX image with latest tag
 - `{{SHARXNODE_TAG_VERSION}}` - SharXNode image with version tag
 - `{{SHARXNODE_TAG_LATEST}}` - SharXNode image with latest tag

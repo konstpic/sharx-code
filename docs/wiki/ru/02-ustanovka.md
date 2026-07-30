@@ -171,7 +171,7 @@ sudo ./install_ru.sh
 # → 2) Обновить панель
 ```
 
-> Для production используйте готовый образ из реестра (например, `registry.konstpic.ru/sharx/sharx:версия`) вместо локальной сборки `build:`, иначе Watchtower не сможет подтянуть обновления.
+> Для production используйте готовый образ из реестра (например, `harbor.sharxconnect.app/sharx/sharx:версия`) вместо локальной сборки `build:`, иначе Watchtower не сможет подтянуть обновления.
 
 ---
 

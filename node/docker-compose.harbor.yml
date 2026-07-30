@@ -2,7 +2,7 @@
 # Watchtower on bridge; node uses host network and calls 127.0.0.1:8081 (panel “update” also triggers workers when multi-node is on).
 services:
   node:
-    image: registry.konstpic.ru/sharx/sharxnode:latest
+    image: harbor.sharxconnect.app/sharx/sharxnode:latest
     container_name: sharx-node
     restart: unless-stopped
     labels:

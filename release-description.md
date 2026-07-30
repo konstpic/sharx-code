@@ -17,9 +17,9 @@
 
 Images are available in Harbor:
 
-- **sharx**: `registry.konstpic.ru/sharx/sharx:1.0.0` / `registry.konstpic.ru/sharx/sharx:latest`
-- **sharxnode**: `registry.konstpic.ru/sharx/sharxnode:1.0.0` / `registry.konstpic.ru/sharx/sharxnode:latest`
-- **postgres**: `registry.konstpic.ru/sharx/postgres:16-alpine` / `registry.konstpic.ru/sharx/postgres:latest`
+- **sharx**: `harbor.sharxconnect.app/sharx/sharx:1.0.0` / `harbor.sharxconnect.app/sharx/sharx:latest`
+- **sharxnode**: `harbor.sharxconnect.app/sharx/sharxnode:1.0.0` / `harbor.sharxconnect.app/sharx/sharxnode:latest`
+- **postgres**: `harbor.sharxconnect.app/sharx/postgres:16-alpine` / `harbor.sharxconnect.app/sharx/postgres:latest`
 
 ### 📦 Quick Start
 
@@ -28,11 +28,11 @@ Update your `docker-compose.yml`:
 ```yaml
 services:
   sharx:
-    image: registry.konstpic.ru/sharx/sharx:latest
+    image: harbor.sharxconnect.app/sharx/sharx:latest
   sharxnode:
-    image: registry.konstpic.ru/sharx/sharxnode:latest
+    image: harbor.sharxconnect.app/sharx/sharxnode:latest
   postgres:
-    image: registry.konstpic.ru/sharx/postgres:latest
+    image: harbor.sharxconnect.app/sharx/postgres:latest
 ```
 
 ### 📝 Installation

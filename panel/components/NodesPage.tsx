@@ -125,7 +125,7 @@ type ClientNodeMatrixPayload = {
 };
 
 /** Harbor-style path (same as published images); self-hosters may replace host/project. */
-const NODE_DOCKER_IMAGE = "registry.konstpic.ru/sharx/sharxnode:latest";
+const NODE_DOCKER_IMAGE = "harbor.sharxconnect.app/sharx/sharxnode:latest";
 const REGISTER_HANDSHAKE_PREVIEW_MS = 3500;
 
 type PendingRegistration = {

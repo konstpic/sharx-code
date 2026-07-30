@@ -171,7 +171,7 @@ sudo ./install_ru.sh
 # → 2) Update panel
 ```
 
-> For production, use a ready-made image from the registry (e.g. `registry.konstpic.ru/sharx/sharx:version`) instead of local `build:`, otherwise Watchtower cannot pull updates.
+> For production, use a ready-made image from the registry (e.g. `harbor.sharxconnect.app/sharx/sharx:version`) instead of local `build:`, otherwise Watchtower cannot pull updates.
 
 ---
 

@@ -12,8 +12,8 @@ services:
   # sharx: dev uses `build:` so the local image is named e.g. `sharx-code-sharx` (project_service).
   # Watchtower pulls by image name; that name is not a registry path — Docker falls back to Docker Hub
   # (`library/sharx-code-sharx`) and pull fails. For in-panel/Watchtower updates, use a Harbor image
-  # instead: comment out `build` and set e.g. `image: registry.konstpic.ru/sharx/sharx:1.1.2`, then
-  # `docker login registry.konstpic.ru` and recreate the container.
+  # instead: comment out `build` and set e.g. `image: harbor.sharxconnect.app/sharx/sharx:1.1.2`, then
+  # `docker login harbor.sharxconnect.app` and recreate the container.
   sharx:
     build:
       context: .
