@@ -35,6 +35,8 @@ func TestAppendAmneziaWGObfuscationToConf_AWG3AndLegacy(t *testing.T) {
 		S2:                     16,
 		S3:                     16,
 		S4:                     16,
+		RandomTrailers:         true,
+		DisableCookies:         true,
 	})
 	got := b.String()
 	for _, want := range []string{
@@ -45,6 +47,8 @@ func TestAppendAmneziaWGObfuscationToConf_AWG3AndLegacy(t *testing.T) {
 		"ContentPaddingAddition = 8-32\n",
 		"RekeyAfterTime = 120\n",
 		"S1 = 16\n",
+		"RandomTrailers = on\n",
+		"DisableCookies = on\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
@@ -57,20 +61,23 @@ func TestAppendAmneziaWGObfuscationToConf_AWG3AndLegacy(t *testing.T) {
 	if strings.Contains(leg, "HeaderProtectionKey") || strings.Contains(leg, "I1") {
 		t.Fatalf("legacy conf must omit empty AWG3 keys: %s", leg)
 	}
+	if strings.Contains(leg, "RandomTrailers") || strings.Contains(leg, "DisableCookies") {
+		t.Fatalf("legacy conf must omit AWG 3.1 flags when false: %s", leg)
+	}
 }
 
 func TestEnsureAndValidateHeaderProtection(t *testing.T) {
 	o := AmneziaWGObfuscation{HeaderProtectionKey: "k=", S1: 2, S2: 0, S3: 0, S4: 0}
 	EnsureAmneziaWGHeaderProtectionPadding(&o)
-	if o.S1 != 8 || o.S2 != 8 || o.S3 != 8 || o.S4 != 8 {
+	if o.S1 != 12 || o.S2 != 12 || o.S3 != 12 || o.S4 != 12 {
 		t.Fatalf("padding not raised: %+v", o)
 	}
 	if err := ValidateAmneziaWGObfuscation(o); err != nil {
 		t.Fatal(err)
 	}
-	bad := AmneziaWGObfuscation{HeaderProtectionKey: "k=", S1: 8, S2: 8, S3: 8, S4: 3}
+	bad := AmneziaWGObfuscation{HeaderProtectionKey: "k=", S1: 12, S2: 12, S3: 12, S4: 8}
 	if err := ValidateAmneziaWGObfuscation(bad); err == nil {
-		t.Fatal("expected validation error for S4 < 8")
+		t.Fatal("expected validation error for S4 < 12")
 	}
 }
 

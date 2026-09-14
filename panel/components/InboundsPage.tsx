@@ -5617,6 +5617,63 @@ export function InboundsPage() {
                     spellCheck={false}
                   />
                 </div>
+                <div>
+                  <label
+                    className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                    htmlFor="in-tm-metrics-listen"
+                  >
+                    {t("pages.inbounds.telemtMetricsListen", {
+                      defaultValue: "metrics_listen (optional)",
+                    })}
+                  </label>
+                  <p className="mb-1.5 text-[11px] text-[var(--fg-subtle)]">
+                    {t("pages.inbounds.telemtMetricsListenHint", {
+                      defaultValue:
+                        "[server] Full metrics bind address IP:PORT; overrides metrics_port when set.",
+                    })}
+                  </p>
+                  <Input
+                    id="in-tm-metrics-listen"
+                    className="font-mono text-xs"
+                    placeholder="127.0.0.1:9090"
+                    value={form.telemtForm.metricsListen}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        telemtForm: { ...f.telemtForm, metricsListen: e.target.value },
+                      }))
+                    }
+                    spellCheck={false}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                    htmlFor="in-tm-metrics-whitelist"
+                  >
+                    {t("pages.inbounds.telemtMetricsWhitelist", {
+                      defaultValue: "metrics_whitelist (optional)",
+                    })}
+                  </label>
+                  <p className="mb-1.5 text-[11px] text-[var(--fg-subtle)]">
+                    {t("pages.inbounds.telemtMetricsWhitelistHint", {
+                      defaultValue: "[server] CIDR whitelist for metrics endpoint access, one per line or comma-separated.",
+                    })}
+                  </p>
+                  <TextArea
+                    id="in-tm-metrics-whitelist"
+                    className="min-h-[56px] font-mono text-xs"
+                    placeholder="e.g. 127.0.0.1/32, ::1/128"
+                    value={form.telemtForm.metricsWhitelist}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        telemtForm: { ...f.telemtForm, metricsWhitelist: e.target.value },
+                      }))
+                    }
+                    spellCheck={false}
+                  />
+                </div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
                   {t("pages.inbounds.telemtApi", { defaultValue: "Server API" })}
                 </p>
@@ -5645,6 +5702,59 @@ export function InboundsPage() {
                       setForm((f) => ({
                         ...f,
                         telemtForm: { ...f.telemtForm, apiListen: e.target.value },
+                      }))
+                    }
+                    spellCheck={false}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                    {t("pages.inbounds.telemtMinimalRuntimeEnabled", {
+                      defaultValue: "minimal_runtime_enabled",
+                    })}
+                  </label>
+                  <SelectNative
+                    inputSize="sm"
+                    className="w-full min-w-0 font-mono shadow-none"
+                    value={form.telemtForm.minimalRuntimeEnabled}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        telemtForm: {
+                          ...f.telemtForm,
+                          minimalRuntimeEnabled: e.target.value as "" | "true" | "false",
+                        },
+                      }))
+                    }
+                  >
+                    <option value="">
+                      {t("pages.inbounds.telemtUseDefault", { defaultValue: "(default / omit)" })}
+                    </option>
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </SelectNative>
+                </div>
+                <div>
+                  <label
+                    className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                    htmlFor="in-tm-min-runtime-ttl"
+                  >
+                    {t("pages.inbounds.telemtMinimalRuntimeCacheTtlMs", {
+                      defaultValue: "minimal_runtime_cache_ttl_ms (optional)",
+                    })}
+                  </label>
+                  <Input
+                    id="in-tm-min-runtime-ttl"
+                    type="number"
+                    min={0}
+                    max={60000}
+                    className="font-mono text-xs"
+                    placeholder="e.g. 1000"
+                    value={form.telemtForm.minimalRuntimeCacheTtlMs}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        telemtForm: { ...f.telemtForm, minimalRuntimeCacheTtlMs: e.target.value },
                       }))
                     }
                     spellCheck={false}
@@ -6317,7 +6427,7 @@ export function InboundsPage() {
                     <p className="text-[11px] text-[var(--fg-subtle)]">
                       {t("pages.inbounds.amneziawg3HeaderProtectionHint", {
                         defaultValue:
-                          "Server-side key (same on client). Requires S1–S4 ≥ 8. Leave empty for legacy AWG.",
+                          "Server-side key (same on client). Requires S1–S4 ≥ 12. Leave empty for legacy AWG.",
                       })}
                     </p>
                     <div className="flex gap-2">
@@ -6414,6 +6524,46 @@ export function InboundsPage() {
                           />
                         </div>
                       ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-[var(--border)] pt-3">
+                    <p className="text-xs font-medium text-[var(--fg-muted)]">
+                      {t("pages.inbounds.amneziawg31Flags", {
+                        defaultValue: "AWG 3.1 (optional)",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <CheckboxField
+                        checked={form.amneziawgForm.randomTrailers}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            amneziawgForm: {
+                              ...f.amneziawgForm,
+                              randomTrailers: e.target.checked,
+                            },
+                          }))
+                        }
+                        label={t("pages.inbounds.amneziawgRandomTrailers", {
+                          defaultValue: "RandomTrailers",
+                        })}
+                      />
+                      <CheckboxField
+                        checked={form.amneziawgForm.disableCookies}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            amneziawgForm: {
+                              ...f.amneziawgForm,
+                              disableCookies: e.target.checked,
+                            },
+                          }))
+                        }
+                        label={t("pages.inbounds.amneziawgDisableCookies", {
+                          defaultValue: "DisableCookies",
+                        })}
+                      />
                     </div>
                   </div>
 

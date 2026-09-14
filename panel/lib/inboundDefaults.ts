@@ -195,8 +195,16 @@ export type TelemtFormState = {
   censorshipMaskPort: string;
   /** Optional [server].metrics_port */
   metricsPort: string;
+  /** Optional [server].metrics_listen ("IP:PORT"); overrides metrics_port when set. */
+  metricsListen: string;
+  /** Optional [server].metrics_whitelist (CIDRs, one per line or comma-separated). */
+  metricsWhitelist: string;
   apiEnabled: boolean;
   apiListen: string;
+  /** [server.api].minimal_runtime_enabled — empty = omit. */
+  minimalRuntimeEnabled: TelemtTriBool;
+  /** [server.api].minimal_runtime_cache_ttl_ms (0..60000 ms) — empty = omit. */
+  minimalRuntimeCacheTtlMs: string;
   /** [server].proxy_protocol — accept PROXY Protocol from upstream (nginx/haproxy). */
   proxyProtocol: boolean;
   /** [general].fast_mode — empty = omit. */
@@ -244,8 +252,12 @@ export function defaultTelemtForm(): TelemtFormState {
     censorshipMaskHost: "",
     censorshipMaskPort: "",
     metricsPort: "",
+    metricsListen: "",
+    metricsWhitelist: "",
     apiEnabled: true,
     apiListen: "127.0.0.1:9091",
+    minimalRuntimeEnabled: "",
+    minimalRuntimeCacheTtlMs: "",
     proxyProtocol: false,
     fastMode: "",
     me2dcFallback: "",
@@ -373,10 +385,20 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
     } else if (typeof tm.metricsPort === "string" && tm.metricsPort.trim()) {
       base.metricsPort = tm.metricsPort.trim();
     }
+    if (typeof tm.metricsListen === "string" && tm.metricsListen.trim()) {
+      base.metricsListen = tm.metricsListen.trim();
+    }
+    if (Array.isArray(tm.metricsWhitelist)) {
+      base.metricsWhitelist = tm.metricsWhitelist
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .join("\n");
+    }
     if (typeof tm.apiEnabled === "boolean") base.apiEnabled = tm.apiEnabled;
     if (typeof tm.apiListen === "string" && tm.apiListen.trim()) {
       base.apiListen = tm.apiListen.trim();
     }
+    base.minimalRuntimeEnabled = parseTelemtTriBool(tm.minimalRuntimeEnabled);
+    base.minimalRuntimeCacheTtlMs = parseTelemtOptionalIntField(tm.minimalRuntimeCacheTtlMs);
     if (typeof tm.proxyProtocol === "boolean") base.proxyProtocol = tm.proxyProtocol;
   } catch {
     /* keep base */
@@ -419,6 +441,15 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     (telemt.censorship as Record<string, unknown>).unknownSniAction = unk;
   }
   if (Number.isFinite(mp) && mp > 0) telemt.metricsPort = mp;
+  const metricsListen = form.metricsListen.trim();
+  if (metricsListen) telemt.metricsListen = metricsListen;
+  const metricsWhitelist = splitListLinesOrCommas(form.metricsWhitelist);
+  if (metricsWhitelist.length > 0) telemt.metricsWhitelist = metricsWhitelist;
+  applyTelemtTriBoolToJson(telemt, "minimalRuntimeEnabled", form.minimalRuntimeEnabled);
+  const runtimeTtl = parseInt(form.minimalRuntimeCacheTtlMs.trim(), 10);
+  if (Number.isFinite(runtimeTtl) && runtimeTtl >= 0 && runtimeTtl <= 60000) {
+    telemt.minimalRuntimeCacheTtlMs = runtimeTtl;
+  }
   if (form.proxyProtocol) telemt.proxyProtocol = true;
 
   applyTelemtTriBoolToJson(telemt, "fastMode", form.fastMode);

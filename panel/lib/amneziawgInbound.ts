@@ -29,6 +29,9 @@ export type AmneziaWgFormState = {
   rejectAfterTime: string;
   keepaliveTimeout: string;
   maxHandshakeAttempts: string;
+  /** AWG 3.1+ */
+  randomTrailers: boolean;
+  disableCookies: boolean;
 };
 
 export function defaultAmneziaWgInboundForm(): AmneziaWgFormState {
@@ -61,6 +64,8 @@ export function defaultAmneziaWgInboundForm(): AmneziaWgFormState {
     rejectAfterTime: "",
     keepaliveTimeout: "",
     maxHandshakeAttempts: "",
+    randomTrailers: false,
+    disableCookies: false,
   };
 }
 
@@ -84,14 +89,17 @@ export function randomAmneziaWgObfuscationFields(): Pick<
   };
 }
 
-/** Raise S1–S4 to ≥ 8 when HeaderProtectionKey is set (AWG 3 requirement). */
+// Mirrors amneziawg-go's device.HeaderCipherNonceSize (device/noise-types.go).
+const HEADER_CIPHER_NONCE_SIZE = 12;
+
+/** Raise S1–S4 to >= HEADER_CIPHER_NONCE_SIZE when HeaderProtectionKey is set (AWG 3 requirement). */
 export function ensureAmneziaWgHeaderProtectionPadding(
   w: AmneziaWgFormState,
 ): AmneziaWgFormState {
   if (!w.headerProtectionKey.trim()) return w;
   const bump = (s: string) => {
     const n = parseInt(s.trim(), 10);
-    if (!Number.isFinite(n) || n < 8) return "8";
+    if (!Number.isFinite(n) || n < HEADER_CIPHER_NONCE_SIZE) return String(HEADER_CIPHER_NONCE_SIZE);
     return String(n);
   };
   return {
@@ -175,6 +183,8 @@ export function parseAmneziaWgSettingsToForm(settingsStr: string): AmneziaWgForm
       base.rejectAfterTime = pickScalar(obf.rejectAfterTime);
       base.keepaliveTimeout = pickScalar(obf.keepaliveTimeout);
       base.maxHandshakeAttempts = pickScalar(obf.maxHandshakeAttempts);
+      base.randomTrailers = obf.randomTrailers === true;
+      base.disableCookies = obf.disableCookies === true;
     }
   } catch {
     /* use base */
@@ -211,6 +221,8 @@ export type AmneziaWgInboundApiPayload = {
     rejectAfterTime?: string;
     keepaliveTimeout?: string;
     maxHandshakeAttempts?: string;
+    randomTrailers?: boolean;
+    disableCookies?: boolean;
   };
 };
 
@@ -257,6 +269,8 @@ export function buildAmneziaWgInboundApiPayload(
       rejectAfterTime: opt(form.rejectAfterTime),
       keepaliveTimeout: opt(form.keepaliveTimeout),
       maxHandshakeAttempts: opt(form.maxHandshakeAttempts),
+      randomTrailers: form.randomTrailers || undefined,
+      disableCookies: form.disableCookies || undefined,
     },
   };
 }

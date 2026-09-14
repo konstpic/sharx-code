@@ -84,7 +84,7 @@ echo "DockerInit: done."
 cd ../../
 
 # Telemt (MTProto) binary for panel standalone and shared layout with node builds.
-TELEMT_VERSION="${TELEMT_VERSION:-3.4.18}"
+TELEMT_VERSION="${TELEMT_VERSION:-3.5.7}"
 case "$FNAME" in
     amd64) TELEMT_ARCH_DL="x86_64-linux-musl" ;;
     arm64) TELEMT_ARCH_DL="aarch64-linux-musl" ;;

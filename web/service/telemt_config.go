@@ -26,11 +26,13 @@ type TelemtNodePayload struct {
 
 // telemtSettingsJSON mirrors the panel "settings" JSON for protocol telemt.
 type telemtSettingsJSON struct {
-	UseMiddleProxy *bool  `json:"useMiddleProxy"`
-	LogLevel       string `json:"logLevel"`
-	AdTag          string `json:"adTag"`
-	MetricsPort    *int   `json:"metricsPort"`
-	Modes          *struct {
+	UseMiddleProxy   *bool    `json:"useMiddleProxy"`
+	LogLevel         string   `json:"logLevel"`
+	AdTag            string   `json:"adTag"`
+	MetricsPort      *int     `json:"metricsPort"`
+	MetricsListen    string   `json:"metricsListen"`
+	MetricsWhitelist []string `json:"metricsWhitelist"`
+	Modes            *struct {
 		Classic bool `json:"classic"`
 		Secure  bool `json:"secure"`
 		TLS     bool `json:"tls"`
@@ -50,15 +52,17 @@ type telemtSettingsJSON struct {
 		MaskHost         string `json:"maskHost"`
 		MaskPort         *int   `json:"maskPort"`
 	} `json:"censorship"`
-	APIEnabled    *bool  `json:"apiEnabled"`
-	APIListen     string `json:"apiListen"`
-	ProxyProtocol *bool  `json:"proxyProtocol"`
-	FastMode      *bool  `json:"fastMode"`
-	Me2dcFallback *bool  `json:"me2dcFallback"`
-	Me2dcFast     *bool  `json:"me2dcFast"`
-	MiddleProxyNatIp string `json:"middleProxyNatIp"`
-	TgConnect     *int   `json:"tgConnect"`
-	Network       *struct {
+	APIEnabled               *bool  `json:"apiEnabled"`
+	APIListen                string `json:"apiListen"`
+	MinimalRuntimeEnabled    *bool  `json:"minimalRuntimeEnabled"`
+	MinimalRuntimeCacheTtlMs *int   `json:"minimalRuntimeCacheTtlMs"`
+	ProxyProtocol            *bool  `json:"proxyProtocol"`
+	FastMode                 *bool  `json:"fastMode"`
+	Me2dcFallback            *bool  `json:"me2dcFallback"`
+	Me2dcFast                *bool  `json:"me2dcFast"`
+	MiddleProxyNatIp         string `json:"middleProxyNatIp"`
+	TgConnect                *int   `json:"tgConnect"`
+	Network                  *struct {
 		IPv4   *bool `json:"ipv4"`
 		IPv6   *bool `json:"ipv6"`
 		Prefer *int  `json:"prefer"`
@@ -70,9 +74,9 @@ type telemtSettingsJSON struct {
 		ClientFirstByteIdleSecs *int `json:"clientFirstByteIdleSecs"`
 	} `json:"timeouts"`
 	Access *struct {
-		IgnoreTimeSkew            *bool `json:"ignoreTimeSkew"`
-		UserMaxUniqueIpsGlobalEach  *int  `json:"userMaxUniqueIpsGlobalEach"`
-		UserMaxTcpConnsGlobalEach   *int  `json:"userMaxTcpConnsGlobalEach"`
+		IgnoreTimeSkew             *bool `json:"ignoreTimeSkew"`
+		UserMaxUniqueIpsGlobalEach *int  `json:"userMaxUniqueIpsGlobalEach"`
+		UserMaxTcpConnsGlobalEach  *int  `json:"userMaxTcpConnsGlobalEach"`
 	} `json:"access"`
 }
 
@@ -265,11 +269,33 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	if metricsPort > 0 {
 		fmt.Fprintf(&b, "metrics_port = %d\n", metricsPort)
 	}
+	if ml := strings.TrimSpace(cfg.MetricsListen); ml != "" {
+		fmt.Fprintf(&b, "metrics_listen = %q\n", ml)
+	}
+	if len(cfg.MetricsWhitelist) > 0 {
+		parts := make([]string, 0, len(cfg.MetricsWhitelist))
+		for _, c := range cfg.MetricsWhitelist {
+			c = strings.TrimSpace(c)
+			if c != "" {
+				parts = append(parts, fmt.Sprintf("%q", c))
+			}
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "metrics_whitelist = [%s]\n", strings.Join(parts, ", "))
+		}
+	}
 	if cfg.ProxyProtocol != nil && *cfg.ProxyProtocol {
 		fmt.Fprintf(&b, "proxy_protocol = true\n")
 	}
 	fmt.Fprintf(&b, "\n")
-	fmt.Fprintf(&b, "[server.api]\nenabled = %v\nlisten = %q\nwhitelist = [\"127.0.0.1/32\", \"::1/128\"]\n\n", apiEnabled, apiListen)
+	fmt.Fprintf(&b, "[server.api]\nenabled = %v\nlisten = %q\nwhitelist = [\"127.0.0.1/32\", \"::1/128\"]\n", apiEnabled, apiListen)
+	if cfg.MinimalRuntimeEnabled != nil {
+		fmt.Fprintf(&b, "minimal_runtime_enabled = %v\n", *cfg.MinimalRuntimeEnabled)
+	}
+	if cfg.MinimalRuntimeCacheTtlMs != nil && *cfg.MinimalRuntimeCacheTtlMs >= 0 && *cfg.MinimalRuntimeCacheTtlMs <= 60000 {
+		fmt.Fprintf(&b, "minimal_runtime_cache_ttl_ms = %d\n", *cfg.MinimalRuntimeCacheTtlMs)
+	}
+	fmt.Fprintf(&b, "\n")
 	listenIP := strings.TrimSpace(inbound.Listen)
 	if listenIP == "" {
 		listenIP = "0.0.0.0"

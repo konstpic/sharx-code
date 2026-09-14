@@ -91,6 +91,9 @@ type AmneziaWGObfuscation struct {
 	RejectAfterTime        string `json:"rejectAfterTime,omitempty"`
 	KeepaliveTimeout       string `json:"keepaliveTimeout,omitempty"`
 	MaxHandshakeAttempts   string `json:"maxHandshakeAttempts,omitempty"`
+	// AWG 3.1+
+	RandomTrailers bool `json:"randomTrailers,omitempty"`
+	DisableCookies bool `json:"disableCookies,omitempty"`
 }
 
 // AmneziaWGInboundSettings is panel JSON for protocol `amneziawg` (sidecar, not Xray).
@@ -148,26 +151,30 @@ func randomUint32() int {
 	return int(v)
 }
 
-// EnsureAmneziaWGHeaderProtectionPadding raises S1–S4 to at least 8 when HeaderProtectionKey is set.
+// headerCipherNonceSize mirrors amneziawg-go's device.HeaderCipherNonceSize (device/noise-types.go):
+// S1–S4 must be more than this when HeaderProtectionKey is set, or the real awg device rejects the config.
+const headerCipherNonceSize = 12
+
+// EnsureAmneziaWGHeaderProtectionPadding raises S1–S4 to at least headerCipherNonceSize when HeaderProtectionKey is set.
 func EnsureAmneziaWGHeaderProtectionPadding(o *AmneziaWGObfuscation) {
 	if o == nil || strings.TrimSpace(o.HeaderProtectionKey) == "" {
 		return
 	}
-	if o.S1 < 8 {
-		o.S1 = 8
+	if o.S1 < headerCipherNonceSize {
+		o.S1 = headerCipherNonceSize
 	}
-	if o.S2 < 8 {
-		o.S2 = 8
+	if o.S2 < headerCipherNonceSize {
+		o.S2 = headerCipherNonceSize
 	}
-	if o.S3 < 8 {
-		o.S3 = 8
+	if o.S3 < headerCipherNonceSize {
+		o.S3 = headerCipherNonceSize
 	}
-	if o.S4 < 8 {
-		o.S4 = 8
+	if o.S4 < headerCipherNonceSize {
+		o.S4 = headerCipherNonceSize
 	}
 }
 
-// ValidateAmneziaWGObfuscation checks AWG 3 constraints (HeaderProtectionKey requires S1–S4 ≥ 8).
+// ValidateAmneziaWGObfuscation checks AWG 3 constraints (HeaderProtectionKey requires S1–S4 >= headerCipherNonceSize).
 func ValidateAmneziaWGObfuscation(o AmneziaWGObfuscation) error {
 	if strings.TrimSpace(o.HeaderProtectionKey) == "" {
 		return nil
@@ -178,8 +185,8 @@ func ValidateAmneziaWGObfuscation(o AmneziaWGObfuscation) error {
 	}{
 		{"S1", o.S1}, {"S2", o.S2}, {"S3", o.S3}, {"S4", o.S4},
 	} {
-		if pair.v < 8 {
-			return fmt.Errorf("HeaderProtectionKey requires %s >= 8 (got %d); use awg genkey-compatible key and raise S1–S4", pair.name, pair.v)
+		if pair.v < headerCipherNonceSize {
+			return fmt.Errorf("HeaderProtectionKey requires %s >= %d (got %d); use awg genkey-compatible key and raise S1–S4", pair.name, headerCipherNonceSize, pair.v)
 		}
 	}
 	return nil
@@ -222,6 +229,13 @@ func AppendAmneziaWGObfuscationToConf(b *strings.Builder, o AmneziaWGObfuscation
 	writeStr("RejectAfterTime", o.RejectAfterTime)
 	writeStr("KeepaliveTimeout", o.KeepaliveTimeout)
 	writeStr("MaxHandshakeAttempts", o.MaxHandshakeAttempts)
+	writeBoolOn := func(key string, val bool) {
+		if val {
+			b.WriteString(fmt.Sprintf("%s = on\n", key))
+		}
+	}
+	writeBoolOn("RandomTrailers", o.RandomTrailers)
+	writeBoolOn("DisableCookies", o.DisableCookies)
 }
 
 // ParseAmneziaWGInboundSettings parses inbound settings JSON for protocol amneziawg.
