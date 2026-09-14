@@ -464,11 +464,11 @@
           var hay = (ep.method + " " + ep.path + " " + ep.desc + " " + ep.name).toLowerCase();
           if (f && hay.indexOf(f) === -1) return;
           if (ep.num !== lastSec) {
-            html += '<div class="px-4 py-2 bg-surface/70 text-[10px] font-bold uppercase tracking-widest text-accent sticky top-0 backdrop-blur">' + ep.num + ". " + esc(ep.name) + "</div>";
+            html += '<div class="px-4 py-2 bg-bg-elevated/95 text-[10px] font-bold uppercase tracking-widest text-fg-subtle sticky top-0 backdrop-blur border-b border-border/60"><span class="text-accent">' + ep.num + '.</span> ' + esc(ep.name) + "</div>";
             lastSec = ep.num;
           }
           html +=
-            '<button type="button" data-idx="' + idx + '" class="api-item w-full text-left px-4 py-2 flex items-center gap-2 border-l-2 border-transparent hover:bg-surface/60 transition-colors' + (idx === activeIdx ? " bg-surface border-accent" : "") + '">' +
+            '<button type="button" data-idx="' + idx + '" class="api-item w-full text-left px-4 py-2 flex items-center gap-2 border-l-2 border-transparent hover:bg-accent/10 transition-colors' + (idx === activeIdx ? " bg-accent/10 border-accent" : "") + '">' +
             '<span class="' + methodClass(ep.method) + ' font-mono text-[10px] font-bold w-9 shrink-0">' + ep.method + "</span>" +
             '<code class="font-mono text-[11px] text-fg-muted truncate">' + esc(ep.path) + "</code>" +
             "</button>";
@@ -481,10 +481,10 @@
         if (!ep) return;
         activeIdx = idx;
         listEl.querySelectorAll(".api-item").forEach(function (b) {
-          b.classList.remove("bg-surface", "border-accent");
+          b.classList.remove("bg-accent/10", "border-accent");
         });
         var btn = listEl.querySelector('[data-idx="' + idx + '"]');
-        if (btn) btn.classList.add("bg-surface", "border-accent");
+        if (btn) btn.classList.add("bg-accent/10", "border-accent");
 
         document.getElementById("api-endpoint-header").innerHTML =
           '<span class="' + methodClass(ep.method) + ' text-sm font-bold">' + ep.method + "</span>" +
