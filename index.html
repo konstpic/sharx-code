@@ -397,27 +397,7 @@
                SharX is built API-first. Every action in the panel can be automated via our robust API system, secured by persistent cookie sessions and Bearer JWT authorization.
              </p>
              
-             <div class="grid grid-cols-2 md:grid-cols-3 gap-3" data-sd-id="138">
-               <!-- Resource Pills -->
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="139">Login &amp; Session</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="140">Inbounds</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="141">Server Status</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="142">Migration Engine</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="143">Worker Nodes</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="144">Client HWID</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="145">Push API</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="146">Subscription Server</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="147">DB Inspector</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="148">Prometheus</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="149">Backup Ops</span>
-               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="150">Public API</span>
-             </div>
-             <div class="mt-8" data-sd-id="151">
-               <a href="https://github.com/konstpic/sharx-code/blob/main/web/docs/API.md" class="text-accent text-sm font-bold flex items-center gap-2 hover:underline" data-sd-id="152">
-                 View Full API Documentation
-                 <iconify-icon icon="lucide:external-link"></iconify-icon>
-               </a>
-             </div>
+             <p class="text-fg-subtle text-xs font-mono" data-sd-id="151b">213 endpoints across 22 resource groups &middot; expand a group below</p>
           </div>
 
           <div class="lg:col-span-5 reveal" style="animation-delay: 0.1s" data-sd-id="153">
@@ -434,6 +414,407 @@
 }</pre>
                 </div>
              </div>
+          </div>
+        </div>
+
+        <div class="mt-12 reveal" style="animation-delay: 0.15s">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-heading font-bold text-sm uppercase tracking-widest text-fg-subtle">All Resource Groups</h3>
+            <a href="https://github.com/konstpic/sharx-code/blob/main/web/docs/API.md" class="text-accent text-xs font-bold flex items-center gap-1.5 hover:underline">
+              Full docs on GitHub
+              <iconify-icon icon="lucide:external-link" class="text-[13px]"></iconify-icon>
+            </a>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <details class="group border border-border rounded-lg bg-surface/40" open>
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">1.</span> Login &amp; Session</span>
+                  <span class="text-fg-subtle text-xs">3 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/login</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/logout</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/getTwoFactorEnable</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">2.</span> Inbounds API</span>
+                  <span class="text-fg-subtle text-xs">26 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/getClientTraffics/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/getClientTrafficsById/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/clientIps/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/clearClientIps/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/addClient</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/{id}/delClient/{clientId}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/{id}/delClientByEmail/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/updateClient/{clientId}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/{id}/resetClientTraffic/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/resetAllTraffics</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/resetAllClientTraffics/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/delDepletedClients/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/import</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/onlines</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/lastOnline</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/updateClientTraffic/{email}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/previewXray</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/previewTelemt</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/previewAmneziaWg</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/generateSelfSignedTls</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/inbounds/computeTlsPin</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">3.</span> Server API</span>
+                  <span class="text-fg-subtle text-xs">46 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/status</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/cpuHistory/{bucket}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/memHistory/{bucket}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/diskHistory/{bucket}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getTelemtVersion</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/metrics</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/plan</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/stopTelemtService</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/restartTelemtService</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/installTelemt/{version}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/installTelemtOnNodes/{version}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/downloadGeofileByUrl/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/downloadGeofileTask/{taskID}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/logs/unified/{count}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/logs/stream</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/workers/prep</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/workers/trigger</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/workers/finish</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/panel/trigger</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updater/trigger</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getXrayVersion</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getConfigJson</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getDb</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewUUID</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewX25519Cert</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewmldsa65</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewmlkem768</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewVlessEnc</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/stopXrayService</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/restartXrayService</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/installXray/{version}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/installXrayOnNodes/{version}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updateGeofile</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/updateGeofile/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/uploadGeofile/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/rollbackGeofile/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/geofileAssets/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/geofileAssets/upload/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/geofileAssets/download/{fileName}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/geofileAssets/apply/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/geofileAssets/delete/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/logs/{count}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/xraylogs/{count}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/importDB</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/server/getNewEchCert</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">4.</span> Settings</span>
+                  <span class="text-fg-subtle text-xs">18 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/all</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/defaultSettings</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/update</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/updateUser</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/restartPanel</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/getDefaultJsonConfig</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/grafana/dashboard</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/secretPathsMeta</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/generateSecretPaths</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/saveSecretPaths</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/subscriptionPageConfig/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/subscriptionPageConfig/get</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/subscriptionPageConfig/save</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/twoFactor/begin</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/twoFactor/complete</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/twoFactor/cancel</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/ui/get</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/ui/set</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">5.</span> Migration</span>
+                  <span class="text-fg-subtle text-xs">2 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/migration/preview</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/setting/migration/execute</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">6.</span> Xray Settings</span>
+                  <span class="text-fg-subtle text-xs">9 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/getDefaultJsonConfig</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/getOutboundsTraffic</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/getXrayResult</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/warp/{action}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/update</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/resetOutboundsTraffic</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/getFullConfig</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray/resetToDefault</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">7.</span> Outbounds API</span>
+                  <span class="text-fg-subtle text-xs">5 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/outbound/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/outbound/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/outbound/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/outbound/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/outbound/del/{id}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">8.</span> Xray Core Configuration Profiles</span>
+                  <span class="text-fg-subtle text-xs">8 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/set-default/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/reset-to-default/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/xray-core-config-profile/assign-nodes/{id}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">9.</span> Nodes (Multi-Node Mode)</span>
+                  <span class="text-fg-subtle text-xs">22 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/check/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/checkAll</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/status/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/reload/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/reloadAll</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/logs/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/check-connection</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/resetTraffic/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/secret</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/geography</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/client-traffic-per-node</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/stopXray/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/restartXray/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/stopTelemt/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/restartTelemt/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/stopAmneziaWg/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/node/restartAmneziaWg/{id}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">10.</span> Clients</span>
+                  <span class="text-fg-subtle text-xs">21 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/resetAllTraffics</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/resetTraffic/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/delDepletedClients</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/clearHwid/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/clearAllHwids</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/setHwidLimitAll</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/bulk/resetTraffic</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/bulk/clearHwid</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/bulk/delete</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/bulk/enable</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/bulk/setHwidLimit</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/sessions/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/sessions/drop/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/links/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/sessions/block/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-fg-subtle font-mono text-[11px] w-10 shrink-0">·</span><span class="font-mono text-[11px] text-fg-subtle">Mass Assignment to Group</span></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">11.</span> Client Groups</span>
+                  <span class="text-fg-subtle text-xs">18 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/clients</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/assignClients</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/removeClients</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/resetTraffic</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/clearHwid</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/delete</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/enable</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/setHwidLimit</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/effectiveSettings</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/assignInbounds</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/setExpiry</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/setTrafficLimit</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/group/{id}/bulk/setIPLimit</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">12.</span> Client HWID</span>
+                  <span class="text-fg-subtle text-xs">8 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/list/{clientId}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/del/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/deactivate/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/check</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/register</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/fix-timestamps</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/client/hwid/block/{id}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">13.</span> Hosts</span>
+                  <span class="text-fg-subtle text-xs">6 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/list</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/get/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/add</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/update/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/subscription-bindings/{id}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/host/del/{id}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">14.</span> Node Push API</span>
+                  <span class="text-fg-subtle text-xs">4 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/node/push-logs</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/node/push-geo</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/node/pull-xray-config</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-fg-subtle font-mono text-[11px] w-10 shrink-0">·</span><span class="font-mono text-[11px] text-fg-subtle">Worker: POST <code class="text-fg-subtle">/api/v1/apply-config</code></span></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">15.</span> Subscription Server</span>
+                  <span class="text-fg-subtle text-xs">2 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/{subPath}/{subId}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/{subJsonPath}/{subId}</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">16.</span> WebSocket</span>
+                  <span class="text-fg-subtle text-xs">1 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-green-400 font-mono text-[11px] font-bold w-10 shrink-0">WS</span><code class="font-mono text-[11px] text-fg-muted break-all">/ws</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">17.</span> Backup Endpoint</span>
+                  <span class="text-fg-subtle text-xs">1 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/backuptotgbot</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">18.</span> API Documentation</span>
+                  <span class="text-fg-subtle text-xs">1 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/api-docs/markdown</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">19.</span> Worker Node HTTP API</span>
+                  <span class="text-fg-subtle text-xs">3 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/api/v1/user-online-sessions</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/api/v1/drop-connections</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/api/v1/drop-ips</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">20.</span> Public Panel API</span>
+                  <span class="text-fg-subtle text-xs">2 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/public/subscription</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/api/public/appMeta</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">21.</span> DB Inspector</span>
+                  <span class="text-fg-subtle text-xs">6 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables/{table}/schema</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables/{table}/rows</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables/{table}/rows</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables/{table}/rows/{pk}</code></li>
+                  <li class="flex items-start gap-2 py-1"><span class="text-accent font-mono text-[11px] font-bold w-10 shrink-0">POST</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/db/tables/{table}/rows/{pk}/delete</code></li>
+                </ul>
+              </details>
+              <details class="group border border-border rounded-lg bg-surface/40">
+                <summary class="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-mono select-none">
+                  <span><span class="text-accent">22.</span> Prometheus Metrics</span>
+                  <span class="text-fg-subtle text-xs">1 <iconify-icon icon="lucide:chevron-down" class="inline-block ml-1 align-middle group-open:rotate-180 transition-transform"></iconify-icon></span>
+                </summary>
+                <ul class="px-4 pb-4 border-t border-border/60 pt-2">
+                  <li class="flex items-start gap-2 py-1"><span class="text-cyan font-mono text-[11px] font-bold w-10 shrink-0">GET</span><code class="font-mono text-[11px] text-fg-muted break-all">/panel/metrics</code></li>
+                </ul>
+              </details>
           </div>
         </div>
       </div>
@@ -476,30 +857,154 @@
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-border" data-sd-id="195">
-                  <tr data-sd-id="196">
-                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="197">XUI_WEB_PORT</td>
-                    <td class="px-6 py-4 text-fg-muted" data-sd-id="198">Main panel port</td>
-                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="199">2053</td>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Web Panel</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_PORT</td>
+                    <td class="px-6 py-3 text-fg-muted">Panel web port</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">2053</td>
                   </tr>
-                  <tr data-sd-id="200">
-                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="201">XUI_DB_HOST</td>
-                    <td class="px-6 py-4 text-fg-muted" data-sd-id="202">PostgreSQL host address</td>
-                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="203">localhost</td>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_LISTEN</td>
+                    <td class="px-6 py-3 text-fg-muted">Listen IP for the panel</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
                   </tr>
-                  <tr data-sd-id="204">
-                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="205">XUI_SUB_PATH</td>
-                    <td class="px-6 py-4 text-fg-muted" data-sd-id="206">Public path for subscriptions</td>
-                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="207">/sub</td>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_DOMAIN</td>
+                    <td class="px-6 py-3 text-fg-muted">Panel domain</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
                   </tr>
-                  <tr data-sd-id="208">
-                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="209">XRAY_VMESS_AEAD_FORCED</td>
-                    <td class="px-6 py-4 text-fg-muted" data-sd-id="210">Enforce AEAD for VMess clients</td>
-                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="211">false</td>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_BASE_PATH</td>
+                    <td class="px-6 py-3 text-fg-muted">Base URL path for the panel</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">/</td>
                   </tr>
-                  <tr data-sd-id="212">
-                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="213">XUI_ENABLE_FAIL2BAN</td>
-                    <td class="px-6 py-4 text-fg-muted" data-sd-id="214">Brute-force protection enabled</td>
-                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="215">true</td>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_CERT_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS certificate path (panel)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_WEB_KEY_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS private key path (panel)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Subscription</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_SUB_PORT</td>
+                    <td class="px-6 py-3 text-fg-muted">Subscription service port</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">2096</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_SUB_PATH</td>
+                    <td class="px-6 py-3 text-fg-muted">URI path for subscriptions</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">/sub/</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_SUB_DOMAIN</td>
+                    <td class="px-6 py-3 text-fg-muted">Subscription domain</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_SUB_CERT_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS certificate path (subscription)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_SUB_KEY_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS private key path (subscription)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Database</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_HOST</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL host</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">localhost</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_PORT</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL port</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">5432</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_USER</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL user (required)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_PASSWORD</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL password (required)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_NAME</td>
+                    <td class="px-6 py-3 text-fg-muted">Database name</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">app name</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DB_SSLMODE</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL SSL mode</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">disable</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Logging &amp; Debug</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_LOG_LEVEL</td>
+                    <td class="px-6 py-3 text-fg-muted">Log level (debug/info/notice/warning/error)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">info</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_DEBUG</td>
+                    <td class="px-6 py-3 text-fg-muted">Debug mode</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">false</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_LOG_FOLDER</td>
+                    <td class="px-6 py-3 text-fg-muted">Log directory</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">platform default</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Paths</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_BIN_FOLDER</td>
+                    <td class="px-6 py-3 text-fg-muted">Binary files directory</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">bin</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Xray</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XRAY_VMESS_AEAD_FORCED</td>
+                    <td class="px-6 py-3 text-fg-muted">Force VMess AEAD</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">false</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Security</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">XUI_ENABLE_FAIL2BAN</td>
+                    <td class="px-6 py-3 text-fg-muted">Enable fail2ban</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">true</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">Worker Node (TLS)</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">NODE_TLS_CERT_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS certificate path (node API)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">NODE_TLS_KEY_FILE</td>
+                    <td class="px-6 py-3 text-fg-muted">TLS private key path (node API)</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr class="bg-surface/60"><td colspan="3" class="px-6 py-2 text-[10px] font-bold uppercase tracking-widest text-accent">PostgreSQL (docker-compose)</td></tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">POSTGRES_USER</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL user</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">POSTGRES_PASSWORD</td>
+                    <td class="px-6 py-3 text-fg-muted">PostgreSQL password</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
+                  </tr>
+                  <tr>
+                    <td class="px-6 py-3 font-mono text-accent whitespace-nowrap">POSTGRES_DB</td>
+                    <td class="px-6 py-3 text-fg-muted">Database name</td>
+                    <td class="px-6 py-3 font-mono text-fg-subtle whitespace-nowrap">—</td>
                   </tr>
                 </tbody>
               </table>
