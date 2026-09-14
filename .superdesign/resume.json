@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "/github-pages-landing": {
+      "targetKind": "new-target-existing-codebase",
+      "projectId": "f21ae669-9ff2-4a09-b649-e05fab996136",
+      "activeDraftId": "02ef9cb0-5869-434e-aca6-2246813fa556",
+      "designSystemPath": ".superdesign/design-system.md",
+      "contextFiles": [".superdesign/design-system.md"],
+      "fingerprints": {
+        ".superdesign/design-system.md": "2b713160c7fb00a61b2f69886f6ea618286adc9eefc7ac34d33f98ee1585068b"
+      },
+      "drafts": {
+        "02ef9cb0-5869-434e-aca6-2246813fa556": {
+          "title": "SharX Landing — Direction A (Terminal Violet)",
+          "visualDirection": "terminal violet, soft elevated cards, node-graph hero",
+          "currentVersion": 1
+        },
+        "c8a26241-2d70-4027-a1c9-8d3f610b4a13": {
+          "title": "SharX — Terminal-Forward Landing Page",
+          "visualDirection": "hacker/terminal-forward, ASCII grid, scanline overlay",
+          "parentDraftId": "02ef9cb0-5869-434e-aca6-2246813fa556",
+          "currentVersion": 1
+        }
+      }
+    }
+  }
+}

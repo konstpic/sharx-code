@@ -1,0 +1,587 @@
+<!DOCTYPE html><html lang="en" class="scroll-smooth"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SharX — Multi-Node Xray/VPN Management Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700&amp;family=Montserrat:wght@400;500;600&amp;family=Fira+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#05060a',
+            'bg-elevated': '#0c0f18',
+            accent: '#8577f2',
+            'accent-ambient': '#6c52c7',
+            fg: '#f5f7fb',
+            'fg-muted': 'rgba(245,247,251,0.66)',
+            'fg-subtle': 'rgba(245,247,251,0.44)',
+            border: 'rgba(255,255,255,0.10)',
+            'border-strong': 'rgba(255,255,255,0.18)',
+            'code-bg': 'rgba(255,255,255,0.06)',
+            surface: 'rgba(255,255,255,0.04)',
+            cyan: '#22d3ee',
+          },
+          fontFamily: {
+            heading: ['Unbounded', 'sans-serif'],
+            sans: ['Montserrat', 'sans-serif'],
+            mono: ['Fira Mono', 'monospace'],
+          },
+          animation: {
+            'fade-in-up': 'fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards',
+            'drift': 'drift 20s linear infinite',
+          },
+          keyframes: {
+            fadeInUp: {
+              '0%': { opacity: '0', transform: 'translateY(20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            drift: {
+              '0%, 100%': { transform: 'translate(0, 0)' },
+              '50%': { transform: 'translate(-5%, 5%)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #05060a;
+      color: #f5f7fb;
+      font-family: 'Montserrat', sans-serif;
+      overflow-x: hidden;
+    }
+    .terminal-chrome::before {
+      content: '';
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      width: 8px;
+      height: 8px;
+      background: #ff5f56;
+      border-radius: 50%;
+      box-shadow: 16px 0 0 #ffbd2e, 32px 0 0 #27c93f;
+      z-index: 10;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.02);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .glass-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+      transform: translateY(-4px);
+      border-color: rgba(133, 119, 242, 0.3);
+    }
+    .shimmer-btn {
+      position: relative;
+      overflow: hidden;
+    }
+    .shimmer-btn::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+      transform: rotate(45deg);
+      transition: 0.5s;
+      pointer-events: none;
+    }
+    .shimmer-btn:hover::after {
+      left: 120%;
+      top: 120%;
+    }
+    .node-grid {
+      background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+      background-size: 32px 32px;
+    }
+    .reveal { opacity: 0; }
+    .reveal.active { animation: fadeInUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+    /* Grid items default to a content-based automatic minimum size, which can force
+       horizontal overflow on narrow viewports when a child has long unbreakable content
+       (e.g. a code block). min-width: 0 lets grid items shrink to the track size instead. */
+    .grid > * { min-width: 0; }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen bg-bg selection:bg-accent selection:text-white" data-sd-id="1">
+    
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-bg/80 backdrop-blur-xl border-b border-border" data-sd-id="2">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between" data-sd-id="3">
+        <div class="flex items-center gap-2" data-sd-id="4">
+          <div class="w-8 h-8 bg-gradient-to-br from-accent to-accent-ambient rounded-lg flex items-center justify-center" data-sd-id="5">
+            <iconify-icon icon="lucide:shield-check" class="text-white text-xl"></iconify-icon>
+          </div>
+          <span class="font-heading font-bold text-xl tracking-tighter uppercase" data-sd-id="6">SharX</span>
+        </div>
+
+        <div class="hidden md:flex items-center gap-8 text-sm font-medium text-fg-muted" data-sd-id="7">
+          <a href="#features" id="nav-features" class="hover:text-accent transition-colors" data-sd-id="8">Features</a>
+          <a href="#protocols" id="nav-protocols" class="hover:text-accent transition-colors" data-sd-id="9">Protocols</a>
+          <a href="#deploy" id="nav-deploy" class="hover:text-accent transition-colors" data-sd-id="10">Deploy</a>
+          <a href="#api" id="nav-api" class="hover:text-accent transition-colors" data-sd-id="11">API</a>
+          <a href="#config" id="nav-config" class="hover:text-accent transition-colors" data-sd-id="12">Config</a>
+        </div>
+
+        <div class="flex items-center gap-4" data-sd-id="13">
+          <a href="https://github.com/konstpic/sharx-code" id="nav-github" class="hidden sm:flex items-center gap-2 text-sm text-fg-muted bg-surface-strong px-3 py-1.5 rounded-full border border-border hover:border-border-strong transition-all" data-sd-id="14">
+            <iconify-icon icon="mdi:github" class="text-lg"></iconify-icon>
+            <span data-sd-id="15">Star</span>
+            <img src="https://img.shields.io/github/stars/konstpic/sharx-code?style=flat-square&label=&color=8577f2&labelColor=05060a" alt="" class="pl-1 h-4" data-sd-id="16">
+          </a>
+          <a href="#deploy" id="nav-cta" class="shimmer-btn bg-accent hover:bg-accent-ambient px-5 py-2 rounded-lg text-sm font-bold text-white transition-all shadow-lg shadow-accent/20" data-sd-id="17">
+            Get Started
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="relative pt-40 pb-20 overflow-hidden" data-sd-id="18">
+      <!-- Ambient Glow -->
+      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent/10 rounded-full blur-[120px] pointer-events-none animate-drift" data-sd-id="19"></div>
+      
+      <div class="max-w-7xl mx-auto px-6 relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center" data-sd-id="20">
+        <div class="space-y-8 animate-fade-in-up min-w-0" data-sd-id="21">
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-surface border border-border text-xs font-medium text-accent" data-sd-id="22">
+            <span class="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" data-sd-id="23"></span>
+            Now supporting AmneziaWG v3.1
+          </div>
+          <h1 class="text-4xl sm:text-5xl lg:text-7xl font-heading font-bold tracking-tighter leading-tight break-words" data-sd-id="24">
+            Multi-node <br>
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-accent to-white" data-sd-id="25">Xray Management</span>
+          </h1>
+          <p class="text-xl text-fg-muted max-w-lg leading-relaxed font-sans" data-sd-id="26">
+            A high-performance, Docker-first proxy platform for developers who run their own infrastructure. Deploy across distributed clusters in seconds.
+          </p>
+          
+          <div class="flex flex-col sm:flex-row gap-4" data-sd-id="27">
+            <a href="#deploy" class="shimmer-btn bg-white text-bg px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 group" data-sd-id="28">
+              Deploy in 60s
+              <iconify-icon icon="lucide:arrow-right" class="group-hover:translate-x-1 transition-transform"></iconify-icon>
+            </a>
+            <a href="https://github.com/konstpic/sharx-code" class="bg-surface border border-border hover:border-border-strong px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2" data-sd-id="29">
+              <iconify-icon icon="mdi:github" class="text-xl"></iconify-icon>
+              GitHub Repository
+            </a>
+          </div>
+        </div>
+
+        <!-- Terminal & Network Graphic -->
+        <div class="relative animate-fade-in-up min-w-0" style="animation-delay: 0.2s" data-sd-id="30">
+          <div class="absolute -inset-4 bg-accent/5 blur-2xl rounded-[2rem]" data-sd-id="31"></div>
+          
+          <!-- Terminal Window -->
+          <div class="relative bg-[#0c0f18] rounded-xl border border-border overflow-hidden shadow-2xl terminal-chrome" data-sd-id="32">
+            <div class="px-6 pt-12 pb-6" data-sd-id="33">
+              <div class="flex items-center justify-between mb-4 border-b border-white/5 pb-3" data-sd-id="34">
+                <span class="text-[10px] font-mono text-fg-subtle uppercase tracking-widest" data-sd-id="35">One-liner Installation</span>
+                <iconify-icon icon="lucide:copy" class="text-fg-subtle cursor-pointer hover:text-accent"></iconify-icon>
+              </div>
+              <pre class="font-mono text-sm leading-relaxed overflow-x-auto whitespace-pre-wrap break-all" data-sd-id="36"><span class="text-accent" data-sd-id="37">$</span> <span class="text-cyan" data-sd-id="38">bash</span> &lt;(curl -Ls https://raw.githubusercontent.com/konstpic/SharX/main/install.sh)
+
+<span class="text-fg-subtle" data-sd-id="40"># Initializing SharX Master Node...</span>
+<span class="text-green-400" data-sd-id="41">✓</span> Container running on <span class="text-white" data-sd-id="42">port 2053</span>
+<span class="text-green-400" data-sd-id="43">✓</span> PostgreSQL connected
+<span class="text-green-400" data-sd-id="44">✓</span> Metrics exporter live
+
+<span class="text-fg-subtle" data-sd-id="45">Visit:</span> <span class="text-accent underline underline-offset-4" data-sd-id="46">https://your-server.com/dashboard</span></pre>
+            </div>
+          </div>
+
+          <!-- Abstract Node Graph -->
+          <div class="absolute -bottom-10 -right-10 w-64 h-64 node-grid -z-10 opacity-40" data-sd-id="47"></div>
+          <div class="absolute top-1/2 -left-12 w-48 h-48 pointer-events-none" data-sd-id="48">
+             <svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" data-sd-id="49">
+               <circle cx="100" cy="100" r="2" fill="#8577f2"></circle>
+               <circle cx="40" cy="60" r="2" fill="#8577f2"></circle>
+               <circle cx="160" cy="40" r="2" fill="#8577f2"></circle>
+               <circle cx="140" cy="140" r="3" fill="#8577f2" class="animate-pulse"></circle>
+               <circle cx="60" cy="160" r="2" fill="#8577f2"></circle>
+               <line x1="100" y1="100" x2="40" y2="60" stroke="#8577f2" stroke-opacity="0.2"></line>
+               <line x1="100" y1="100" x2="160" y2="40" stroke="#8577f2" stroke-opacity="0.2"></line>
+               <line x1="100" y1="100" x2="140" y2="140" stroke="#8577f2" stroke-opacity="0.2"></line>
+               <line x1="100" y1="100" x2="60" y2="160" stroke="#8577f2" stroke-opacity="0.2"></line>
+             </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Feature Grid -->
+    <section id="features" class="py-24 relative overflow-hidden" data-sd-id="50">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="51">
+        <div class="mb-16 reveal" data-sd-id="52">
+          <h2 class="text-3xl font-heading font-bold mb-4 uppercase tracking-tighter" data-sd-id="53">Built for Scale</h2>
+          <p class="text-fg-muted max-w-2xl" data-sd-id="54">Everything you need to manage a global proxy network from a single dashboard. No manual SSH required.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6" data-sd-id="55">
+          <!-- Feature 1 -->
+          <div class="glass-card p-8 rounded-xl relative reveal group" data-sd-id="56">
+            <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-accent/50 to-transparent rounded-t-xl opacity-0 group-hover:opacity-100 transition-opacity" data-sd-id="57"></div>
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="58">
+              <iconify-icon icon="lucide:layers" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="59">Multi-Node Core</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="60">Decoupled architecture. Manage hundreds of worker nodes across continents from one master panel.</p>
+          </div>
+          <!-- Feature 2 -->
+          <div class="glass-card p-8 rounded-xl relative reveal" style="animation-delay: 0.1s" data-sd-id="61">
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="62">
+              <iconify-icon icon="lucide:layout" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="63">Subscription Builder</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="64">Dynamic visual builder for Clah/Shadowrocket/V2Ray config files with one-click updates.</p>
+          </div>
+          <!-- Feature 3 -->
+          <div class="glass-card p-8 rounded-xl relative reveal" style="animation-delay: 0.2s" data-sd-id="65">
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="66">
+              <iconify-icon icon="lucide:container" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="67">Docker First</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="68">Immutable deployments. Roll back, upgrade, or migrate your entire infrastructure in minutes.</p>
+          </div>
+          <!-- Feature 4 -->
+          <div class="glass-card p-8 rounded-xl relative reveal" style="animation-delay: 0.3s" data-sd-id="69">
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="70">
+              <iconify-icon icon="lucide:bar-chart-3" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="71">Observability</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="72">Native PostgreSQL + Prometheus/Grafana stacks for real-time traffic monitoring and alerting.</p>
+          </div>
+          <!-- Feature 5 -->
+          <div class="glass-card p-8 rounded-xl relative reveal" style="animation-delay: 0.4s" data-sd-id="73">
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="74">
+              <iconify-icon icon="lucide:fingerprint" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="75">HWID Protection</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="76">Ensure security with Hardware ID device binding. Prevent unauthorized multi-user account leaks.</p>
+          </div>
+          <!-- Feature 6 -->
+          <div class="glass-card p-8 rounded-xl relative reveal" style="animation-delay: 0.5s" data-sd-id="77">
+            <div class="w-12 h-12 bg-surface rounded-lg flex items-center justify-center mb-6" data-sd-id="78">
+              <iconify-icon icon="lucide:lock" class="text-2xl text-accent"></iconify-icon>
+            </div>
+            <h3 class="text-xl font-bold mb-3 font-heading" data-sd-id="79">Encrypted Sessions</h3>
+            <p class="text-fg-muted leading-relaxed text-sm font-sans" data-sd-id="80">State-of-the-art cookie session management and JWT authentication for secure admin access.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Protocols Section -->
+    <section id="protocols" class="py-24 bg-bg-elevated/50" data-sd-id="81">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="82">
+        <div class="mb-12 reveal" data-sd-id="83">
+          <h2 class="text-3xl font-heading font-bold mb-4 uppercase tracking-tighter" data-sd-id="84">Core Protocols</h2>
+          <div class="flex flex-wrap gap-2" data-sd-id="85">
+            <span class="px-3 py-1 rounded bg-surface border border-border text-xs font-mono" data-sd-id="86">VLESS</span>
+            <span class="px-3 py-1 rounded bg-surface border border-border text-xs font-mono" data-sd-id="87">VMESS</span>
+            <span class="px-3 py-1 rounded bg-surface border border-border text-xs font-mono" data-sd-id="88">TROJAN</span>
+            <span class="px-3 py-1 rounded bg-surface border border-border text-xs font-mono" data-sd-id="89">SHADOWSOCKS</span>
+            <span class="px-3 py-1 rounded bg-surface border border-border text-xs font-mono" data-sd-id="90">HYSTERIA2</span>
+            <span class="px-3 py-1 rounded bg-accent/20 border border-accent/40 text-xs font-mono text-accent" data-sd-id="91">V3.1 OBFUSCATION</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8" data-sd-id="92">
+          <!-- Featured Protocol: AmneziaWG -->
+          <div class="glass-card p-8 rounded-2xl reveal" data-sd-id="93">
+            <div class="flex items-center gap-4 mb-6" data-sd-id="94">
+              <div class="w-10 h-10 bg-accent/20 rounded-full flex items-center justify-center" data-sd-id="95">
+                <iconify-icon icon="lucide:zap" class="text-accent text-xl"></iconify-icon>
+              </div>
+              <div data-sd-id="96">
+                <h3 class="text-2xl font-bold font-heading uppercase" data-sd-id="97">AmneziaWG</h3>
+                <p class="text-xs text-fg-subtle" data-sd-id="98">DPI-RESISTANT WIREGUARD FORK</p>
+              </div>
+            </div>
+            <p class="text-fg-muted text-sm leading-relaxed mb-8" data-sd-id="99">
+              Engineered to bypass Deep Packet Inspection (DPI) in hostile network environments. SharX provides full native support for v3.1 obfuscation parameters.
+            </p>
+            <div class="flex flex-wrap gap-2" data-sd-id="100">
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">Jc / Jmin / Jmax</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">H1-H4 Headers</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">HeaderProtectionKey</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">RandomTrailers</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">DisableCookies</code>
+            </div>
+          </div>
+
+          <!-- Featured Protocol: Telemt -->
+          <div class="glass-card p-8 rounded-2xl reveal" style="animation-delay: 0.1s" data-sd-id="101">
+            <div class="flex items-center gap-4 mb-6" data-sd-id="102">
+              <div class="w-10 h-10 bg-cyan/20 rounded-full flex items-center justify-center" data-sd-id="103">
+                <iconify-icon icon="lucide:message-square" class="text-cyan text-xl"></iconify-icon>
+              </div>
+              <div data-sd-id="104">
+                <h3 class="text-2xl font-bold font-heading uppercase" data-sd-id="105">Telemt</h3>
+                <p class="text-xs text-fg-subtle" data-sd-id="106">HIGH-SPEED MTPROTO PROXY</p>
+              </div>
+            </div>
+            <p class="text-fg-muted text-sm leading-relaxed mb-8" data-sd-id="107">
+              Seamless integration for MTProto proxied connections. Native support for secret keys and high-throughput Telegram traffic management.
+            </p>
+            <div class="flex flex-wrap gap-2" data-sd-id="108">
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">Secret-Hashing</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">Fake-TLS</code>
+              <code class="bg-code-bg px-2 py-1 rounded text-[10px] text-cyan font-mono">DD-Secrets</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Deploy Section -->
+    <section id="deploy" class="py-24" data-sd-id="109">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="110">
+        <div class="mb-12 reveal" data-sd-id="111">
+          <h2 class="text-3xl font-heading font-bold uppercase tracking-tighter" data-sd-id="112">Deploy Anywhere</h2>
+          <p class="text-fg-muted" data-sd-id="113">One-line binary install or modern container orchestration.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8" data-sd-id="114">
+          <!-- Option 1: Curl -->
+          <div class="reveal" data-sd-id="115">
+            <div class="bg-[#0c0f18] rounded-xl border border-border overflow-hidden shadow-xl" data-sd-id="116">
+              <div class="px-4 py-3 bg-white/5 border-b border-border flex items-center justify-between" data-sd-id="117">
+                <span class="text-[10px] font-mono uppercase tracking-widest text-fg-subtle" data-sd-id="118">install.sh</span>
+                <iconify-icon icon="lucide:copy" class="text-fg-subtle cursor-pointer hover:text-white"></iconify-icon>
+              </div>
+              <div class="p-6" data-sd-id="119">
+                <pre class="font-mono text-sm leading-relaxed text-cyan whitespace-pre-wrap break-all" data-sd-id="120">bash &lt;(curl -Ls https://raw.githubusercontent.com/konstpic/SharX/main/install.sh)</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Option 2: Docker -->
+          <div class="reveal" style="animation-delay: 0.1s" data-sd-id="121">
+            <div class="bg-[#0c0f18] rounded-xl border border-border overflow-hidden shadow-xl" data-sd-id="122">
+              <div class="px-4 py-3 bg-white/5 border-b border-border flex items-center justify-between" data-sd-id="123">
+                <span class="text-[10px] font-mono uppercase tracking-widest text-fg-subtle" data-sd-id="124">docker-compose.yml</span>
+                <iconify-icon icon="lucide:copy" class="text-fg-subtle cursor-pointer hover:text-white"></iconify-icon>
+              </div>
+              <div class="p-6" data-sd-id="125">
+                <pre class="font-mono text-xs leading-normal text-fg-muted" data-sd-id="126"><span class="text-accent" data-sd-id="127">services:</span>
+  <span class="text-accent" data-sd-id="128">sharx-panel:</span>
+    <span class="text-accent" data-sd-id="129">image:</span> harbor.sharxconnect.app/sharx/sharx:latest
+    <span class="text-accent" data-sd-id="130">ports:</span>
+      - "2053:2053"
+      - "2096:2096"
+    <span class="text-accent" data-sd-id="131">environment:</span>
+      - XUI_DB_HOST=postgres
+      - XUI_WEB_PORT=2053</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- API Reference Section -->
+    <section id="api" class="py-24 bg-bg-elevated/30" data-sd-id="132">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="133">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-16" data-sd-id="134">
+          <div class="lg:col-span-7 reveal" data-sd-id="135">
+             <h2 class="text-3xl font-heading font-bold mb-6 uppercase tracking-tighter" data-sd-id="136">Full REST API</h2>
+             <p class="text-fg-muted mb-8 leading-relaxed" data-sd-id="137">
+               SharX is built API-first. Every action in the panel can be automated via our robust API system, secured by persistent cookie sessions and Bearer JWT authorization.
+             </p>
+             
+             <div class="grid grid-cols-2 md:grid-cols-3 gap-3" data-sd-id="138">
+               <!-- Resource Pills -->
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="139">Login &amp; Session</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="140">Inbounds</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="141">Server Status</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="142">Migration Engine</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="143">Worker Nodes</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="144">Client HWID</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="145">Push API</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="146">Subscription Server</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="147">DB Inspector</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="148">Prometheus</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="149">Backup Ops</span>
+               <span class="px-3 py-2 rounded-lg bg-surface border border-border text-[11px] font-mono hover:border-accent/40 transition-colors" data-sd-id="150">Public API</span>
+             </div>
+             <div class="mt-8" data-sd-id="151">
+               <a href="https://github.com/konstpic/sharx-code/blob/main/web/docs/API.md" class="text-accent text-sm font-bold flex items-center gap-2 hover:underline" data-sd-id="152">
+                 View Full API Documentation
+                 <iconify-icon icon="lucide:external-link"></iconify-icon>
+               </a>
+             </div>
+          </div>
+
+          <div class="lg:col-span-5 reveal" style="animation-delay: 0.1s" data-sd-id="153">
+             <div class="bg-[#0c0f18] rounded-xl border border-border overflow-hidden shadow-2xl terminal-chrome relative" data-sd-id="154">
+                <div class="px-4 py-12" data-sd-id="155">
+                  <div class="text-xs text-fg-subtle font-mono mb-2 uppercase tracking-widest" data-sd-id="156">Request</div>
+                  <pre class="text-[11px] font-mono text-cyan overflow-hidden mb-6" data-sd-id="157">curl -X POST /login \
+  -d "username=admin&password=****"</pre>
+
+                  <div class="text-xs text-fg-subtle font-mono mb-2 uppercase tracking-widest" data-sd-id="158">Response (200 OK)</div>
+                  <pre class="text-[11px] font-mono text-fg-muted overflow-hidden" data-sd-id="159">{
+  <span class="text-accent" data-sd-id="160">"success"</span>: <span class="text-green-400" data-sd-id="161">true</span>,
+  <span class="text-accent" data-sd-id="162">"msg"</span>: <span class="text-white" data-sd-id="163">"Login successful"</span>
+}</pre>
+                </div>
+             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Config Section -->
+    <section id="config" class="py-24" data-sd-id="165">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="166">
+        <div class="mb-12 reveal" data-sd-id="167">
+          <h2 class="text-3xl font-heading font-bold uppercase tracking-tighter" data-sd-id="168">Configuration</h2>
+          <p class="text-fg-muted" data-sd-id="169">Manage your cluster via environment variables.</p>
+        </div>
+
+        <div class="flex flex-col lg:flex-row gap-8" data-sd-id="170">
+          <!-- Env File Style -->
+          <div class="lg:w-1/3 reveal" data-sd-id="171">
+            <div class="bg-bg-elevated p-6 rounded-xl border border-border font-mono text-sm leading-relaxed" data-sd-id="172">
+              <div class="text-fg-subtle mb-4 italic" data-sd-id="173"># .env.production</div>
+              <div class="space-y-1" data-sd-id="174">
+                <div class="text-fg" data-sd-id="175"><span class="text-accent" data-sd-id="176">XUI_WEB_PORT</span>=2053</div>
+                <div class="text-fg" data-sd-id="177"><span class="text-accent" data-sd-id="178">XUI_WEB_LISTEN</span>=0.0.0.0</div>
+                <div class="text-fg" data-sd-id="179"><span class="text-accent" data-sd-id="180">XUI_DB_HOST</span>=db.cluster</div>
+                <div class="text-fg" data-sd-id="181"><span class="text-accent" data-sd-id="182">XUI_LOG_LEVEL</span>=debug</div>
+                <div class="text-fg" data-sd-id="183"><span class="text-accent" data-sd-id="184">XUI_ENABLE_FAIL2BAN</span>=true</div>
+                <div class="text-fg" data-sd-id="185"><span class="text-accent" data-sd-id="186">XRAY_VMESS_AEAD</span>=forced</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Reference Table -->
+          <div class="lg:w-2/3 reveal" style="animation-delay: 0.1s" data-sd-id="187">
+            <div class="bg-bg-elevated rounded-xl border border-border overflow-hidden" data-sd-id="188">
+              <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm font-sans border-collapse" data-sd-id="189">
+                <thead data-sd-id="190">
+                  <tr class="bg-surface border-b border-border" data-sd-id="191">
+                    <th class="px-6 py-4 font-bold text-fg-muted uppercase text-xs tracking-wider" data-sd-id="192">Variable</th>
+                    <th class="px-6 py-4 font-bold text-fg-muted uppercase text-xs tracking-wider" data-sd-id="193">Description</th>
+                    <th class="px-6 py-4 font-bold text-fg-muted uppercase text-xs tracking-wider" data-sd-id="194">Default</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border" data-sd-id="195">
+                  <tr data-sd-id="196">
+                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="197">XUI_WEB_PORT</td>
+                    <td class="px-6 py-4 text-fg-muted" data-sd-id="198">Main panel port</td>
+                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="199">2053</td>
+                  </tr>
+                  <tr data-sd-id="200">
+                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="201">XUI_DB_HOST</td>
+                    <td class="px-6 py-4 text-fg-muted" data-sd-id="202">PostgreSQL host address</td>
+                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="203">localhost</td>
+                  </tr>
+                  <tr data-sd-id="204">
+                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="205">XUI_SUB_PATH</td>
+                    <td class="px-6 py-4 text-fg-muted" data-sd-id="206">Public path for subscriptions</td>
+                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="207">/sub</td>
+                  </tr>
+                  <tr data-sd-id="208">
+                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="209">XRAY_VMESS_AEAD_FORCED</td>
+                    <td class="px-6 py-4 text-fg-muted" data-sd-id="210">Enforce AEAD for VMess clients</td>
+                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="211">false</td>
+                  </tr>
+                  <tr data-sd-id="212">
+                    <td class="px-6 py-4 font-mono text-accent" data-sd-id="213">XUI_ENABLE_FAIL2BAN</td>
+                    <td class="px-6 py-4 text-fg-muted" data-sd-id="214">Brute-force protection enabled</td>
+                    <td class="px-6 py-4 font-mono text-fg-subtle" data-sd-id="215">true</td>
+                  </tr>
+                </tbody>
+              </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-20 border-t border-border" data-sd-id="216">
+      <div class="max-w-7xl mx-auto px-6" data-sd-id="217">
+        <div class="flex flex-col md:flex-row justify-between items-start gap-12" data-sd-id="218">
+          <div class="space-y-6" data-sd-id="219">
+            <div class="flex items-center gap-2" data-sd-id="220">
+              <div class="w-8 h-8 bg-accent rounded-lg flex items-center justify-center" data-sd-id="221">
+                <iconify-icon icon="lucide:shield-check" class="text-white text-xl"></iconify-icon>
+              </div>
+              <span class="font-heading font-bold text-xl uppercase" data-sd-id="222">SharX</span>
+            </div>
+            <p class="text-fg-subtle text-sm max-w-xs leading-relaxed" data-sd-id="223">
+              The secure multi-node backbone for modern proxy infrastructure. Built by operators, for operators.
+            </p>
+          </div>
+          
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-16" data-sd-id="224">
+            <div class="space-y-4" data-sd-id="225">
+              <div class="font-bold text-sm uppercase tracking-widest" data-sd-id="226">Product</div>
+              <ul class="space-y-2 text-sm text-fg-muted" data-sd-id="227">
+                <li data-sd-id="228"><a href="#features" id="footer-features" class="hover:text-accent transition-colors" data-sd-id="229">Features</a></li>
+                <li data-sd-id="230"><a href="#protocols" id="footer-protocols" class="hover:text-accent transition-colors" data-sd-id="231">Protocols</a></li>
+                <li data-sd-id="232"><a href="#deploy" id="footer-deploy" class="hover:text-accent transition-colors" data-sd-id="233">Deployment</a></li>
+              </ul>
+            </div>
+            <div class="space-y-4" data-sd-id="234">
+              <div class="font-bold text-sm uppercase tracking-widest" data-sd-id="235">Resources</div>
+              <ul class="space-y-2 text-sm text-fg-muted" data-sd-id="236">
+                <li data-sd-id="237"><a href="https://github.com/konstpic/sharx-code/tree/main/docs/wiki/en" id="footer-docs" class="hover:text-accent transition-colors" data-sd-id="238">Documentation</a></li>
+                <li data-sd-id="239"><a href="#api" id="footer-api" class="hover:text-accent transition-colors" data-sd-id="240">API Reference</a></li>
+                <li data-sd-id="241"><a href="https://github.com/konstpic/sharx-code" id="footer-github" class="hover:text-accent transition-colors" data-sd-id="242">GitHub Repo</a></li>
+              </ul>
+            </div>
+            <div class="space-y-4" data-sd-id="243">
+              <div class="font-bold text-sm uppercase tracking-widest" data-sd-id="244">Legal</div>
+              <ul class="space-y-2 text-sm text-fg-muted" data-sd-id="245">
+                <li data-sd-id="246"><a href="https://github.com/konstpic/sharx-code/blob/main/LICENSE" id="footer-license" class="hover:text-accent transition-colors" data-sd-id="247">GPL-3.0 License</a></li>
+                <li data-sd-id="248"><a href="https://github.com/konstpic/sharx-code/issues" id="footer-security" class="hover:text-accent transition-colors" data-sd-id="249">Issues</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-20 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6" data-sd-id="250">
+          <p class="text-xs text-fg-subtle" data-sd-id="251">© 2026 SharX Project. Licensed under GPL-3.0.</p>
+          <div class="flex gap-6" data-sd-id="252">
+            <a href="https://github.com/konstpic/sharx-code" class="text-fg-subtle hover:text-white transition-colors" data-sd-id="253">
+              <iconify-icon icon="mdi:github" class="text-xl"></iconify-icon>
+            </a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // Simple reveal script
+    const reveal = () => {
+      const reveals = document.querySelectorAll('.reveal');
+      reveals.forEach(el => {
+        const windowHeight = window.innerHeight;
+        const elementTop = el.getBoundingClientRect().top;
+        const elementVisible = 100;
+        if (elementTop < windowHeight - elementVisible) {
+          el.classList.add('active');
+        }
+      });
+    };
+
+    window.addEventListener('scroll', reveal);
+    window.addEventListener('load', reveal);
+  </script>
+
+</body></html>
