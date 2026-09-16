@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/nodecache"
 )
 
 // Vhost is one Telemt WEB inbound's public domain and its private backend address
@@ -51,11 +52,51 @@ type Manager struct {
 	srv     *http.Server
 	routes  map[string]*httputil.ReverseProxy
 	running bool
+
+	// cachePath, when set, persists every successful Apply's vhost list to disk so
+	// LoadAndApplyCache can resume the WEB front on process restart without the panel — see
+	// package node/nodecache doc comment for why this exists. Certs themselves already
+	// survive restarts via certDir; this additionally restores the vhost routing table.
+	cachePath string
 }
 
 // NewManager creates a telemtweb Manager whose cert cache lives under certDir.
 func NewManager(certDir string) *Manager {
 	return &Manager{certDir: certDir, routes: make(map[string]*httputil.ReverseProxy)}
+}
+
+// SetCachePath sets the on-disk path Apply() persists its vhost list to (empty disables
+// caching). Call before the first Apply/LoadAndApplyCache; typically a path under the node's
+// persistent data volume, e.g. /app/data/node-cache/telemtweb.json.
+func (m *Manager) SetCachePath(path string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.cachePath = strings.TrimSpace(path)
+	m.mu.Unlock()
+}
+
+// LoadAndApplyCache reads the last-applied vhosts from SetCachePath's path (if any) and
+// applies them, so this Manager can start terminating TLS for known vhosts before/without the
+// panel being reachable. A missing cache file is not an error (nothing to resume from yet).
+func (m *Manager) LoadAndApplyCache() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	path := m.cachePath
+	m.mu.Unlock()
+	var vhosts []Vhost
+	found, err := nodecache.Load(path, &vhosts)
+	if err != nil {
+		return fmt.Errorf("telemtweb: read cache %s: %w", path, err)
+	}
+	if !found || len(vhosts) == 0 {
+		return nil
+	}
+	logger.Infof("telemtweb: resuming %d vhost(s) from local cache (panel not required)", len(vhosts))
+	return m.Apply(vhosts)
 }
 
 func (m *Manager) listenAddr(port int) string {
@@ -140,6 +181,7 @@ func (m *Manager) Apply(vhosts []Vhost) error {
 		return errors.New("telemtweb manager is nil")
 	}
 	newRoutes := make(map[string]*httputil.ReverseProxy, len(vhosts))
+	applied := make([]Vhost, 0, len(vhosts))
 	port := 0
 	for _, v := range vhosts {
 		domain := strings.ToLower(strings.TrimSpace(v.Domain))
@@ -161,6 +203,7 @@ func (m *Manager) Apply(vhosts []Vhost) error {
 			return err
 		}
 		newRoutes[domain] = proxy
+		applied = append(applied, Vhost{Domain: domain, Backend: backend, FrontPort: vp})
 	}
 
 	m.mu.Lock()
@@ -168,6 +211,7 @@ func (m *Manager) Apply(vhosts []Vhost) error {
 	portChanged := m.running && port != 0 && port != m.port
 	needStop := (len(newRoutes) == 0 || portChanged) && m.running
 	needStart := len(newRoutes) > 0 && (!m.running || portChanged)
+	cachePath := m.cachePath
 	m.mu.Unlock()
 
 	if needStop {
@@ -176,7 +220,14 @@ func (m *Manager) Apply(vhosts []Vhost) error {
 		}
 	}
 	if needStart {
-		return m.start(port)
+		if err := m.start(port); err != nil {
+			return err
+		}
+	}
+	if cachePath != "" {
+		if err := nodecache.Save(cachePath, applied); err != nil {
+			logger.Warningf("telemtweb: write local cache %s: %v", cachePath, err)
+		}
 	}
 	return nil
 }

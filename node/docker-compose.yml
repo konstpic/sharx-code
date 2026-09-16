@@ -20,7 +20,12 @@ services:
     #   - "8080:8080"
     #   - "45000:45000"
     volumes:
-      # - sharx-node-bin:/app/bin
+      # Persists /app/bin/config.json (xray.Manager's last-applied-config cache, reloaded on
+      # boot via LoadConfigFromFile) across container recreation, not just in-place restarts.
+      # docker-entrypoint.sh re-seeds xray-linux-*/awg/amneziawg-go from the image into this
+      # volume on every start (it only overwrites when the binary is missing or wrong-arch),
+      # so mounting it does not hide the baked-in binaries.
+      - sharx-node-bin:/app/bin
       - sharx-node-logs:/app/logs
       - sharx-node-cert:/app/cert
       - sharx-node-data:/app/data

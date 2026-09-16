@@ -172,3 +172,48 @@ func TestManager_ApplySkipsEntriesWithEmptyDomainOrBackend(t *testing.T) {
 	}
 	m.Stop()
 }
+
+// TestManager_CacheRoundTrip proves a fresh Manager (simulating a process restart) resumes
+// vhost routing purely from the on-disk cache, with no panel/Apply-caller involvement.
+func TestManager_CacheRoundTrip(t *testing.T) {
+	certDir := t.TempDir()
+	cacheFile := certDir + "/telemtweb-cache.json"
+	port := freeTCPPort(t)
+
+	first := NewManager(certDir)
+	first.bind = "127.0.0.1"
+	first.SetCachePath(cacheFile)
+	if err := first.Apply([]Vhost{{Domain: "cached.example.com", Backend: "127.0.0.1:9999", FrontPort: port}}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	first.Stop()
+
+	second := NewManager(certDir)
+	second.bind = "127.0.0.1"
+	second.SetCachePath(cacheFile)
+	if second.RunningCount() != 0 {
+		t.Fatalf("fresh manager should start with 0 routes before loading cache")
+	}
+	if err := second.LoadAndApplyCache(); err != nil {
+		t.Fatalf("LoadAndApplyCache: %v", err)
+	}
+	if second.RunningCount() != 1 {
+		t.Fatalf("RunningCount after cache resume = %d, want 1", second.RunningCount())
+	}
+	domains := second.Domains()
+	if len(domains) != 1 || domains[0] != "cached.example.com" {
+		t.Fatalf("Domains() after cache resume = %v, want [cached.example.com]", domains)
+	}
+	second.Stop()
+}
+
+func TestManager_LoadAndApplyCache_NoCacheFileIsNoOp(t *testing.T) {
+	m := newTestManager(t)
+	m.SetCachePath(m.certDir + "/does-not-exist.json")
+	if err := m.LoadAndApplyCache(); err != nil {
+		t.Fatalf("expected no error when no cache file exists yet, got %v", err)
+	}
+	if m.RunningCount() != 0 {
+		t.Fatalf("expected no routes, got %d", m.RunningCount())
+	}
+}

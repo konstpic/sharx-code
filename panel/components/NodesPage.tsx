@@ -147,6 +147,7 @@ function buildNodeDockerComposeYaml(secretKey: string) {
       - /dev/net/tun:/dev/net/tun
     network_mode: host
     volumes:
+      - sharx-node-bin:/app/bin
       - sharx-node-logs:/app/logs
       - sharx-node-cert:/app/cert
       - sharx-node-data:/app/data
@@ -179,6 +180,7 @@ networks:
     driver: bridge
 
 volumes:
+  sharx-node-bin:
   sharx-node-logs:
   sharx-node-cert:
   sharx-node-data:

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/nodecache"
 )
 
 const (
@@ -52,6 +53,50 @@ type Manager struct {
 	replayMu sync.RWMutex
 	replay   []Payload
 	replayOK bool
+
+	// cachePath, when set, persists every successful Apply's payloads to disk so
+	// LoadAndApplyCache can resume AmneziaWG sidecars on process restart without the panel —
+	// see package node/nodecache doc comment for why this exists.
+	cachePathMu sync.RWMutex
+	cachePath   string
+}
+
+// SetCachePath sets the on-disk path Apply() persists its payloads to (empty disables caching).
+// Call before the first Apply/LoadAndApplyCache; typically a path under the node's persistent
+// data volume, e.g. /app/data/node-cache/amneziawg.json.
+func (m *Manager) SetCachePath(path string) {
+	if m == nil {
+		return
+	}
+	m.cachePathMu.Lock()
+	m.cachePath = strings.TrimSpace(path)
+	m.cachePathMu.Unlock()
+}
+
+func (m *Manager) getCachePath() string {
+	m.cachePathMu.RLock()
+	defer m.cachePathMu.RUnlock()
+	return m.cachePath
+}
+
+// LoadAndApplyCache reads the last-applied payloads from SetCachePath's path (if any) and
+// applies them, so this Manager can start serving AmneziaWG traffic before/without the panel
+// being reachable. A missing cache file is not an error (nothing to resume from yet).
+func (m *Manager) LoadAndApplyCache() error {
+	if m == nil {
+		return nil
+	}
+	path := m.getCachePath()
+	var payloads []Payload
+	found, err := nodecache.Load(path, &payloads)
+	if err != nil {
+		return fmt.Errorf("amneziawg: read cache %s: %w", path, err)
+	}
+	if !found || len(payloads) == 0 {
+		return nil
+	}
+	logger.Infof("AmneziaWG: resuming %d sidecar(s) from local cache (panel not required)", len(payloads))
+	return m.Apply(payloads)
 }
 
 // SetWorkRoot sets per-manager state directory (panel: $XUI_DATA_FOLDER/amneziawg).
@@ -93,6 +138,12 @@ func (m *Manager) commitReplaySnapshot(payloads []Payload) {
 	m.replay = cp
 	m.replayOK = true
 	m.replayMu.Unlock()
+
+	if path := m.getCachePath(); path != "" {
+		if err := nodecache.Save(path, cp); err != nil {
+			logger.Warningf("AmneziaWG: write local cache %s: %v", path, err)
+		}
+	}
 }
 
 // ReplaySnapshotForRestart returns the last payloads successfully applied to this Manager, if any.
