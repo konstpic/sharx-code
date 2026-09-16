@@ -3,6 +3,7 @@ package sub
 import (
 	"encoding/hex"
 	"encoding/json"
+	"net/url"
 	"strings"
 )
 
@@ -53,4 +54,37 @@ func telemtTgProxySecretForLink(raw16 []byte, tlsMode, secure bool, tlsDomain st
 	default:
 		return keyHex
 	}
+}
+
+// telemtWebProxyLink returns the WEB link and whether WEB mode owns link generation.
+// Enabled but incomplete WEB configurations must not fall back to a TCP MTProxy link.
+func telemtWebProxyLink(settingsJSON string, raw16 []byte) (string, bool) {
+	var cfg struct {
+		Telemt struct {
+			Web struct {
+				Enabled           bool   `json:"enabled"`
+				VhostHost         string `json:"vhostHost"`
+				FrontPort         int    `json:"frontPort"`
+				ProfileSecretMode string `json:"profileSecretMode"`
+			} `json:"web"`
+		} `json:"telemt"`
+	}
+	if err := json.Unmarshal([]byte(settingsJSON), &cfg); err != nil || !cfg.Telemt.Web.Enabled {
+		return "", false
+	}
+	web := cfg.Telemt.Web
+	host := strings.ToLower(strings.TrimSpace(web.VhostHost))
+	// Telegram WEB requires HTTPS on port 443; there is no port field in its link.
+	if host == "" || len(raw16) != 16 || (web.FrontPort > 0 && web.FrontPort != 443) {
+		return "", true
+	}
+	// Match the config generator: unknown/omitted profileSecretMode defaults to dd.
+	secure := strings.TrimSpace(web.ProfileSecretMode) != "plain"
+	secret := telemtTgProxySecretForLink(raw16, false, secure, "")
+	return "tg://webproxy?server=" + url.QueryEscape(host) + "&secret=" + secret, true
+}
+
+func isTelemtProxyLink(link string) bool {
+	lower := strings.ToLower(link)
+	return strings.HasPrefix(lower, "tg://proxy?") || strings.HasPrefix(lower, "tg://webproxy?")
 }

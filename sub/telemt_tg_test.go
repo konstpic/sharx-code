@@ -48,3 +48,53 @@ func TestTelemtTgProxySecretForLink_classic32(t *testing.T) {
 		t.Fatalf("classic: %q", got)
 	}
 }
+
+func TestTelemtWebProxyLink(t *testing.T) {
+	raw, _ := hex.DecodeString("00112233445566778899aabbccddeeff")
+	const prefix = "tg://webproxy?server=proxy.example.com&secret="
+	for _, tc := range []struct {
+		name, settings, want string
+		enabled              bool
+	}{
+		{"dd with stale FakeTLS settings", `{"telemt":{"modes":{"tls":true},"web":{"enabled":true,"vhostHost":"proxy.example.com","profileSecretMode":"dd"}}}`, prefix + "dd00112233445566778899aabbccddeeff", true},
+		{"plain ignores secure TCP mode", `{"telemt":{"modes":{"secure":true},"web":{"enabled":true,"vhostHost":"proxy.example.com","profileSecretMode":"plain"}}}`, prefix + "00112233445566778899aabbccddeeff", true},
+		{"default mode and canonical host", `{"telemt":{"web":{"enabled":true,"vhostHost":" Proxy.Example.COM "}}}`, prefix + "dd00112233445566778899aabbccddeeff", true},
+		{"explicit HTTPS port", `{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com","frontPort":443,"profileSecretMode":" plain "}}}`, prefix + "00112233445566778899aabbccddeeff", true},
+		{"invalid mode matches generator default", `{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com","profileSecretMode":"ee"}}}`, prefix + "dd00112233445566778899aabbccddeeff", true},
+		{"missing host does not emit TCP fallback", `{"telemt":{"web":{"enabled":true}}}`, "", true},
+		{"nonstandard front cannot be represented", `{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com","frontPort":8443}}}`, "", true},
+		{"disabled preserves TCP path", `{"telemt":{"web":{"enabled":false,"vhostHost":"proxy.example.com"}}}`, "", false},
+		{"legacy preserves TCP path", `{"telemt":{"modes":{"tls":true}}}`, "", false},
+		{"malformed settings", `{`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, enabled := telemtWebProxyLink(tc.settings, raw)
+			if got != tc.want || enabled != tc.enabled {
+				t.Fatalf("got (%q, %v), want (%q, %v)", got, enabled, tc.want, tc.enabled)
+			}
+		})
+	}
+	link, enabled := telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com"}}}`, nil)
+	if link != "" || !enabled {
+		t.Fatalf("invalid secret should not produce a link: (%q, %v)", link, enabled)
+	}
+}
+
+func TestIsTelemtProxyLink(t *testing.T) {
+	for _, tc := range []struct {
+		link string
+		want bool
+	}{
+		{"tg://proxy?server=example.com&port=443&secret=dd00", true},
+		{"tg://webproxy?server=example.com&secret=dd00", true},
+		{"TG://WEBPROXY?server=example.com&secret=dd00", true},
+		{"vless://uuid@example.com:443", false},
+		{"https://example.com/", false},
+		{"tg://proxy-other?server=example.com", false},
+		{"", false},
+	} {
+		if got := isTelemtProxyLink(tc.link); got != tc.want {
+			t.Errorf("isTelemtProxyLink(%q) = %v, want %v", tc.link, got, tc.want)
+		}
+	}
+}

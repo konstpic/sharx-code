@@ -694,12 +694,14 @@ func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSetting
 	fmt.Fprintf(b, "[web.vhosts.decoy]\n")
 	switch strings.TrimSpace(web.DecoyMode) {
 	case "static_directory":
+		fmt.Fprintf(b, "mode = \"static_directory\"\n")
 		dir := strings.TrimSpace(web.DecoyDirectory)
 		fmt.Fprintf(b, "directory = %q\n", dir)
 		if idx := strings.TrimSpace(web.DecoyIndex); idx != "" {
 			fmt.Fprintf(b, "index = %q\n", idx)
 		}
 	default:
+		fmt.Fprintf(b, "mode = \"http_upstream\"\n")
 		upstream := strings.TrimSpace(web.DecoyUpstream)
 		if upstream == "" {
 			upstream = "http://127.0.0.1:80"

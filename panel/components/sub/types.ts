@@ -28,7 +28,7 @@ export type PublicSubPayload = {
   /** Optional deep-link URL for v2rayTun (v2raytun://crypt/...). */
   v2raytunEncryptedUrl?: string;
   /**
-   * Telemt MTProto share links (tg://proxy?...) for the HTML page only.
+   * Telemt MTProto share links (tg://proxy?... or tg://webproxy?...) for the HTML page only.
    * Not included in the raw VPN subscription feed (`links`).
    */
   mtProtoLinks?: string[];
@@ -44,13 +44,13 @@ export function supportKindFromUrl(url: string): SupportKind {
   return "generic";
 }
 
-/** Subscription lines for Telemt MTProto (`tg://proxy?…`). Splits each entry on newlines (API may bundle several lines). */
+/** Subscription lines for Telemt MTProto (TCP and WEB). Splits each entry on newlines (API may bundle several lines). */
 export function extractTgProxyLinks(links: string[]): string[] {
   const out: string[] = [];
   for (const raw of links) {
     for (const part of raw.split("\n")) {
       const s = part.trim();
-      if (s.toLowerCase().startsWith("tg://proxy")) out.push(s);
+      if (/^tg:\/\/(?:web)?proxy\?/i.test(s)) out.push(s);
     }
   }
   return out;
@@ -63,7 +63,7 @@ export function resolveMtProtoLinks(data: Pick<PublicSubPayload, "mtProtoLinks" 
   return extractTgProxyLinks(data.links ?? []);
 }
 
-/** Human-readable label for a tg://proxy link (server host or fallback index). */
+/** Human-readable label for a Telegram proxy link (server host or fallback index). */
 export function tgProxyDisplayLabel(link: string, index: number): string {
   const q = link.indexOf("?");
   if (q >= 0) {
