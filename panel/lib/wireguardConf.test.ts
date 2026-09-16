@@ -25,6 +25,13 @@ const SAMPLE_PANEL =
 const SPLIT_LINES = SAMPLE_PANEL.split("\n").map((l) => l.trim()).filter(Boolean);
 
 describe("wireguardConf", () => {
+  it("does not treat TCP or WEB Telegram proxies as VPN protocols", () => {
+    for (const scheme of ["proxy", "webproxy"]) {
+      const link = `tg://${scheme}?server=proxy.example.com&secret=dd00`;
+      expect(isWireGuardOnlySubscription([...SPLIT_LINES, link])).toBe(true);
+    }
+  });
+
   it("extracts conf from full panel text", () => {
     const conf = extractWireGuardConfBlock(SAMPLE_PANEL);
     expect(conf).toContain("[Interface]");

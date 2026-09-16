@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/konstpic/sharx-code/v2/database/model"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestTelemtUsernameForClient(t *testing.T) {
@@ -265,5 +266,44 @@ func TestTelemtWebBackendAddrForInbound_UniquePerInbound(t *testing.T) {
 	}
 	if !strings.HasPrefix(a, "127.0.0.1:") || !strings.HasPrefix(b, "127.0.0.1:") {
 		t.Fatalf("expected loopback backend addresses, got %q and %q", a, b)
+	}
+}
+
+// Decode the generated document so a mode in the wrong TOML table cannot satisfy
+// this regression check. Telemt's tagged WebDecoyConfig requires decoy.mode.
+func TestBuildTelemtToml_WebDecoyDiscriminator(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
+	for _, tc := range []struct{ name, settings, mode, directory, upstream string }{
+		{"static", `"decoyMode":"static_directory","decoyDirectory":"/var/www/decoy","decoyIndex":"index.html"`, "static_directory", "/var/www/decoy", ""},
+		{"upstream", `"decoyMode":"http_upstream","decoyUpstream":"http://127.0.0.1:8080"`, "http_upstream", "", "http://127.0.0.1:8080"},
+		{"default", `"decoyMode":""`, "http_upstream", "", "http://127.0.0.1:80"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := `{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com",` + tc.settings + `}}}`
+			generated, err := BuildTelemtToml(testTelemtInbound(t, settings), nil, "", 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct {
+				Web struct {
+					Vhosts []struct {
+						Decoy struct{ Mode, Directory, Upstream, Index string }
+					}
+				}
+			}
+			if err := toml.Unmarshal([]byte(generated), &parsed); err != nil {
+				t.Fatalf("invalid TOML: %v", err)
+			}
+			if len(parsed.Web.Vhosts) != 1 {
+				t.Fatalf("expected one vhost, got %d", len(parsed.Web.Vhosts))
+			}
+			decoy := parsed.Web.Vhosts[0].Decoy
+			if decoy.Mode != tc.mode || decoy.Directory != tc.directory || decoy.Upstream != tc.upstream {
+				t.Fatalf("decoy = %+v; want mode=%q directory=%q upstream=%q", decoy, tc.mode, tc.directory, tc.upstream)
+			}
+			if tc.mode == "static_directory" && decoy.Index != "index.html" {
+				t.Fatalf("static index = %q", decoy.Index)
+			}
+		})
 	}
 }
