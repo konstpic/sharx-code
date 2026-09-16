@@ -231,6 +231,44 @@ export type TelemtFormState = {
   accessIgnoreTimeSkew: boolean;
   accessUserMaxUniqueIpsGlobalEach: string;
   accessUserMaxTcpConnsGlobalEach: string;
+  /** [access].user_max_unique_ips_mode — empty = omit (upstream default "active_window"). */
+  accessUserMaxUniqueIpsMode: "" | "active_window" | "time_window" | "combined";
+  accessUserMaxUniqueIpsWindowSecs: string;
+  /** Applies the SAME bandwidth cap to every user on this inbound ([access.user_rate_limits]) — not per-client. */
+  accessRateLimitUpBps: string;
+  accessRateLimitDownBps: string;
+  /** [server.api].auth_header — optional bearer token hardening the Control API. */
+  apiAuthHeader: string;
+  /** [server].max_connections — empty = omit. */
+  serverMaxConnections: string;
+  /** [censorship].tls_domains (multi-SNI), one per line or comma-separated. */
+  censorshipTlsDomains: string;
+  /** [censorship].mask_proxy_protocol (0/1/2) — empty = omit. */
+  censorshipMaskProxyProtocol: "" | "0" | "1" | "2";
+  /** [censorship].server_hello_delay_min_ms / max_ms — anti-fingerprint timing jitter; both required together. */
+  censorshipServerHelloDelayMinMs: string;
+  censorshipServerHelloDelayMaxMs: string;
+  /** [timeouts] relay idle policy (all seconds) — soft <= hard, grace <= hard. */
+  timeoutsRelayIdlePolicyV2Enabled: TelemtTriBool;
+  timeoutsRelayClientIdleSoftSecs: string;
+  timeoutsRelayClientIdleHardSecs: string;
+  timeoutsRelayIdleGraceAfterDownstreamActivitySecs: string;
+  /** [timeouts].me_one_retry (count) / me_one_timeout_ms (milliseconds — note the unit). */
+  timeoutsMeOneRetry: string;
+  timeoutsMeOneTimeoutMs: string;
+  /** Telemt WEB transport (Telegram Desktop over HTTPS/WebSocket via an external NGINX/HAProxy
+   * TLS terminator that SharX does not manage — see docs). */
+  webEnabled: boolean;
+  webVhostHost: string;
+  webVhostPublicAddr: string;
+  webListenBind: string;
+  /** CIDRs allowed to set X-Forwarded-For for the private WEB listener, one per line or comma-separated. */
+  webTrustedProxyCidrs: string;
+  webDecoyMode: "http_upstream" | "static_directory";
+  webDecoyUpstream: string;
+  webDecoyDirectory: string;
+  webDecoyIndex: string;
+  webProfileSecretMode: "plain" | "dd";
 };
 
 export function defaultTelemtForm(): TelemtFormState {
@@ -274,6 +312,32 @@ export function defaultTelemtForm(): TelemtFormState {
     accessIgnoreTimeSkew: false,
     accessUserMaxUniqueIpsGlobalEach: "",
     accessUserMaxTcpConnsGlobalEach: "",
+    accessUserMaxUniqueIpsMode: "",
+    accessUserMaxUniqueIpsWindowSecs: "",
+    accessRateLimitUpBps: "",
+    accessRateLimitDownBps: "",
+    apiAuthHeader: "",
+    serverMaxConnections: "",
+    censorshipTlsDomains: "",
+    censorshipMaskProxyProtocol: "",
+    censorshipServerHelloDelayMinMs: "",
+    censorshipServerHelloDelayMaxMs: "",
+    timeoutsRelayIdlePolicyV2Enabled: "",
+    timeoutsRelayClientIdleSoftSecs: "",
+    timeoutsRelayClientIdleHardSecs: "",
+    timeoutsRelayIdleGraceAfterDownstreamActivitySecs: "",
+    timeoutsMeOneRetry: "",
+    timeoutsMeOneTimeoutMs: "",
+    webEnabled: false,
+    webVhostHost: "",
+    webVhostPublicAddr: "",
+    webListenBind: "127.0.0.1",
+    webTrustedProxyCidrs: "127.0.0.1/32",
+    webDecoyMode: "http_upstream",
+    webDecoyUpstream: "",
+    webDecoyDirectory: "",
+    webDecoyIndex: "index.html",
+    webProfileSecretMode: "dd",
   };
 }
 
@@ -369,6 +433,18 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       base.timeoutsClientFirstByteIdleSecs = parseTelemtOptionalIntField(
         to.clientFirstByteIdleSecs,
       );
+      base.timeoutsRelayIdlePolicyV2Enabled = parseTelemtTriBool(to.relayIdlePolicyV2Enabled);
+      base.timeoutsRelayClientIdleSoftSecs = parseTelemtOptionalIntField(
+        to.relayClientIdleSoftSecs,
+      );
+      base.timeoutsRelayClientIdleHardSecs = parseTelemtOptionalIntField(
+        to.relayClientIdleHardSecs,
+      );
+      base.timeoutsRelayIdleGraceAfterDownstreamActivitySecs = parseTelemtOptionalIntField(
+        to.relayIdleGraceAfterDownstreamActivitySecs,
+      );
+      base.timeoutsMeOneRetry = parseTelemtOptionalIntField(to.meOneRetry);
+      base.timeoutsMeOneTimeoutMs = parseTelemtOptionalIntField(to.meOneTimeoutMs);
     }
     const acc = tm.access as Record<string, unknown> | undefined;
     if (acc && typeof acc === "object") {
@@ -379,6 +455,18 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       base.accessUserMaxTcpConnsGlobalEach = parseTelemtOptionalIntField(
         acc.userMaxTcpConnsGlobalEach,
       );
+      if (
+        acc.userMaxUniqueIpsMode === "active_window" ||
+        acc.userMaxUniqueIpsMode === "time_window" ||
+        acc.userMaxUniqueIpsMode === "combined"
+      ) {
+        base.accessUserMaxUniqueIpsMode = acc.userMaxUniqueIpsMode;
+      }
+      base.accessUserMaxUniqueIpsWindowSecs = parseTelemtOptionalIntField(
+        acc.userMaxUniqueIpsWindowSecs,
+      );
+      base.accessRateLimitUpBps = parseTelemtOptionalIntField(acc.rateLimitUpBps);
+      base.accessRateLimitDownBps = parseTelemtOptionalIntField(acc.rateLimitDownBps);
     }
     if (typeof tm.metricsPort === "number" && tm.metricsPort > 0) {
       base.metricsPort = String(tm.metricsPort);
@@ -397,9 +485,55 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
     if (typeof tm.apiListen === "string" && tm.apiListen.trim()) {
       base.apiListen = tm.apiListen.trim();
     }
+    if (typeof tm.apiAuthHeader === "string") base.apiAuthHeader = tm.apiAuthHeader.trim();
     base.minimalRuntimeEnabled = parseTelemtTriBool(tm.minimalRuntimeEnabled);
     base.minimalRuntimeCacheTtlMs = parseTelemtOptionalIntField(tm.minimalRuntimeCacheTtlMs);
     if (typeof tm.proxyProtocol === "boolean") base.proxyProtocol = tm.proxyProtocol;
+    base.serverMaxConnections = parseTelemtOptionalIntField(tm.maxConnections);
+
+    if (Array.isArray(c?.tlsDomains)) {
+      base.censorshipTlsDomains = c.tlsDomains
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .join("\n");
+    }
+    if (c && typeof c === "object") {
+      if (c.maskProxyProtocol === 0 || c.maskProxyProtocol === 1 || c.maskProxyProtocol === 2) {
+        base.censorshipMaskProxyProtocol = String(c.maskProxyProtocol) as "0" | "1" | "2";
+      }
+      base.censorshipServerHelloDelayMinMs = parseTelemtOptionalIntField(c.serverHelloDelayMinMs);
+      base.censorshipServerHelloDelayMaxMs = parseTelemtOptionalIntField(c.serverHelloDelayMaxMs);
+    }
+
+    const web = tm.web as Record<string, unknown> | undefined;
+    if (web && typeof web === "object") {
+      if (typeof web.enabled === "boolean") base.webEnabled = web.enabled;
+      if (typeof web.vhostHost === "string") base.webVhostHost = web.vhostHost.trim();
+      if (typeof web.vhostPublicAddr === "string") {
+        base.webVhostPublicAddr = web.vhostPublicAddr.trim();
+      }
+      if (typeof web.listenBind === "string" && web.listenBind.trim()) {
+        base.webListenBind = web.listenBind.trim();
+      }
+      if (Array.isArray(web.trustedProxyCidrs)) {
+        const cidrs = web.trustedProxyCidrs.filter(
+          (v): v is string => typeof v === "string" && v.trim().length > 0,
+        );
+        if (cidrs.length > 0) base.webTrustedProxyCidrs = cidrs.join("\n");
+      }
+      if (web.decoyMode === "http_upstream" || web.decoyMode === "static_directory") {
+        base.webDecoyMode = web.decoyMode;
+      }
+      if (typeof web.decoyUpstream === "string") base.webDecoyUpstream = web.decoyUpstream.trim();
+      if (typeof web.decoyDirectory === "string") {
+        base.webDecoyDirectory = web.decoyDirectory.trim();
+      }
+      if (typeof web.decoyIndex === "string" && web.decoyIndex.trim()) {
+        base.webDecoyIndex = web.decoyIndex.trim();
+      }
+      if (web.profileSecretMode === "plain" || web.profileSecretMode === "dd") {
+        base.webProfileSecretMode = web.profileSecretMode;
+      }
+    }
   } catch {
     /* keep base */
   }
@@ -451,6 +585,10 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     telemt.minimalRuntimeCacheTtlMs = runtimeTtl;
   }
   if (form.proxyProtocol) telemt.proxyProtocol = true;
+  const authHeader = form.apiAuthHeader.trim();
+  if (authHeader) telemt.apiAuthHeader = authHeader;
+  const maxConns = parseInt(form.serverMaxConnections.trim(), 10);
+  if (Number.isFinite(maxConns) && maxConns > 0) telemt.maxConnections = maxConns;
 
   applyTelemtTriBoolToJson(telemt, "fastMode", form.fastMode);
   applyTelemtTriBoolToJson(telemt, "me2dcFallback", form.me2dcFallback);
@@ -477,6 +615,29 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
   if (Number.isFinite(ta) && ta > 0) timeouts.clientAck = ta;
   const tf = parseInt(form.timeoutsClientFirstByteIdleSecs.trim(), 10);
   if (Number.isFinite(tf) && tf >= 0) timeouts.clientFirstByteIdleSecs = tf;
+  applyTelemtTriBoolToJson(
+    timeouts,
+    "relayIdlePolicyV2Enabled",
+    form.timeoutsRelayIdlePolicyV2Enabled,
+  );
+  const relaySoft = parseInt(form.timeoutsRelayClientIdleSoftSecs.trim(), 10);
+  const relayHard = parseInt(form.timeoutsRelayClientIdleHardSecs.trim(), 10);
+  if (Number.isFinite(relaySoft) && relaySoft > 0) {
+    timeouts.relayClientIdleSoftSecs = relaySoft;
+  }
+  if (Number.isFinite(relayHard) && relayHard > 0) {
+    timeouts.relayClientIdleHardSecs = relayHard;
+  }
+  const relayGrace = parseInt(form.timeoutsRelayIdleGraceAfterDownstreamActivitySecs.trim(), 10);
+  if (Number.isFinite(relayGrace) && relayGrace >= 0) {
+    timeouts.relayIdleGraceAfterDownstreamActivitySecs = relayGrace;
+  }
+  const meOneRetry = parseInt(form.timeoutsMeOneRetry.trim(), 10);
+  if (Number.isFinite(meOneRetry) && meOneRetry >= 0) timeouts.meOneRetry = meOneRetry;
+  const meOneTimeoutMs = parseInt(form.timeoutsMeOneTimeoutMs.trim(), 10);
+  if (Number.isFinite(meOneTimeoutMs) && meOneTimeoutMs > 0) {
+    timeouts.meOneTimeoutMs = meOneTimeoutMs;
+  }
   if (Object.keys(timeouts).length > 0) telemt.timeouts = timeouts;
 
   const maskPort = parseInt(form.censorshipMaskPort.trim(), 10);
@@ -486,6 +647,25 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
   if (Number.isFinite(maskPort) && maskPort > 0) {
     (telemt.censorship as Record<string, unknown>).maskPort = maskPort;
   }
+  const tlsDomains = splitListLinesOrCommas(form.censorshipTlsDomains);
+  if (tlsDomains.length > 0) {
+    (telemt.censorship as Record<string, unknown>).tlsDomains = tlsDomains;
+  }
+  if (
+    form.censorshipMaskProxyProtocol === "0" ||
+    form.censorshipMaskProxyProtocol === "1" ||
+    form.censorshipMaskProxyProtocol === "2"
+  ) {
+    (telemt.censorship as Record<string, unknown>).maskProxyProtocol = Number(
+      form.censorshipMaskProxyProtocol,
+    );
+  }
+  const helloMin = parseInt(form.censorshipServerHelloDelayMinMs.trim(), 10);
+  const helloMax = parseInt(form.censorshipServerHelloDelayMaxMs.trim(), 10);
+  if (Number.isFinite(helloMin) && Number.isFinite(helloMax) && helloMin >= 0 && helloMax >= helloMin) {
+    (telemt.censorship as Record<string, unknown>).serverHelloDelayMinMs = helloMin;
+    (telemt.censorship as Record<string, unknown>).serverHelloDelayMaxMs = helloMax;
+  }
 
   const access: Record<string, unknown> = {};
   if (form.accessIgnoreTimeSkew) access.ignoreTimeSkew = true;
@@ -493,7 +673,38 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
   if (Number.isFinite(maxIps) && maxIps >= 0) access.userMaxUniqueIpsGlobalEach = maxIps;
   const maxTcp = parseInt(form.accessUserMaxTcpConnsGlobalEach.trim(), 10);
   if (Number.isFinite(maxTcp) && maxTcp >= 0) access.userMaxTcpConnsGlobalEach = maxTcp;
+  if (form.accessUserMaxUniqueIpsMode) {
+    access.userMaxUniqueIpsMode = form.accessUserMaxUniqueIpsMode;
+  }
+  const ipsWindow = parseInt(form.accessUserMaxUniqueIpsWindowSecs.trim(), 10);
+  if (Number.isFinite(ipsWindow) && ipsWindow > 0) access.userMaxUniqueIpsWindowSecs = ipsWindow;
+  const rateUp = parseInt(form.accessRateLimitUpBps.trim(), 10);
+  const rateDown = parseInt(form.accessRateLimitDownBps.trim(), 10);
+  if (Number.isFinite(rateUp) && rateUp > 0 && Number.isFinite(rateDown) && rateDown > 0) {
+    access.rateLimitUpBps = rateUp;
+    access.rateLimitDownBps = rateDown;
+  }
   if (Object.keys(access).length > 0) telemt.access = access;
+
+  if (form.webEnabled) {
+    const web: Record<string, unknown> = {
+      enabled: true,
+      vhostHost: form.webVhostHost.trim(),
+      vhostPublicAddr: form.webVhostPublicAddr.trim(),
+      listenBind: form.webListenBind.trim() || "127.0.0.1",
+      decoyMode: form.webDecoyMode,
+      profileSecretMode: form.webProfileSecretMode,
+    };
+    const trustedCidrs = splitListLinesOrCommas(form.webTrustedProxyCidrs);
+    if (trustedCidrs.length > 0) web.trustedProxyCidrs = trustedCidrs;
+    if (form.webDecoyMode === "static_directory") {
+      web.decoyDirectory = form.webDecoyDirectory.trim();
+      if (form.webDecoyIndex.trim()) web.decoyIndex = form.webDecoyIndex.trim();
+    } else {
+      web.decoyUpstream = form.webDecoyUpstream.trim();
+    }
+    telemt.web = web;
+  }
 
   return JSON.stringify({ telemt });
 }

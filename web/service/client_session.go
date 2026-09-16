@@ -98,6 +98,10 @@ func (s *ClientSessionService) GetOnlineSessionsForClient(userId, clientId int) 
 	if clientName == "" {
 		return &ClientOnlineSessionsResponse{Name: clientName, Results: []ClientSessionNodeResult{}}, nil
 	}
+	// Telemt's own Control API only accepts ASCII usernames (see TelemtUsernameForClient);
+	// non-ASCII client names (e.g. Cyrillic) need the same fallback identifier used when
+	// their config.toml [access.users] entry was generated, or their sessions never match.
+	telemtUsername := TelemtUsernameForClient(clientId, clientName)
 
 	blockSvc := ClientSessionBlockService{}
 	blockedIPs, _ := blockSvc.ListBlockedSessionIPs(clientId)
@@ -129,7 +133,7 @@ func (s *ClientSessionService) GetOnlineSessionsForClient(userId, clientId int) 
 				}
 			}
 		}
-		sessions = append(sessions, CollectLocalTelemtOnlineSessions(clientName)...)
+		sessions = append(sessions, CollectLocalTelemtOnlineSessions(telemtUsername)...)
 		errStr := ""
 		if len(sessions) == 0 && xrayErr != "" {
 			errStr = xrayErr
@@ -164,7 +168,7 @@ func (s *ClientSessionService) GetOnlineSessionsForClient(userId, clientId int) 
 				continue
 			}
 			seen[n.Id] = struct{}{}
-			sess, err := nodeSvc.GetUserOnlineSessionsFromNode(n, clientName, false)
+			sess, err := nodeSvc.GetUserOnlineSessionsFromNode(n, clientName, telemtUsername, false)
 			if err != nil {
 				nid := n.Id
 				out.Results = append(out.Results, ClientSessionNodeResult{

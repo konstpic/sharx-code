@@ -701,6 +701,13 @@ func (s *Server) userOnlineSessions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email query parameter is required"})
 		return
 	}
+	// telemtUsername lets the caller pass Telemt's (ASCII-only) Control API identifier
+	// separately from the Xray email when they differ (see TelemtUsernameForClient);
+	// falls back to email for older callers / when the two are the same.
+	telemtUsername := strings.TrimSpace(c.Query("telemtUsername"))
+	if telemtUsername == "" {
+		telemtUsername = email
+	}
 	reset := c.DefaultQuery("reset", "false") == "true"
 	sessions, err := s.xrayManager.GetUserOnlineSessions(email, reset)
 	xrayNotReady := errors.Is(err, xray.ErrXrayNotReady)
@@ -713,7 +720,7 @@ func (s *Server) userOnlineSessions(c *gin.Context) {
 		sessions = nil
 	}
 	if s.telemtManager != nil {
-		sessions = append(sessions, s.telemtManager.CollectOnlineSessionsForUser(email)...)
+		sessions = append(sessions, s.telemtManager.CollectOnlineSessionsForUser(telemtUsername)...)
 	}
 	if xrayNotReady && len(sessions) == 0 && (s.telemtManager == nil || !s.telemtManager.HasRunning()) {
 		logXrayNotReadyThrottled("user-online-sessions")

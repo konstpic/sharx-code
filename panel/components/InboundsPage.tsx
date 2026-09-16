@@ -6051,6 +6051,716 @@ export function InboundsPage() {
                     </div>
                   </div>
                 </details>
+                <details className="rounded-lg border border-[var(--border)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionAdvanced", { defaultValue: "Advanced" })}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                        htmlFor="in-tm-auth-header"
+                      >
+                        {t("pages.inbounds.telemtApiAuthHeader", {
+                          defaultValue: "server.api.auth_header (optional)",
+                        })}
+                      </label>
+                      <p className="mb-1.5 text-[11px] text-[var(--fg-subtle)]">
+                        {t("pages.inbounds.telemtApiAuthHeaderHint", {
+                          defaultValue:
+                            "Bearer token required to call the Control API — hardens it beyond the localhost-only bind.",
+                        })}
+                      </p>
+                      <Input
+                        id="in-tm-auth-header"
+                        className="font-mono text-xs"
+                        placeholder="Bearer ..."
+                        value={form.telemtForm.apiAuthHeader}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, apiAuthHeader: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                        htmlFor="in-tm-max-conns"
+                      >
+                        {t("pages.inbounds.telemtMaxConnections", {
+                          defaultValue: "server.max_connections (optional)",
+                        })}
+                      </label>
+                      <Input
+                        id="in-tm-max-conns"
+                        type="number"
+                        min={0}
+                        className="font-mono text-xs"
+                        placeholder="e.g. 10000"
+                        value={form.telemtForm.serverMaxConnections}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, serverMaxConnections: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                        htmlFor="in-tm-tls-domains"
+                      >
+                        {t("pages.inbounds.telemtTlsDomains", {
+                          defaultValue: "censorship.tls_domains (optional, multi-SNI)",
+                        })}
+                      </label>
+                      <TextArea
+                        id="in-tm-tls-domains"
+                        className="min-h-[56px] font-mono text-xs"
+                        placeholder="e.g. a.example.com, b.example.com"
+                        value={form.telemtForm.censorshipTlsDomains}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: { ...f.telemtForm, censorshipTlsDomains: e.target.value },
+                          }))
+                        }
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                          {t("pages.inbounds.telemtMaskProxyProtocol", {
+                            defaultValue: "censorship.mask_proxy_protocol",
+                          })}
+                        </label>
+                        <SelectNative
+                          inputSize="sm"
+                          className="w-full min-w-0 font-mono shadow-none"
+                          value={form.telemtForm.censorshipMaskProxyProtocol}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                censorshipMaskProxyProtocol: e.target.value as "" | "0" | "1" | "2",
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">
+                            {t("pages.inbounds.telemtUseDefault", {
+                              defaultValue: "(default / omit)",
+                            })}
+                          </option>
+                          <option value="0">0</option>
+                          <option value="1">1</option>
+                          <option value="2">2</option>
+                        </SelectNative>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                          htmlFor="in-tm-hello-min"
+                        >
+                          {t("pages.inbounds.telemtServerHelloDelayMinMs", {
+                            defaultValue: "server_hello_delay_min_ms",
+                          })}
+                        </label>
+                        <Input
+                          id="in-tm-hello-min"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.censorshipServerHelloDelayMinMs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                censorshipServerHelloDelayMinMs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                          htmlFor="in-tm-hello-max"
+                        >
+                          {t("pages.inbounds.telemtServerHelloDelayMaxMs", {
+                            defaultValue: "server_hello_delay_max_ms",
+                          })}
+                        </label>
+                        <Input
+                          id="in-tm-hello-max"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.censorshipServerHelloDelayMaxMs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                censorshipServerHelloDelayMaxMs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtServerHelloDelayHint", {
+                        defaultValue:
+                          "Both fields required together; max must stay below timeouts.client_handshake × 1000 ms or they're silently omitted.",
+                      })}
+                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtRelayIdle", {
+                        defaultValue: "Relay idle policy (seconds)",
+                      })}
+                    </p>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                        relay_idle_policy_v2_enabled
+                      </label>
+                      <SelectNative
+                        inputSize="sm"
+                        className="w-full min-w-0 font-mono shadow-none"
+                        value={form.telemtForm.timeoutsRelayIdlePolicyV2Enabled}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: {
+                              ...f.telemtForm,
+                              timeoutsRelayIdlePolicyV2Enabled: e.target.value as "" | "true" | "false",
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {t("pages.inbounds.telemtUseDefault", { defaultValue: "(default / omit)" })}
+                        </option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </SelectNative>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-relay-soft">
+                          relay_client_idle_soft_secs
+                        </label>
+                        <Input
+                          id="in-tm-relay-soft"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.timeoutsRelayClientIdleSoftSecs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                timeoutsRelayClientIdleSoftSecs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-relay-hard">
+                          relay_client_idle_hard_secs
+                        </label>
+                        <Input
+                          id="in-tm-relay-hard"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.timeoutsRelayClientIdleHardSecs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                timeoutsRelayClientIdleHardSecs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-relay-grace">
+                          relay_idle_grace_after_downstream_activity_secs
+                        </label>
+                        <Input
+                          id="in-tm-relay-grace"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.timeoutsRelayIdleGraceAfterDownstreamActivitySecs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                timeoutsRelayIdleGraceAfterDownstreamActivitySecs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtRelayIdleHint", {
+                        defaultValue: "soft must be ≤ hard, and grace must be ≤ hard, or the group is omitted.",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-me-one-retry">
+                          me_one_retry
+                        </label>
+                        <Input
+                          id="in-tm-me-one-retry"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.timeoutsMeOneRetry}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, timeoutsMeOneRetry: e.target.value },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="in-tm-me-one-ms">
+                          {t("pages.inbounds.telemtMeOneTimeoutMs", {
+                            defaultValue: "me_one_timeout_ms (milliseconds)",
+                          })}
+                        </label>
+                        <Input
+                          id="in-tm-me-one-ms"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.timeoutsMeOneTimeoutMs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, timeoutsMeOneTimeoutMs: e.target.value },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtUniqueIpsPolicy", {
+                        defaultValue: "Unique-IP limit policy",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                          user_max_unique_ips_mode
+                        </label>
+                        <SelectNative
+                          inputSize="sm"
+                          className="w-full min-w-0 font-mono shadow-none"
+                          value={form.telemtForm.accessUserMaxUniqueIpsMode}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                accessUserMaxUniqueIpsMode: e.target.value as
+                                  | ""
+                                  | "active_window"
+                                  | "time_window"
+                                  | "combined",
+                              },
+                            }))
+                          }
+                        >
+                          <option value="">
+                            {t("pages.inbounds.telemtUseDefault", {
+                              defaultValue: "(default / omit)",
+                            })}
+                          </option>
+                          <option value="active_window">active_window</option>
+                          <option value="time_window">time_window</option>
+                          <option value="combined">combined</option>
+                        </SelectNative>
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                          htmlFor="in-tm-ips-window"
+                        >
+                          user_max_unique_ips_window_secs
+                        </label>
+                        <Input
+                          id="in-tm-ips-window"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.accessUserMaxUniqueIpsWindowSecs}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: {
+                                ...f.telemtForm,
+                                accessUserMaxUniqueIpsWindowSecs: e.target.value,
+                              },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtRateLimit", {
+                        defaultValue: "Bandwidth cap (applies equally to every client on this inbound)",
+                      })}
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label
+                          className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                          htmlFor="in-tm-rate-up"
+                        >
+                          {t("pages.inbounds.telemtRateUpBps", {
+                            defaultValue: "up_bps (bytes/sec)",
+                          })}
+                        </label>
+                        <Input
+                          id="in-tm-rate-up"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.accessRateLimitUpBps}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, accessRateLimitUpBps: e.target.value },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                          htmlFor="in-tm-rate-down"
+                        >
+                          {t("pages.inbounds.telemtRateDownBps", {
+                            defaultValue: "down_bps (bytes/sec)",
+                          })}
+                        </label>
+                        <Input
+                          id="in-tm-rate-down"
+                          type="number"
+                          min={0}
+                          className="font-mono text-xs"
+                          value={form.telemtForm.accessRateLimitDownBps}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, accessRateLimitDownBps: e.target.value },
+                            }))
+                          }
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+                <details className="rounded-lg border border-[var(--border)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionWeb", {
+                      defaultValue: "WEB mode (Telegram Desktop over HTTPS)",
+                    })}
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-[var(--fg-subtle)]">
+                      {t("pages.inbounds.telemtWebHint", {
+                        defaultValue:
+                          "Carries MTProto over real HTTPS/WebSocket. Telemt itself only ever binds a private address — YOU must run an external NGINX or HAProxy that terminates TLS on the public host/port and reverse-proxies to that private address, forwarding X-Forwarded-For. SharX does not manage that reverse proxy.",
+                      })}
+                    </p>
+                    <CheckboxField
+                      checked={form.telemtForm.webEnabled}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          telemtForm: { ...f.telemtForm, webEnabled: e.target.checked },
+                        }))
+                      }
+                      label={t("pages.inbounds.telemtWebEnabled", {
+                        defaultValue: "Enable WEB transport for this inbound",
+                      })}
+                    />
+                    {form.telemtForm.webEnabled ? (
+                      <>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <label
+                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                              htmlFor="in-tm-web-host"
+                            >
+                              {t("pages.inbounds.telemtWebVhostHost", {
+                                defaultValue: "Public domain (vhost host)",
+                              })}
+                            </label>
+                            <Input
+                              id="in-tm-web-host"
+                              className="font-mono text-xs"
+                              placeholder="proxy.example.com"
+                              value={form.telemtForm.webVhostHost}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: { ...f.telemtForm, webVhostHost: e.target.value },
+                                }))
+                              }
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div>
+                            <label
+                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                              htmlFor="in-tm-web-addr"
+                            >
+                              {t("pages.inbounds.telemtWebVhostPublicAddr", {
+                                defaultValue: "Public IP:443 (vhost public_addr)",
+                              })}
+                            </label>
+                            <Input
+                              id="in-tm-web-addr"
+                              className="font-mono text-xs"
+                              placeholder="203.0.113.10:443"
+                              value={form.telemtForm.webVhostPublicAddr}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: { ...f.telemtForm, webVhostPublicAddr: e.target.value },
+                                }))
+                              }
+                              spellCheck={false}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <label
+                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                              htmlFor="in-tm-web-bind"
+                            >
+                              {t("pages.inbounds.telemtWebListenBind", {
+                                defaultValue: "Private listen IP (telemt binds here)",
+                              })}
+                            </label>
+                            <Input
+                              id="in-tm-web-bind"
+                              className="font-mono text-xs"
+                              value={form.telemtForm.webListenBind}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: { ...f.telemtForm, webListenBind: e.target.value },
+                                }))
+                              }
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div>
+                            <label
+                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                              htmlFor="in-tm-web-cidrs"
+                            >
+                              {t("pages.inbounds.telemtWebTrustedProxyCidrs", {
+                                defaultValue: "web_trusted_proxy_cidrs",
+                              })}
+                            </label>
+                            <Input
+                              id="in-tm-web-cidrs"
+                              className="font-mono text-xs"
+                              placeholder="127.0.0.1/32"
+                              value={form.telemtForm.webTrustedProxyCidrs}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: { ...f.telemtForm, webTrustedProxyCidrs: e.target.value },
+                                }))
+                              }
+                              spellCheck={false}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                            {t("pages.inbounds.telemtWebDecoyMode", {
+                              defaultValue: "Decoy mode (fallback for unauthenticated traffic)",
+                            })}
+                          </label>
+                          <SelectNative
+                            inputSize="sm"
+                            className="w-full min-w-0 font-mono shadow-none"
+                            value={form.telemtForm.webDecoyMode}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                telemtForm: {
+                                  ...f.telemtForm,
+                                  webDecoyMode: e.target.value as "http_upstream" | "static_directory",
+                                },
+                              }))
+                            }
+                          >
+                            <option value="http_upstream">http_upstream</option>
+                            <option value="static_directory">static_directory</option>
+                          </SelectNative>
+                        </div>
+                        {form.telemtForm.webDecoyMode === "http_upstream" ? (
+                          <div>
+                            <label
+                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                              htmlFor="in-tm-web-decoy-upstream"
+                            >
+                              {t("pages.inbounds.telemtWebDecoyUpstream", {
+                                defaultValue: "decoy upstream (http://loopback-or-private-ip:port)",
+                              })}
+                            </label>
+                            <Input
+                              id="in-tm-web-decoy-upstream"
+                              className="font-mono text-xs"
+                              placeholder="http://127.0.0.1:8080"
+                              value={form.telemtForm.webDecoyUpstream}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: { ...f.telemtForm, webDecoyUpstream: e.target.value },
+                                }))
+                              }
+                              spellCheck={false}
+                            />
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-decoy-dir"
+                              >
+                                {t("pages.inbounds.telemtWebDecoyDirectory", {
+                                  defaultValue: "decoy directory (absolute path on the node)",
+                                })}
+                              </label>
+                              <Input
+                                id="in-tm-web-decoy-dir"
+                                className="font-mono text-xs"
+                                placeholder="/var/www/decoy"
+                                value={form.telemtForm.webDecoyDirectory}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: { ...f.telemtForm, webDecoyDirectory: e.target.value },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                            </div>
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-decoy-index"
+                              >
+                                {t("pages.inbounds.telemtWebDecoyIndex", { defaultValue: "index file" })}
+                              </label>
+                              <Input
+                                id="in-tm-web-decoy-index"
+                                className="font-mono text-xs"
+                                value={form.telemtForm.webDecoyIndex}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: { ...f.telemtForm, webDecoyIndex: e.target.value },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                            {t("pages.inbounds.telemtWebProfileSecretMode", {
+                              defaultValue: "Client secret mode",
+                            })}
+                          </label>
+                          <SelectNative
+                            inputSize="sm"
+                            className="w-full min-w-0 font-mono shadow-none"
+                            value={form.telemtForm.webProfileSecretMode}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                telemtForm: {
+                                  ...f.telemtForm,
+                                  webProfileSecretMode: e.target.value as "plain" | "dd",
+                                },
+                              }))
+                            }
+                          >
+                            <option value="dd">dd</option>
+                            <option value="plain">plain</option>
+                          </SelectNative>
+                        </div>
+                        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)]/40 p-3">
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                            {t("pages.inbounds.telemtWebNginxSnippetTitle", {
+                              defaultValue: "Example external NGINX config (you must apply this yourself)",
+                            })}
+                          </p>
+                          <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] text-[var(--fg-muted)]">
+{`server {
+  listen 443 ssl http2;
+  server_name ${form.telemtForm.webVhostHost.trim() || "proxy.example.com"};
+
+  ssl_certificate     /etc/letsencrypt/live/${form.telemtForm.webVhostHost.trim() || "proxy.example.com"}/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/${form.telemtForm.webVhostHost.trim() || "proxy.example.com"}/privkey.pem;
+
+  location / {
+    proxy_pass http://${form.telemtForm.webListenBind.trim() || "127.0.0.1"}:${form.port || 8443};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+  }
+}`}
+                          </pre>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </details>
               </div>
             ) : null}
             {form.protocol === "wireguard" ? (

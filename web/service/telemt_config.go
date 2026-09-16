@@ -43,20 +43,26 @@ type telemtSettingsJSON struct {
 		PublicPort int    `json:"publicPort"`
 	} `json:"links"`
 	Censorship *struct {
-		TLSDomain        string `json:"tlsDomain"`
-		SNI              string `json:"sni"`
-		Mask             *bool  `json:"mask"`
-		TLSEmulation     *bool  `json:"tlsEmulation"`
-		TLSFrontDir      string `json:"tlsFrontDir"`
-		UnknownSniAction string `json:"unknownSniAction"`
-		MaskHost         string `json:"maskHost"`
-		MaskPort         *int   `json:"maskPort"`
+		TLSDomain             string   `json:"tlsDomain"`
+		SNI                   string   `json:"sni"`
+		TLSDomains            []string `json:"tlsDomains"`
+		Mask                  *bool    `json:"mask"`
+		TLSEmulation          *bool    `json:"tlsEmulation"`
+		TLSFrontDir           string   `json:"tlsFrontDir"`
+		UnknownSniAction      string   `json:"unknownSniAction"`
+		MaskHost              string   `json:"maskHost"`
+		MaskPort              *int     `json:"maskPort"`
+		MaskProxyProtocol     *int     `json:"maskProxyProtocol"`
+		ServerHelloDelayMinMs *int     `json:"serverHelloDelayMinMs"`
+		ServerHelloDelayMaxMs *int     `json:"serverHelloDelayMaxMs"`
 	} `json:"censorship"`
 	APIEnabled               *bool  `json:"apiEnabled"`
 	APIListen                string `json:"apiListen"`
+	APIAuthHeader            string `json:"apiAuthHeader"`
 	MinimalRuntimeEnabled    *bool  `json:"minimalRuntimeEnabled"`
 	MinimalRuntimeCacheTtlMs *int   `json:"minimalRuntimeCacheTtlMs"`
 	ProxyProtocol            *bool  `json:"proxyProtocol"`
+	MaxConnections           *int   `json:"maxConnections"`
 	FastMode                 *bool  `json:"fastMode"`
 	Me2dcFallback            *bool  `json:"me2dcFallback"`
 	Me2dcFast                *bool  `json:"me2dcFast"`
@@ -72,15 +78,85 @@ type telemtSettingsJSON struct {
 		ClientKeepalive         *int `json:"clientKeepalive"`
 		ClientAck               *int `json:"clientAck"`
 		ClientFirstByteIdleSecs *int `json:"clientFirstByteIdleSecs"`
+		// RelayIdle* tune the middle-relay client-uplink idle policy (all seconds).
+		RelayIdlePolicyV2Enabled                  *bool `json:"relayIdlePolicyV2Enabled"`
+		RelayClientIdleSoftSecs                   *int  `json:"relayClientIdleSoftSecs"`
+		RelayClientIdleHardSecs                   *int  `json:"relayClientIdleHardSecs"`
+		RelayIdleGraceAfterDownstreamActivitySecs *int  `json:"relayIdleGraceAfterDownstreamActivitySecs"`
+		// MeOne* tune single-endpoint DC fast-reconnect; note the ms unit on the timeout.
+		MeOneRetry     *int `json:"meOneRetry"`
+		MeOneTimeoutMs *int `json:"meOneTimeoutMs"`
 	} `json:"timeouts"`
 	Access *struct {
-		IgnoreTimeSkew             *bool `json:"ignoreTimeSkew"`
-		UserMaxUniqueIpsGlobalEach *int  `json:"userMaxUniqueIpsGlobalEach"`
-		UserMaxTcpConnsGlobalEach  *int  `json:"userMaxTcpConnsGlobalEach"`
+		IgnoreTimeSkew             *bool  `json:"ignoreTimeSkew"`
+		UserMaxUniqueIpsGlobalEach *int   `json:"userMaxUniqueIpsGlobalEach"`
+		UserMaxTcpConnsGlobalEach  *int   `json:"userMaxTcpConnsGlobalEach"`
+		UserMaxUniqueIpsMode       string `json:"userMaxUniqueIpsMode"`
+		UserMaxUniqueIpsWindowSecs *int   `json:"userMaxUniqueIpsWindowSecs"`
+		// RateLimitUpBps/RateLimitDownBps apply the SAME cap to every user on this inbound
+		// (written as [access.user_rate_limits] with one entry per user) — Telemt itself
+		// supports genuinely per-user limits, but SharX has no per-client rate-limit storage
+		// yet, so this is an inbound-wide throttle, not a per-client one.
+		RateLimitUpBps   *uint64 `json:"rateLimitUpBps"`
+		RateLimitDownBps *uint64 `json:"rateLimitDownBps"`
 	} `json:"access"`
+	Web *TelemtWebSettings `json:"web"`
+}
+
+// TelemtWebSettings configures Telemt's WEB transport (Telegram Desktop MTProxy carried over
+// HTTPS/WebSocket, terminated by an operator-managed external NGINX/HAProxy — see
+// https://github.com/telemt/telemt/blob/main/docs/WEB/WEB_PROXY.en.md). SharX only generates
+// the telemt-side config.toml [web] tree; the TLS-terminating reverse proxy in front of it is
+// not something SharX supervises, so `PreviewTelemtToml`-adjacent UI should show operators the
+// NGINX snippet they need alongside this.
+type TelemtWebSettings struct {
+	Enabled *bool `json:"enabled"`
+	// VhostHost is the public FQDN Telegram Desktop connects to (lowercase, matches the
+	// external proxy's server_name / SNI routing).
+	VhostHost string `json:"vhostHost"`
+	// VhostPublicAddr is the concrete public "ip:443" Telemt uses in its inner relay tuple
+	// (Telemt requires a literal IP here, not a hostname).
+	VhostPublicAddr string `json:"vhostPublicAddr"`
+	// ListenBind is the private loopback/internal address telemt itself listens on
+	// (transport=web); the external proxy reverse-proxies to ListenBind:<inbound port>.
+	ListenBind string `json:"listenBind"`
+	// TrustedProxyCIDRs is the WEB listener's web_trusted_proxy_cidrs — only these peers may
+	// set X-Forwarded-For for the real client IP.
+	TrustedProxyCIDRs []string `json:"trustedProxyCidrs"`
+	// DecoyMode is "http_upstream" (reverse-proxy to a real site) or "static_directory"
+	// (serve a static site) — Telemt's fallback for unauthenticated/invalid WEB traffic.
+	DecoyMode string `json:"decoyMode"`
+	// DecoyUpstream is an http:// origin on loopback/link-local/private IP (http_upstream mode).
+	DecoyUpstream string `json:"decoyUpstream"`
+	// DecoyDirectory + DecoyIndex serve a static site (static_directory mode).
+	DecoyDirectory string `json:"decoyDirectory"`
+	DecoyIndex     string `json:"decoyIndex"`
+	// ProfileSecretMode is "plain" or "dd" (Telegram Desktop secret representation; "ee"
+	// fake-TLS is not supported over WEB since TLS is handled by the external proxy).
+	ProfileSecretMode string `json:"profileSecretMode"`
 }
 
 var telemtBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// telemtValidUsernameRe mirrors Telemt's own route validation (src/api/model/users.rs
+// is_valid_username: ASCII alphanumeric plus '_' '-' '.', 1-64 chars). Telemt's Control
+// API rejects any other username in the URL path with 400 before it even looks the user
+// up, so a non-ASCII (e.g. Cyrillic) client name silently hides that client's online
+// sessions even though the TOML config itself accepts any UTF-8 key.
+var telemtValidUsernameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// TelemtUsernameForClient returns the Telemt [access.users] key / Control API username for
+// a client. Names that already satisfy Telemt's own username rules are used unchanged (so
+// existing configs keep the same key); anything else falls back to a stable "u<clientId>"
+// identifier. Telemt subscription links (tg://proxy?...) carry the secret, not the
+// username, so this substitution never affects a client's connection string.
+func TelemtUsernameForClient(clientId int, name string) string {
+	name = strings.TrimSpace(name)
+	if telemtValidUsernameRe.MatchString(name) {
+		return name
+	}
+	return fmt.Sprintf("u%d", clientId)
+}
 
 // GenerateTelemtSecretHex returns 32 lowercase hex chars (16 bytes) for Telemt [access.users].
 func GenerateTelemtSecretHex() (string, error) {
@@ -117,9 +193,11 @@ func telemtTomlUserKey(email string) string {
 
 // TelemtAccessUser is a row for [access.users] (Telemt user + mapping secret).
 type TelemtAccessUser struct {
-	Email  string
-	Secret string
-	Enable bool
+	// Username is the Telemt [access.users] key / Control API identifier — see
+	// TelemtUsernameForClient. Not necessarily the client's display name.
+	Username string
+	Secret   string
+	Enable   bool
 	// Optional [access.user_data_quota] / [access.user_expirations] / [access.user_max_unique_ips].
 	// Zero / empty values are omitted from generated TOML.
 	DataQuotaBytes    uint64
@@ -287,8 +365,14 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	if cfg.ProxyProtocol != nil && *cfg.ProxyProtocol {
 		fmt.Fprintf(&b, "proxy_protocol = true\n")
 	}
+	if cfg.MaxConnections != nil && *cfg.MaxConnections > 0 {
+		fmt.Fprintf(&b, "max_connections = %d\n", *cfg.MaxConnections)
+	}
 	fmt.Fprintf(&b, "\n")
 	fmt.Fprintf(&b, "[server.api]\nenabled = %v\nlisten = %q\nwhitelist = [\"127.0.0.1/32\", \"::1/128\"]\n", apiEnabled, apiListen)
+	if ah := strings.TrimSpace(cfg.APIAuthHeader); ah != "" {
+		fmt.Fprintf(&b, "auth_header = %q\n", ah)
+	}
 	if cfg.MinimalRuntimeEnabled != nil {
 		fmt.Fprintf(&b, "minimal_runtime_enabled = %v\n", *cfg.MinimalRuntimeEnabled)
 	}
@@ -296,22 +380,62 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		fmt.Fprintf(&b, "minimal_runtime_cache_ttl_ms = %d\n", *cfg.MinimalRuntimeCacheTtlMs)
 	}
 	fmt.Fprintf(&b, "\n")
-	listenIP := strings.TrimSpace(inbound.Listen)
-	if listenIP == "" {
-		listenIP = "0.0.0.0"
+
+	webEnabled := cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled
+	if webEnabled {
+		if err := appendTelemtWebListenerAndSection(&b, cfg.Web, inbound, users); err != nil {
+			return "", err
+		}
+	} else {
+		listenIP := strings.TrimSpace(inbound.Listen)
+		if listenIP == "" {
+			listenIP = "0.0.0.0"
+		}
+		fmt.Fprintf(&b, "[[server.listeners]]\nip = %q\n\n", listenIP)
 	}
-	fmt.Fprintf(&b, "[[server.listeners]]\nip = %q\n\n", listenIP)
+
 	fmt.Fprintf(&b, "[censorship]\ntls_domain = %q\nmask = %v\ntls_emulation = %v\ntls_front_dir = %q\n", tlsDomain, mask, tlsEmu, tlsFront)
 	if cfg.Censorship != nil {
+		if len(cfg.Censorship.TLSDomains) > 0 {
+			parts := make([]string, 0, len(cfg.Censorship.TLSDomains))
+			for _, d := range cfg.Censorship.TLSDomains {
+				d = strings.TrimSpace(d)
+				if d != "" {
+					parts = append(parts, fmt.Sprintf("%q", d))
+				}
+			}
+			if len(parts) > 0 {
+				fmt.Fprintf(&b, "tls_domains = [%s]\n", strings.Join(parts, ", "))
+			}
+		}
 		if mh := strings.TrimSpace(cfg.Censorship.MaskHost); mh != "" {
 			fmt.Fprintf(&b, "mask_host = %q\n", mh)
 		}
 		if cfg.Censorship.MaskPort != nil && *cfg.Censorship.MaskPort > 0 {
 			fmt.Fprintf(&b, "mask_port = %d\n", *cfg.Censorship.MaskPort)
 		}
+		if cfg.Censorship.MaskProxyProtocol != nil {
+			mpp := *cfg.Censorship.MaskProxyProtocol
+			if mpp >= 0 && mpp <= 2 {
+				fmt.Fprintf(&b, "mask_proxy_protocol = %d\n", mpp)
+			}
+		}
 	}
 	if unknownSni != "" {
 		fmt.Fprintf(&b, "unknown_sni_action = %q\n", unknownSni)
+	}
+	// client_handshake also bounds server_hello_delay_max_ms (must be < client_handshake*1000);
+	// resolve the effective value (upstream default 30s) before validating the delay fields.
+	clientHandshakeSecs := 30
+	if cfg.Timeouts != nil && cfg.Timeouts.ClientHandshake != nil && *cfg.Timeouts.ClientHandshake > 0 {
+		clientHandshakeSecs = *cfg.Timeouts.ClientHandshake
+	}
+	if cfg.Censorship != nil && cfg.Censorship.ServerHelloDelayMinMs != nil && cfg.Censorship.ServerHelloDelayMaxMs != nil {
+		minMs, maxMs := *cfg.Censorship.ServerHelloDelayMinMs, *cfg.Censorship.ServerHelloDelayMaxMs
+		if minMs >= 0 && maxMs >= minMs && maxMs < clientHandshakeSecs*1000 {
+			fmt.Fprintf(&b, "server_hello_delay_min_ms = %d\n", minMs)
+			fmt.Fprintf(&b, "server_hello_delay_max_ms = %d\n", maxMs)
+		}
 	}
 	fmt.Fprintf(&b, "\n")
 	if cfg.Timeouts != nil {
@@ -327,6 +451,29 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		}
 		if cfg.Timeouts.ClientAck != nil && *cfg.Timeouts.ClientAck > 0 {
 			timeoutLines = append(timeoutLines, fmt.Sprintf("client_ack = %d\n", *cfg.Timeouts.ClientAck))
+		}
+		// relay_idle_policy_v2 fields are validated together upstream: soft <= hard, grace <= hard.
+		if cfg.Timeouts.RelayIdlePolicyV2Enabled != nil {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("relay_idle_policy_v2_enabled = %v\n", *cfg.Timeouts.RelayIdlePolicyV2Enabled))
+		}
+		if cfg.Timeouts.RelayClientIdleSoftSecs != nil && cfg.Timeouts.RelayClientIdleHardSecs != nil {
+			soft, hard := *cfg.Timeouts.RelayClientIdleSoftSecs, *cfg.Timeouts.RelayClientIdleHardSecs
+			if soft > 0 && hard > 0 && soft <= hard {
+				timeoutLines = append(timeoutLines, fmt.Sprintf("relay_client_idle_soft_secs = %d\n", soft))
+				timeoutLines = append(timeoutLines, fmt.Sprintf("relay_client_idle_hard_secs = %d\n", hard))
+				if cfg.Timeouts.RelayIdleGraceAfterDownstreamActivitySecs != nil {
+					grace := *cfg.Timeouts.RelayIdleGraceAfterDownstreamActivitySecs
+					if grace >= 0 && grace <= hard {
+						timeoutLines = append(timeoutLines, fmt.Sprintf("relay_idle_grace_after_downstream_activity_secs = %d\n", grace))
+					}
+				}
+			}
+		}
+		if cfg.Timeouts.MeOneRetry != nil && *cfg.Timeouts.MeOneRetry >= 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("me_one_retry = %d\n", *cfg.Timeouts.MeOneRetry))
+		}
+		if cfg.Timeouts.MeOneTimeoutMs != nil && *cfg.Timeouts.MeOneTimeoutMs > 0 {
+			timeoutLines = append(timeoutLines, fmt.Sprintf("me_one_timeout_ms = %d\n", *cfg.Timeouts.MeOneTimeoutMs))
 		}
 		if len(timeoutLines) > 0 {
 			fmt.Fprintf(&b, "[timeouts]\n")
@@ -347,6 +494,12 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		if cfg.Access.UserMaxTcpConnsGlobalEach != nil && *cfg.Access.UserMaxTcpConnsGlobalEach >= 0 {
 			accessScalars = append(accessScalars, fmt.Sprintf("user_max_tcp_conns_global_each = %d\n", *cfg.Access.UserMaxTcpConnsGlobalEach))
 		}
+		if mode := strings.TrimSpace(cfg.Access.UserMaxUniqueIpsMode); mode == "active_window" || mode == "time_window" || mode == "combined" {
+			accessScalars = append(accessScalars, fmt.Sprintf("user_max_unique_ips_mode = %q\n", mode))
+		}
+		if cfg.Access.UserMaxUniqueIpsWindowSecs != nil && *cfg.Access.UserMaxUniqueIpsWindowSecs > 0 {
+			accessScalars = append(accessScalars, fmt.Sprintf("user_max_unique_ips_window_secs = %d\n", *cfg.Access.UserMaxUniqueIpsWindowSecs))
+		}
 	}
 	if len(accessScalars) > 0 {
 		fmt.Fprintf(&b, "[access]\n")
@@ -358,17 +511,17 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	var written []TelemtAccessUser
 	fmt.Fprintf(&b, "[access.users]\n")
 	for _, u := range users {
-		if !u.Enable || strings.TrimSpace(u.Email) == "" || len(strings.TrimSpace(u.Secret)) != 32 {
+		if !u.Enable || strings.TrimSpace(u.Username) == "" || len(strings.TrimSpace(u.Secret)) != 32 {
 			continue
 		}
 		sec := strings.ToLower(strings.TrimSpace(u.Secret))
-		fmt.Fprintf(&b, "%s = %q\n", telemtTomlUserKey(u.Email), sec)
+		fmt.Fprintf(&b, "%s = %q\n", telemtTomlUserKey(u.Username), sec)
 		written = append(written, u)
 	}
 
 	var quotaLines, expLines, ipLines []string
 	for _, u := range written {
-		key := telemtTomlUserKey(u.Email)
+		key := telemtTomlUserKey(u.Username)
 		if u.DataQuotaBytes > 0 {
 			quotaLines = append(quotaLines, fmt.Sprintf("%s = %d\n", key, u.DataQuotaBytes))
 		}
@@ -402,7 +555,7 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		if len(u.SourceDenyCIDRs) == 0 {
 			continue
 		}
-		key := telemtTomlUserKey(u.Email)
+		key := telemtTomlUserKey(u.Username)
 		parts := make([]string, 0, len(u.SourceDenyCIDRs))
 		for _, c := range u.SourceDenyCIDRs {
 			c = strings.TrimSpace(c)
@@ -427,7 +580,7 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		if len(tag) != 32 {
 			continue
 		}
-		adTagLines = append(adTagLines, fmt.Sprintf("%s = %q\n", telemtTomlUserKey(u.Email), tag))
+		adTagLines = append(adTagLines, fmt.Sprintf("%s = %q\n", telemtTomlUserKey(u.Username), tag))
 	}
 	if len(adTagLines) > 0 {
 		fmt.Fprintf(&b, "\n[access.user_ad_tags]\n")
@@ -435,7 +588,93 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 			fmt.Fprint(&b, line)
 		}
 	}
+	if cfg.Access != nil && cfg.Access.RateLimitUpBps != nil && cfg.Access.RateLimitDownBps != nil &&
+		(*cfg.Access.RateLimitUpBps > 0 || *cfg.Access.RateLimitDownBps > 0) && len(written) > 0 {
+		fmt.Fprintf(&b, "\n[access.user_rate_limits]\n")
+		for _, u := range written {
+			fmt.Fprintf(&b, "%s = { up_bps = %d, down_bps = %d }\n",
+				telemtTomlUserKey(u.Username), *cfg.Access.RateLimitUpBps, *cfg.Access.RateLimitDownBps)
+		}
+	}
 	return b.String(), nil
+}
+
+// appendTelemtWebListenerAndSection renders the private WEB [[server.listeners]] entry plus
+// the [web] / [[web.vhosts]] tree for Telemt's HTTPS/WebSocket transport. The listener binds to
+// a private address (loopback by default); the operator's own NGINX/HAProxy must terminate TLS
+// on the public vhost host/port and reverse-proxy to this private listener, setting
+// X-Forwarded-For for the configured trusted CIDRs. See TelemtWebSettings doc comment.
+func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSettings, inbound *model.Inbound, users []TelemtAccessUser) error {
+	host := strings.ToLower(strings.TrimSpace(web.VhostHost))
+	if host == "" {
+		return fmt.Errorf("telemt web mode: vhostHost is required")
+	}
+	publicAddr := strings.TrimSpace(web.VhostPublicAddr)
+	if publicAddr == "" {
+		return fmt.Errorf("telemt web mode: vhostPublicAddr is required")
+	}
+	bind := strings.TrimSpace(web.ListenBind)
+	if bind == "" {
+		bind = "127.0.0.1"
+	}
+	cidrs := make([]string, 0, len(web.TrustedProxyCIDRs))
+	for _, c := range web.TrustedProxyCIDRs {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			cidrs = append(cidrs, c)
+		}
+	}
+	if len(cidrs) == 0 {
+		cidrs = []string{"127.0.0.1/32"}
+	}
+	cidrParts := make([]string, 0, len(cidrs))
+	for _, c := range cidrs {
+		cidrParts = append(cidrParts, fmt.Sprintf("%q", c))
+	}
+
+	fmt.Fprintf(b, "[[server.listeners]]\n")
+	fmt.Fprintf(b, "ip = %q\n", bind)
+	fmt.Fprintf(b, "port = %d\n", inbound.Port)
+	fmt.Fprintf(b, "transport = \"web\"\n")
+	fmt.Fprintf(b, "proxy_protocol = false\n")
+	fmt.Fprintf(b, "web_trusted_proxy_cidrs = [%s]\n\n", strings.Join(cidrParts, ", "))
+
+	fmt.Fprintf(b, "[web]\nenabled = true\n\n")
+
+	fmt.Fprintf(b, "[[web.vhosts]]\n")
+	fmt.Fprintf(b, "host = %q\n", host)
+	fmt.Fprintf(b, "public_addr = %q\n\n", publicAddr)
+
+	fmt.Fprintf(b, "[web.vhosts.decoy]\n")
+	switch strings.TrimSpace(web.DecoyMode) {
+	case "static_directory":
+		dir := strings.TrimSpace(web.DecoyDirectory)
+		fmt.Fprintf(b, "directory = %q\n", dir)
+		if idx := strings.TrimSpace(web.DecoyIndex); idx != "" {
+			fmt.Fprintf(b, "index = %q\n", idx)
+		}
+	default:
+		upstream := strings.TrimSpace(web.DecoyUpstream)
+		if upstream == "" {
+			upstream = "http://127.0.0.1:80"
+		}
+		fmt.Fprintf(b, "upstream = %q\n", upstream)
+	}
+	fmt.Fprintf(b, "\n")
+
+	secretMode := strings.TrimSpace(web.ProfileSecretMode)
+	if secretMode != "plain" && secretMode != "dd" {
+		secretMode = "dd"
+	}
+	for _, u := range users {
+		if !u.Enable || strings.TrimSpace(u.Username) == "" || len(strings.TrimSpace(u.Secret)) != 32 {
+			continue
+		}
+		fmt.Fprintf(b, "[[web.vhosts.profiles]]\n")
+		fmt.Fprintf(b, "user = %q\n", u.Username)
+		fmt.Fprintf(b, "secret_mode = %q\n\n", secretMode)
+	}
+	return nil
 }
 
 // TelemtAccessUsersForInbound loads enabled clients with a Telemt secret for the inbound.
@@ -473,7 +712,7 @@ func TelemtAccessUsersForInbound(inboundId int) ([]TelemtAccessUser, error) {
 		if em == "" {
 			continue
 		}
-		u := TelemtAccessUser{Email: em, Secret: secret, Enable: true}
+		u := TelemtAccessUser{Username: TelemtUsernameForClient(c.Id, em), Secret: secret, Enable: true}
 		if c.TotalGB > 0 {
 			u.DataQuotaBytes = uint64(math.Round(c.TotalGB * float64(1024*1024*1024)))
 		}

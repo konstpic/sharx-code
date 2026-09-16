@@ -1733,10 +1733,16 @@ type UserOnlineSessionsFromNode struct {
 }
 
 // GetUserOnlineSessionsFromNode fetches per-IP online sessions from a worker node.
-func (s *NodeService) GetUserOnlineSessionsFromNode(node *model.Node, email string, reset bool) (*UserOnlineSessionsFromNode, error) {
+// telemtUsername is the Telemt Control API identifier (see TelemtUsernameForClient); it is
+// sent separately from email only when it differs, since Telemt's username rules are
+// stricter than Xray's (ASCII-only) — see userOnlineSessions on the worker.
+func (s *NodeService) GetUserOnlineSessionsFromNode(node *model.Node, email, telemtUsername string, reset bool) (*UserOnlineSessionsFromNode, error) {
 	base := nodeRequestBaseURL(node)
 	q := url.Values{}
 	q.Set("email", email)
+	if telemtUsername != "" && telemtUsername != email {
+		q.Set("telemtUsername", telemtUsername)
+	}
 	if reset {
 		q.Set("reset", "true")
 	}
