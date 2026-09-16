@@ -10,6 +10,7 @@ const META: Record<string, string> = {
   web: "#05060a",
   xuiClassic: "#0a1222",
   starWars: "#030508",
+  barbie: "#1a0a14",
 };
 
 /**

@@ -1,0 +1,210 @@
+/* Barbie — glam hot pink + gold, sparkle FX live in the panel shell only. */
+
+:root[data-panel-theme="barbie"] {
+  --font-heading: var(--font-playfair), "Playfair Display", var(--font-sans), system-ui, serif;
+  --barbie-glow: 0 0 20px color-mix(in oklab, var(--accent) 45%, transparent),
+    0 0 44px color-mix(in oklab, var(--accent) 16%, transparent);
+  --barbie-sparkle: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22200%22%20height%3D%22200%22%20viewBox%3D%220%200%20200%20200%22%3E%3Cg%20fill%3D%22%23ffd23f%22%3E%3Cpath%20d%3D%22M30%2010l3%2015%2015%203-15%203-3%2015-3-15-15-3%2015-3z%22%20opacity%3D%220.5%22%2F%3E%3Cpath%20d%3D%22M150%2040l2.4%2012%2012%202.4-12%202.4-2.4%2012-2.4-12-12-2.4%2012-2.4z%22%20opacity%3D%220.4%22%2F%3E%3Cpath%20d%3D%22M100%20120l2.8%2014%2014%202.8-14%202.8-2.8%2014-2.8-14-14-2.8%2014-2.8z%22%20opacity%3D%220.45%22%2F%3E%3Cpath%20d%3D%22M170%20160l2%2010%2010%202-10%202-2%2010-2-10-10-2%2010-2z%22%20opacity%3D%220.35%22%2F%3E%3Cpath%20d%3D%22M20%20150l2%2010%2010%202-10%202-2%2010-2-10-10-2%2010-2z%22%20opacity%3D%220.4%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+
+/* Doc background: glossy pink-black gradient (FX are on .panel-cinema-bg inside the shell) */
+html[data-panel-theme="barbie"] {
+  background-color: #1a0a14 !important;
+  background-image: linear-gradient(160deg, #26091b 0%, #1a0a14 45%, #100609 100%) !important;
+}
+
+html[data-panel-theme="barbie"]::before,
+html[data-panel-theme="barbie"]::after {
+  display: none !important;
+}
+
+html[data-panel-theme="barbie"] body::before,
+html[data-panel-theme="barbie"] body::after {
+  display: none !important;
+}
+
+/* --- Panel cinema backdrop (sparkle drift + glow blooms) --- */
+
+html[data-panel-theme="barbie"] .panel-root {
+  isolation: isolate;
+}
+
+html[data-panel-theme="barbie"] .panel-cinema-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+html[data-panel-theme="barbie"] .panel-cinema-bg > span {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* Glow blooms */
+html[data-panel-theme="barbie"] .panel-cinema-bg__hyperspace {
+  background:
+    radial-gradient(ellipse 60% 46% at 12% 12%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 55%),
+    radial-gradient(ellipse 55% 44% at 92% 82%, color-mix(in oklab, var(--accent-ambient) 12%, transparent), transparent 55%);
+  opacity: 0.55;
+  animation: barbie-bloom-drift 14s ease-in-out infinite alternate;
+}
+
+@keyframes barbie-bloom-drift {
+  0% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 0.65;
+  }
+}
+
+/* Sparkle/glitter field */
+html[data-panel-theme="barbie"] .panel-cinema-bg__stars {
+  background-image: var(--barbie-sparkle);
+  background-size: 200px 200px;
+  background-repeat: repeat;
+  animation: barbie-sparkle-twinkle 4s ease-in-out infinite alternate;
+}
+
+@keyframes barbie-sparkle-twinkle {
+  0% {
+    opacity: 0.45;
+    filter: brightness(0.9);
+  }
+  100% {
+    opacity: 0.85;
+    filter: brightness(1.15);
+  }
+}
+
+/* Diagonal shimmer sweep */
+html[data-panel-theme="barbie"] .panel-cinema-bg__lasers {
+  inset: -25%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 44%,
+    color-mix(in oklab, var(--accent) 0%, transparent) 48%,
+    color-mix(in oklab, var(--accent) 55%, transparent) 50%,
+    #fff6d8 50.5%,
+    color-mix(in oklab, var(--accent-ambient) 55%, transparent) 51%,
+    color-mix(in oklab, var(--accent-ambient) 0%, transparent) 54%,
+    transparent 58%,
+    transparent 100%
+  );
+  background-size: 220% 4px;
+  background-position: -130% 40%;
+  background-repeat: no-repeat;
+  opacity: 0;
+  animation: barbie-shimmer-sweep 13s ease-in-out infinite;
+}
+
+@keyframes barbie-shimmer-sweep {
+  0%,
+  75%,
+  100% {
+    background-position: -130% 40%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.55;
+  }
+  18% {
+    background-position: 130% 40%;
+    opacity: 0.4;
+  }
+  28% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-panel-theme="barbie"] .panel-cinema-bg__hyperspace,
+  html[data-panel-theme="barbie"] .panel-cinema-bg__stars,
+  html[data-panel-theme="barbie"] .panel-cinema-bg__lasers {
+    animation: none !important;
+  }
+
+  html[data-panel-theme="barbie"] .panel-cinema-bg__stars {
+    opacity: 0.65;
+  }
+}
+
+.panel-cinema-bg {
+  display: none;
+}
+
+html[data-panel-theme="barbie"] .panel-cinema-bg {
+  display: block;
+}
+
+/* --- Panel chrome (navbar, sidebar, content, surfaces) --- */
+
+html[data-panel-theme="barbie"] .panel-navbar {
+  background: color-mix(in oklab, var(--bg) 86%, transparent) !important;
+  border-bottom-color: color-mix(in oklab, var(--accent) 30%, transparent) !important;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.4),
+    0 0 36px color-mix(in oklab, var(--accent) 10%, transparent) !important;
+}
+
+html[data-panel-theme="barbie"] .panel-navbar-brand {
+  font-family: var(--font-heading);
+  font-style: italic;
+  letter-spacing: 0.02em;
+  text-shadow: var(--barbie-glow);
+}
+
+html[data-panel-theme="barbie"] .panel-doc-sidebar {
+  background: color-mix(in oklab, var(--bg-elevated) 76%, transparent) !important;
+  border-color: color-mix(in oklab, var(--accent) 16%, transparent) !important;
+}
+
+html[data-panel-theme="barbie"] .panel-menu-link--active {
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 0 14px color-mix(in oklab, var(--accent) 40%, transparent),
+    inset 0 0 20px color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+html[data-panel-theme="barbie"] .panel-surface {
+  border-color: color-mix(in oklab, var(--accent) 20%, var(--border)) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--accent) 6%, transparent),
+    0 8px 28px rgba(0, 0, 0, 0.35),
+    0 0 22px color-mix(in oklab, var(--accent) 5%, transparent);
+}
+
+html[data-panel-theme="barbie"] .panel-surface::before {
+  opacity: 0.8;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in oklab, var(--accent) 14%, transparent) 45%,
+    transparent 55%
+  );
+}
+
+html[data-panel-theme="barbie"] .panel-root h1,
+html[data-panel-theme="barbie"] .panel-root h2,
+html[data-panel-theme="barbie"] .panel-root h3,
+html[data-panel-theme="barbie"] .panel-root .font-heading {
+  font-family: var(--font-heading);
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+html[data-panel-theme="barbie"] .panel-root .panel-btn-primary {
+  box-shadow: var(--barbie-glow);
+}
+
+html[data-panel-theme="barbie"] .panel-root .panel-btn-primary::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+}
+
+html[data-panel-theme="barbie"] .panel-root :focus-visible {
+  outline-color: var(--accent);
+  box-shadow: var(--barbie-glow);
+}

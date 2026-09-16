@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "../styles/star-wars-theme.css";
+@import "../styles/hello-kitty-theme.css";
+@import "../styles/barbie-theme.css";
 
 /* Global panel shell (dark, IFM-aligned tokens, panel themes). */
 
@@ -206,6 +208,30 @@
   --accent-ambient: #c41e3a;
 }
 
+/* Barbie — glam hot pink + gold, dark glossy background (FX in styles/barbie-theme.css) */
+:root[data-panel-theme="barbie"] {
+  --ifm-color-primary: #ff2d92;
+  --ifm-color-secondary: #ffd23f;
+  --ifm-link-color: #ff2d92;
+  --ifm-link-hover-color: #ff6bb3;
+  --ifm-heading-color: #ffe6f2;
+  --ifm-color-content: #ffe6f2;
+  --ifm-color-content-secondary: rgba(255, 230, 242, 0.66);
+  --ifm-card-background-color: rgba(43, 15, 30, 0.8);
+  --bg: #1a0a14;
+  --bg-elevated: #2b0f1e;
+  --surface: rgba(224, 33, 138, 0.12);
+  --surface-strong: rgba(224, 33, 138, 0.22);
+  --border: rgba(255, 105, 180, 0.16);
+  --border-strong: rgba(255, 105, 180, 0.34);
+  --fg: #ffe6f2;
+  --fg-muted: #d998b8;
+  --fg-subtle: rgba(255, 230, 242, 0.5);
+  --code-bg: rgba(255, 255, 255, 0.06);
+  --accent: #ff2d92;
+  --accent-ambient: #ffd23f;
+}
+
 /* Light base tokens — used when data-theme="light" (Vision panel theme). */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -319,6 +345,69 @@ html[data-panel-theme="vision"] body::after {
     radial-gradient(ellipse 40% 36% at 55% 18%, rgba(90, 200, 250, 0.06), transparent 54%);
   filter: blur(52px);
   opacity: 0.28;
+}
+
+/* Hello Kitty — light pastel pink/baby-blue (FX in styles/hello-kitty-theme.css) */
+:root[data-panel-theme="helloKitty"] {
+  --ifm-color-primary: #ec4899;
+  --ifm-color-secondary: #7dd3fc;
+  --ifm-link-color: #ec4899;
+  --ifm-link-hover-color: #db2777;
+  --ifm-heading-color: #4a2c3a;
+  --ifm-color-content: #4a2c3a;
+  --ifm-color-content-secondary: #8a6572;
+  --ifm-card-background-color: rgba(255, 255, 255, 0.9);
+  --bg: #fff5f8;
+  --bg-elevated: rgba(255, 255, 255, 0.92);
+  --surface: rgba(255, 228, 235, 0.6);
+  --surface-strong: rgba(255, 214, 224, 0.88);
+  --border: rgba(219, 39, 119, 0.14);
+  --border-strong: rgba(219, 39, 119, 0.28);
+  --fg: #4a2c3a;
+  --fg-muted: #8a6572;
+  --fg-subtle: rgba(74, 44, 58, 0.52);
+  --code-bg: rgba(255, 255, 255, 0.92);
+  --accent: #ec4899;
+  --accent-ambient: #7dd3fc;
+
+  --panel-chrome-fg: #4a2c3a;
+  --panel-chrome-fg-muted: #8a6572;
+  --panel-chrome-fg-subtle: rgba(138, 101, 114, 0.6);
+  --panel-chrome-fg-strong: #4a2c3a;
+  --panel-chrome-icon: #8a6572;
+  --panel-chrome-hover-bg: rgba(219, 39, 119, 0.08);
+  --panel-chrome-star: #b45309;
+  --panel-chrome-star-hover: #92400e;
+  --panel-chrome-donate: #db2777;
+  --panel-chrome-donate-hover: #be185d;
+}
+
+html[data-panel-theme="helloKitty"] {
+  background:
+    radial-gradient(ellipse 60% 48% at 90% 6%, rgba(236, 72, 153, 0.1), transparent 52%),
+    radial-gradient(ellipse 55% 45% at 6% 16%, rgba(125, 211, 252, 0.1), transparent 50%),
+    radial-gradient(ellipse 48% 42% at 70% 90%, rgba(236, 72, 153, 0.08), transparent 50%),
+    var(--bg);
+}
+
+html[data-panel-theme="helloKitty"] .panel-main::before {
+  opacity: 0.24;
+  background:
+    radial-gradient(circle at 16% 40%, rgba(236, 72, 153, 0.08) 0%, transparent 52%),
+    radial-gradient(circle at 84% 36%, rgba(125, 211, 252, 0.08) 0%, transparent 52%);
+}
+
+html[data-panel-theme="helloKitty"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -5;
+  background:
+    radial-gradient(ellipse 46% 40% at 10% 84%, rgba(236, 72, 153, 0.07), transparent 56%),
+    radial-gradient(ellipse 42% 36% at 90% 70%, rgba(125, 211, 252, 0.07), transparent 54%);
+  filter: blur(48px);
+  opacity: 0.3;
 }
 
 /* ---------------------------------------------------------------------------

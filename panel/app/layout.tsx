@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import {
+  Comfortaa,
   Fira_Mono,
   Montserrat,
   Orbitron,
   Pathway_Gothic_One,
+  Playfair_Display,
   Sacramento,
   Unbounded,
 } from "next/font/google";
@@ -52,6 +54,23 @@ const pathwayGothic = Pathway_Gothic_One({
   display: "swap",
 });
 
+/** Hello Kitty theme — soft rounded display headings */
+const comfortaa = Comfortaa({
+  variable: "--font-comfortaa",
+  subsets: ["latin", "cyrillic"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
+/** Barbie theme — glam serif display headings */
+const playfairDisplay = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin", "cyrillic"],
+  weight: ["600", "700", "800"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "SharX",
   description: "SharX panel",
@@ -75,7 +94,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${montserrat.variable} ${unbounded.variable} ${firaMono.variable} ${sacramento.variable} ${orbitron.variable} ${pathwayGothic.variable} antialiased`}
+        className={`${montserrat.variable} ${unbounded.variable} ${firaMono.variable} ${sacramento.variable} ${orbitron.variable} ${pathwayGothic.variable} ${comfortaa.variable} ${playfairDisplay.variable} antialiased`}
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <Providers>{children}</Providers>

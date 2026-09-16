@@ -1,0 +1,140 @@
+/* Hello Kitty — soft pastel pink/baby-blue, bow & paw-print motifs (light theme). */
+
+:root[data-panel-theme="helloKitty"] {
+  --font-heading: var(--font-comfortaa), "Comfortaa", var(--font-sans), system-ui, sans-serif;
+  --hk-bow-glow: 0 0 18px color-mix(in oklab, var(--accent) 25%, transparent);
+  --hk-paw: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264%22%20height%3D%2264%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cg%20fill%3D%22%23ec4899%22%20fill-opacity%3D%220.14%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2240%22%20r%3D%2210%22%2F%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%2222%22%20r%3D%225.5%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2216%22%20r%3D%225.5%22%2F%3E%3Ccircle%20cx%3D%2246%22%20cy%3D%2222%22%20r%3D%225.5%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+
+/* --- Panel cinema backdrop (bows + paw-print drift) --- */
+
+html[data-panel-theme="helloKitty"] .panel-root {
+  isolation: isolate;
+}
+
+html[data-panel-theme="helloKitty"] .panel-cinema-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+html[data-panel-theme="helloKitty"] .panel-cinema-bg > span {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+/* Reuse the generic __stars layer as a drifting paw-print watermark field */
+html[data-panel-theme="helloKitty"] .panel-cinema-bg__stars {
+  background-image: var(--hk-paw);
+  background-size: 220px 220px;
+  background-repeat: repeat;
+  opacity: 0.5;
+  animation: hk-paw-drift 60s linear infinite;
+}
+
+@keyframes hk-paw-drift {
+  to {
+    background-position: 440px 440px;
+  }
+}
+
+/* Reuse the generic __hyperspace layer as soft ribbon-corner bows */
+html[data-panel-theme="helloKitty"] .panel-cinema-bg__hyperspace {
+  background:
+    radial-gradient(ellipse 34% 26% at 92% 4%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 60%),
+    radial-gradient(ellipse 30% 24% at 4% 96%, color-mix(in oklab, var(--accent-ambient) 14%, transparent), transparent 58%);
+  opacity: 0.9;
+  animation: hk-bow-pulse 6s ease-in-out infinite alternate;
+}
+
+@keyframes hk-bow-pulse {
+  0% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+html[data-panel-theme="helloKitty"] .panel-cinema-bg__lasers {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-panel-theme="helloKitty"] .panel-cinema-bg__stars,
+  html[data-panel-theme="helloKitty"] .panel-cinema-bg__hyperspace {
+    animation: none !important;
+  }
+}
+
+.panel-cinema-bg {
+  display: none;
+}
+
+html[data-panel-theme="helloKitty"] .panel-cinema-bg {
+  display: block;
+}
+
+/* --- Panel chrome (navbar, sidebar, content, surfaces) --- */
+
+html[data-panel-theme="helloKitty"] .panel-navbar {
+  background: color-mix(in oklab, var(--bg) 90%, transparent) !important;
+  border-bottom-color: color-mix(in oklab, var(--accent) 22%, transparent) !important;
+  box-shadow: 0 1px 3px rgba(219, 39, 119, 0.08) !important;
+}
+
+html[data-panel-theme="helloKitty"] .panel-navbar-brand {
+  font-family: var(--font-heading);
+  letter-spacing: 0.01em;
+}
+
+html[data-panel-theme="helloKitty"] .panel-doc-sidebar {
+  background: color-mix(in oklab, var(--bg-elevated) 80%, transparent) !important;
+  border-color: color-mix(in oklab, var(--accent) 14%, transparent) !important;
+}
+
+html[data-panel-theme="helloKitty"] .panel-menu-link--active {
+  border-left: 3px solid var(--accent);
+  border-radius: 0 999px 999px 0;
+  box-shadow: inset 0 0 16px color-mix(in oklab, var(--accent) 10%, transparent);
+}
+
+html[data-panel-theme="helloKitty"] .panel-surface {
+  border-radius: 1.25rem !important;
+  box-shadow:
+    0 2px 10px rgba(219, 39, 119, 0.08),
+    0 12px 28px rgba(219, 39, 119, 0.06) !important;
+}
+
+html[data-panel-theme="helloKitty"] .panel-surface::before {
+  opacity: 0.7;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in oklab, var(--accent) 16%, transparent) 45%,
+    transparent 55%
+  );
+}
+
+html[data-panel-theme="helloKitty"] .panel-root h1,
+html[data-panel-theme="helloKitty"] .panel-root h2,
+html[data-panel-theme="helloKitty"] .panel-root h3,
+html[data-panel-theme="helloKitty"] .panel-root .font-heading {
+  font-family: var(--font-heading);
+}
+
+html[data-panel-theme="helloKitty"] .icon-tile {
+  border-radius: 999px !important;
+}
+
+html[data-panel-theme="helloKitty"] .panel-root .panel-btn-primary {
+  border-radius: 999px !important;
+  box-shadow: var(--hk-bow-glow);
+}
+
+html[data-panel-theme="helloKitty"] .status-pill {
+  border-radius: 999px !important;
+}

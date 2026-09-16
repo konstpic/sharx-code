@@ -1187,6 +1187,8 @@ remarkModelDragHint = "Перетащите, чтобы упорядочить"
   xuiClassic = "SharX Classic"
   starWars = "Star Wars"
   vision = "Жидкое стекло"
+  helloKitty = "Hello Kitty"
+  barbie = "Barbie"
 
 [pages.xray]
 title = "Настройки Xray"

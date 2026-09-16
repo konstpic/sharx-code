@@ -17,6 +17,10 @@ export const PANEL_THEME_IDS = [
   "starWars",
   /** Light frosted glass — Apple Vision / Liquid Glass */
   "vision",
+  /** Light pastel pink/blue, bow motifs */
+  "helloKitty",
+  /** Dark glam pink/gold, sparkle FX */
+  "barbie",
 ] as const;
 
 export type PanelThemeId = (typeof PANEL_THEME_IDS)[number];
@@ -34,6 +38,8 @@ const META_THEME: Record<PanelThemeId, string> = {
   xuiClassic: "#0a1222",
   starWars: "#030508",
   vision: "#f5f5f7",
+  helloKitty: "#fff5f8",
+  barbie: "#1a0a14",
 };
 
 function isPanelThemeId(s: string | null | undefined): s is PanelThemeId {
@@ -58,7 +64,7 @@ function setMetaThemeColor(hex: string) {
 export function applyPanelTheme(id: PanelThemeId): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  root.setAttribute("data-theme", id === "vision" ? "light" : "dark");
+  root.setAttribute("data-theme", id === "vision" || id === "helloKitty" ? "light" : "dark");
   if (id === "default") {
     root.removeAttribute(THEME_ATTR);
   } else {
