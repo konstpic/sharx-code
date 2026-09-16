@@ -15,6 +15,7 @@ import (
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 	"github.com/konstpic/sharx-code/v2/web/logsse"
 	"github.com/konstpic/sharx-code/v2/web/service"
@@ -472,7 +473,7 @@ func (a *APIController) pullWorkerXrayConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": I18nWeb(c, "api.pullXrayConfig.buildFailed")})
 		return
 	}
-	telemtPayloads, awgPayloads, err := service.BuildWorkerSidecarPayloadsForNode(node, ibs)
+	telemtPayloads, awgPayloads, webVhosts, err := service.BuildWorkerSidecarPayloadsForNode(node, ibs)
 	if err != nil {
 		logger.Errorf("pull-xray-config sidecars for node %d: %v", node.Id, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": I18nWeb(c, "api.pullXrayConfig.buildFailed")})
@@ -483,12 +484,13 @@ func (a *APIController) pullWorkerXrayConfig(c *gin.Context) {
 		Config          json.RawMessage               `json:"config"`
 		Telemt          []service.TelemtNodePayload   `json:"telemt"`
 		AmneziaWG       []service.AmneziaWGNodePayload `json:"amneziawg"`
+		TelemtWeb       []telemtweb.Vhost              `json:"telemtWeb"`
 		NodeId          int                           `json:"nodeId"`
 		CoreProfileHash string                        `json:"coreProfileHash,omitempty"`
 		ConfigSha256    string                        `json:"configSha256,omitempty"`
 	}
-	logger.Debugf("pull-xray-config: node %s (%d), %d bytes, telemt=%d amneziawg=%d", node.Name, node.Id, len(configJSON), len(telemtPayloads), len(awgPayloads))
-	c.JSON(http.StatusOK, pullResp{Config: configJSON, Telemt: telemtPayloads, AmneziaWG: awgPayloads, NodeId: node.Id, CoreProfileHash: coreHash, ConfigSha256: cfgHex})
+	logger.Debugf("pull-xray-config: node %s (%d), %d bytes, telemt=%d amneziawg=%d telemtWeb=%d", node.Name, node.Id, len(configJSON), len(telemtPayloads), len(awgPayloads), len(webVhosts))
+	c.JSON(http.StatusOK, pullResp{Config: configJSON, Telemt: telemtPayloads, AmneziaWG: awgPayloads, TelemtWeb: webVhosts, NodeId: node.Id, CoreProfileHash: coreHash, ConfigSha256: cfgHex})
 }
 
 // getAPIDocsMarkdown returns the API documentation markdown file.

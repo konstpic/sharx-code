@@ -24,6 +24,7 @@ import (
 	nodeLogs "github.com/konstpic/sharx-code/v2/node/logs"
 	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
+	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/node/xray"
 	"github.com/op/go-logging"
 )
@@ -102,11 +103,19 @@ func main() {
 	xrayManager := xray.NewManager()
 	telemtManager := telemt.NewManager()
 	amneziawgManager := amneziawg.NewManager()
-	if panelURL != "" {
-		configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager)
-		configpull.StartBackgroundPull(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager)
+	telemtWebCertDir := strings.TrimSpace(os.Getenv("TELEMTWEB_CERT_DIR"))
+	if telemtWebCertDir == "" {
+		// Under /app/data (sharx-node-data volume in docker-compose) so issued certs survive
+		// container restarts/recreates instead of re-issuing (and risking Let's Encrypt rate
+		// limits) every time.
+		telemtWebCertDir = "/app/data/telemtweb-certs"
 	}
-	server := api.NewServer(port, xrayManager, telemtManager, amneziawgManager)
+	telemtWebManager := telemtweb.NewManager(telemtWebCertDir)
+	if panelURL != "" {
+		configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
+		configpull.StartBackgroundPull(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
+	}
+	server := api.NewServer(port, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
 	server.SetPairing(bundle)
 	logger.Info("SECRET_KEY: JWT auth; log push uses HMAC (optional PANEL_URL in config or env)")
 
@@ -133,6 +142,7 @@ func main() {
 		xrayManager.Stop()
 		telemtManager.Stop()
 		amneziawgManager.Stop()
+		telemtWebManager.Stop()
 		if err := server.Stop(); err != nil {
 			logger.Warningf("server stop: %v", err)
 		}

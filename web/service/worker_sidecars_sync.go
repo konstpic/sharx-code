@@ -76,12 +76,12 @@ func (s *XrayService) applySidecarsToNodeIDsMulti(nodeIDs []int) error {
 		go func() {
 			defer wg.Done()
 			ibs, _ := s.InboundsForWorkerNode(n)
-			telm, awg, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
+			telm, awg, webv, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
 			if terr != nil {
 				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
 			}
-			tPtr, aPtr := &telm, &awg
-			if err := s.nodeService.ApplySidecarsToNode(n, tPtr, aPtr); err != nil {
+			tPtr, aPtr, wPtr := &telm, &awg, &webv
+			if err := s.nodeService.ApplySidecarsToNode(n, tPtr, aPtr, wPtr); err != nil {
 				logger.Errorf("[Node: %s] Failed to apply sidecars: %v", n.Name, err)
 				mu.Lock()
 				errors = append(errors, fmt.Errorf("node %s: %w", n.Name, err))

@@ -256,14 +256,14 @@ export type TelemtFormState = {
   /** [timeouts].me_one_retry (count) / me_one_timeout_ms (milliseconds — note the unit). */
   timeoutsMeOneRetry: string;
   timeoutsMeOneTimeoutMs: string;
-  /** Telemt WEB transport (Telegram Desktop over HTTPS/WebSocket via an external NGINX/HAProxy
-   * TLS terminator that SharX does not manage — see docs). */
+  /** Telemt WEB transport (Telegram Desktop over HTTPS/WebSocket). SharX's own node/telemtweb
+   * TLS front terminates it — no external NGINX/HAProxy needed — so this only carries the
+   * public domain, the shared front port, and the decoy/secret-mode policy. */
   webEnabled: boolean;
   webVhostHost: string;
-  webVhostPublicAddr: string;
-  webListenBind: string;
-  /** CIDRs allowed to set X-Forwarded-For for the private WEB listener, one per line or comma-separated. */
-  webTrustedProxyCidrs: string;
+  /** [[server.listeners]] / telemtweb front public HTTPS port; shared by every WEB inbound
+   * on the same node/panel. Empty = default 443. */
+  webFrontPort: string;
   webDecoyMode: "http_upstream" | "static_directory";
   webDecoyUpstream: string;
   webDecoyDirectory: string;
@@ -330,9 +330,7 @@ export function defaultTelemtForm(): TelemtFormState {
     timeoutsMeOneTimeoutMs: "",
     webEnabled: false,
     webVhostHost: "",
-    webVhostPublicAddr: "",
-    webListenBind: "127.0.0.1",
-    webTrustedProxyCidrs: "127.0.0.1/32",
+    webFrontPort: "",
     webDecoyMode: "http_upstream",
     webDecoyUpstream: "",
     webDecoyDirectory: "",
@@ -508,18 +506,7 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
     if (web && typeof web === "object") {
       if (typeof web.enabled === "boolean") base.webEnabled = web.enabled;
       if (typeof web.vhostHost === "string") base.webVhostHost = web.vhostHost.trim();
-      if (typeof web.vhostPublicAddr === "string") {
-        base.webVhostPublicAddr = web.vhostPublicAddr.trim();
-      }
-      if (typeof web.listenBind === "string" && web.listenBind.trim()) {
-        base.webListenBind = web.listenBind.trim();
-      }
-      if (Array.isArray(web.trustedProxyCidrs)) {
-        const cidrs = web.trustedProxyCidrs.filter(
-          (v): v is string => typeof v === "string" && v.trim().length > 0,
-        );
-        if (cidrs.length > 0) base.webTrustedProxyCidrs = cidrs.join("\n");
-      }
+      base.webFrontPort = parseTelemtOptionalIntField(web.frontPort);
       if (web.decoyMode === "http_upstream" || web.decoyMode === "static_directory") {
         base.webDecoyMode = web.decoyMode;
       }
@@ -690,13 +677,11 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     const web: Record<string, unknown> = {
       enabled: true,
       vhostHost: form.webVhostHost.trim(),
-      vhostPublicAddr: form.webVhostPublicAddr.trim(),
-      listenBind: form.webListenBind.trim() || "127.0.0.1",
       decoyMode: form.webDecoyMode,
       profileSecretMode: form.webProfileSecretMode,
     };
-    const trustedCidrs = splitListLinesOrCommas(form.webTrustedProxyCidrs);
-    if (trustedCidrs.length > 0) web.trustedProxyCidrs = trustedCidrs;
+    const frontPort = parseInt(form.webFrontPort.trim(), 10);
+    if (Number.isFinite(frontPort) && frontPort > 0) web.frontPort = frontPort;
     if (form.webDecoyMode === "static_directory") {
       web.decoyDirectory = form.webDecoyDirectory.trim();
       if (form.webDecoyIndex.trim()) web.decoyIndex = form.webDecoyIndex.trim();

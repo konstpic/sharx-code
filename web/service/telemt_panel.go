@@ -8,12 +8,16 @@ import (
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
+	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
 var (
 	panelTelemtMu sync.Mutex
 	panelTelemt   *telemt.Manager
+
+	panelTelemtWebMu sync.Mutex
+	panelTelemtWeb   *telemtweb.Manager
 )
 
 func getPanelTelemt() *telemt.Manager {
@@ -26,19 +30,44 @@ func getPanelTelemt() *telemt.Manager {
 	return panelTelemt
 }
 
+// getPanelTelemtWeb returns the panel-local Telemt WEB-mode TLS front manager (standalone,
+// !multiNode — the panel host itself supervises the shared HTTPS listener, same as it
+// supervises Telemt sidecars directly in this mode).
+func getPanelTelemtWeb() *telemtweb.Manager {
+	panelTelemtWebMu.Lock()
+	defer panelTelemtWebMu.Unlock()
+	if panelTelemtWeb == nil {
+		certDir := filepath.Join(config.GetDataFolderPath(), "telemtweb-certs")
+		panelTelemtWeb = telemtweb.NewManager(certDir)
+	}
+	return panelTelemtWeb
+}
+
+// StopLocalTelemtWebStandalone stops the panel-local Telemt WEB TLS front, if running.
+func StopLocalTelemtWebStandalone() {
+	panelTelemtWebMu.Lock()
+	defer panelTelemtWebMu.Unlock()
+	if panelTelemtWeb != nil {
+		panelTelemtWeb.Stop()
+		panelTelemtWeb = nil
+	}
+}
+
 // MergeLocalTelemtTrafficIntoXrayStats merges Telemt localhost API deltas into Xray-shaped stats (single-node panel).
 func MergeLocalTelemtTrafficIntoXrayStats(traffic *[]*xray.Traffic, clientTraffic *[]*xray.ClientTraffic) {
 	getPanelTelemt().MergeTelemtIntoNodeStats(traffic, clientTraffic, nil)
 }
 
-// StopLocalTelemtStandalone stops all Telemt sidecars managed by the panel process (standalone).
+// StopLocalTelemtStandalone stops all Telemt sidecars and the WEB TLS front managed by the
+// panel process (standalone).
 func StopLocalTelemtStandalone() {
 	panelTelemtMu.Lock()
-	defer panelTelemtMu.Unlock()
 	if panelTelemt != nil {
 		panelTelemt.Stop()
 		panelTelemt = nil
 	}
+	panelTelemtMu.Unlock()
+	StopLocalTelemtWebStandalone()
 }
 
 // StopLocalTelemtSidecars stops Telemt children on the panel host without niling the manager.
@@ -86,10 +115,17 @@ func ApplyLocalTelemtStandalone(xs *XrayService) error {
 	}
 	if len(payloads) == 0 {
 		StopLocalTelemtStandalone()
+	} else if err := getPanelTelemt().Apply(nodePayloadsToTelemt(payloads)); err != nil {
+		return err
+	}
+
+	webVhosts, err := BuildTelemtWebVhostsStandalone()
+	if err != nil {
+		logger.Warningf("standalone Telemt WEB: build vhosts: %v", err)
 		return nil
 	}
-	if err := getPanelTelemt().Apply(nodePayloadsToTelemt(payloads)); err != nil {
-		return err
+	if err := getPanelTelemtWeb().Apply(webVhosts); err != nil {
+		logger.Warningf("standalone Telemt WEB: apply: %v", err)
 	}
 	return nil
 }

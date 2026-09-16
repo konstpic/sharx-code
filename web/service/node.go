@@ -23,6 +23,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/util/common"
 	"github.com/konstpic/sharx-code/v2/xray"
 
@@ -921,12 +922,12 @@ func (s *NodeService) MaybePushWorkerConfigIfCoresDown(node *model.Node) {
 			return
 		}
 		ibs, _ := xs.InboundsForWorkerNode(n)
-		telm, awg, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
+		telm, awg, webv, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
 		if terr != nil {
 			logger.Warningf("[Node: %s] Worker config recover: build sidecars: %v", n.Name, terr)
 		}
 		meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
-		if err := s.ApplyConfigToNode(n, cfgJSON, &telm, &awg, meta); err != nil {
+		if err := s.ApplyConfigToNode(n, cfgJSON, &telm, &awg, &webv, meta); err != nil {
 			logger.Warningf("[Node: %s] Worker config recover: apply-config: %v", n.Name, err)
 			return
 		}
@@ -2706,7 +2707,7 @@ func NewApplyWorkerConfigMeta(workerJSON []byte, coreProfileHashHex string) *App
 // ApplyConfigToNode sends XRAY JSON and optional Telemt / AmneziaWG payloads to a node.
 // When telemt or amneziawg is non-nil, the array is always sent (empty slice stops all sidecars of that type).
 // meta may be nil; when set, coreProfileHash and expectedConfigSha256 are included in the apply-config body.
-func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, meta *ApplyWorkerConfigMeta) error {
+func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, meta *ApplyWorkerConfigMeta) error {
 	// Use reasonable timeout for apply-config (30 seconds should be enough for most cases)
 	// If config is very large or node is slow, this can be increased
 	client, err := s.createHTTPClient(node, 30*time.Second)
@@ -2739,6 +2740,13 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 			payload = []AmneziaWGNodePayload{}
 		}
 		requestBody["amneziawg"] = payload
+	}
+	if telemtWeb != nil {
+		payload := *telemtWeb
+		if payload == nil {
+			payload = []telemtweb.Vhost{}
+		}
+		requestBody["telemtWeb"] = payload
 	}
 	if meta != nil {
 		if meta.CoreProfileHash != "" {
@@ -2822,8 +2830,9 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 	return nil
 }
 
-// ApplySidecarsToNode pushes Telemt / AmneziaWG payloads to a worker without touching Xray-core.
-func (s *NodeService) ApplySidecarsToNode(node *model.Node, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload) error {
+// ApplySidecarsToNode pushes Telemt / AmneziaWG / Telemt-WEB-vhost payloads to a worker
+// without touching Xray-core.
+func (s *NodeService) ApplySidecarsToNode(node *model.Node, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost) error {
 	client, err := s.createHTTPClient(node, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
@@ -2849,6 +2858,13 @@ func (s *NodeService) ApplySidecarsToNode(node *model.Node, telemt *[]TelemtNode
 			payload = []AmneziaWGNodePayload{}
 		}
 		requestBody["amneziawg"] = payload
+	}
+	if telemtWeb != nil {
+		payload := *telemtWeb
+		if payload == nil {
+			payload = []telemtweb.Vhost{}
+		}
+		requestBody["telemtWeb"] = payload
 	}
 
 	requestJSON, err := json.Marshal(requestBody)
@@ -3034,12 +3050,12 @@ func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node, forceReload 
 		return fmt.Errorf("build full worker config: %w", cfgErr)
 	}
 	ibs, _ := xs.InboundsForWorkerNode(node)
-	telm, awg, _ := BuildWorkerSidecarPayloadsForNode(node, ibs)
+	telm, awg, webv, _ := BuildWorkerSidecarPayloadsForNode(node, ibs)
 	meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
 	if meta != nil {
 		meta.ForceReload = forceReload
 	}
-	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, meta); apErr != nil {
+	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, meta); apErr != nil {
 		return apErr
 	}
 	if forceReload {

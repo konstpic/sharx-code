@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 
@@ -138,14 +140,26 @@ func TestBuildTelemtToml_DirectModeListenerUnchangedWhenWebDisabled(t *testing.T
 	}
 }
 
+// stubTelemtWebDNS replaces the package-level DNS lookup with a fixed answer for the
+// duration of the test, so TestBuildTelemtToml_WebMode* never makes a real network call.
+func stubTelemtWebDNS(t *testing.T, host string, ips ...net.IP) {
+	t.Helper()
+	orig := telemtWebLookupIP
+	telemtWebLookupIP = func(h string) ([]net.IP, error) {
+		if h == host {
+			return ips, nil
+		}
+		return nil, &net.DNSError{Err: "no such host", Name: h, IsNotFound: true}
+	}
+	t.Cleanup(func() { telemtWebLookupIP = orig })
+}
+
 func TestBuildTelemtToml_WebMode(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
 	settings := `{"telemt":{
 		"web": {
 			"enabled": true,
 			"vhostHost": "proxy.example.com",
-			"vhostPublicAddr": "203.0.113.10:443",
-			"listenBind": "127.0.0.1",
-			"trustedProxyCidrs": ["127.0.0.1/32"],
 			"decoyMode": "http_upstream",
 			"decoyUpstream": "http://127.0.0.1:8080",
 			"profileSecretMode": "dd"
@@ -162,9 +176,11 @@ func TestBuildTelemtToml_WebMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	wantBackend := TelemtWebBackendAddrForInbound(inbound.Id)
+	wantBindIP, wantBindPort, _ := net.SplitHostPort(wantBackend)
 	for _, want := range []string{
-		`ip = "127.0.0.1"`,
-		"port = 8443",
+		fmt.Sprintf(`ip = %q`, wantBindIP),
+		fmt.Sprintf("port = %s", wantBindPort),
 		`transport = "web"`,
 		"proxy_protocol = false",
 		`web_trusted_proxy_cidrs = ["127.0.0.1/32"]`,
@@ -188,20 +204,42 @@ func TestBuildTelemtToml_WebMode(t *testing.T) {
 	}
 }
 
+func TestBuildTelemtToml_WebModeCustomFrontPort(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
+	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "proxy.example.com", "frontPort": 8443}}}`
+	inbound := testTelemtInbound(t, settings)
+	toml, err := BuildTelemtToml(inbound, nil, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(toml, `public_addr = "203.0.113.10:8443"`) {
+		t.Errorf("expected public_addr to use the custom frontPort, got:\n%s", toml)
+	}
+}
+
 func TestBuildTelemtToml_WebModeRequiresVhostHost(t *testing.T) {
-	settings := `{"telemt":{"web": {"enabled": true, "vhostPublicAddr": "203.0.113.10:443"}}}`
+	settings := `{"telemt":{"web": {"enabled": true}}}`
 	inbound := testTelemtInbound(t, settings)
 	if _, err := BuildTelemtToml(inbound, nil, "", 0, ""); err == nil {
 		t.Fatal("expected an error when web mode is enabled without vhostHost")
 	}
 }
 
+func TestBuildTelemtToml_WebModeUnresolvableHostErrors(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10")) // stub only answers this host
+	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "not-pointed-here.example.com"}}}`
+	inbound := testTelemtInbound(t, settings)
+	if _, err := BuildTelemtToml(inbound, nil, "", 0, ""); err == nil {
+		t.Fatal("expected an error when vhostHost does not resolve")
+	}
+}
+
 func TestBuildTelemtToml_WebModeStaticDirectoryDecoy(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
 	settings := `{"telemt":{
 		"web": {
 			"enabled": true,
 			"vhostHost": "proxy.example.com",
-			"vhostPublicAddr": "203.0.113.10:443",
 			"decoyMode": "static_directory",
 			"decoyDirectory": "/var/www/decoy",
 			"decoyIndex": "index.html"
@@ -216,5 +254,16 @@ func TestBuildTelemtToml_WebModeStaticDirectoryDecoy(t *testing.T) {
 		if !strings.Contains(toml, want) {
 			t.Errorf("expected %q in TOML, got:\n%s", want, toml)
 		}
+	}
+}
+
+func TestTelemtWebBackendAddrForInbound_UniquePerInbound(t *testing.T) {
+	a := TelemtWebBackendAddrForInbound(1)
+	b := TelemtWebBackendAddrForInbound(2)
+	if a == b {
+		t.Fatalf("expected distinct backend addresses, got %q for both", a)
+	}
+	if !strings.HasPrefix(a, "127.0.0.1:") || !strings.HasPrefix(b, "127.0.0.1:") {
+		t.Fatalf("expected loopback backend addresses, got %q and %q", a, b)
 	}
 }

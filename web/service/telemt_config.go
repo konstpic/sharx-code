@@ -9,12 +9,15 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
+	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 )
 
 // TelemtNodePayload is pushed to worker nodes alongside Xray JSON.
@@ -104,25 +107,22 @@ type telemtSettingsJSON struct {
 }
 
 // TelemtWebSettings configures Telemt's WEB transport (Telegram Desktop MTProxy carried over
-// HTTPS/WebSocket, terminated by an operator-managed external NGINX/HAProxy — see
-// https://github.com/telemt/telemt/blob/main/docs/WEB/WEB_PROXY.en.md). SharX only generates
-// the telemt-side config.toml [web] tree; the TLS-terminating reverse proxy in front of it is
-// not something SharX supervises, so `PreviewTelemtToml`-adjacent UI should show operators the
-// NGINX snippet they need alongside this.
+// HTTPS/WebSocket). Unlike the original design, the TLS-terminating front is now SharX's own
+// node/telemtweb.Manager — a supervised process, not an operator-managed external NGINX/HAProxy
+// — so this struct only carries what SharX itself cannot infer: the public domain, and the
+// decoy/secret-mode policy. The private bind address, trusted-proxy CIDR, and public relay IP
+// are all resolved internally (see appendTelemtWebListenerAndSection and
+// TelemtWebBackendAddrForInbound).
 type TelemtWebSettings struct {
 	Enabled *bool `json:"enabled"`
-	// VhostHost is the public FQDN Telegram Desktop connects to (lowercase, matches the
-	// external proxy's server_name / SNI routing).
+	// VhostHost is the public FQDN Telegram Desktop connects to (lowercase). SharX cannot
+	// infer this — the operator must own the domain and point its DNS A/AAAA record at this
+	// node/panel host before the inbound can be applied (see TelemtWebResolvePublicIP).
 	VhostHost string `json:"vhostHost"`
-	// VhostPublicAddr is the concrete public "ip:443" Telemt uses in its inner relay tuple
-	// (Telemt requires a literal IP here, not a hostname).
-	VhostPublicAddr string `json:"vhostPublicAddr"`
-	// ListenBind is the private loopback/internal address telemt itself listens on
-	// (transport=web); the external proxy reverse-proxies to ListenBind:<inbound port>.
-	ListenBind string `json:"listenBind"`
-	// TrustedProxyCIDRs is the WEB listener's web_trusted_proxy_cidrs — only these peers may
-	// set X-Forwarded-For for the real client IP.
-	TrustedProxyCIDRs []string `json:"trustedProxyCidrs"`
+	// FrontPort is the shared public HTTPS port telemtweb.Manager listens on for every WEB
+	// vhost on this node/panel (SNI-routed). All WEB inbounds sharing a node/panel must agree
+	// on the same port; defaults to 443 when unset.
+	FrontPort *int `json:"frontPort"`
 	// DecoyMode is "http_upstream" (reverse-proxy to a real site) or "static_directory"
 	// (serve a static site) — Telemt's fallback for unauthenticated/invalid WEB traffic.
 	DecoyMode string `json:"decoyMode"`
@@ -132,8 +132,60 @@ type TelemtWebSettings struct {
 	DecoyDirectory string `json:"decoyDirectory"`
 	DecoyIndex     string `json:"decoyIndex"`
 	// ProfileSecretMode is "plain" or "dd" (Telegram Desktop secret representation; "ee"
-	// fake-TLS is not supported over WEB since TLS is handled by the external proxy).
+	// fake-TLS is not supported over WEB since TLS is handled by the front, not Telemt).
 	ProfileSecretMode string `json:"profileSecretMode"`
+}
+
+// DefaultTelemtWebFrontPort is the shared public HTTPS port telemtweb.Manager listens on
+// when an inbound doesn't specify TelemtWebSettings.FrontPort.
+const DefaultTelemtWebFrontPort = 443
+
+// telemtWebBackendPortBase + inbound.Id gives each WEB-mode Telemt inbound its own private
+// loopback port for telemtweb.Manager to reverse-proxy to. Kept well clear of the existing
+// apiPort (9100+id) / metricsPort (apiPort+1000) ranges used elsewhere in this file.
+const telemtWebBackendPortBase = 28100
+
+// TelemtWebBackendAddrForInbound returns the private "127.0.0.1:port" address Telemt's own
+// transport=web listener binds to for this inbound, and that telemtweb.Manager reverse-proxies
+// to. Exported so the node/panel apply path can build the matching telemtweb.Vhost without
+// re-deriving the port formula.
+func TelemtWebBackendAddrForInbound(inboundId int) string {
+	port := telemtWebBackendPortBase + inboundId
+	if port > 65535 {
+		port = 30000 + (inboundId % 35536)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+// telemtWebLookupIP is net.LookupIP by default; tests override it to avoid real DNS calls.
+var telemtWebLookupIP = net.LookupIP
+
+// TelemtWebResolvePublicIP resolves host's DNS A/AAAA record to the literal "ip:port" string
+// Telemt's [[web.vhosts]].public_addr requires. Telemt only uses this for its inner relay
+// destination tuple (clients never dial it directly — they connect to `host`, which the
+// operator's DNS must already point at this node/panel's public IP), so a resolution failure
+// means the domain isn't pointed here yet rather than a SharX-side bug.
+func TelemtWebResolvePublicIP(host string, port int) (string, error) {
+	ips, err := telemtWebLookupIP(host)
+	if err != nil {
+		return "", fmt.Errorf("DNS lookup failed (point %s's A/AAAA record at this host first): %w", host, err)
+	}
+	var v4, v6 net.IP
+	for _, ip := range ips {
+		if v4 == nil && ip.To4() != nil {
+			v4 = ip
+		} else if v6 == nil && ip.To4() == nil {
+			v6 = ip
+		}
+	}
+	chosen := v4
+	if chosen == nil {
+		chosen = v6
+	}
+	if chosen == nil {
+		return "", fmt.Errorf("no A/AAAA record found for %s", host)
+	}
+	return net.JoinHostPort(chosen.String(), strconv.Itoa(port)), nil
 }
 
 var telemtBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -609,35 +661,29 @@ func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSetting
 	if host == "" {
 		return fmt.Errorf("telemt web mode: vhostHost is required")
 	}
-	publicAddr := strings.TrimSpace(web.VhostPublicAddr)
-	if publicAddr == "" {
-		return fmt.Errorf("telemt web mode: vhostPublicAddr is required")
+	frontPort := DefaultTelemtWebFrontPort
+	if web.FrontPort != nil && *web.FrontPort > 0 {
+		frontPort = *web.FrontPort
 	}
-	bind := strings.TrimSpace(web.ListenBind)
-	if bind == "" {
-		bind = "127.0.0.1"
+	publicAddr, err := TelemtWebResolvePublicIP(host, frontPort)
+	if err != nil {
+		return fmt.Errorf("telemt web mode: resolve vhostHost %q: %w", host, err)
 	}
-	cidrs := make([]string, 0, len(web.TrustedProxyCIDRs))
-	for _, c := range web.TrustedProxyCIDRs {
-		c = strings.TrimSpace(c)
-		if c != "" {
-			cidrs = append(cidrs, c)
-		}
-	}
-	if len(cidrs) == 0 {
-		cidrs = []string{"127.0.0.1/32"}
-	}
-	cidrParts := make([]string, 0, len(cidrs))
-	for _, c := range cidrs {
-		cidrParts = append(cidrParts, fmt.Sprintf("%q", c))
+	// The front (node/telemtweb.Manager) and Telemt always run co-located on the same
+	// host/container, so the bind and trust boundary are fixed internal values, not
+	// operator-configurable — there is no external proxy to distrust anymore.
+	backend := TelemtWebBackendAddrForInbound(inbound.Id)
+	bindIP, bindPortStr, err := net.SplitHostPort(backend)
+	if err != nil {
+		return fmt.Errorf("telemt web mode: invalid backend addr %q: %w", backend, err)
 	}
 
 	fmt.Fprintf(b, "[[server.listeners]]\n")
-	fmt.Fprintf(b, "ip = %q\n", bind)
-	fmt.Fprintf(b, "port = %d\n", inbound.Port)
+	fmt.Fprintf(b, "ip = %q\n", bindIP)
+	fmt.Fprintf(b, "port = %s\n", bindPortStr)
 	fmt.Fprintf(b, "transport = \"web\"\n")
 	fmt.Fprintf(b, "proxy_protocol = false\n")
-	fmt.Fprintf(b, "web_trusted_proxy_cidrs = [%s]\n\n", strings.Join(cidrParts, ", "))
+	fmt.Fprintf(b, "web_trusted_proxy_cidrs = [\"127.0.0.1/32\"]\n\n")
 
 	fmt.Fprintf(b, "[web]\nenabled = true\n\n")
 
@@ -848,7 +894,11 @@ func BuildTelemtPayloadsForNode(node *model.Node, ibs []*model.Inbound) ([]Telem
 		workDir := fmt.Sprintf("/app/telemt/%s", ib.Tag)
 		tomlStr, err := BuildTelemtToml(ib, users, pubHost, pubPort, workDir)
 		if err != nil {
-			return nil, err
+			// Do not let one inbound's config error (e.g. a WEB-mode vhost whose domain
+			// doesn't resolve yet) block Xray/Telemt config push for every other inbound
+			// on this node — skip just this one and keep going.
+			logger.Warningf("telemt config for inbound %d (%s) on node %s: %v — skipping this inbound only", ib.Id, ib.Tag, node.Name, err)
+			continue
 		}
 		out = append(out, TelemtNodePayload{InboundId: ib.Id, Tag: ib.Tag, Toml: tomlStr})
 	}
@@ -878,9 +928,72 @@ func BuildTelemtPayloadsStandalone() ([]TelemtNodePayload, error) {
 		workDir := filepath.Join(base, ib.Tag)
 		tomlStr, err := BuildTelemtToml(ib, users, "", 0, workDir)
 		if err != nil {
-			return nil, err
+			// See BuildTelemtPayloadsForNode: isolate one inbound's config error instead of
+			// blocking every other standalone Telemt inbound on this panel host.
+			logger.Warningf("telemt config for inbound %d (%s): %v — skipping this inbound only", ib.Id, ib.Tag, err)
+			continue
 		}
 		out = append(out, TelemtNodePayload{InboundId: ib.Id, Tag: ib.Tag, Toml: tomlStr})
+	}
+	return out, nil
+}
+
+// telemtWebVhostForInbound returns the telemtweb.Vhost for ib if it's an enabled Telemt
+// inbound with WEB mode on, or (zero-value, false) otherwise (including on parse/validation
+// failure — callers should not block config apply on one misconfigured WEB vhost, though a
+// missing/unresolvable domain here means that inbound's WEB front silently won't route,
+// which is surfaced separately when BuildTelemtToml runs for that inbound's own TOML).
+func telemtWebVhostForInbound(ib *model.Inbound) (telemtweb.Vhost, bool) {
+	if ib == nil || !ib.Enable || model.NormalizeProtocol(ib.Protocol) != model.Telemt {
+		return telemtweb.Vhost{}, false
+	}
+	cfg := parseTelemtSettings(ib.Settings)
+	if cfg.Web == nil || cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
+		return telemtweb.Vhost{}, false
+	}
+	domain := strings.ToLower(strings.TrimSpace(cfg.Web.VhostHost))
+	if domain == "" {
+		return telemtweb.Vhost{}, false
+	}
+	frontPort := DefaultTelemtWebFrontPort
+	if cfg.Web.FrontPort != nil && *cfg.Web.FrontPort > 0 {
+		frontPort = *cfg.Web.FrontPort
+	}
+	return telemtweb.Vhost{
+		Domain:    domain,
+		Backend:   TelemtWebBackendAddrForInbound(ib.Id),
+		FrontPort: frontPort,
+	}, true
+}
+
+// BuildTelemtWebVhostsForNode collects telemtweb.Vhost entries for every enabled, WEB-mode
+// Telemt inbound assigned to node, for pushing to that worker's telemtweb.Manager.
+func BuildTelemtWebVhostsForNode(node *model.Node, ibs []*model.Inbound) []telemtweb.Vhost {
+	if node == nil || len(ibs) == 0 {
+		return []telemtweb.Vhost{}
+	}
+	out := make([]telemtweb.Vhost, 0)
+	for _, ib := range ibs {
+		if v, ok := telemtWebVhostForInbound(ib); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// BuildTelemtWebVhostsStandalone collects telemtweb.Vhost entries for every enabled, WEB-mode
+// Telemt inbound when Xray runs on the panel host (!multiNode).
+func BuildTelemtWebVhostsStandalone() ([]telemtweb.Vhost, error) {
+	db := database.GetDB()
+	var inbounds []model.Inbound
+	if err := db.Where("enable = ?", true).Find(&inbounds).Error; err != nil {
+		return nil, err
+	}
+	out := make([]telemtweb.Vhost, 0)
+	for i := range inbounds {
+		if v, ok := telemtWebVhostForInbound(&inbounds[i]); ok {
+			out = append(out, v)
+		}
 	}
 	return out, nil
 }

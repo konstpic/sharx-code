@@ -6501,7 +6501,7 @@ export function InboundsPage() {
                     <p className="text-xs text-[var(--fg-subtle)]">
                       {t("pages.inbounds.telemtWebHint", {
                         defaultValue:
-                          "Carries MTProto over real HTTPS/WebSocket. Telemt itself only ever binds a private address — YOU must run an external NGINX or HAProxy that terminates TLS on the public host/port and reverse-proxies to that private address, forwarding X-Forwarded-For. SharX does not manage that reverse proxy.",
+                          "Carries MTProto over real HTTPS/WebSocket. SharX manages the whole stack itself: it runs a TLS front that gets a Let's Encrypt certificate for your domain automatically and reverse-proxies to Telemt — no external NGINX/HAProxy needed. Point the domain's DNS A/AAAA record at this node/panel's public IP before enabling.",
                       })}
                     </p>
                     <CheckboxField
@@ -6525,7 +6525,7 @@ export function InboundsPage() {
                               htmlFor="in-tm-web-host"
                             >
                               {t("pages.inbounds.telemtWebVhostHost", {
-                                defaultValue: "Public domain (vhost host)",
+                                defaultValue: "Public domain (DNS must already point here)",
                               })}
                             </label>
                             <Input
@@ -6545,72 +6545,33 @@ export function InboundsPage() {
                           <div>
                             <label
                               className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
-                              htmlFor="in-tm-web-addr"
+                              htmlFor="in-tm-web-front-port"
                             >
-                              {t("pages.inbounds.telemtWebVhostPublicAddr", {
-                                defaultValue: "Public IP:443 (vhost public_addr)",
+                              {t("pages.inbounds.telemtWebFrontPort", {
+                                defaultValue: "Front port (optional, default 443)",
                               })}
                             </label>
                             <Input
-                              id="in-tm-web-addr"
+                              id="in-tm-web-front-port"
+                              type="number"
+                              min={1}
+                              max={65535}
                               className="font-mono text-xs"
-                              placeholder="203.0.113.10:443"
-                              value={form.telemtForm.webVhostPublicAddr}
+                              placeholder="443"
+                              value={form.telemtForm.webFrontPort}
                               onChange={(e) =>
                                 setForm((f) => ({
                                   ...f,
-                                  telemtForm: { ...f.telemtForm, webVhostPublicAddr: e.target.value },
+                                  telemtForm: { ...f.telemtForm, webFrontPort: e.target.value },
                                 }))
                               }
                               spellCheck={false}
                             />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div>
-                            <label
-                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
-                              htmlFor="in-tm-web-bind"
-                            >
-                              {t("pages.inbounds.telemtWebListenBind", {
-                                defaultValue: "Private listen IP (telemt binds here)",
+                            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                              {t("pages.inbounds.telemtWebFrontPortHint", {
+                                defaultValue: "Every WEB inbound sharing this node/panel must use the same front port.",
                               })}
-                            </label>
-                            <Input
-                              id="in-tm-web-bind"
-                              className="font-mono text-xs"
-                              value={form.telemtForm.webListenBind}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  telemtForm: { ...f.telemtForm, webListenBind: e.target.value },
-                                }))
-                              }
-                              spellCheck={false}
-                            />
-                          </div>
-                          <div>
-                            <label
-                              className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
-                              htmlFor="in-tm-web-cidrs"
-                            >
-                              {t("pages.inbounds.telemtWebTrustedProxyCidrs", {
-                                defaultValue: "web_trusted_proxy_cidrs",
-                              })}
-                            </label>
-                            <Input
-                              id="in-tm-web-cidrs"
-                              className="font-mono text-xs"
-                              placeholder="127.0.0.1/32"
-                              value={form.telemtForm.webTrustedProxyCidrs}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  telemtForm: { ...f.telemtForm, webTrustedProxyCidrs: e.target.value },
-                                }))
-                              }
-                              spellCheck={false}
-                            />
+                            </p>
                           </div>
                         </div>
                         <div>
@@ -6731,31 +6692,6 @@ export function InboundsPage() {
                             <option value="dd">dd</option>
                             <option value="plain">plain</option>
                           </SelectNative>
-                        </div>
-                        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)]/40 p-3">
-                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
-                            {t("pages.inbounds.telemtWebNginxSnippetTitle", {
-                              defaultValue: "Example external NGINX config (you must apply this yourself)",
-                            })}
-                          </p>
-                          <pre className="overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px] text-[var(--fg-muted)]">
-{`server {
-  listen 443 ssl http2;
-  server_name ${form.telemtForm.webVhostHost.trim() || "proxy.example.com"};
-
-  ssl_certificate     /etc/letsencrypt/live/${form.telemtForm.webVhostHost.trim() || "proxy.example.com"}/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/${form.telemtForm.webVhostHost.trim() || "proxy.example.com"}/privkey.pem;
-
-  location / {
-    proxy_pass http://${form.telemtForm.webListenBind.trim() || "127.0.0.1"}:${form.port || 8443};
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection $connection_upgrade;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $remote_addr;
-  }
-}`}
-                          </pre>
                         </div>
                       </>
                     ) : null}
