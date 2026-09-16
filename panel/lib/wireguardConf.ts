@@ -142,7 +142,7 @@ function isWireGuardPanelMetadataLine(line: string): boolean {
   const t = line.trim();
   if (!t) return true;
   if (extractWireGuardConfBlock(t)) return false;
-  if (t.toLowerCase().startsWith("tg://proxy")) return false;
+  if (/^tg:\/\/(?:web)?proxy\?/i.test(t)) return false;
   if (/^\[Interface\]$/.test(t) || /^\[Peer\]$/.test(t)) return true;
   if (new RegExp(`^(${WG_QUICK_KEY})\\s*=`).test(t)) {
     return true;
@@ -182,7 +182,7 @@ function isNonWireGuardSubscriptionLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return false;
   if (extractWireGuardConfBlock(trimmed)) return false;
-  if (trimmed.toLowerCase().startsWith("tg://proxy")) return false;
+  if (/^tg:\/\/(?:web)?proxy\?/i.test(trimmed)) return false;
   if (isWireGuardPanelMetadataLine(trimmed)) return false;
   return true;
 }

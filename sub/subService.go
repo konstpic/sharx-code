@@ -605,6 +605,9 @@ func (s *SubService) genTelemtLinkWithClient(inbound *model.Inbound, client *mod
 	if err != nil || len(raw) != 16 {
 		return ""
 	}
+	if link, enabled := telemtWebProxyLink(inbound.Settings, raw); enabled {
+		return link
+	}
 	secure, tlsMode := false, true
 	var root map[string]any
 	_ = json.Unmarshal([]byte(inbound.Settings), &root)
@@ -646,7 +649,7 @@ func (s *SubService) genTelemtLinkWithClient(inbound *model.Inbound, client *mod
 	return b.String()
 }
 
-// TelemtTgProxyLinesForSubscription returns tg://proxy lines for the first-party subscription HTML page.
+// TelemtTgProxyLinesForSubscription returns TCP and WEB Telegram proxy links for the first-party subscription HTML page.
 // Telemt inbounds are excluded from GetSubs (see getInboundsBySubId allowed protocols), so VPN clients never
 // receive tg:// lines in the raw subscription body.
 func (s *SubService) TelemtTgProxyLinesForSubscription(subId string, host string) []string {
@@ -682,7 +685,7 @@ func (s *SubService) TelemtTgProxyLinesForSubscription(subId string, host string
 		link := s.getLinkWithClient(prepared, &client)
 		for _, line := range strings.Split(link, "\n") {
 			line = strings.TrimSpace(line)
-			if line != "" && strings.HasPrefix(strings.ToLower(line), "tg://proxy") {
+			if isTelemtProxyLink(line) {
 				out = append(out, line)
 			}
 		}
