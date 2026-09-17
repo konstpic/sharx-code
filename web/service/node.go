@@ -776,6 +776,11 @@ func (s *NodeService) RestartXrayOnNode(node *model.Node) error {
 }
 
 // TriggerDockerUpdaterOnNode asks the worker to call its configured Docker sidecar updater (Watchtower), same env as the panel.
+// Retries a couple of times on a bare transport-level failure (connection reset/EOF/etc. before
+// any HTTP response) — observed in practice in the short window right after the panel container
+// itself restarts, when several brand-new outbound connections fired at once can hit a transient
+// reset that a lone sequential request wouldn't. An actual HTTP error response (4xx/5xx) is a
+// real rejection from the worker and is never retried.
 func (s *NodeService) TriggerDockerUpdaterOnNode(ctx context.Context, node *model.Node) error {
 	if node == nil {
 		return fmt.Errorf("node is nil")
@@ -783,6 +788,39 @@ func (s *NodeService) TriggerDockerUpdaterOnNode(ctx context.Context, node *mode
 	if !node.Enable {
 		return fmt.Errorf("node is disabled")
 	}
+	const maxAttempts = 3
+	retryDelays := []time.Duration{2 * time.Second, 4 * time.Second}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelays[attempt-1]):
+			}
+		}
+		err := s.triggerDockerUpdaterOnNodeOnce(ctx, node)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if _, transient := err.(*transientTriggerError); !transient {
+			return err
+		}
+		logger.Warningf("[Node: %s] docker-updater trigger: transient error (attempt %d/%d): %v", node.Name, attempt+1, maxAttempts, err)
+	}
+	return lastErr
+}
+
+// transientTriggerError marks a failure that happened before any HTTP response was received
+// (dial/TLS/EOF/connection reset), as opposed to a clean HTTP error status from the worker.
+type transientTriggerError struct{ err error }
+
+func (e *transientTriggerError) Error() string { return e.err.Error() }
+func (e *transientTriggerError) Unwrap() error { return e.err }
+
+func (s *NodeService) triggerDockerUpdaterOnNodeOnce(ctx context.Context, node *model.Node) error {
 	client, err := s.createHTTPClient(node, 3*time.Minute+15*time.Second)
 	if err != nil {
 		return err
@@ -797,7 +835,7 @@ func (s *NodeService) TriggerDockerUpdaterOnNode(ctx context.Context, node *mode
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return &transientTriggerError{err: err}
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
