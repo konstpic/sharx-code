@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TELEMT_VERSION: "3.4.18"
+      TELEMT_VERSION: "3.5.7"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

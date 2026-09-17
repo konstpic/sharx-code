@@ -316,6 +316,12 @@ type Node struct {
 	TelemtVersion string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`                  // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown
 	AmneziaWgState string `json:"amneziawgState" gorm:"column:amneziawg_state;default:unknown"`          // running | stopped | unknown (worker AmneziaWG sidecars)
 
+	// Admin-selected core versions (empty = not pinned, worker keeps whatever it already has).
+	// Set when the admin explicitly installs a version via the panel; re-asserted on health
+	// check if the worker ever reports a different version (e.g. after losing its bin volume).
+	XrayPinnedVersion   string `json:"xrayPinnedVersion" gorm:"column:xray_pinned_version;default:''"`
+	TelemtPinnedVersion string `json:"telemtPinnedVersion" gorm:"column:telemt_pinned_version;default:''"`
+
 	// Pairing (auth_mode=pairing): panel stores JWT key and mTLS client cert; worker uses SECRET_KEY. Legacy values accepted; see IsPairingMode.
 	AuthMode           string `json:"authMode" gorm:"column:auth_mode;default:legacy"` // legacy | pairing
 	JwtPrivateKeyPem   string `json:"-" gorm:"column:jwt_private_key_pem;type:text"`

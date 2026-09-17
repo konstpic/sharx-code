@@ -40,6 +40,16 @@ var (
 	workerConfigRecoverAt = make(map[int]time.Time)
 )
 
+// pinnedVersionRecoverMinInterval rate-limits automatic reinstalls so a node stuck at a version
+// mismatch we can't fix (e.g. the pinned release was pulled from GitHub) doesn't get hammered
+// with repeated downloads every health-check tick.
+const pinnedVersionRecoverMinInterval = 10 * time.Minute
+
+var (
+	pinnedVersionRecoverMu sync.Mutex
+	pinnedVersionRecoverAt = make(map[int]time.Time)
+)
+
 // ErrNodeNeedsReregistration is returned when the node is online but JWT auth to the node API fails.
 type ErrNodeNeedsReregistration struct {
 	NodeName string
@@ -367,6 +377,19 @@ func (s *NodeService) SetNodeWorkerVersion(id int, version string) error {
 // SetNodeTelemtVersion persists the cached Telemt version string from the worker.
 func (s *NodeService) SetNodeTelemtVersion(id int, version string) error {
 	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("telemt_version", version).Error
+}
+
+// SetNodeXrayPinnedVersion records the Xray version an admin explicitly installed, so it can be
+// re-asserted if the worker ever reports something else (e.g. after losing its bin volume on an
+// image update). Pass an empty string to unpin (worker keeps whatever it already has).
+func (s *NodeService) SetNodeXrayPinnedVersion(id int, version string) error {
+	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("xray_pinned_version", version).Error
+}
+
+// SetNodeTelemtPinnedVersion records the Telemt version an admin explicitly installed; see
+// SetNodeXrayPinnedVersion.
+func (s *NodeService) SetNodeTelemtPinnedVersion(id int, version string) error {
+	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("telemt_pinned_version", version).Error
 }
 
 // SetNodeTelemtState persists worker Telemt sidecar state (running | stopped | unknown).
@@ -867,8 +890,48 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 		_ = s.RefreshNodeTelemtStateFromWorker(fresh)
 		_ = s.RefreshNodeAmneziaWgStateFromWorker(fresh)
 		s.MaybePushWorkerConfigIfCoresDown(fresh)
+		if reconciled, rErr := s.GetNode(node.Id); rErr == nil {
+			s.MaybeReinstallPinnedCoreVersions(reconciled)
+		}
 	}
 	return nil
+}
+
+// MaybeReinstallPinnedCoreVersions re-asserts an admin-pinned Xray/Telemt version when the
+// worker is reporting something else — e.g. a Docker image update recreated the container
+// without its persistent bin volume, or the volume was lost/recreated. A node the admin never
+// explicitly pinned a version on (xray_pinned_version/telemt_pinned_version both empty) is left
+// alone: it keeps whatever version its own bin volume/image already has.
+func (s *NodeService) MaybeReinstallPinnedCoreVersions(node *model.Node) {
+	if node == nil || !node.Enable || node.Status != "online" {
+		return
+	}
+	xrayMismatch := node.XrayPinnedVersion != "" && node.XrayVersion != "" && node.XrayVersion != node.XrayPinnedVersion
+	telemtMismatch := node.TelemtPinnedVersion != "" && node.TelemtVersion != "" && node.TelemtVersion != node.TelemtPinnedVersion
+	if !xrayMismatch && !telemtMismatch {
+		return
+	}
+
+	pinnedVersionRecoverMu.Lock()
+	if t, ok := pinnedVersionRecoverAt[node.Id]; ok && time.Since(t) < pinnedVersionRecoverMinInterval {
+		pinnedVersionRecoverMu.Unlock()
+		return
+	}
+	pinnedVersionRecoverAt[node.Id] = time.Now()
+	pinnedVersionRecoverMu.Unlock()
+
+	if xrayMismatch {
+		logger.Warningf("[Node: %s] Xray pinned to %s but worker reports %s; reinstalling pinned version", node.Name, node.XrayPinnedVersion, node.XrayVersion)
+		if err := s.InstallXrayVersion(node, node.XrayPinnedVersion); err != nil {
+			logger.Warningf("[Node: %s] Failed to re-assert pinned Xray version %s: %v", node.Name, node.XrayPinnedVersion, err)
+		}
+	}
+	if telemtMismatch {
+		logger.Warningf("[Node: %s] Telemt pinned to %s but worker reports %s; reinstalling pinned version", node.Name, node.TelemtPinnedVersion, node.TelemtVersion)
+		if err := s.InstallTelemtVersion(node, node.TelemtPinnedVersion); err != nil {
+			logger.Warningf("[Node: %s] Failed to re-assert pinned Telemt version %s: %v", node.Name, node.TelemtPinnedVersion, err)
+		}
+	}
 }
 
 // MaybePushWorkerConfigIfCoresDown pushes full apply-config when the worker is reachable but Xray or Telemt is down.
@@ -3562,6 +3625,7 @@ func (s *NodeService) InstallXrayVersion(node *model.Node, version string) error
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	_ = s.SetNodeXrayPinnedVersion(node.Id, version)
 	return nil
 }
 
@@ -3609,6 +3673,7 @@ func (s *NodeService) InstallTelemtVersion(node *model.Node, version string) err
 		return fmt.Errorf("node returned status code %d: %s", resp.StatusCode, string(body))
 	}
 
+	_ = s.SetNodeTelemtPinnedVersion(node.Id, version)
 	_ = s.RefreshNodeTelemtStateFromWorker(node)
 	_ = s.RefreshNodeAmneziaWgStateFromWorker(node)
 	return nil

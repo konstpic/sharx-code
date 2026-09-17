@@ -332,7 +332,18 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
       } catch (err) {
         if (runRef.current !== runId) return;
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setPanelRow({ status: "error", error: formatRequestError(err, t("fail")) });
+        const message = formatRequestError(err, t("fail"));
+        setPanelRow({ status: "error", error: message });
+        // A failure anywhere in the sequence (plan/prep/trigger/wait) must not leave node
+        // rows frozen on "Updating…" forever — resolve every still-pending/running row to
+        // an explicit error so the modal always reaches a terminal state.
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.status === "pending" || n.status === "running"
+              ? { ...n, status: "error", error: n.error ?? message }
+              : n,
+          ),
+        );
       }
     })();
 
