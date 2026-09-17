@@ -555,6 +555,15 @@ func (a *NodeController) checkNode(c *gin.Context) {
 	// Broadcast nodes update via WebSocket (to update status and response time)
 	a.broadcastNodesUpdate()
 
+	// CheckNodeHealth refreshes xray/telemt/worker version via a separately-fetched copy
+	// internally and persists it to the DB — re-fetch so the response actually reflects it
+	// (callers, e.g. the Docker update modal, rely on workerVersion here to confirm an update
+	// really landed, not just that the node is reachable again).
+	fresh, ferr := a.nodeService.GetNode(id)
+	if ferr == nil && fresh != nil {
+		node = fresh
+	}
+
 	jsonMsgObj(c, "Node health check completed", node, nil)
 }
 

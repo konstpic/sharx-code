@@ -12,9 +12,10 @@ import (
 
 // DockerUpdatePlanNode is a worker row shown in the panel update progress UI.
 type DockerUpdatePlanNode struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Enable bool   `json:"enable"`
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	Enable        bool   `json:"enable"`
+	WorkerVersion string `json:"workerVersion"` // cached worker build version before the update, for confirming it actually changed
 }
 
 // DockerUpdatePlan describes which targets participate in a Docker sidecar update.
@@ -53,9 +54,10 @@ func GetDockerUpdatePlan() (DockerUpdatePlan, error) {
 			continue
 		}
 		plan.Nodes = append(plan.Nodes, DockerUpdatePlanNode{
-			ID:     node.Id,
-			Name:   node.Name,
-			Enable: node.Enable,
+			ID:            node.Id,
+			Name:          node.Name,
+			Enable:        node.Enable,
+			WorkerVersion: node.WorkerVersion,
 		})
 	}
 	return plan, nil

@@ -20,6 +20,8 @@ type NodeRow = {
   enable: boolean;
   status: StepStatus;
   error?: string;
+  /** workerVersion observed before the update was triggered, to confirm it actually changed. */
+  beforeWorkerVersion?: string;
 };
 
 type PanelRow = {
@@ -29,7 +31,7 @@ type PanelRow = {
 
 type DockerUpdatePlan = {
   multiNode: boolean;
-  nodes: Array<{ id: number; name: string; enable: boolean }>;
+  nodes: Array<{ id: number; name: string; enable: boolean; workerVersion?: string }>;
 };
 
 type TriggerNodeResult = {
@@ -55,12 +57,20 @@ function formatRequestError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-async function checkNodeOnline(nodeId: number): Promise<{ online: boolean; status?: string }> {
+async function checkNodeOnline(
+  nodeId: number,
+): Promise<{ online: boolean; status?: string; workerVersion?: string }> {
   try {
-    const checkRes = await postJson<{ status?: string }>(panel(`node/check/${nodeId}`));
-    const nodeObj = checkRes.obj as { status?: string } | undefined;
+    const checkRes = await postJson<{ status?: string; workerVersion?: string }>(
+      panel(`node/check/${nodeId}`),
+    );
+    const nodeObj = checkRes.obj as { status?: string; workerVersion?: string } | undefined;
     const status = (nodeObj?.status ?? "").toLowerCase();
-    return { online: checkRes.success && status === "online", status: nodeObj?.status };
+    return {
+      online: checkRes.success && status === "online",
+      status: nodeObj?.status,
+      workerVersion: nodeObj?.workerVersion,
+    };
   } catch {
     return { online: false };
   }
@@ -222,6 +232,7 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
           name: n.name,
           enable: n.enable,
           status: n.enable ? "pending" : "skipped",
+          beforeWorkerVersion: n.workerVersion,
         }));
         setNodes(initialNodes);
 
@@ -267,6 +278,9 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
           if (runRef.current !== runId) return;
 
           const waitTargets = new Set<number>();
+          const beforeVersionById = new Map<number, string | undefined>(
+            initialNodes.map((n) => [n.id, n.beforeWorkerVersion]),
+          );
           for (const res of triggerResults) {
             if (!res.skipped && res.ok) {
               waitTargets.add(res.id);
@@ -278,8 +292,18 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
             if (runRef.current !== runId) return;
 
             for (const id of [...waitTargets]) {
-              const { online } = await checkNodeOnline(id);
-              if (online) {
+              const { online, workerVersion } = await checkNodeOnline(id);
+              if (!online) {
+                setNodeStatus(id, { status: "running" });
+                continue;
+              }
+              const before = beforeVersionById.get(id);
+              // Coming back online only proves the node is reachable — not that the Docker
+              // image actually changed (the watchdog can silently fail to pull, or the node
+              // never really went offline at all). When we know the pre-update version, only
+              // declare success once it has genuinely changed; a node we have no prior
+              // version for can't be verified this way, so fall back to "online = done".
+              if (!before || (workerVersion && workerVersion !== before)) {
                 waitTargets.delete(id);
                 setNodeStatus(id, { status: "success" });
               } else {
@@ -296,8 +320,8 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
           for (const id of waitTargets) {
             setNodeStatus(id, {
               status: "error",
-              error: t("menu.dockerUpdateNodeWaitTimeout", {
-                defaultValue: "Timed out waiting for restart",
+              error: t("menu.dockerUpdateNodeVersionUnchanged", {
+                defaultValue: "Node is back online but its version didn't change — the image update may not have applied",
               }),
             });
           }
