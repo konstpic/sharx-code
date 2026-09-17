@@ -308,12 +308,30 @@ export function DockerUpdateProgressModal({ open, panelVersion }: DockerUpdatePr
 
         setPhase("panel");
         setPanelRow({ status: "running" });
-        const panelRes = await postJson(panel("api/server/updater/panel/trigger"), {}, true);
-        if (runRef.current !== runId) return;
-
-        if (!panelRes.success) {
-          setPanelRow({ status: "error", error: panelRes.msg || t("fail") });
-          return;
+        try {
+          const panelRes = await postJson(panel("api/server/updater/panel/trigger"), {}, true);
+          if (runRef.current !== runId) return;
+          if (!panelRes.success) {
+            setPanelRow({ status: "error", error: panelRes.msg || t("fail") });
+            return;
+          }
+        } catch (panelErr) {
+          if (runRef.current !== runId) return;
+          if (panelErr instanceof DOMException && panelErr.name === "AbortError") return;
+          // Watchtower's self-update HTTP API is synchronous: it only replies after it has
+          // already stopped and recreated the panel container — which is the very process that
+          // was waiting to answer this request. A bare network failure here (no HTTP response
+          // at all, i.e. the connection was dropped mid-flight) is the expected signature of
+          // that self-restart, not a real failure — proceed to the reload countdown instead of
+          // reporting an error the admin can't act on. A genuine HTTP error response (4xx/5xx)
+          // still means the trigger itself was rejected, so that's reported as a real error.
+          const hasHttpResponse =
+            !!panelErr && typeof panelErr === "object" && "response" in panelErr &&
+            (panelErr as { response?: unknown }).response != null;
+          if (hasHttpResponse) {
+            setPanelRow({ status: "error", error: formatRequestError(panelErr, t("fail")) });
+            return;
+          }
         }
 
         setPhase("reload");

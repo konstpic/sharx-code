@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 )
 
@@ -71,6 +73,10 @@ func PrepWorkersForDockerUpdate() error {
 }
 
 // TriggerWorkersDockerUpdate asks every enabled worker to pull/recreate via its Docker sidecar.
+// Nodes are triggered concurrently (each with its own bounded timeout via nodeSvc's HTTP client)
+// so that one slow/unresponsive node can never block or starve out the others — previously this
+// ran sequentially with up to 3m15s per node, so a single stuck node could exhaust the whole
+// request's deadline before later nodes in the list were even attempted.
 func TriggerWorkersDockerUpdate(ctx context.Context) []DockerUpdateNodeResult {
 	settingSvc := SettingService{}
 	multi, err := settingSvc.GetMultiNodeMode()
@@ -87,30 +93,40 @@ func TriggerWorkersDockerUpdate(ctx context.Context) []DockerUpdateNodeResult {
 			Error: fmt.Sprintf("list nodes: %v", err),
 		}}
 	}
-	out := make([]DockerUpdateNodeResult, 0, len(nodes))
-	for _, node := range nodes {
+
+	out := make([]DockerUpdateNodeResult, len(nodes))
+	var wg sync.WaitGroup
+	for i, node := range nodes {
 		if node == nil {
 			continue
 		}
 		if !node.Enable {
-			out = append(out, DockerUpdateNodeResult{
-				ID:      node.Id,
-				Name:    node.Name,
-				OK:      true,
-				Skipped: true,
-			})
+			out[i] = DockerUpdateNodeResult{ID: node.Id, Name: node.Name, OK: true, Skipped: true}
 			continue
 		}
-		res := DockerUpdateNodeResult{ID: node.Id, Name: node.Name}
-		if err := nodeSvc.TriggerDockerUpdaterOnNode(ctx, node); err != nil {
-			logger.Warningf("[Node: %s] docker-updater trigger: %v", node.Name, err)
-			res.Error = err.Error()
-		} else {
-			res.OK = true
-		}
-		out = append(out, res)
+		wg.Add(1)
+		go func(i int, node *model.Node) {
+			defer wg.Done()
+			res := DockerUpdateNodeResult{ID: node.Id, Name: node.Name}
+			if err := nodeSvc.TriggerDockerUpdaterOnNode(ctx, node); err != nil {
+				logger.Warningf("[Node: %s] docker-updater trigger: %v", node.Name, err)
+				res.Error = err.Error()
+			} else {
+				res.OK = true
+			}
+			out[i] = res
+		}(i, node)
 	}
-	return out
+	wg.Wait()
+
+	compact := make([]DockerUpdateNodeResult, 0, len(out))
+	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
+		compact = append(compact, out[i])
+	}
+	return compact
 }
 
 // FinishWorkersForDockerUpdate pushes Xray config after workers have restarted.
