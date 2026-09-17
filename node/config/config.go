@@ -32,7 +32,9 @@ func InitConfig(configDir string) error {
 	defer configMu.Unlock()
 
 	if configDir == "" {
-		possibleDirs := []string{"bin", "config", ".", "/app/bin", "/app/config"}
+		// Prefer the always-persistent data volume over bin/config, which several deployed
+		// nodes don't mount as a named volume at all (see node/main.go for the full rationale).
+		possibleDirs := []string{"/app/data", "data", "bin", "config", ".", "/app/bin", "/app/config"}
 		for _, dir := range possibleDirs {
 			if _, err := os.Stat(dir); err == nil {
 				configDir = dir

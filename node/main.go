@@ -49,7 +49,17 @@ func main() {
 	logger.InitLogger(logging.INFO)
 	logger.SetSource("node")
 
-	configDirs := []string{"bin", "config", ".", "/app/bin", "/app/config"}
+	// node-config.json (panelUrl/nodeId) must live on the always-persistent data volume, not
+	// /app/bin: several deployed nodes don't mount a bin volume at all, so anything written
+	// there is lost on every container recreation. Without a saved panelUrl, configpull's
+	// startup/background pull (this file's TryPullAndApply/StartBackgroundPull below) can't
+	// proactively ask the panel for config after a restart, leaving Xray stopped until the
+	// panel's own periodic health check happens to notice and push config down.
+	preferredConfigDir := strings.TrimSpace(os.Getenv("SHARX_NODE_DATA_DIR"))
+	if preferredConfigDir == "" {
+		preferredConfigDir = "/app/data"
+	}
+	configDirs := []string{preferredConfigDir, "data", "bin", "config", ".", "/app/bin", "/app/config"}
 	var configDir string
 	for _, dir := range configDirs {
 		if _, err := os.Stat(dir); err == nil {
