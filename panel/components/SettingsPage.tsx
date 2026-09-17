@@ -927,6 +927,28 @@ export function SettingsPage() {
                   />
                 </Row>
                 <Row
+                  label={t("pages.settings.ipLimitRecencyWindow", { defaultValue: "Online recency window (sec)" })}
+                  hint={t("pages.settings.ipLimitRecencyWindowDesc", {
+                    defaultValue:
+                      "An IP only counts toward the limit if seen within this many seconds. Xray never expires old IPs on its own, so without this a client whose carrier rotates IPs (mobile CGNAT) can eventually look like it has too many devices.",
+                  })}
+                >
+                  <Input
+                    type="number"
+                    min={10}
+                    max={86400}
+                    className="max-w-[120px]"
+                    value={form.ipLimitRecencyWindowSec}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      patch(
+                        "ipLimitRecencyWindowSec",
+                        Number.isFinite(v) ? Math.min(86400, Math.max(10, v)) : 600,
+                      );
+                    }}
+                  />
+                </Row>
+                <Row
                   label={t("pages.settings.ipLimitBanDuration", { defaultValue: "Ban duration (sec)" })}
                   hint={t("pages.settings.ipLimitBanDurationDesc", {
                     defaultValue: "How long excess IPs stay blocked in subscription routing. 0 = permanent until manual unblock.",
@@ -981,6 +1003,48 @@ export function SettingsPage() {
                       {t("pages.settings.ipLimitExcessPolicy.oldest", { defaultValue: "Kick oldest IPs" })}
                     </option>
                   </SelectNative>
+                </Row>
+              </>
+            ) : null}
+            <Row
+              label={t("pages.settings.subAppGateEnable", { defaultValue: "Gate subscriptions by client app" })}
+              hint={t("pages.settings.subAppGateEnableDesc", {
+                defaultValue:
+                  "Best-effort filter, not a security boundary: User-Agent is fully client-controlled, so this only discourages casual non-compliant clients and scrapers, not a determined spoofer.",
+              })}
+            >
+              <Switch
+                checked={form.subAppGateEnable}
+                onChange={(on) => patch("subAppGateEnable", on)}
+                ariaLabel={t("pages.settings.subAppGateEnable", { defaultValue: "Gate subscriptions by client app" })}
+              />
+            </Row>
+            {form.subAppGateEnable ? (
+              <>
+                <Row
+                  label={t("pages.settings.subAppGateRequireKnownApp", { defaultValue: "Require a recognized app" })}
+                  hint={t("pages.settings.subAppGateRequireKnownAppDesc", {
+                    defaultValue: "Block requests whose User-Agent doesn't match any known client app.",
+                  })}
+                >
+                  <Switch
+                    checked={form.subAppGateRequireKnownApp}
+                    onChange={(on) => patch("subAppGateRequireKnownApp", on)}
+                    ariaLabel={t("pages.settings.subAppGateRequireKnownApp", { defaultValue: "Require a recognized app" })}
+                  />
+                </Row>
+                <Row
+                  label={t("pages.settings.subAppGateBlockedApps", { defaultValue: "Blocked apps" })}
+                  hint={t("pages.settings.subAppGateBlockedAppsDesc", {
+                    defaultValue:
+                      "Comma-separated app keys to always block, e.g. \"incy\". Known keys: happ, v2raytun, incy, v2rayng, hiddify, streisand, shadowrocket, clashmeta, karing, nekobox, throne, singbox, browser.",
+                  })}
+                >
+                  <Input
+                    value={form.subAppGateBlockedApps}
+                    placeholder="incy"
+                    onChange={(e) => patch("subAppGateBlockedApps", e.target.value)}
+                  />
                 </Row>
               </>
             ) : null}

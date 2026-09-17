@@ -147,6 +147,24 @@ type AllSetting struct {
 	// Geofile library auto-update (active assets with source URL)
 	GeofileAutoUpdateEnable         bool `json:"geofileAutoUpdateEnable" form:"geofileAutoUpdateEnable"`
 	GeofileAutoUpdateIntervalHours  int  `json:"geofileAutoUpdateIntervalHours" form:"geofileAutoUpdateIntervalHours"`
+	// Geofile library revision retention: how many old (inactive) revisions of each type
+	// (geoip/geosite) to keep before auto-pruning the oldest ones. The active revision is
+	// never pruned regardless of count. 0 = use default (5).
+	GeofileRetentionCount int `json:"geofileRetentionCount" form:"geofileRetentionCount"`
+
+	// Client IP limit: only count a session IP as "online" if seen within this many seconds.
+	// Xray's user-online IP map has no TTL and accumulates every IP ever seen since the last
+	// stats reset, so without this a client whose carrier rotates IPs (mobile CGNAT) eventually
+	// exceeds max_ips even with a single real device connected. 0 = use default (600s / 10min).
+	IPLimitRecencyWindowSec int `json:"ipLimitRecencyWindowSec" form:"ipLimitRecencyWindowSec"`
+
+	// Subscription client-app gate: best-effort filtering of which client apps may fetch a
+	// subscription, based on the same User-Agent classification already used for response
+	// format selection (sub/ua_dispatch.go). This is NOT a security boundary — User-Agent is
+	// trivially spoofable — it only discourages casual/non-compliant clients and scrapers.
+	SubAppGateEnable          bool   `json:"subAppGateEnable" form:"subAppGateEnable"`
+	SubAppGateRequireKnownApp bool   `json:"subAppGateRequireKnownApp" form:"subAppGateRequireKnownApp"` // reject unrecognized User-Agent
+	SubAppGateBlockedApps     string `json:"subAppGateBlockedApps" form:"subAppGateBlockedApps"`         // comma-separated app keys, e.g. "incy"
 	// JSON subscription routing rules
 }
 
@@ -265,12 +283,45 @@ func (s *AllSetting) CheckValid() error {
 		return err
 	}
 
+	if s.GeofileRetentionCount != 0 && (s.GeofileRetentionCount < 1 || s.GeofileRetentionCount > 50) {
+		return common.NewErrorf("geofileRetentionCount must be between 1 and 50")
+	}
+
+	if s.IPLimitRecencyWindowSec != 0 && (s.IPLimitRecencyWindowSec < 10 || s.IPLimitRecencyWindowSec > 86400) {
+		return common.NewErrorf("ipLimitRecencyWindowSec must be between 10 and 86400 seconds")
+	}
+
+	if err := validateSubAppGateSettings(s.SubAppGateBlockedApps); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func validateGeofileAutoUpdateSettings(hours int) error {
 	if hours != 0 && (hours < 1 || hours > 168) {
 		return common.NewErrorf("geofileAutoUpdateIntervalHours must be between 1 and 168")
+	}
+	return nil
+}
+
+// subAppGateKnownKeys mirrors sub.UAClient's string keys (sub.AppGateKeys()) without importing
+// the sub package here, to keep this low-level entity package dependency-free.
+var subAppGateKnownKeys = map[string]bool{
+	"unknown": true, "browser": true, "happ": true, "v2raytun": true, "incy": true,
+	"v2rayng": true, "hiddify": true, "streisand": true, "shadowrocket": true,
+	"clashmeta": true, "karing": true, "nekobox": true, "throne": true, "singbox": true,
+}
+
+func validateSubAppGateSettings(blockedApps string) error {
+	for _, key := range strings.Split(blockedApps, ",") {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if key == "" {
+			continue
+		}
+		if !subAppGateKnownKeys[key] {
+			return common.NewErrorf("subAppGateBlockedApps: unknown app key %q", key)
+		}
 	}
 	return nil
 }

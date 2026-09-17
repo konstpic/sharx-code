@@ -87,6 +87,19 @@ func (a *SUBController) initRouter(g *gin.RouterGroup) {
 	}
 }
 
+// evaluateAppGate checks the (already UA-classified) client against the panel-wide app gate
+// settings. See EvaluateAppGate for the semantics; this only wires in the current settings.
+func (a *SUBController) evaluateAppGate(uaClient UAClient) AppGateDecision {
+	ss := service.SettingService{}
+	enabled, err := ss.GetSubAppGateEnable()
+	if err != nil || !enabled {
+		return AppGateDecision{}
+	}
+	requireKnown, _ := ss.GetSubAppGateRequireKnownApp()
+	blockedApps, _ := ss.GetSubAppGateBlockedApps()
+	return EvaluateAppGate(uaClient, enabled, requireKnown, blockedApps)
+}
+
 // isAllowedUserAgent checks if the User-Agent is allowed when encryption is enabled.
 // Allows: Happ, v2raytun, INCY, or browser (detected by Accept header).
 // For Happ/v2raytun/INCY, also requires all HWID fields to be present.
@@ -180,6 +193,13 @@ func (a *SUBController) subs(c *gin.Context) {
 			return
 		}
 		c.String(http.StatusNotFound, "Not found")
+		return
+	}
+
+	if decision := a.evaluateAppGate(uaClient); decision.Blocked {
+		logger.Warningf("Subscription request blocked by app gate: subId=%s reason=%s uaClient=%s User-Agent=%s",
+			subId, decision.Reason, uaClient.Key(), userAgent)
+		c.String(http.StatusForbidden, "Please use a supported client application to access this subscription.")
 		return
 	}
 

@@ -63,6 +63,7 @@ func (j *CheckClientIPLimitJob) Run() {
 	banSec, _ := settingService.GetIPLimitBanDurationSec()
 	enforcement, _ := settingService.GetIPLimitEnforcement()
 	excessPolicy, _ := settingService.GetIPLimitExcessPolicy()
+	recencyWindowSec, _ := settingService.GetIPLimitRecencyWindowSec()
 
 	var expiresAt int64
 	if banSec > 0 {
@@ -85,7 +86,7 @@ func (j *CheckClientIPLimitJob) Run() {
 		if err != nil || resp == nil {
 			continue
 		}
-		ips := rankedSessionIPsFromResults(resp.Results, excessPolicy)
+		ips := rankedSessionIPsFromResults(resp.Results, excessPolicy, now, int64(recencyWindowSec))
 		if len(ips) <= c.MaxIPs {
 			continue
 		}
@@ -122,7 +123,14 @@ type rankedSessionIP struct {
 // rankedSessionIPsFromResults returns unique online IPs sorted for excess selection.
 // newest: ascending LastSeen — keep oldest connections, drop newest excess.
 // oldest: descending LastSeen — keep newest connections, drop oldest excess.
-func rankedSessionIPsFromResults(results []service.ClientSessionNodeResult, excessPolicy string) []rankedSessionIP {
+//
+// Xray's user-online IP map (GetStatsOnlineIpList with reset=false) has no TTL: an IP an that
+// client used weeks ago and never returned to still sits in the map with its original LastSeen,
+// forever, until Xray restarts or something explicitly resets that stat. Without filtering by
+// recency, a client whose carrier rotates IPs (mobile CGNAT) accumulates one "online IP" per
+// rotation and eventually exceeds max_ips even though only one IP is genuinely active right now.
+// recencyWindowSec <= 0 disables the filter (all reported IPs count, matching old behavior).
+func rankedSessionIPsFromResults(results []service.ClientSessionNodeResult, excessPolicy string, nowUnix int64, recencyWindowSec int64) []rankedSessionIP {
 	type ipEntry struct {
 		ip       string
 		lastSeen int64
@@ -132,6 +140,9 @@ func rankedSessionIPsFromResults(results []service.ClientSessionNodeResult, exce
 		for _, s := range block.Sessions {
 			ip := strings.TrimSpace(s.IP)
 			if ip == "" {
+				continue
+			}
+			if recencyWindowSec > 0 && s.LastSeen > 0 && nowUnix-s.LastSeen > recencyWindowSec {
 				continue
 			}
 			k := strings.ToLower(ip)

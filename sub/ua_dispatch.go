@@ -88,6 +88,45 @@ func DispatchByUA(c *gin.Context) (UAClient, UAResponseFormat) {
 	return UAUnknown, FormatBase64
 }
 
+// uaClientKeys maps each UAClient to a stable, admin-facing string key. Keep in sync with
+// web/entity/entity.go's subAppGateKnownKeys (duplicated there to avoid a cross-package import
+// from that low-level package).
+var uaClientKeys = map[UAClient]string{
+	UAUnknown:      "unknown",
+	UABrowser:      "browser",
+	UAHapp:         "happ",
+	UAV2RayTun:     "v2raytun",
+	UAINCY:         "incy",
+	UAV2RayNG:      "v2rayng",
+	UAHiddify:      "hiddify",
+	UAStreisand:    "streisand",
+	UAShadowrocket: "shadowrocket",
+	UAClashMeta:    "clashmeta",
+	UAKaring:       "karing",
+	UANekobox:      "nekobox",
+	UAThrone:       "throne",
+	UASingBox:      "singbox",
+}
+
+// Key returns the stable string identifier for a UAClient, used in admin-configurable
+// allow/block lists (e.g. subAppGateBlockedApps) since the underlying int values aren't stable
+// across code changes.
+func (c UAClient) Key() string {
+	if k, ok := uaClientKeys[c]; ok {
+		return k
+	}
+	return "unknown"
+}
+
+// AppGateKeys returns all known UAClient string keys, for settings validation.
+func AppGateKeys() []string {
+	keys := make([]string, 0, len(uaClientKeys))
+	for _, k := range uaClientKeys {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // ContentTypeFor returns the best Content-Type hint for a response format.
 func ContentTypeFor(fmtt UAResponseFormat) string {
 	return ContentTypeForClient(UAUnknown, fmtt)

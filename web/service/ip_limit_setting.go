@@ -34,6 +34,33 @@ func clampIPLimitBanSec(n int) int {
 	return n
 }
 
+func clampIPLimitRecencyWindowSec(n int) int {
+	if n < 10 {
+		return 10
+	}
+	if n > 86400 {
+		return 86400
+	}
+	return n
+}
+
+// GetIPLimitRecencyWindowSec returns how many seconds back a session IP must have been last seen
+// to still count as "online" for limit purposes. Xray's user-online IP map (GetStatsOnlineIpList
+// with reset=false) has no TTL: it accumulates every IP ever seen since the last stats reset, so
+// without this filter a client whose carrier rotates IPs (mobile CGNAT) eventually exceeds
+// max_ips even with a single real device connected, since old IPs never leave the map on their
+// own. 0 = use default (600s / 10min).
+func (s *SettingService) GetIPLimitRecencyWindowSec() (int, error) {
+	n, err := s.getInt("ipLimitRecencyWindowSec")
+	if err != nil {
+		return 600, err
+	}
+	if n == 0 {
+		return 600, nil
+	}
+	return clampIPLimitRecencyWindowSec(n), nil
+}
+
 func (s *SettingService) GetIPLimitGlobalEnable() (bool, error) {
 	v, err := s.getBool("ipLimitGlobalEnable")
 	if err != nil {

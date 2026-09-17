@@ -100,6 +100,14 @@ export type AllSetting = {
   logRotateCompress: boolean;
   geofileAutoUpdateEnable: boolean;
   geofileAutoUpdateIntervalHours: number;
+  /** How many old (inactive) revisions of each geofile type to keep before auto-pruning. */
+  geofileRetentionCount: number;
+  /** Session IP must have been seen within this many seconds to count toward the IP limit. */
+  ipLimitRecencyWindowSec: number;
+  subAppGateEnable: boolean;
+  subAppGateRequireKnownApp: boolean;
+  /** Comma-separated app keys (see sub.UAClient.Key() on the backend), e.g. "incy". */
+  subAppGateBlockedApps: string;
 };
 
 function toBool(v: unknown): boolean {
@@ -223,5 +231,10 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     logRotateCompress: toBool(raw.logRotateCompress !== undefined ? raw.logRotateCompress : true),
     geofileAutoUpdateEnable: toBool(raw.geofileAutoUpdateEnable),
     geofileAutoUpdateIntervalHours: toInt(raw.geofileAutoUpdateIntervalHours, 24),
+    geofileRetentionCount: toInt(raw.geofileRetentionCount, 5),
+    ipLimitRecencyWindowSec: toInt(raw.ipLimitRecencyWindowSec, 600),
+    subAppGateEnable: toBool(raw.subAppGateEnable),
+    subAppGateRequireKnownApp: toBool(raw.subAppGateRequireKnownApp),
+    subAppGateBlockedApps: toStr(raw.subAppGateBlockedApps),
   };
 }

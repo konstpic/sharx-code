@@ -108,6 +108,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
   const [geoResult, setGeoResult] = useState<GeofileApplyResult | null>(null);
   const [geofileAutoUpdateEnable, setGeofileAutoUpdateEnable] = useState(false);
   const [geofileAutoUpdateIntervalHours, setGeofileAutoUpdateIntervalHours] = useState(24);
+  const [geofileRetentionCount, setGeofileRetentionCount] = useState(5);
   const [geofileAutoUpdateSaving, setGeofileAutoUpdateSaving] = useState(false);
 
   const sectionKey = useMemo<SectionKey>(() => (navId === "general" ? "full" : navId), [navId]);
@@ -119,11 +120,16 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
       setMulti(settings.multiNodeMode);
       setGeofileAutoUpdateEnable(settings.geofileAutoUpdateEnable);
       setGeofileAutoUpdateIntervalHours(settings.geofileAutoUpdateIntervalHours);
+      setGeofileRetentionCount(settings.geofileRetentionCount);
     }
   }, []);
 
   const saveGeofileAutoUpdate = useCallback(
-    async (patch: { geofileAutoUpdateEnable?: boolean; geofileAutoUpdateIntervalHours?: number }) => {
+    async (patch: {
+      geofileAutoUpdateEnable?: boolean;
+      geofileAutoUpdateIntervalHours?: number;
+      geofileRetentionCount?: number;
+    }) => {
       setGeofileAutoUpdateSaving(true);
       try {
         const s = await postJson<Record<string, unknown>>(panel("setting/all"));
@@ -739,6 +745,37 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
                   />
                 </div>
               ) : null}
+            </div>
+            <div className="mb-4 rounded-lg border border-[var(--border)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[var(--fg)]">
+                    {t("pages.xray.geoRetentionCount", { defaultValue: "Keep last N revisions" })}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--fg-muted)]">
+                    {t("pages.xray.geoRetentionCountDesc", {
+                      defaultValue:
+                        "Older downloaded revisions of each geofile are pruned automatically past this count. The currently applied revision is never pruned.",
+                    })}
+                  </p>
+                </div>
+                <Input
+                  id="geofile-retention-count"
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="max-w-[100px]"
+                  value={geofileRetentionCount}
+                  disabled={geofileAutoUpdateSaving}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setGeofileRetentionCount(Number.isFinite(v) ? Math.min(50, Math.max(1, v)) : 5);
+                  }}
+                  onBlur={() => {
+                    void saveGeofileAutoUpdate({ geofileRetentionCount });
+                  }}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div className="space-y-2 rounded-lg border border-[var(--border)] p-3">

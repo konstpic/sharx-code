@@ -217,7 +217,65 @@ func (s *ServerService) UploadGeofileAsset(userId int, fileName string, data io.
 		_ = os.Remove(path)
 		return nil, err
 	}
+	if pruned, pruneErr := s.PruneGeofileAssetRevisions(userId, fileType); pruneErr != nil {
+		logger.Warningf("PruneGeofileAssetRevisions(%s): %v", fileType, pruneErr)
+	} else if pruned > 0 {
+		logger.Infof("PruneGeofileAssetRevisions(%s): removed %d old revision(s)", fileType, pruned)
+	}
 	return row, nil
+}
+
+// PruneGeofileAssetRevisions deletes the oldest inactive revisions of fileType for userId beyond
+// the configured retention count, removing their stored files too. The active revision (if any)
+// is always kept regardless of age or count, since it's what Xray is actually serving right now.
+func (s *ServerService) PruneGeofileAssetRevisions(userId int, fileType string) (int, error) {
+	settingSvc := SettingService{}
+	keep, err := settingSvc.GetGeofileRetentionCount()
+	if err != nil {
+		keep = 5
+	}
+
+	db := database.GetDB()
+	var rows []model.GeofileAsset
+	if err := db.Where("user_id = ? AND file_type = ?", userId, fileType).
+		Order("created_at DESC, id DESC").
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+
+	toDelete := geofileAssetsToPrune(rows, keep)
+
+	deleted := 0
+	for _, row := range toDelete {
+		if err := db.Delete(&model.GeofileAsset{}, row.Id).Error; err != nil {
+			logger.Warningf("PruneGeofileAssetRevisions: delete row %d: %v", row.Id, err)
+			continue
+		}
+		if row.FilePath != "" {
+			_ = os.Remove(row.FilePath)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+// geofileAssetsToPrune is the pure decision function behind PruneGeofileAssetRevisions: given
+// all revisions for one (userId, fileType), ordered newest-first (created_at DESC, id DESC), and
+// how many inactive revisions to keep, it returns exactly the rows that should be deleted. The
+// active revision (if any) is always excluded from both the count and the deletion list.
+func geofileAssetsToPrune(rowsNewestFirst []model.GeofileAsset, keep int) []model.GeofileAsset {
+	kept := 0
+	var toDelete []model.GeofileAsset
+	for _, row := range rowsNewestFirst {
+		if row.IsActive {
+			continue
+		}
+		kept++
+		if kept > keep {
+			toDelete = append(toDelete, row)
+		}
+	}
+	return toDelete
 }
 
 func (s *ServerService) DownloadGeofileAssetFromURL(userId int, fileName string, rawURL string, displayName string) (*model.GeofileAsset, error) {
