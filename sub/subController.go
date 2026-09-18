@@ -12,6 +12,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	service "github.com/konstpic/sharx-code/v2/web/service"
+	"github.com/konstpic/sharx-code/v2/xray"
 
 	"github.com/gin-gonic/gin"
 )
@@ -85,6 +86,18 @@ func (a *SUBController) initRouter(g *gin.RouterGroup) {
 		gJson := g.Group(a.subJsonPath)
 		gJson.GET(":subid", a.subJsons)
 	}
+}
+
+const appGateForbiddenBody = "Please use a supported client application to access this subscription."
+
+// appGateNoticeLines returns the placeholder subscription lines shown instead of a bare 403 when
+// the app gate rejects a request. Empty when custom remarks are disabled or the admin cleared them.
+func (a *SUBController) appGateNoticeLines(decision AppGateDecision) []string {
+	cfg := a.activeV2Config()
+	if !service.ShowCustomRemarksEnabled(cfg) {
+		return nil
+	}
+	return subscriptionPlaceholderLines(appGateRemarks(decision.Reason, service.EffectiveCustomRemarks(cfg)))
 }
 
 // evaluateAppGate checks the (already UA-classified) client against the panel-wide app gate
@@ -196,14 +209,23 @@ func (a *SUBController) subs(c *gin.Context) {
 		return
 	}
 
+	var subs []string
+	var traffic xray.ClientTraffic
+	gateBlocked := false
+
 	if decision := a.evaluateAppGate(uaClient); decision.Blocked {
 		logger.Warningf("Subscription request blocked by app gate: subId=%s reason=%s uaClient=%s User-Agent=%s",
 			subId, decision.Reason, uaClient.Key(), userAgent)
-		c.String(http.StatusForbidden, "Please use a supported client application to access this subscription.")
-		return
+		lines := a.appGateNoticeLines(decision)
+		if len(lines) == 0 {
+			c.String(http.StatusForbidden, appGateForbiddenBody)
+			return
+		}
+		subs = lines
+		gateBlocked = true
 	}
 
-	if subEncrypt {
+	if subEncrypt && !gateBlocked {
 		if !a.isAllowedUserAgent(c) {
 			logger.Warningf("Subscription request blocked: encryption enabled but User-Agent not allowed (subId: %s, User-Agent: %s)",
 				subId, userAgent)
@@ -212,11 +234,14 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 	}
 
-	_, host, _, _ := a.subService.ResolveRequest(c)
-	subs, _, traffic, err := a.subService.GetSubs(subId, host, c)
-	if err != nil || len(subs) == 0 {
-		a.writeSubscriptionFailure(c, "GetSubs", subId, err, len(subs) == 0)
-		return
+	if !gateBlocked {
+		_, host, _, _ := a.subService.ResolveRequest(c)
+		var err error
+		subs, _, traffic, err = a.subService.GetSubs(subId, host, c)
+		if err != nil || len(subs) == 0 {
+			a.writeSubscriptionFailure(c, "GetSubs", subId, err, len(subs) == 0)
+			return
+		}
 	}
 	subs = filterSubscriptionLinksForClient(subs, uaClient)
 	if len(subs) == 0 {
@@ -245,11 +270,13 @@ func (a *SUBController) subs(c *gin.Context) {
 	header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, traffic.ExpiryTime/1000)
 
 	clientAnnounce := ""
-	db := database.GetDB()
-	var clientEntity *model.ClientEntity
-	err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
-	if err == nil && clientEntity != nil && clientEntity.Announce != "" {
-		clientAnnounce = clientEntity.Announce
+	if !gateBlocked {
+		db := database.GetDB()
+		var clientEntity *model.ClientEntity
+		err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
+		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
+			clientAnnounce = clientEntity.Announce
+		}
 	}
 
 	result = prependSubscriptionBodyMetaComments(result, uaClient, cfg, clientAnnounce)
@@ -303,6 +330,21 @@ func (a *SUBController) subJsons(c *gin.Context) {
 	}
 	if cfg != nil && cfg.JsonTemplates != nil {
 		a.subJsonService.applyTemplates(cfg.JsonTemplates.Fragment, cfg.JsonTemplates.Noises, cfg.JsonTemplates.Mux, cfg.JsonTemplates.Rules)
+	}
+
+	uaClient, _ := DispatchByUA(c)
+	if decision := a.evaluateAppGate(uaClient); decision.Blocked {
+		logger.Warningf("JSON subscription request blocked by app gate: subId=%s reason=%s uaClient=%s User-Agent=%s",
+			subId, decision.Reason, uaClient.Key(), userAgent)
+		lines := a.appGateNoticeLines(decision)
+		if len(lines) == 0 {
+			c.String(http.StatusForbidden, appGateForbiddenBody)
+			return
+		}
+		a.ApplyCommonHeaders(c, cfg, "upload=0; download=0; total=0; expire=0", subId, "")
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		c.String(200, jsonSubscriptionNoticeBody(appGateRemarks(decision.Reason, service.EffectiveCustomRemarks(cfg))))
+		return
 	}
 
 	if subEncrypt {
@@ -434,6 +476,9 @@ func (a *SUBController) writeSubscriptionFailure(c *gin.Context, op, subId strin
 func subscriptionFailureStatus(err error, empty bool) (int, string) {
 	if err != nil {
 		if errors.Is(err, service.ErrSessionIPBlocked) {
+			return http.StatusForbidden, "Forbidden"
+		}
+		if errors.Is(err, service.ErrHWIDMissing) {
 			return http.StatusForbidden, "Forbidden"
 		}
 		msg := err.Error()

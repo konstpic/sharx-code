@@ -32,18 +32,18 @@ type SharxSubpageBlock struct {
 // SharxSubpageResponseRules represents HTTP response rules applied to
 // subscription responses (headers, announce, support URL etc.).
 type SharxSubpageResponseRules struct {
-	ProfileTitle                    string                       `json:"profileTitle"`
-	ProfileTitleDelivery            string                       `json:"profileTitleDelivery,omitempty"`
-	ProfileUpdateInterval           int                          `json:"profileUpdateInterval"`
-	ProfileUpdateIntervalDelivery   string                       `json:"profileUpdateIntervalDelivery,omitempty"`
-	Announce                        string                       `json:"announce"`
-	AnnounceDelivery                string                       `json:"announceDelivery,omitempty"`
-	SupportURL                      string                       `json:"supportUrl"`
-	SupportURLDelivery              string                       `json:"supportUrlDelivery,omitempty"`
-	ProfileWebPageURL               string                       `json:"profileWebPageUrl"`
-	ProfileWebPageURLDelivery       string                       `json:"profileWebPageUrlDelivery,omitempty"`
-	MtProtoEnabled                  *bool                        `json:"mtProtoEnabled,omitempty"`
-	ExtraHeaders                    []SharxSubpageResponseHeader `json:"extraHeaders"`
+	ProfileTitle                  string                       `json:"profileTitle"`
+	ProfileTitleDelivery          string                       `json:"profileTitleDelivery,omitempty"`
+	ProfileUpdateInterval         int                          `json:"profileUpdateInterval"`
+	ProfileUpdateIntervalDelivery string                       `json:"profileUpdateIntervalDelivery,omitempty"`
+	Announce                      string                       `json:"announce"`
+	AnnounceDelivery              string                       `json:"announceDelivery,omitempty"`
+	SupportURL                    string                       `json:"supportUrl"`
+	SupportURLDelivery            string                       `json:"supportUrlDelivery,omitempty"`
+	ProfileWebPageURL             string                       `json:"profileWebPageUrl"`
+	ProfileWebPageURLDelivery     string                       `json:"profileWebPageUrlDelivery,omitempty"`
+	MtProtoEnabled                *bool                        `json:"mtProtoEnabled,omitempty"`
+	ExtraHeaders                  []SharxSubpageResponseHeader `json:"extraHeaders"`
 }
 
 // Response header delivery targets (Happ docs: HTTP header and/or body comment).
@@ -181,6 +181,8 @@ type SharxSubpageCustomRemarks struct {
 	EmptyHosts             []string `json:"emptyHosts"`
 	HWIDMaxDevicesExceeded []string `json:"HWIDMaxDevicesExceeded"`
 	HWIDNotSupported       []string `json:"HWIDNotSupported"`
+	BlockedApp             []string `json:"blockedApp"`
+	UnknownApp             []string `json:"unknownApp"`
 }
 
 // SharxSubpageConfigV2 is the block-based schema.

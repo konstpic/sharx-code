@@ -3,6 +3,7 @@ package sub
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -57,6 +58,42 @@ func isHWIDLimitStyleError(err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), "HWID limit exceeded")
+}
+
+// hwidHeaderMissing reports whether a subscription request must be rejected because the client
+// has HWID enforcement but sent no usable device id. A blank or whitespace-only header counts as missing.
+func hwidHeaderMissing(hwidMode string, clientHWIDEnabled bool, hwid string) bool {
+	return hwidMode == "client_header" && clientHWIDEnabled && strings.TrimSpace(hwid) == ""
+}
+
+// hwidBlockedRemarks picks the admin-configured remark lines for an HWID rejection.
+func hwidBlockedRemarks(err error, r service.SharxSubpageCustomRemarks) []string {
+	switch {
+	case errors.Is(err, service.ErrHWIDMissing):
+		return r.HWIDNotSupported
+	case isHWIDLimitStyleError(err):
+		return r.HWIDMaxDevicesExceeded
+	}
+	return nil
+}
+
+// hwidBlockedError wraps an HWID rejection for the non-placeholder (HTTP error) path.
+func hwidBlockedError(err error) error {
+	if errors.Is(err, service.ErrHWIDMissing) {
+		return err
+	}
+	return fmt.Errorf("HWID limit exceeded: %w", err)
+}
+
+// appGateRemarks returns the admin-configured notice lines for an app-gate rejection.
+func appGateRemarks(reason AppGateReason, r service.SharxSubpageCustomRemarks) []string {
+	switch reason {
+	case AppGateReasonBlockedApp:
+		return r.BlockedApp
+	case AppGateReasonUnknownApp:
+		return r.UnknownApp
+	}
+	return nil
 }
 
 // jsonSubscriptionNoticeBody returns a minimal JSON document with blackhole

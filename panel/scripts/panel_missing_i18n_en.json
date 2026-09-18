@@ -242,7 +242,7 @@
   "subBuilder.customRemarks.emptyHosts": "No inbounds / hosts",
   "subBuilder.customRemarks.expiredUsers": "Expired (time)",
   "subBuilder.customRemarks.hwidMax": "HWID: max devices",
-  "subBuilder.customRemarks.hwidUnsupported": "HWID: no device id (not used yet)",
+  "subBuilder.customRemarks.hwidUnsupported": "HWID: device id missing",
   "subBuilder.customRemarks.intro": "When a client cannot receive real nodes (expired, limited, disabled, HWID limit, or no inbounds), the server can return dummy subscription lines whose titles are these texts. One line per remark; empty hosts messages are always used when there are no inbounds.",
   "subBuilder.customRemarks.limitedUsers": "Limited (traffic)",
   "subBuilder.customRemarks.lineHint": "One line per item shown in the client as a node title.",

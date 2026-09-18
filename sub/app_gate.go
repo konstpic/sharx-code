@@ -6,9 +6,9 @@ import "strings"
 type AppGateReason string
 
 const (
-	AppGateReasonNone        AppGateReason = ""
-	AppGateReasonUnknownApp  AppGateReason = "unknown_app"
-	AppGateReasonBlockedApp  AppGateReason = "blocked_app"
+	AppGateReasonNone       AppGateReason = ""
+	AppGateReasonUnknownApp AppGateReason = "unknown_app"
+	AppGateReasonBlockedApp AppGateReason = "blocked_app"
 )
 
 // AppGateDecision is the outcome of evaluating the client-app gate for one subscription request.

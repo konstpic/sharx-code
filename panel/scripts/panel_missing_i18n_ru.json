@@ -242,7 +242,7 @@
   "subBuilder.customRemarks.emptyHosts": "Нет inbound / хостов",
   "subBuilder.customRemarks.expiredUsers": "Истёк срок",
   "subBuilder.customRemarks.hwidMax": "HWID: достигнут лимит устройств",
-  "subBuilder.customRemarks.hwidUnsupported": "HWID: нет идентификатора устройства (пока не используется)",
+  "subBuilder.customRemarks.hwidUnsupported": "HWID: нет идентификатора устройства",
   "subBuilder.customRemarks.intro": "Если клиент не может получить реальные узлы (срок истёк, лимит трафика, аккаунт отключён, лимит HWID или нет inbound), сервер может вернуть фиктивные строки подписки с этими заголовками — по строке на remark; текст «нет хостов» всегда используется при отсутствии inbound.",
   "subBuilder.customRemarks.limitedUsers": "Лимит трафика исчерпан",
   "subBuilder.customRemarks.lineHint": "Одна строка на пункт — клиент покажет это как название узла.",

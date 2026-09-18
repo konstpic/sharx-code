@@ -98,8 +98,8 @@ func (s *SubJsonService) GetJson(subId string, host string, c *gin.Context) (str
 				subCfg, _ := (service.SubscriptionPageConfigService{}).GetActiveV2Config()
 				if service.ShowCustomRemarksEnabled(subCfg) {
 					merged := service.EffectiveCustomRemarks(subCfg)
-					if len(merged.HWIDMaxDevicesExceeded) > 0 {
-						body := jsonSubscriptionNoticeBody(merged.HWIDMaxDevicesExceeded)
+					if remarks := hwidBlockedRemarks(err, merged); len(remarks) > 0 {
+						body := jsonSubscriptionNoticeBody(remarks)
 						header := "upload=0; download=0; total=0; expire=0"
 						if clientEntity != nil {
 							tr := trafficFromClientEntity(clientEntity)
@@ -108,7 +108,7 @@ func (s *SubJsonService) GetJson(subId string, host string, c *gin.Context) (str
 						return body, header, nil
 					}
 				}
-				return "", "", fmt.Errorf("HWID limit exceeded: %w", err)
+				return "", "", hwidBlockedError(err)
 			}
 		}
 	}

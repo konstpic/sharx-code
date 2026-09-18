@@ -8,7 +8,9 @@ func DefaultSharxCustomRemarks() SharxSubpageCustomRemarks {
 		DisabledUsers:          []string{"🚫 Subscription disabled", "Contact support"},
 		EmptyHosts:             []string{"→ SharX", "→ No hosts found", "→ Check inbounds & clients"},
 		HWIDMaxDevicesExceeded: []string{"Limit of devices reached"},
-		HWIDNotSupported:       []string{"App not supported"},
+		HWIDNotSupported:       []string{"Device ID (HWID) required", "Enable HWID in your app"},
+		BlockedApp:             []string{"This app is not allowed", "Use another supported app"},
+		UnknownApp:             []string{"Unrecognized app", "Use a supported client app"},
 	}
 }
 
@@ -35,6 +37,12 @@ func MergeCustomRemarksWithDefaults(cfg *SharxSubpageCustomRemarks) SharxSubpage
 	}
 	if len(cfg.HWIDNotSupported) > 0 {
 		out.HWIDNotSupported = cfg.HWIDNotSupported
+	}
+	if len(cfg.BlockedApp) > 0 {
+		out.BlockedApp = cfg.BlockedApp
+	}
+	if len(cfg.UnknownApp) > 0 {
+		out.UnknownApp = cfg.UnknownApp
 	}
 	return out
 }

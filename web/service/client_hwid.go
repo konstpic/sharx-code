@@ -24,6 +24,10 @@ type ClientHWIDService struct{}
 // ErrHWIDAdminBlocked is returned when a HWID row is blocked in the panel (subscription/HWID checks should deny).
 var ErrHWIDAdminBlocked = errors.New("HWID is blocked for this client")
 
+// ErrHWIDMissing is returned when a client with HWID enforcement requests a subscription
+// without an x-hwid header; a missing HWID must not bypass the device limit.
+var ErrHWIDMissing = errors.New("device HWID is required for this subscription")
+
 // getMoscowTime returns current time in Moscow timezone (UTC+3)
 func (s *ClientHWIDService) getMoscowTime() time.Time {
 	moscow, err := time.LoadLocation("Europe/Moscow")

@@ -192,11 +192,13 @@ func (s *SubService) GetSubs(subId string, host string, c *gin.Context) ([]strin
 	if c != nil && clientEntity != nil {
 		err := s.registerHWIDFromRequest(c, clientEntity)
 		if err != nil {
-			if showCustom && isHWIDLimitStyleError(err) && len(mergedRemarks.HWIDMaxDevicesExceeded) > 0 {
-				t := trafficFromClientEntity(clientEntity)
-				return subscriptionPlaceholderLines(mergedRemarks.HWIDMaxDevicesExceeded), clientEntity.LastOnline, t, nil
+			if showCustom {
+				if lines := subscriptionPlaceholderLines(hwidBlockedRemarks(err, mergedRemarks)); len(lines) > 0 {
+					t := trafficFromClientEntity(clientEntity)
+					return lines, clientEntity.LastOnline, t, nil
+				}
 			}
-			return nil, 0, xray.ClientTraffic{}, fmt.Errorf("HWID limit exceeded: %w", err)
+			return nil, 0, xray.ClientTraffic{}, hwidBlockedError(err)
 		}
 	} else if c != nil {
 		logger.Debugf("GetSubs: Skipping HWID registration - client not found or context is nil (subId: %s)", subId)
@@ -3477,12 +3479,10 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 		// Try alternative header name (case-insensitive)
 		hwid = c.GetHeader("X-HWID")
 	}
-	if hwid == "" {
-		// No HWID header - mark as "unknown" device, don't register
-		// In client_header mode, we don't auto-generate HWID
-		logger.Debugf("No x-hwid header provided for client %d (subId: %s, email: %s) - HWID not registered",
+	if hwidHeaderMissing(hwidMode, clientEntity.HWIDEnabled, hwid) {
+		logger.Warningf("No x-hwid header for HWID-enforced client %d (subId: %s, email: %s) - BLOCKING subscription",
 			clientEntity.Id, clientEntity.SubID, clientEntity.Name)
-		return nil
+		return service.ErrHWIDMissing
 	}
 
 	// Read device metadata from headers (optional)

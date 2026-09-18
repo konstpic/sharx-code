@@ -818,7 +818,11 @@ export const customRemarksSchema = z.object({
     .array(z.string())
     .default(["→ SharX", "→ No hosts found", "→ Check inbounds & clients"]),
   HWIDMaxDevicesExceeded: z.array(z.string()).default(["Limit of devices reached"]),
-  HWIDNotSupported: z.array(z.string()).default(["App not supported"]),
+  HWIDNotSupported: z
+    .array(z.string())
+    .default(["Device ID (HWID) required", "Enable HWID in your app"]),
+  blockedApp: z.array(z.string()).default(["This app is not allowed", "Use another supported app"]),
+  unknownApp: z.array(z.string()).default(["Unrecognized app", "Use a supported client app"]),
 });
 export type CustomRemarks = z.infer<typeof customRemarksSchema>;
 
@@ -1003,6 +1007,14 @@ export function mergeCustomRemarks(partial?: Partial<CustomRemarks> | null): Cus
       partial.HWIDNotSupported !== undefined && partial.HWIDNotSupported.length > 0
         ? partial.HWIDNotSupported
         : d.HWIDNotSupported,
+    blockedApp:
+      partial.blockedApp !== undefined && partial.blockedApp.length > 0
+        ? partial.blockedApp
+        : d.blockedApp,
+    unknownApp:
+      partial.unknownApp !== undefined && partial.unknownApp.length > 0
+        ? partial.unknownApp
+        : d.unknownApp,
   };
 }
 
