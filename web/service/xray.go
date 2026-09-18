@@ -780,9 +780,6 @@ func (s *XrayService) InboundsForWorkerNode(node *model.Node) ([]*model.Inbound,
 	if node == nil {
 		return nil, fmt.Errorf("node is nil")
 	}
-	if s.nodeService == (NodeService{}) {
-		s.nodeService = NodeService{}
-	}
 	if s.inboundService == (InboundService{}) {
 		s.inboundService = InboundService{}
 	}
@@ -876,9 +873,6 @@ func MergeUniquePositiveInts(lists ...[]int) []int {
 // multiWorkerNodeIDsNeedingPush returns enabled node IDs that should receive worker Xray config
 // (have inbounds and/or a core config profile mapping).
 func (s *XrayService) multiWorkerNodeIDsNeedingPush() ([]int, error) {
-	if s.nodeService == (NodeService{}) {
-		s.nodeService = NodeService{}
-	}
 
 	nodes, err := s.nodeService.GetAllNodes()
 	if err != nil {
@@ -933,10 +927,6 @@ func (s *XrayService) applyWorkerConfigToNodeIDsMulti(nodeIDs []int) error {
 	nodeIDs = MergeUniquePositiveInts(nodeIDs)
 	if len(nodeIDs) == 0 {
 		return nil
-	}
-
-	if s.nodeService == (NodeService{}) {
-		s.nodeService = NodeService{}
 	}
 
 	if err := s.settingService.EnsureXrayTemplateConfigValid(); err != nil {

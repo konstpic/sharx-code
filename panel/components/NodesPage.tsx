@@ -30,6 +30,7 @@ import {
   splitNameFlag,
 } from "@/lib/nameFlag";
 import { NodeRegisterStep } from "@/components/NodeRegisterStep";
+import { NodeSSHProvisionSteps, type SSHProvisionStep } from "@/components/NodeSSHProvisionSteps";
 import { NodeResourceDrawer } from "@/components/NodeResourceDrawer";
 import {
   NodeListView,
@@ -230,6 +231,23 @@ export function NodesPage() {
   const [panelSecretKey, setPanelSecretKey] = useState<string | null>(null);
   const [panelSecretLoading, setPanelSecretLoading] = useState(false);
 
+  // Install mode: "manual" is the existing copy-paste-compose flow; "auto" has the panel SSH
+  // into the target server and deploy it directly.
+  const [installMode, setInstallMode] = useState<"manual" | "auto">("manual");
+  const [sshPort, setSshPort] = useState("22");
+  const [sshUsername, setSshUsername] = useState("root");
+  const [sshAuthMethod, setSshAuthMethod] = useState<"password" | "key">("password");
+  const [sshPassword, setSshPassword] = useState("");
+  const [sshPrivateKey, setSshPrivateKey] = useState("");
+  const [sshPassphrase, setSshPassphrase] = useState("");
+  const [sshInstallDir, setSshInstallDir] = useState("");
+  const [sshWatchtowerPort, setSshWatchtowerPort] = useState("");
+  const [sshTaskId, setSshTaskId] = useState<string | null>(null);
+  const [sshSteps, setSshSteps] = useState<SSHProvisionStep[]>([]);
+  const [sshTaskStatus, setSshTaskStatus] = useState<"running" | "success" | "error" | null>(null);
+  const [sshTaskError, setSshTaskError] = useState<string | null>(null);
+  const sshPollAbort = useRef<{ cancelled: boolean } | null>(null);
+
   const [metricsNode, setMetricsNode] = useState<{ id: number; name: string } | null>(null);
   const [multiNode, setMultiNode] = useState<boolean | null>(null);
   const [profileList, setProfileList] = useState<XrayProfileRow[]>([]);
@@ -398,6 +416,20 @@ export function NodesPage() {
     setProfileAssignNodeId(null);
     setSelectedProfileId(null);
     setProfileAssignSubmitting(false);
+    setInstallMode("manual");
+    setSshPort("22");
+    setSshUsername("root");
+    setSshAuthMethod("password");
+    setSshPassword("");
+    setSshPrivateKey("");
+    setSshPassphrase("");
+    setSshInstallDir("");
+    setSshWatchtowerPort("");
+    setSshTaskId(null);
+    setSshSteps([]);
+    setSshTaskStatus(null);
+    setSshTaskError(null);
+    if (sshPollAbort.current) sshPollAbort.current.cancelled = true;
   }, []);
 
   const loadProfilesForAssign = useCallback(async () => {
@@ -594,6 +626,127 @@ export function NodesPage() {
 
   runRegisterRef.current = runRegisterFlow;
 
+  const pollSSHProvisionTask = useCallback(
+    async (taskId: string) => {
+      const token = { cancelled: false };
+      sshPollAbort.current = token;
+      for (;;) {
+        if (token.cancelled) return;
+        const r = await getJson<{
+          status: "running" | "success" | "error";
+          steps: SSHProvisionStep[];
+          error?: string;
+        }>(panel(`node/ssh-provision-status/${taskId}`));
+        if (token.cancelled) return;
+        if (!r.success || !r.obj) {
+          setSshTaskStatus("error");
+          setSshTaskError(r.msg || t("pages.nodes.sshTaskLost", { defaultValue: "Lost track of the install task" }));
+          return;
+        }
+        setSshSteps(r.obj.steps ?? []);
+        setSshTaskStatus(r.obj.status);
+        if (r.obj.status === "error") {
+          setSshTaskError(r.obj.error || t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }));
+          return;
+        }
+        if (r.obj.status === "success") {
+          return;
+        }
+        await wait(1500);
+      }
+    },
+    [t, wait],
+  );
+
+  /** Automatic (SSH) counterpart to runRegisterFlow: creates the node (same as manual), then
+   * has the panel SSH into the target and deploy the compose stack itself, then hands off to
+   * runRegisterFlow(true) for the same final verify/profile-assign tail as the manual path. */
+  /** Automatic (SSH) counterpart to runRegisterFlow. Deliberately provisions BEFORE creating the
+   * node record: node/add health-checks the node immediately and deletes the row again if it
+   * can't reach it — which is exactly the case before the SSH install has actually run. Once the
+   * install succeeds and the node is genuinely reachable, node/add is called the same way the
+   * manual flow does, then control hands off to runRegisterFlow(true) for the same final
+   * verify/profile-assign tail. */
+  const runAutoInstallFlow = useCallback(async () => {
+    setIsRegistering(true);
+    setRegisterError(null);
+    setRegisterFailKind(null);
+    setSshTaskError(null);
+
+    try {
+      if (!sshTaskId || sshTaskStatus === "error") {
+        setSshSteps([]);
+        setSshTaskStatus("running");
+        const triggerBody = {
+          host: form.host.trim(),
+          port: parseInt(sshPort, 10) || 22,
+          username: sshUsername.trim() || "root",
+          authMethod: sshAuthMethod,
+          password: sshAuthMethod === "password" ? sshPassword : undefined,
+          privateKey: sshAuthMethod === "key" ? sshPrivateKey : undefined,
+          privateKeyPassphrase: sshAuthMethod === "key" ? sshPassphrase : undefined,
+          installDir: sshInstallDir.trim() || undefined,
+          watchtowerPort: parseInt(sshWatchtowerPort, 10) || undefined,
+        };
+        const startR = await postJson<{ taskId: string }>(panel("node/ssh-provision"), triggerBody, true);
+        if (!startR.success || !startR.obj?.taskId) {
+          setSshTaskStatus("error");
+          setSshTaskError(
+            (startR as { msg?: string }).msg ||
+              t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }),
+          );
+          return;
+        }
+        setSshTaskId(startR.obj.taskId);
+        await pollSSHProvisionTask(startR.obj.taskId);
+      }
+
+      // Re-check status via a fresh functional update rather than trusting a stale closure.
+      let installed = false;
+      setSshTaskStatus((current) => {
+        installed = current === "success";
+        return current;
+      });
+      if (!installed) return;
+
+      const pack = getAddBody();
+      if (!pack) {
+        setRegisterFailKind("add");
+        setRegisterError(t("pages.nodes.addError"));
+        return;
+      }
+      const r = await postJson<NodeRow & { secretKey?: string }>(panel("node/add"), pack.body, true);
+      if (!r.success || !r.obj) {
+        setRegisterFailKind("add");
+        setRegisterError((r as { msg?: string }).msg || t("pages.nodes.addError"));
+        return;
+      }
+      const obj = r.obj as NodeRow & { secretKey?: string };
+      setPendingReg({ nodeId: obj.id, secretKey: obj.secretKey?.trim() || undefined });
+      void runRegisterRef.current(true);
+    } catch {
+      setSshTaskStatus("error");
+      setSshTaskError(t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }));
+    } finally {
+      setIsRegistering(false);
+    }
+  }, [
+    sshTaskId,
+    sshTaskStatus,
+    getAddBody,
+    t,
+    form.host,
+    sshPort,
+    sshUsername,
+    sshAuthMethod,
+    sshPassword,
+    sshPrivateKey,
+    sshPassphrase,
+    sshInstallDir,
+    sshWatchtowerPort,
+    pollSSHProvisionTask,
+  ]);
+
   const goToRegister = useCallback(() => {
     if (!isValidNodePortString(form.port)) {
       toast.error(t("pages.nodes.validPort"));
@@ -619,11 +772,16 @@ export function NodesPage() {
     setAddWizardStep(2);
     setRegisterError(null);
     setRegisterFailKind(null);
+    if (installMode === "auto") {
+      // Automatic mode needs SSH credentials first, entered on step 2 — the admin triggers
+      // the actual install explicitly there instead of it starting immediately.
+      return;
+    }
     const checkOnly = Boolean(pendingReg);
     setTimeout(() => {
       void runRegisterRef.current(checkOnly);
     }, 0);
-  }, [getAddBody, form.name, form.nameFlag, form.host, form.port, pendingReg, t, toast]);
+  }, [getAddBody, form.name, form.nameFlag, form.host, form.port, pendingReg, installMode, t, toast]);
 
   const backToFormStep = useCallback(() => {
     if (isRegistering) return;
@@ -1607,6 +1765,20 @@ export function NodesPage() {
               </div>
             );
           }
+          if (addWizardStep === 2 && installMode === "auto") {
+            return (
+              <div className="flex flex-wrap justify-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isRegistering}
+                  onClick={backToFormStep}
+                >
+                  {t("pages.nodes.backToEdit")}
+                </Button>
+              </div>
+            );
+          }
           if (addWizardStep === 2) {
             if (registerError && !isRegistering) {
               return (
@@ -1729,6 +1901,176 @@ export function NodesPage() {
               </div>
             )}
           </div>
+        ) : addWizardStep === 2 && installMode === "auto" ? (
+          <div className="flex flex-col gap-4 text-sm">
+            {!sshTaskId ? (
+              <>
+                <p className="text-xs text-[var(--fg-subtle)]">
+                  {t("pages.nodes.sshCredentialsHint", {
+                    defaultValue:
+                      "One-time SSH access to install and start the node. Credentials are used only for this install and are never stored.",
+                  })}
+                </p>
+                <div className="grid grid-cols-[1fr,6.5rem] gap-3">
+                  <label className="grid gap-1">
+                    <span className="text-xs text-[var(--fg-muted)]">
+                      {t("pages.nodes.sshHost", { defaultValue: "SSH host" })}
+                    </span>
+                    <Input value={form.host} disabled placeholder="node.example.com" />
+                  </label>
+                  <label className="grid gap-1">
+                    <span className="text-xs text-[var(--fg-muted)]">
+                      {t("pages.nodes.sshPort", { defaultValue: "SSH port" })}
+                    </span>
+                    <Input
+                      value={sshPort}
+                      onChange={(e) => setSshPort(e.target.value)}
+                      inputMode="numeric"
+                      placeholder="22"
+                    />
+                  </label>
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {t("pages.nodes.sshUsername", { defaultValue: "SSH username" })}
+                  </span>
+                  <Input value={sshUsername} onChange={(e) => setSshUsername(e.target.value)} placeholder="root" />
+                </label>
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_3%,transparent)] p-1">
+                  {(["password", "key"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSshAuthMethod(m)}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        sshAuthMethod === m
+                          ? "bg-[var(--accent)] text-[var(--accent-fg,white)]"
+                          : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                      }`}
+                    >
+                      {m === "password"
+                        ? t("pages.nodes.sshAuthPassword", { defaultValue: "Password" })
+                        : t("pages.nodes.sshAuthKey", { defaultValue: "Private key" })}
+                    </button>
+                  ))}
+                </div>
+                {sshAuthMethod === "password" ? (
+                  <label className="grid gap-1">
+                    <span className="text-xs text-[var(--fg-muted)]">
+                      {t("pages.nodes.sshPassword", { defaultValue: "SSH password" })}
+                    </span>
+                    <Input
+                      type="password"
+                      value={sshPassword}
+                      onChange={(e) => setSshPassword(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                ) : (
+                  <>
+                    <label className="grid gap-1">
+                      <span className="text-xs text-[var(--fg-muted)]">
+                        {t("pages.nodes.sshPrivateKey", { defaultValue: "Private key (PEM)" })}
+                      </span>
+                      <textarea
+                        className="min-h-24 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 font-mono text-xs text-[var(--fg)]"
+                        value={sshPrivateKey}
+                        onChange={(e) => setSshPrivateKey(e.target.value)}
+                        placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label className="grid gap-1">
+                      <span className="text-xs text-[var(--fg-muted)]">
+                        {t("pages.nodes.sshPassphrase", { defaultValue: "Key passphrase (if any)" })}
+                      </span>
+                      <Input
+                        type="password"
+                        value={sshPassphrase}
+                        onChange={(e) => setSshPassphrase(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </label>
+                  </>
+                )}
+                <label className="grid gap-1">
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {t("pages.nodes.sshInstallDir", { defaultValue: "Install directory (optional)" })}
+                  </span>
+                  <Input
+                    value={sshInstallDir}
+                    onChange={(e) => setSshInstallDir(e.target.value)}
+                    placeholder="/opt/sharxnode"
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-xs text-[var(--fg-muted)]">
+                    {t("pages.nodes.sshWatchtowerPort", { defaultValue: "Updater local port (optional)" })}
+                  </span>
+                  <Input
+                    value={sshWatchtowerPort}
+                    onChange={(e) => setSshWatchtowerPort(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="8081"
+                  />
+                  <span className="text-[11px] text-[var(--fg-subtle)]">
+                    {t("pages.nodes.sshWatchtowerPortDesc", {
+                      defaultValue:
+                        "Loopback port for the node's own update sidecar. Change it only if 127.0.0.1:8081 is already used by something else on that server.",
+                    })}
+                  </span>
+                </label>
+                {registerError ? (
+                  <p className="text-center text-sm text-[var(--danger)]">
+                    {t("pages.nodes.registerFail")}: {registerError}
+                  </p>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="primary"
+                  loading={isRegistering}
+                  disabled={
+                    isRegistering ||
+                    (sshAuthMethod === "password" ? !sshPassword : !sshPrivateKey.trim())
+                  }
+                  onClick={() => void runAutoInstallFlow()}
+                >
+                  {t("pages.nodes.sshStartInstall", { defaultValue: "Install automatically" })}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-center text-xs text-[var(--fg-muted)]">
+                  {sshTaskStatus === "success"
+                    ? t("pages.nodes.sshInstallDone", { defaultValue: "Installed — verifying connection…" })
+                    : sshTaskStatus === "error"
+                      ? t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" })
+                      : t("pages.nodes.sshInstallRunning", { defaultValue: "Installing on the target server…" })}
+                </p>
+                <NodeSSHProvisionSteps steps={sshSteps} />
+                {sshTaskStatus === "error" ? (
+                  <>
+                    {sshTaskError ? (
+                      <p className="text-center text-sm text-[var(--danger)]">{sshTaskError}</p>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="primary"
+                      loading={isRegistering}
+                      onClick={() => {
+                        setSshTaskId(null);
+                        setSshSteps([]);
+                        setSshTaskStatus(null);
+                        setSshTaskError(null);
+                      }}
+                    >
+                      {t("pages.nodes.sshRetry", { defaultValue: "Try again" })}
+                    </Button>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
         ) : addWizardStep === 2 ? (
           <div className="flex flex-col gap-4 text-sm">
             {createdSecretKey ? (
@@ -1764,8 +2106,31 @@ export function NodesPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_3%,transparent)] p-1">
+              {(["manual", "auto"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setInstallMode(mode)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    installMode === mode
+                      ? "bg-[var(--accent)] text-[var(--accent-fg,white)]"
+                      : "text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                  }`}
+                >
+                  {mode === "manual"
+                    ? t("pages.nodes.installModeManual", { defaultValue: "Manual" })
+                    : t("pages.nodes.installModeAuto", { defaultValue: "Automatic (SSH)" })}
+                </button>
+              ))}
+            </div>
             <p className="text-xs text-[var(--fg-subtle)]">
-              {t("pages.nodes.fullUrlHint")}
+              {installMode === "auto"
+                ? t("pages.nodes.installModeAutoDesc", {
+                    defaultValue:
+                      "The panel connects over SSH, installs Docker if needed, and deploys the node itself.",
+                  })
+                : t("pages.nodes.fullUrlHint")}
             </p>
             {pendingReg ? (
               <div className="rounded-md border border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_3%,transparent)] p-3">
@@ -1802,29 +2167,33 @@ export function NodesPage() {
                 </div>
               </div>
             ) : null}
-            <div className="rounded-md border border-[var(--border)] bg-[color-mix(in_oklab,var(--accent)_6%,transparent)] p-3">
-              <p className="mb-1 text-xs font-medium text-[var(--fg-muted)]">
-                {t("pages.nodes.composeFirstStepTitle")}
-              </p>
-              <p className="mb-2 text-[11px] text-[var(--fg-subtle)]">
-                {t("pages.nodes.composeFirstStepDesc")}
-              </p>
-              <Button
-                type="button"
-                variant="primary"
-                className="!gap-2"
-                disabled={!panelSecretKey}
-                loading={panelSecretLoading && !panelSecretKey}
-                onClick={() => void copyPanelCompose()}
-              >
-                <Copy size={16} />
-                {t("pages.nodes.copyDockerCompose")}
-              </Button>
-            </div>
-            {publicUrlHint ? (
-              <p className="text-[11px] text-[var(--fg-subtle)]">
-                {t("pages.nodes.hostUrlNoPortHint", { url: publicUrlHint })}
-              </p>
+            {installMode === "manual" ? (
+              <>
+                <div className="rounded-md border border-[var(--border)] bg-[color-mix(in_oklab,var(--accent)_6%,transparent)] p-3">
+                  <p className="mb-1 text-xs font-medium text-[var(--fg-muted)]">
+                    {t("pages.nodes.composeFirstStepTitle")}
+                  </p>
+                  <p className="mb-2 text-[11px] text-[var(--fg-subtle)]">
+                    {t("pages.nodes.composeFirstStepDesc")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="!gap-2"
+                    disabled={!panelSecretKey}
+                    loading={panelSecretLoading && !panelSecretKey}
+                    onClick={() => void copyPanelCompose()}
+                  >
+                    <Copy size={16} />
+                    {t("pages.nodes.copyDockerCompose")}
+                  </Button>
+                </div>
+                {publicUrlHint ? (
+                  <p className="text-[11px] text-[var(--fg-subtle)]">
+                    {t("pages.nodes.hostUrlNoPortHint", { url: publicUrlHint })}
+                  </p>
+                ) : null}
+              </>
             ) : null}
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="w-full shrink-0 sm:max-w-[7.5rem]">

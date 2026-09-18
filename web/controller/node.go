@@ -60,6 +60,8 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 	g.GET("/secret", a.getPairingSecret) // Panel-wide SECRET_KEY for node docker-compose
 	g.GET("/geography", a.getNodesGeography)
 	g.GET("/client-traffic-per-node", a.getClientTrafficPerNode)
+	g.POST("/ssh-provision", a.startNodeSSHProvision)
+	g.GET("/ssh-provision-status/:taskId", a.getNodeSSHProvisionStatus)
 	// push-logs endpoint moved to APIController to bypass session auth
 }
 
@@ -87,6 +89,69 @@ func (a *NodeController) getPairingSecret(c *gin.Context) {
 		return
 	}
 	jsonObj(c, map[string]string{"secretKey": secret}, nil)
+}
+
+// startNodeSSHProvision kicks off an automatic install of the node docker-compose stack over
+// SSH, mirroring what an admin would otherwise copy-paste manually. Credentials in the request
+// body are used once for this run and never persisted.
+//
+// Deliberately runs before any node record exists: node/add health-checks the node and deletes
+// the row again if it can't reach it yet, which is exactly the case for a node that hasn't been
+// deployed yet. The frontend calls node/add itself, using the same address, once this task
+// reports success and the node is genuinely reachable.
+func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
+	var body struct {
+		Host                 string `json:"host"`
+		Port                 int    `json:"port"`
+		Username             string `json:"username"`
+		AuthMethod           string `json:"authMethod"`
+		Password             string `json:"password"`
+		PrivateKey           string `json:"privateKey"`
+		PrivateKeyPassphrase string `json:"privateKeyPassphrase"`
+		InstallDir           string `json:"installDir"`
+		WatchtowerPort       int    `json:"watchtowerPort"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "Invalid request", err)
+		return
+	}
+
+	pairing := &service.PanelPairingService{}
+	secret, err := pairing.GetSecretKey()
+	if err != nil {
+		jsonMsg(c, "Failed to load pairing secret", err)
+		return
+	}
+
+	taskID, err := a.nodeService.StartNodeSSHProvision(service.NodeSSHProvisionRequest{
+		Host:                 body.Host,
+		Port:                 body.Port,
+		Username:             body.Username,
+		AuthMethod:           body.AuthMethod,
+		Password:             body.Password,
+		PrivateKeyPem:        body.PrivateKey,
+		PrivateKeyPassphrase: body.PrivateKeyPassphrase,
+		SecretKey:            secret,
+		InstallDir:           body.InstallDir,
+		WatchtowerPort:       body.WatchtowerPort,
+	})
+	if err != nil {
+		jsonMsg(c, "Failed to start automatic install: "+err.Error(), err)
+		return
+	}
+	logger.Infof("SSH auto-install started: task=%s host=%s", taskID, body.Host)
+	jsonObj(c, gin.H{"taskId": taskID}, nil)
+}
+
+// getNodeSSHProvisionStatus returns progress for a running/finished automatic install task.
+func (a *NodeController) getNodeSSHProvisionStatus(c *gin.Context) {
+	taskID := c.Param("taskId")
+	task := a.nodeService.GetSSHProvisionTask(taskID)
+	if task == nil {
+		jsonMsg(c, "Task not found", fmt.Errorf("task not found"))
+		return
+	}
+	jsonObj(c, task, nil)
 }
 
 // getNodes retrieves the list of all nodes.

@@ -44,10 +44,6 @@ func (s *XrayService) applySidecarsToNodeIDsMulti(nodeIDs []int) error {
 		return nil
 	}
 
-	if s.nodeService == (NodeService{}) {
-		s.nodeService = NodeService{}
-	}
-
 	var nodes []*model.Node
 	for _, nid := range nodeIDs {
 		node, err := s.nodeService.GetNode(nid)

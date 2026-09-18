@@ -12,9 +12,6 @@ func (s *XrayService) NodeIDsForInboundIDs(inboundIDs []int) ([]int, error) {
 	if len(inboundIDs) == 0 {
 		return nil, nil
 	}
-	if s.nodeService == (NodeService{}) {
-		s.nodeService = NodeService{}
-	}
 	var lists [][]int
 	for _, inboundID := range inboundIDs {
 		if inboundID <= 0 {

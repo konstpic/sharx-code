@@ -31,7 +31,16 @@ import (
 )
 
 // NodeService provides business logic for managing nodes in multi-node mode.
-type NodeService struct{}
+//
+// sshProvisionMu/sshProvisionTasks back the in-memory task store for automatic SSH node
+// installs (see node_ssh_provision.go) — mirrors ServerService's geofileTasks pattern. This
+// only works as shared state when callers use the same long-lived NodeService instance (e.g.
+// NodeController.nodeService); throwaway `NodeService{}` locals elsewhere in this package don't
+// need it and are unaffected.
+type NodeService struct {
+	sshProvisionMu    sync.Mutex
+	sshProvisionTasks map[string]*NodeSSHProvisionTask
+}
 
 const workerConfigRecoverMinInterval = 3 * time.Minute
 
@@ -1227,14 +1236,14 @@ type NodeClientTraffic struct {
 
 // NodePublicHealth is a subset of the node worker's GET /health (no auth).
 type NodePublicHealth struct {
-	Status        string `json:"status"`
-	Service       string `json:"service"`
-	XrayRunning   bool   `json:"xrayRunning"`
-	XrayVersion   string `json:"xrayVersion"`
-	XrayUptime    int64  `json:"xrayUptime"`
-	TelemtRunning bool   `json:"telemtRunning"`
-	TelemtCount   int    `json:"telemtCount"`
-	AmneziaWgRunning bool `json:"amneziawgRunning"`
+	Status           string `json:"status"`
+	Service          string `json:"service"`
+	XrayRunning      bool   `json:"xrayRunning"`
+	XrayVersion      string `json:"xrayVersion"`
+	XrayUptime       int64  `json:"xrayUptime"`
+	TelemtRunning    bool   `json:"telemtRunning"`
+	TelemtCount      int    `json:"telemtCount"`
+	AmneziaWgRunning bool   `json:"amneziawgRunning"`
 	AmneziaWgCount   int    `json:"amneziawgCount"`
 }
 
