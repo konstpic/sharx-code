@@ -108,6 +108,7 @@ export type AllSetting = {
   subAppGateRequireKnownApp: boolean;
   /** Comma-separated app keys (see sub.UAClient.Key() on the backend), e.g. "incy". */
   subAppGateBlockedApps: string;
+  subAppGateAllowedApps: string;
 };
 
 function toBool(v: unknown): boolean {
@@ -236,5 +237,6 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     subAppGateEnable: toBool(raw.subAppGateEnable),
     subAppGateRequireKnownApp: toBool(raw.subAppGateRequireKnownApp),
     subAppGateBlockedApps: toStr(raw.subAppGateBlockedApps),
+    subAppGateAllowedApps: toStr(raw.subAppGateAllowedApps),
   };
 }

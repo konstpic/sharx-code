@@ -110,7 +110,8 @@ func (a *SUBController) evaluateAppGate(uaClient UAClient) AppGateDecision {
 	}
 	requireKnown, _ := ss.GetSubAppGateRequireKnownApp()
 	blockedApps, _ := ss.GetSubAppGateBlockedApps()
-	return EvaluateAppGate(uaClient, enabled, requireKnown, blockedApps)
+	allowedApps, _ := ss.GetSubAppGateAllowedApps()
+	return EvaluateAppGate(uaClient, enabled, requireKnown, blockedApps, allowedApps)
 }
 
 // isAllowedUserAgent checks if the User-Agent is allowed when encryption is enabled.

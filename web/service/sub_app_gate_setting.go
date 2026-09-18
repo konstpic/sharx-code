@@ -26,3 +26,12 @@ func (s *SettingService) GetSubAppGateBlockedApps() (string, error) {
 	}
 	return v, nil
 }
+
+// GetSubAppGateAllowedApps returns the raw comma-separated allowlist of app keys; empty = no allowlist.
+func (s *SettingService) GetSubAppGateAllowedApps() (string, error) {
+	v, err := s.getString("subAppGateAllowedApps")
+	if err != nil {
+		return "", err
+	}
+	return v, nil
+}

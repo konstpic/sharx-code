@@ -17,6 +17,17 @@ type AppGateDecision struct {
 	Reason  AppGateReason
 }
 
+// appKeySet parses a comma-separated app-key list into a lower-cased set.
+func appKeySet(csv string) map[string]bool {
+	set := map[string]bool{}
+	for _, raw := range strings.Split(csv, ",") {
+		if k := strings.ToLower(strings.TrimSpace(raw)); k != "" {
+			set[k] = true
+		}
+	}
+	return set
+}
+
 // EvaluateAppGate decides whether a subscription request should be blocked based on the
 // User-Agent-classified client app. This is a best-effort filter, not a security boundary:
 // User-Agent (and the x-client header INCY uses) is fully client-controlled and trivially
@@ -26,9 +37,11 @@ type AppGateDecision struct {
 //   - enabled=false: gate is off, always allows.
 //   - requireKnownApp=true: requests classified as UAUnknown (no recognized app signature) are
 //     blocked — the client must send a User-Agent (or x-client header) we recognize.
-//   - blockedAppsCSV: comma-separated app keys (see UAClient.Key()) that are always blocked
-//     regardless of requireKnownApp, e.g. "incy" to block a specific unwanted client.
-func EvaluateAppGate(uaClient UAClient, enabled bool, requireKnownApp bool, blockedAppsCSV string) AppGateDecision {
+//   - blockedAppsCSV: comma-separated app keys (see UAClient.Key()) that are always blocked,
+//     e.g. "incy". The blocklist wins over the allowlist.
+//   - allowedAppsCSV: comma-separated app keys; when non-empty it is an allowlist — every app
+//     not listed (including unrecognized ones) is blocked, so "only incy" is a single entry.
+func EvaluateAppGate(uaClient UAClient, enabled bool, requireKnownApp bool, blockedAppsCSV string, allowedAppsCSV string) AppGateDecision {
 	if !enabled {
 		return AppGateDecision{}
 	}
@@ -36,11 +49,11 @@ func EvaluateAppGate(uaClient UAClient, enabled bool, requireKnownApp bool, bloc
 		return AppGateDecision{Blocked: true, Reason: AppGateReasonUnknownApp}
 	}
 	key := uaClient.Key()
-	for _, raw := range strings.Split(blockedAppsCSV, ",") {
-		blocked := strings.ToLower(strings.TrimSpace(raw))
-		if blocked != "" && blocked == key {
-			return AppGateDecision{Blocked: true, Reason: AppGateReasonBlockedApp}
-		}
+	if appKeySet(blockedAppsCSV)[key] {
+		return AppGateDecision{Blocked: true, Reason: AppGateReasonBlockedApp}
+	}
+	if allowed := appKeySet(allowedAppsCSV); len(allowed) > 0 && !allowed[key] {
+		return AppGateDecision{Blocked: true, Reason: AppGateReasonBlockedApp}
 	}
 	return AppGateDecision{}
 }

@@ -1712,3 +1712,118 @@ section[id] {
 .panel-data-table .ant-table-tbody > tr:hover > td {
   background: color-mix(in oklab, var(--accent) 5%, transparent) !important;
 }
+
+/* Light panel themes (Vision, Hello Kitty): pale text-*-100..400 utilities are tuned for dark
+   backgrounds (alert banners, toasts, status labels) and vanish on light surfaces — remap them
+   to readable 700-level tones. */
+:root[data-theme="light"] [class*="text-red-100"],
+:root[data-theme="light"] [class*="text-red-200"],
+:root[data-theme="light"] [class*="text-red-300"],
+:root[data-theme="light"] [class*="text-red-400"] {
+  color: #b91c1c;
+}
+
+:root[data-theme="light"] [class*="text-rose-100"],
+:root[data-theme="light"] [class*="text-rose-200"],
+:root[data-theme="light"] [class*="text-rose-300"],
+:root[data-theme="light"] [class*="text-rose-400"] {
+  color: #be123c;
+}
+
+:root[data-theme="light"] [class*="text-amber-100"],
+:root[data-theme="light"] [class*="text-amber-200"],
+:root[data-theme="light"] [class*="text-amber-300"],
+:root[data-theme="light"] [class*="text-amber-400"] {
+  color: #b45309;
+}
+
+:root[data-theme="light"] [class*="text-orange-100"],
+:root[data-theme="light"] [class*="text-orange-200"],
+:root[data-theme="light"] [class*="text-orange-300"],
+:root[data-theme="light"] [class*="text-orange-400"] {
+  color: #c2410c;
+}
+
+:root[data-theme="light"] [class*="text-yellow-100"],
+:root[data-theme="light"] [class*="text-yellow-200"],
+:root[data-theme="light"] [class*="text-yellow-300"],
+:root[data-theme="light"] [class*="text-yellow-400"] {
+  color: #a16207;
+}
+
+:root[data-theme="light"] [class*="text-lime-100"],
+:root[data-theme="light"] [class*="text-lime-200"],
+:root[data-theme="light"] [class*="text-lime-300"],
+:root[data-theme="light"] [class*="text-lime-400"] {
+  color: #4d7c0f;
+}
+
+:root[data-theme="light"] [class*="text-green-100"],
+:root[data-theme="light"] [class*="text-green-200"],
+:root[data-theme="light"] [class*="text-green-300"],
+:root[data-theme="light"] [class*="text-green-400"] {
+  color: #15803d;
+}
+
+:root[data-theme="light"] [class*="text-emerald-100"],
+:root[data-theme="light"] [class*="text-emerald-200"],
+:root[data-theme="light"] [class*="text-emerald-300"],
+:root[data-theme="light"] [class*="text-emerald-400"] {
+  color: #047857;
+}
+
+:root[data-theme="light"] [class*="text-teal-100"],
+:root[data-theme="light"] [class*="text-teal-200"],
+:root[data-theme="light"] [class*="text-teal-300"],
+:root[data-theme="light"] [class*="text-teal-400"] {
+  color: #0f766e;
+}
+
+:root[data-theme="light"] [class*="text-cyan-100"],
+:root[data-theme="light"] [class*="text-cyan-200"],
+:root[data-theme="light"] [class*="text-cyan-300"],
+:root[data-theme="light"] [class*="text-cyan-400"] {
+  color: #0e7490;
+}
+
+:root[data-theme="light"] [class*="text-sky-100"],
+:root[data-theme="light"] [class*="text-sky-200"],
+:root[data-theme="light"] [class*="text-sky-300"],
+:root[data-theme="light"] [class*="text-sky-400"] {
+  color: #0369a1;
+}
+
+:root[data-theme="light"] [class*="text-blue-100"],
+:root[data-theme="light"] [class*="text-blue-200"],
+:root[data-theme="light"] [class*="text-blue-300"],
+:root[data-theme="light"] [class*="text-blue-400"] {
+  color: #1d4ed8;
+}
+
+:root[data-theme="light"] [class*="text-indigo-100"],
+:root[data-theme="light"] [class*="text-indigo-200"],
+:root[data-theme="light"] [class*="text-indigo-300"],
+:root[data-theme="light"] [class*="text-indigo-400"] {
+  color: #4338ca;
+}
+
+:root[data-theme="light"] [class*="text-violet-100"],
+:root[data-theme="light"] [class*="text-violet-200"],
+:root[data-theme="light"] [class*="text-violet-300"],
+:root[data-theme="light"] [class*="text-violet-400"] {
+  color: #6d28d9;
+}
+
+:root[data-theme="light"] [class*="text-purple-100"],
+:root[data-theme="light"] [class*="text-purple-200"],
+:root[data-theme="light"] [class*="text-purple-300"],
+:root[data-theme="light"] [class*="text-purple-400"] {
+  color: #7e22ce;
+}
+
+:root[data-theme="light"] [class*="text-pink-100"],
+:root[data-theme="light"] [class*="text-pink-200"],
+:root[data-theme="light"] [class*="text-pink-300"],
+:root[data-theme="light"] [class*="text-pink-400"] {
+  color: #be185d;
+}

@@ -1034,6 +1034,19 @@ export function SettingsPage() {
                   />
                 </Row>
                 <Row
+                  label={t("pages.settings.subAppGateAllowedApps", { defaultValue: "Allowed apps (allowlist)" })}
+                  hint={t("pages.settings.subAppGateAllowedAppsDesc", {
+                    defaultValue:
+                      "Comma-separated app keys. When not empty, ONLY these apps get the subscription and everything else is blocked, e.g. \"incy\". The blocked list takes priority over this one. Leave empty to allow any app.",
+                  })}
+                >
+                  <Input
+                    value={form.subAppGateAllowedApps}
+                    placeholder="incy"
+                    onChange={(e) => patch("subAppGateAllowedApps", e.target.value)}
+                  />
+                </Row>
+                <Row
                   label={t("pages.settings.subAppGateBlockedApps", { defaultValue: "Blocked apps" })}
                   hint={t("pages.settings.subAppGateBlockedAppsDesc", {
                     defaultValue:

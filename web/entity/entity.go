@@ -165,6 +165,7 @@ type AllSetting struct {
 	SubAppGateEnable          bool   `json:"subAppGateEnable" form:"subAppGateEnable"`
 	SubAppGateRequireKnownApp bool   `json:"subAppGateRequireKnownApp" form:"subAppGateRequireKnownApp"` // reject unrecognized User-Agent
 	SubAppGateBlockedApps     string `json:"subAppGateBlockedApps" form:"subAppGateBlockedApps"`         // comma-separated app keys, e.g. "incy"
+	SubAppGateAllowedApps     string `json:"subAppGateAllowedApps" form:"subAppGateAllowedApps"`         // comma-separated allowlist; non-empty = only these apps
 	// JSON subscription routing rules
 }
 
@@ -291,7 +292,10 @@ func (s *AllSetting) CheckValid() error {
 		return common.NewErrorf("ipLimitRecencyWindowSec must be between 10 and 86400 seconds")
 	}
 
-	if err := validateSubAppGateSettings(s.SubAppGateBlockedApps); err != nil {
+	if err := validateSubAppGateSettings("subAppGateBlockedApps", s.SubAppGateBlockedApps); err != nil {
+		return err
+	}
+	if err := validateSubAppGateSettings("subAppGateAllowedApps", s.SubAppGateAllowedApps); err != nil {
 		return err
 	}
 
@@ -313,14 +317,14 @@ var subAppGateKnownKeys = map[string]bool{
 	"clashmeta": true, "karing": true, "nekobox": true, "throne": true, "singbox": true,
 }
 
-func validateSubAppGateSettings(blockedApps string) error {
-	for _, key := range strings.Split(blockedApps, ",") {
+func validateSubAppGateSettings(field, apps string) error {
+	for _, key := range strings.Split(apps, ",") {
 		key = strings.ToLower(strings.TrimSpace(key))
 		if key == "" {
 			continue
 		}
 		if !subAppGateKnownKeys[key] {
-			return common.NewErrorf("subAppGateBlockedApps: unknown app key %q", key)
+			return common.NewErrorf("%s: unknown app key %q", field, key)
 		}
 	}
 	return nil
