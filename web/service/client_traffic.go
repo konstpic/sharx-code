@@ -15,14 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// clientTrafficState stores previous traffic values for speed calculation
-type clientTrafficState struct {
-	prevUp   int64
-	prevDown int64
-	prevTime int64
-	mu       sync.RWMutex
-}
-
 // bpsPair holds last computed upload/download speeds (bits per second) for panel display.
 // Speed is derived in AddClientTraffic and is not stored in the database (ClientEntity gorm:"-").
 type bpsPair struct {
@@ -38,10 +30,6 @@ var (
 	panelLastNodeMu      sync.RWMutex
 	panelLastNodeByEmail map[string]string
 
-	// trafficStateMap stores previous traffic states for speed calculation
-	// map[clientId]clientTrafficState
-	trafficStateMap              = make(map[int]*clientTrafficState)
-	trafficStateMu               sync.RWMutex
 	hysteriaInboundCumulativeMap = make(map[string]struct {
 		up   int64
 		down int64
@@ -103,6 +91,12 @@ func setPanelClientLiveSpeeds(m map[int]bpsPair) {
 	}
 }
 
+// RefreshPanelClientLiveSpeeds recomputes the live speeds from the sliding window so that
+// values decay while no new traffic ticks arrive. Call before merging speeds into a broadcast.
+func RefreshPanelClientLiveSpeeds() {
+	setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
+}
+
 func panelClientLiveSpeedFor(clientID int) (up, down int64, ok bool) {
 	panelLiveSpeedMu.RLock()
 	defer panelLiveSpeedMu.RUnlock()
@@ -140,7 +134,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 	// "online" forever after disconnect; the UI debounces brief gaps via OFFLINE_STATUS_DELAY.
 	if len(traffics) == 0 {
 		setPanelOnlineClients(nil)
-		setPanelClientLiveSpeeds(nil)
+		setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
 		return clientsToDisable, affectedInboundIds, nil
 	}
 
@@ -300,7 +294,8 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 
 	now := time.Now().Unix() * 1000
 
-	liveSpeeds := make(map[int]bpsPair, len(clientEntities))
+	speedNow := time.Now().UnixMilli()
+	speedFrom := liveSpeedTracker.startTick(speedNow)
 
 	// Update traffic for each client
 	for _, client := range clientEntities {
@@ -363,101 +358,12 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 					float64(client.Up)/(1024*1024), float64(client.Down)/(1024*1024))
 			}
 		}
-		// Store previous values for speed calculation (BEFORE updating)
-		prevUp := client.Up
-		prevDown := client.Down
+		// Client upload = xray downlink delta (newDown), client download = uplink delta (newUp).
+		liveSpeedTracker.observe(client.Id, speedFrom, speedNow, newDown, newUp)
 
-		// Calculate speed BEFORE updating traffic values
-		// This ensures we use the correct difference between old and new values
-		currentTime := time.Now().Unix()
-
-		// Get or create traffic state for this client
-		trafficStateMu.Lock()
-		state, exists := trafficStateMap[client.Id]
-		if !exists {
-			state = &clientTrafficState{
-				prevUp:   prevUp,
-				prevDown: prevDown,
-				prevTime: currentTime,
-			}
-			trafficStateMap[client.Id] = state
-		}
-		trafficStateMu.Unlock()
-
-		// Calculate speed if we have previous values
-		state.mu.Lock()
-		timeDiff := currentTime - state.prevTime
-		if timeDiff > 0 && timeDiff <= 5 { // Only calculate if time diff is reasonable (1-5 seconds)
-			// Calculate differences BEFORE updating client.Up/Down
-			// NOTE: In ClientEntity (after swap in AddClientTraffic):
-			// - client.Up = upload traffic (client sends to server) = prevUp + newDown
-			// - client.Down = download traffic (client receives from server) = prevDown + newUp
-			// But based on user feedback, they appear swapped, so we swap them back:
-			// Calculate what the NEW values will be after adding traffic (with swap)
-			futureUp := prevUp + newDown   // Upload will be: old + newDown (from trafficData)
-			futureDown := prevDown + newUp // Download will be: old + newUp (from trafficData)
-
-			// Calculate differences: new - old (using state.prevUp/Down from previous call)
-			// Note: state.prevUp/Down are from the LAST time we updated, so they represent the "old" values
-			// futureUp = upload traffic (client sends), futureDown = download traffic (client receives)
-			upDiff := futureUp - state.prevUp       // Upload difference (client sends to server)
-			downDiff := futureDown - state.prevDown // Download difference (client receives from server)
-
-			// Calculate speed in BITS per second (not bytes)
-			// Speed = bytes / seconds * 8 = bits per second
-			// This matches standard internet speed measurement (Mbps, Gbps)
-			// IMPORTANT: Both directions use the same calculation formula for consistency
-			// Formula: (diff / timeDiff) * 8 = bits per second
-			// Xray API returns traffic in BYTES, so we multiply by 8 to get bits
-			// For 300 Mbps: 300 * 1024 * 1024 / 8 = 37.5 MB/s = 37,500,000 bytes/s
-			// So if upDiff = 37,500,000 bytes and timeDiff = 1 sec, speed = 37,500,000 * 8 = 300,000,000 bps = 300 Mbps
-			bytesPerSecUp := float64(upDiff) / float64(timeDiff)
-			bytesPerSecDown := float64(downDiff) / float64(timeDiff)
-
-			// Calculate speed in bits per second: bytes/sec * 8 = bits/sec
-			// upDiff = upload difference (client sends), downDiff = download difference (client receives)
-			// Assign correctly: UpSpeed = upload speed, DownSpeed = download speed
-			client.UpSpeed = int64(bytesPerSecUp * 8)     // Upload speed (client sends)
-			client.DownSpeed = int64(bytesPerSecDown * 8) // Download speed (client receives)
-
-			// Log speed calculation for debugging (only for significant speeds > 10Kbps)
-			// Log detailed info to understand units and verify calculation
-			if (client.UpSpeed > 10*1024 || client.DownSpeed > 10*1024) && newTotal > 0 {
-				logger.Debugf("AddClientTraffic: client %s speed calculation - "+
-					"UpDiff: %d, DownDiff: %d, TimeDiff: %d sec, "+
-					"BytesPerSecUp: %.2f, BytesPerSecDown: %.2f, "+
-					"UpSpeed: %d bps (%.2f Mbps, %.2f Gbps), DownSpeed: %d bps (%.2f Mbps, %.2f Gbps)",
-					client.Name, upDiff, downDiff, timeDiff,
-					bytesPerSecUp, bytesPerSecDown,
-					client.UpSpeed, float64(client.UpSpeed)/(1024*1024), float64(client.UpSpeed)/(1024*1024*1024),
-					client.DownSpeed, float64(client.DownSpeed)/(1024*1024), float64(client.DownSpeed)/(1024*1024*1024))
-			}
-
-			// Ensure non-negative speeds
-			if client.UpSpeed < 0 {
-				client.UpSpeed = 0
-			}
-			if client.DownSpeed < 0 {
-				client.DownSpeed = 0
-			}
-		} else {
-			// Time diff too large or invalid, reset speed
-			client.UpSpeed = 0
-			client.DownSpeed = 0
-		}
-
-		// NOW update traffic values AFTER calculating speed
 		client.Up += newDown // Upload (client→server) goes to Up
 		client.Down += newUp // Download (server→client) goes to Down
 		client.AllTime += newTotal
-
-		// Update state for next calculation (use updated values)
-		state.prevUp = client.Up
-		state.prevDown = client.Down
-		state.prevTime = currentTime
-		state.mu.Unlock()
-
-		liveSpeeds[client.Id] = bpsPair{up: client.UpSpeed, down: client.DownSpeed}
 
 		// Check final state after adding traffic
 		finalUsed := client.Up + client.Down
@@ -533,7 +439,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 		}
 	}
 
-	setPanelClientLiveSpeeds(liveSpeeds)
+	setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
 
 	// Set online list for the panel (works with or without local *Process: multi-node has p==nil)
 	setPanelOnlineClients(onlineList)
@@ -820,7 +726,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 	nowMs := time.Now().UnixMilli()
 	onlineSet := make(map[string]struct{})
 	onlineList := make([]string, 0)
-	liveSpeeds := make(map[int]bpsPair)
+	speedFrom := liveSpeedTracker.startTick(nowMs)
 	for inboundID, ids := range clientIDsByInbound {
 		inb := inboundByID[inboundID]
 		if inb == nil {
@@ -842,53 +748,14 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 		}
 		c := enabled[0]
 
-		// Fallback path also needs speed calculation, otherwise clients table Speed column
-		// remains empty when traffic is attributed only via hysteria inbound deltas.
-		currentTime := time.Now().Unix()
-		prevUp := c.Up
-		prevDown := c.Down
-
-		trafficStateMu.Lock()
-		state, exists := trafficStateMap[c.Id]
-		if !exists {
-			state = &clientTrafficState{
-				prevUp:   prevUp,
-				prevDown: prevDown,
-				prevTime: currentTime,
-			}
-			trafficStateMap[c.Id] = state
-		}
-		trafficStateMu.Unlock()
-
-		state.mu.Lock()
-		timeDiff := currentTime - state.prevTime
-		if timeDiff > 0 && timeDiff <= 5 {
-			futureUp := prevUp + d.down
-			futureDown := prevDown + d.up
-			upDiff := futureUp - state.prevUp
-			downDiff := futureDown - state.prevDown
-			c.UpSpeed = int64(float64(upDiff) / float64(timeDiff) * 8)
-			c.DownSpeed = int64(float64(downDiff) / float64(timeDiff) * 8)
-			if c.UpSpeed < 0 {
-				c.UpSpeed = 0
-			}
-			if c.DownSpeed < 0 {
-				c.DownSpeed = 0
-			}
-		} else {
-			c.UpSpeed = 0
-			c.DownSpeed = 0
-		}
+		// Fallback path also feeds the speed tracker, otherwise the Speed column stays empty
+		// when traffic is attributed only via hysteria inbound deltas.
+		liveSpeedTracker.observe(c.Id, speedFrom, nowMs, d.down, d.up)
 
 		c.Up += d.down
 		c.Down += d.up
 		c.AllTime += d.up + d.down
 		c.LastOnline = nowMs
-		state.prevUp = c.Up
-		state.prevDown = c.Down
-		state.prevTime = currentTime
-		state.mu.Unlock()
-		liveSpeeds[c.Id] = bpsPair{up: c.UpSpeed, down: c.DownSpeed}
 		key := strings.ToLower(strings.TrimSpace(c.Name))
 		if key != "" {
 			if _, ok := onlineSet[key]; !ok {
@@ -900,7 +767,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 	if len(onlineList) > 0 {
 		setPanelOnlineClients(onlineList)
 	}
-	setPanelClientLiveSpeeds(liveSpeeds)
+	setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
 	return tx.Save(clients).Error
 }
 

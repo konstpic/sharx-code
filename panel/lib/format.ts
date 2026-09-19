@@ -12,11 +12,19 @@ export function sizeFormat(bytes: number): string {
   return `${b.toFixed(i === 0 ? 0 : 2)} ${u[i]}`;
 }
 
+// Adaptive unit (bps..Gbps): real-time speeds of idle-ish clients are in the Kbps range,
+// and "0.00 Mbps" hides them entirely.
 export function speedMbpsFormat(bitsPerSecond: number): string {
-  if (!Number.isFinite(bitsPerSecond) || bitsPerSecond <= 0) return "0 Mbps";
-  const mbps = bitsPerSecond / (1024 * 1024);
-  const digits = mbps >= 100 ? 0 : mbps >= 10 ? 1 : 2;
-  return `${mbps.toFixed(digits)} Mbps`;
+  if (!Number.isFinite(bitsPerSecond) || bitsPerSecond <= 0) return "0 Kbps";
+  const units = ["bps", "Kbps", "Mbps", "Gbps"];
+  let v = bitsPerSecond;
+  let i = 0;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i++;
+  }
+  const digits = i === 0 ? 0 : v >= 100 ? 0 : v >= 10 ? 1 : 2;
+  return `${v.toFixed(digits)} ${units[i]}`;
 }
 
 export function toFixed(n: number, d: number) {

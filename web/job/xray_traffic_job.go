@@ -214,6 +214,7 @@ func (j *XrayTrafficJob) broadcastWebSocketEvents() {
 				}()
 			}
 
+			service.RefreshPanelClientLiveSpeeds()
 			for _, c := range allClients {
 				service.MergePanelClientLiveSpeedInto(c)
 			}

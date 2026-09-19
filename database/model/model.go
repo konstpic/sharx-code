@@ -219,8 +219,8 @@ type ClientEntity struct {
 	AllTime int64 `json:"allTime" form:"-" gorm:"default:0"` // All-time traffic usage
 
 	// Speed statistics (calculated on backend, not stored in DB)
-	UpSpeed    int64 `json:"upSpeed,omitempty" form:"-" gorm:"-"`   // Upload speed in bits per second (calculated)
-	DownSpeed  int64 `json:"downSpeed,omitempty" form:"-" gorm:"-"` // Download speed in bits per second (calculated)
+	UpSpeed    int64 `json:"upSpeed" form:"-" gorm:"-"`   // Upload speed in bits per second (calculated)
+	DownSpeed  int64 `json:"downSpeed" form:"-" gorm:"-"` // Download speed in bits per second (calculated)
 	LastOnline int64 `json:"lastOnline" form:"-" gorm:"default:0"`  // Last online timestamp
 	// Multi-node live hint: last node where this client was observed online.
 	// Not persisted in DB; refreshed from node stats collector.
