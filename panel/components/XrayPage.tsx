@@ -2,32 +2,16 @@
 
 import { RotateCcw, Save, Wand2, FileCode2, Radio, Wrench, Upload, Download } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, getJson, postJson } from "@/lib/api";
-import { patchSimpleCore, type XraySimpleCore } from "@/lib/xraySimpleCore";
-import {
-  extractSectionJson,
-  getOrderedTemplateKeys,
-  isTemplateJsonValid,
-  mergeSectionIntoTemplate,
-} from "@/lib/xrayTemplateSlice";
 import { linkP, panel } from "@/lib/paths";
 import { normalizeAllSetting } from "@/lib/allSetting";
-import {
-  buildXrayTemplateStepperItems,
-  getActiveStepId,
-  getNavIdForStep,
-} from "@/lib/xrayTemplateStepper";
 import { PageScaffold, PageHeader, Surface } from "@/components/panel";
-import { XrayTemplateNav, type XrayTemplateNavId } from "@/components/XrayTemplateNav";
-import { sectionButtonLabel } from "@/components/xray/sectionButtonLabel";
-import { SimpleCoreForm } from "@/components/xray/SimpleCoreForm";
-import { XrayTemplateSectionContent } from "@/components/xray/XrayTemplateSectionContent";
-import { Button, ConfirmDialog, Spinner, Stepper, useToast, Input, Modal, Switch } from "@/components/ui";
+import { XrayConfigurator, type XrayConfiguratorHandle } from "@/components/xray/configurator/XrayConfigurator";
+import { Button, ConfirmDialog, Spinner, useToast, Input, Modal, Switch } from "@/components/ui";
 
 type XrayView = "template" | "runtime" | "geo";
-type SectionKey = "full" | string;
 type GeoFileName = "geoip.dat" | "geosite.dat";
 type GeofileApplyResult = {
   fileName: string;
@@ -80,10 +64,9 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
   const { t } = useTranslation();
   const toast = useToast();
   const [view, setView] = useState<XrayView>(initialView);
-  const [navId, setNavId] = useState<XrayTemplateNavId>("general");
-  const [sectionDraft, setSectionDraft] = useState("{}");
   const [dataEpoch, setDataEpoch] = useState(0);
-  const [sectionParseError, setSectionParseError] = useState<string | null>(null);
+  const [hasSectionError, setHasSectionError] = useState(false);
+  const editorRef = useRef<XrayConfiguratorHandle>(null);
   const [template, setTemplate] = useState("{}");
   const [baseline, setBaseline] = useState("{}");
   const [runtime, setRuntime] = useState("{}");
@@ -110,8 +93,6 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
   const [geofileAutoUpdateIntervalHours, setGeofileAutoUpdateIntervalHours] = useState(24);
   const [geofileRetentionCount, setGeofileRetentionCount] = useState(5);
   const [geofileAutoUpdateSaving, setGeofileAutoUpdateSaving] = useState(false);
-
-  const sectionKey = useMemo<SectionKey>(() => (navId === "general" ? "full" : navId), [navId]);
 
   const loadSettingsFlags = useCallback(async () => {
     const s = await postJson<Record<string, unknown>>(panel("setting/all"));
@@ -173,9 +154,8 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
     const tStr = templateToString(parsed.xraySetting);
     setTemplate(tStr);
     setBaseline(tStr);
-    setNavId("general");
     setDataEpoch((e) => e + 1);
-    setSectionParseError(null);
+    setHasSectionError(false);
     const tags = parsed.inboundTags;
     if (Array.isArray(tags)) {
       setInboundTags(tags.filter((x): x is string => typeof x === "string"));
@@ -244,92 +224,15 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
     void loadXrayHint();
   }, [loadXrayHint]);
 
-  useEffect(() => {
-    if (view !== "template" || loading) return;
-    if (sectionKey === "full") {
-      setSectionParseError(null);
-      return;
-    }
-    try {
-      const root = JSON.parse(template) as Record<string, unknown>;
-      setSectionDraft(extractSectionJson(root, sectionKey));
-      setSectionParseError(null);
-    } catch {
-      setSectionDraft("{}");
-      setSectionParseError(t("pages.xrayCoreConfigProfiles.invalidJson"));
-    }
-  }, [sectionKey, dataEpoch, view, loading, t, template]);
-
-  const templateOk = useMemo(() => isTemplateJsonValid(template), [template]);
-
-  useEffect(() => {
-    if (view !== "template" || loading || templateOk || navId !== "general") return;
-    setNavId("full");
-  }, [view, loading, templateOk, navId]);
-
-  const sectionKeys = useMemo(() => {
-    if (view !== "template") return [];
-    try {
-      return getOrderedTemplateKeys(JSON.parse(template) as Record<string, unknown>);
-    } catch {
-      return [];
-    }
-  }, [view, template]);
-
-  const { steps: xrayStepperItems, grouped: xrayGrouped, otherKeys: xrayOtherKeys } = useMemo(
-    () => buildXrayTemplateStepperItems(t, view === "template" ? sectionKeys : []),
-    [t, view, sectionKeys],
-  );
-
-  const xrayActiveStepId = useMemo(
-    () => (view === "template" ? getActiveStepId(navId, xrayGrouped, xrayOtherKeys) : "general"),
-    [view, navId, xrayGrouped, xrayOtherKeys],
-  );
-
-  const navigateTemplateNav = useCallback(
-    (next: XrayTemplateNavId) => {
-      if (view !== "template" || next === navId) return;
-      if (next !== "general" && next !== "full" && !isTemplateJsonValid(template)) {
-        toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-        return;
-      }
-      if (navId !== "general" && navId !== "full" && sectionParseError) {
-        toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-        return;
-      }
-      setNavId(next);
-      if (next === "general") {
-        setSectionParseError(null);
-      }
-    },
-    [view, navId, sectionParseError, t, toast, template],
-  );
-
   const dirty = useMemo(
-    () =>
-      view === "template" &&
-      (template !== baseline || (sectionKey !== "full" && sectionParseError !== null)),
-    [view, template, baseline, sectionKey, sectionParseError],
+    () => view === "template" && (template !== baseline || hasSectionError),
+    [view, template, baseline, hasSectionError],
   );
 
   const save = async () => {
     if (view !== "template") return;
-    if (sectionKey !== "full" && sectionParseError) {
-      toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-      return;
-    }
-    let toSave = template;
-    if (sectionKey !== "full") {
-      try {
-        toSave = mergeSectionIntoTemplate(template, sectionKey, sectionDraft);
-      } catch {
-        toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-        return;
-      }
-    }
-    try {
-      JSON.parse(toSave);
-    } catch {
+    const toSave = editorRef.current?.getJsonForSave() ?? null;
+    if (toSave == null) {
       toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
       return;
     }
@@ -341,7 +244,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
       setTemplate(toSave);
       setBaseline(toSave);
       setDataEpoch((e) => e + 1);
-      setSectionParseError(null);
+      setHasSectionError(false);
       await loadRuntime();
     } else {
       toast.error(r.msg || t("pages.settings.toasts.modifySettings"));
@@ -351,9 +254,8 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
   const revert = () => {
     if (view === "template") {
       setTemplate(baseline);
-      setNavId("general");
       setDataEpoch((e) => e + 1);
-      setSectionParseError(null);
+      setHasSectionError(false);
     }
   };
 
@@ -373,80 +275,14 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
 
   const setViewMode = useCallback(
     (next: XrayView) => {
-      if (
-        next === "runtime" &&
-        navId !== "general" &&
-        navId !== "full" &&
-        sectionParseError
-      ) {
+      if (next === "runtime" && hasSectionError) {
         toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
         return;
       }
       setView(next);
     },
-    [navId, sectionParseError, t, toast],
+    [hasSectionError, t, toast],
   );
-
-  const handleCodeChange = useCallback(
-    (v: string | undefined) => {
-      const val = v ?? "";
-      if (view === "runtime" || navId === "general") return;
-      if (sectionKey === "full") {
-        setTemplate(val);
-        return;
-      }
-      setSectionDraft(val);
-      try {
-        setTemplate(mergeSectionIntoTemplate(template, sectionKey, val));
-        setSectionParseError(null);
-      } catch {
-        setSectionParseError(t("pages.xrayCoreConfigProfiles.invalidJson"));
-      }
-    },
-    [view, navId, sectionKey, template, t],
-  );
-
-  const patchSimpleCoreSafe = useCallback(
-    (p: Partial<XraySimpleCore>) => {
-      if (!isTemplateJsonValid(template)) {
-        toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-        return;
-      }
-      try {
-        setTemplate(patchSimpleCore(template, p));
-        setSectionParseError(null);
-      } catch {
-        toast.error(t("pages.xrayCoreConfigProfiles.invalidJson"));
-      }
-    },
-    [template, t, toast],
-  );
-
-  const applySection = useCallback(
-    (sectionJson: string) => {
-      setSectionDraft(sectionJson);
-      try {
-        setTemplate(mergeSectionIntoTemplate(template, String(sectionKey), sectionJson));
-        setSectionParseError(null);
-      } catch {
-        setSectionParseError(t("pages.xrayCoreConfigProfiles.invalidJson"));
-      }
-    },
-    [sectionKey, template, t],
-  );
-
-  const codeValue = useMemo(() => {
-    if (view === "runtime") return runtime;
-    if (sectionKey === "full") return template;
-    return sectionDraft;
-  }, [view, sectionKey, template, sectionDraft, runtime]);
-
-  const readOnly = view === "runtime";
-  const showGeneralUi = view === "template" && navId === "general" && templateOk;
-  const showSpinner =
-    (view === "template" && loading) || (view === "runtime" && loadingRuntime);
-
-  const sectionLabel = useCallback((k: string) => sectionButtonLabel(t, k), [t]);
 
   const showGeoResult = (title: string, res: GeofileApplyResult | null | undefined) => {
     setGeoResultTitle(title);
@@ -658,36 +494,8 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
         </p>
       ) : null}
 
-      {view === "template" && !loading && !templateOk && navId !== "full" ? (
-        <p className="text-sm text-rose-300">{t("pages.xrayCoreConfigProfiles.invalidJson")}</p>
-      ) : null}
-
-      {view === "template" && !loading ? (
-        <div className="mb-2 overflow-x-auto">
-          <Stepper
-            steps={xrayStepperItems}
-            activeId={xrayActiveStepId}
-            allowJump={templateOk}
-            onSelect={(id) => {
-              const nextNav = getNavIdForStep(id, xrayGrouped, xrayOtherKeys);
-              navigateTemplateNav(nextNav);
-            }}
-          />
-        </div>
-      ) : null}
-
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        {view === "template" && !loading ? (
-          <XrayTemplateNav
-            navId={navId}
-            onSelect={navigateTemplateNav}
-            sectionKeys={sectionKeys}
-            sectionLabel={sectionLabel}
-            templateOk={templateOk}
-          />
-        ) : null}
-
-        <div className="min-w-0 flex-1 space-y-3">
+      <div className="flex flex-col gap-4">
+        <div className="min-w-0 space-y-3">
           {view === "geo" ? (
           <Surface>
             <div className="mb-3 flex items-center gap-2">
@@ -914,71 +722,16 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
           </Surface>
           ) : null}
 
-          {view !== "geo" && showGeneralUi ? (
-            <SimpleCoreForm template={template} onPatch={patchSimpleCoreSafe} />
-          ) : null}
-
-          {view === "template" && !loading && templateOk && navId !== "general" ? (
-            <div className="space-y-2">
-              <p className="text-xs text-[var(--fg-muted)]">
-                {standalone
-                  ? t("pages.xray.sliceEditorHintStandalone")
-                  : t("pages.xray.sliceEditorHint")}
-              </p>
-              {navId === "routing" ? (
-                <p className="text-xs leading-relaxed text-[var(--fg-subtle)]">
-                  {t("pages.xray.RoutingsDesc")} {t("pages.xray.balancer.balancerDesc")}
-                </p>
-              ) : null}
-              {navId === "dns" ? (
-                <p className="text-xs text-[var(--fg-subtle)]">{t("pages.xray.dns.enableDesc")}</p>
-              ) : null}
-              {navId === "outbounds" ? (
-                <p className="text-xs text-[var(--fg-subtle)]">{t("pages.xray.OutboundsDesc")}</p>
-              ) : null}
-              {navId === "inbounds" ? (
-                <p className="text-xs leading-relaxed text-[var(--fg-subtle)]">
-                  {t("pages.xray.inboundsTemplateHint")}{" "}
-                  <Link
-                    href={linkP("panel/inbounds")}
-                    className="text-[var(--accent)] underline-offset-2 hover:underline"
-                  >
-                    {t("menu.inbounds")}
-                  </Link>
-                </p>
-              ) : null}
-              {sectionParseError ? (
-                <p className="text-sm text-rose-300">{sectionParseError}</p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {view === "template" && !loading && !templateOk && navId === "full" ? (
-            <p className="text-sm text-rose-300">{t("pages.xrayCoreConfigProfiles.invalidJson")}</p>
-          ) : null}
-
           {view !== "geo" ? (
-          <Surface padding="sm" className="overflow-x-auto">
-            {showSpinner ? (
-              <div className="grid min-h-48 place-items-center">
-                <Spinner size={40} />
-              </div>
-            ) : (
-              <XrayTemplateSectionContent
-                navId={navId}
-                sectionDraft={sectionDraft}
-                applySection={applySection}
-                handleCodeChange={handleCodeChange}
-                codeValue={codeValue}
-                templateOk={templateOk}
-                loading={false}
-                readOnly={readOnly}
-                showGeneralUi={showGeneralUi}
-                syncKey={dataEpoch}
-                t={t}
-              />
-            )}
-          </Surface>
+            <XrayConfigurator
+              ref={editorRef}
+              template={view === "runtime" ? runtime : template}
+              onTemplateChange={setTemplate}
+              syncKey={`${view}:${dataEpoch}`}
+              readOnly={view === "runtime"}
+              loading={view === "runtime" ? loadingRuntime : loading}
+              onErrorChange={setHasSectionError}
+            />
           ) : null}
         </div>
       </div>

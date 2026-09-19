@@ -422,6 +422,8 @@ export function XrayCoreConfigProfilesPage() {
         onClose={closeEdit}
         title={t("pages.xrayCoreConfigProfiles.editProfile")}
         width="min(96vw, 1200px)"
+        dialogClassName="h-[min(90vh,900px)]"
+        bodyClassName="!overflow-hidden"
         footer={
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="secondary" onClick={closeEdit}>
@@ -438,8 +440,8 @@ export function XrayCoreConfigProfilesPage() {
             <Spinner size={36} />
           </div>
         ) : (
-          <div className="min-h-0 space-y-4 overflow-y-auto px-1 py-2">
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <div className="grid shrink-0 gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium text-[var(--fg-muted)]">
                   {t("pages.xrayCoreConfigProfiles.name")}
@@ -459,6 +461,7 @@ export function XrayCoreConfigProfilesPage() {
               onTemplateChange={setConfigJson}
               syncKey={editorSyncKey}
               loading={false}
+              fillHeight
             />
           </div>
         )}

@@ -1827,3 +1827,46 @@ section[id] {
 :root[data-theme="light"] [class*="text-pink-400"] {
   color: #be185d;
 }
+
+/* Xray traffic map (components/xray/flow/TrafficFlow.tsx) */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes flow-arrive {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes flow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(148, 163, 184, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(148, 163, 184, 0.18);
+  }
+}
+.flow-dash {
+  animation: flow-dash 1.4s linear infinite;
+}
+.flow-arrive {
+  animation: flow-arrive 0.7s ease-out 1;
+}
+.flow-pulse {
+  animation: flow-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-dash,
+  .flow-arrive,
+  .flow-pulse {
+    animation: none;
+  }
+}

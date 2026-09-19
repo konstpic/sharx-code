@@ -5,6 +5,8 @@
 export type FieldRuleFormRow = {
   id: string;
   outboundTag: string;
+  /** Rule targets a balancer instead of an outbound (mutually exclusive with outboundTag). */
+  balancerTag: string;
   /** one entry per line: domain lines (geosite:, domain:, full:, etc.) */
   domainLines: string;
   /** one CIDR/entry per line (geoip:, ip:, etc.) */
@@ -17,16 +19,30 @@ export type FieldRuleFormRow = {
   inboundTag: string;
   source: string;
   user: string;
+  /** Keys the form does not model (attrs, domainMatcher, sourcePort, localIP, ruleTag, …) kept verbatim. */
+  extra: Record<string, unknown>;
+  /** How the source JSON wrote these values, so an untouched rule serializes byte-for-byte equivalent. */
+  shape?: { inboundTag?: "string"; port?: "string" };
+};
+
+/** A routing balancer kept as a raw object so unknown strategy fields survive editing. */
+export type BalancerRow = {
+  id: string;
+  raw: Record<string, unknown>;
 };
 
 export type RoutingFormState = {
   domainStrategy: string;
   rules: FieldRuleFormRow[];
+  balancers: BalancerRow[];
+  /** Unmodeled top-level routing keys (domainMatcher, …) kept verbatim. */
+  extra: Record<string, unknown>;
 };
 
-const SIMPLE_RULE_KEYS = new Set([
+const MODELED_RULE_KEYS = new Set([
   "type",
   "outboundTag",
+  "balancerTag",
   "domain",
   "ip",
   "port",
@@ -35,12 +51,9 @@ const SIMPLE_RULE_KEYS = new Set([
   "inboundTag",
   "source",
   "user",
-  "attr",
-  "attrs",
-  "domainMatcher",
-  "sourcePort",
-  "package",
 ]);
+
+const MODELED_TOP_KEYS = new Set(["domainStrategy", "rules", "balancers"]);
 
 function randomId(): string {
   if (typeof globalThis !== "undefined" && globalThis.crypto?.getRandomValues) {
@@ -68,60 +81,82 @@ function stringArrayToLines(s: string): string[] {
     .filter(Boolean);
 }
 
-function toInboundTagList(s: string): string[] | string {
-  const parts = s
-    .split(/[\n,]+/)
+/** Split a multi-value form field (newline / comma / semicolon separated) into trimmed entries. */
+export function splitRoutingList(s: string): string[] {
+  return s
+    .split(/[\n,;]+/)
     .map((x) => x.trim())
     .filter(Boolean);
-  if (parts.length === 0) return [];
-  if (parts.length === 1) return parts[0]!;
-  return parts;
+}
+
+const NON_CONDITION_EXTRA_KEYS = new Set(["ruleTag", "webhook"]);
+
+/** True when the rule has no match condition, i.e. it matches every connection. */
+export function isCatchAllRule(row: FieldRuleFormRow): boolean {
+  if (Object.keys(row.extra).some((k) => !NON_CONDITION_EXTRA_KEYS.has(k))) return false;
+  return !(
+    row.domainLines.trim() ||
+    row.ipLines.trim() ||
+    row.port.trim() ||
+    row.network.trim() ||
+    row.protocolLines.trim() ||
+    row.inboundTag.trim() ||
+    row.source.trim() ||
+    row.user.trim()
+  );
+}
+
+export function newEmptyRule(): FieldRuleFormRow {
+  return {
+    id: randomId(),
+    outboundTag: "",
+    balancerTag: "",
+    domainLines: "",
+    ipLines: "",
+    port: "",
+    network: "",
+    protocolLines: "",
+    inboundTag: "",
+    source: "",
+    user: "",
+    extra: {},
+  };
+}
+
+export function newBalancer(tag = ""): BalancerRow {
+  return { id: randomId(), raw: { tag, selector: [] } };
+}
+
+function isPrimitive(v: unknown): boolean {
+  return v == null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
 }
 
 /**
- * If routing has balancers or non-simple field rules, GUI cannot represent it.
+ * The visual editor keeps every key it does not model, so only structurally unusable routing
+ * (not an object, `rules` not an array, a rule that is not an object, or a modeled field holding
+ * nested objects) is sent to the advanced JSON editor.
  */
-const TOP_ROUTING_ALLOW = new Set([
-  "domainStrategy",
-  "domainMatcher",
-  "rules",
-  "balancers",
-  "rule",
-]);
-
 export function routingNeedsAdvancedJson(routing: unknown): boolean {
   const o = asRecord(routing);
   if (!o) return true;
-  for (const k of Object.keys(o)) {
-    if (!TOP_ROUTING_ALLOW.has(k) && o[k] != null) return true;
+  if (o.rules != null && !Array.isArray(o.rules)) return true;
+  if (o.balancers != null) {
+    if (!Array.isArray(o.balancers)) return true;
+    for (const b of o.balancers) if (!asRecord(b)) return true;
   }
-  if (o.domainMatcher != null) return true;
-  if (o.rule != null) return true;
-  const balancers = o.balancers;
-  if (Array.isArray(balancers) && balancers.length > 0) return true;
-  const rules = o.rules;
-  if (!Array.isArray(rules)) return true;
-  for (const r of rules) {
+  for (const r of (o.rules as unknown[] | undefined) ?? []) {
     const m = asRecord(r);
     if (!m) return true;
-    if (m.balancerTag != null) return true;
-    if (m.attrs != null) return true;
     const t = m.type;
     if (t != null && t !== "field") return true;
-    for (const k of Object.keys(m)) {
-      if (!SIMPLE_RULE_KEYS.has(k)) return true;
-    }
-    for (const k of Object.keys(m)) {
-      if (k === "type" || k === "outboundTag") continue;
+    for (const k of MODELED_RULE_KEYS) {
+      if (k === "type") continue;
       const v = m[k];
-      if (v != null) {
-        if (Array.isArray(v)) {
-          for (const x of v) {
-            if (Array.isArray(x) || (typeof x === "object" && x != null)) return true;
-          }
-        } else if (typeof v === "object") {
-          return true;
-        }
+      if (v == null) continue;
+      if (Array.isArray(v)) {
+        if (!v.every(isPrimitive)) return true;
+      } else if (!isPrimitive(v)) {
+        return true;
       }
     }
   }
@@ -129,9 +164,18 @@ export function routingNeedsAdvancedJson(routing: unknown): boolean {
 }
 
 function ruleToFormRow(m: Record<string, unknown>, id: string): FieldRuleFormRow {
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (!MODELED_RULE_KEYS.has(k)) extra[k] = v;
+  }
+  const shape: NonNullable<FieldRuleFormRow["shape"]> = {};
+  if (typeof m.inboundTag === "string") shape.inboundTag = "string";
+  if (typeof m.port === "string") shape.port = "string";
   return {
     id,
+    shape: Object.keys(shape).length ? shape : undefined,
     outboundTag: typeof m.outboundTag === "string" ? m.outboundTag : "",
+    balancerTag: typeof m.balancerTag === "string" ? m.balancerTag : "",
     domainLines: linesFromArray(m.domain),
     ipLines: linesFromArray(m.ip),
     port: m.port != null ? String(m.port) : "",
@@ -144,14 +188,17 @@ function ruleToFormRow(m: Record<string, unknown>, id: string): FieldRuleFormRow
       return String(it);
     })(),
     source: linesFromArray(m.source),
-    user: m.user != null ? String(m.user) : "",
+    user: Array.isArray(m.user) ? m.user.map(String).join(", ") : m.user != null ? String(m.user) : "",
+    extra,
   };
 }
 
 function formRowToRule(row: FieldRuleFormRow): Record<string, unknown> | null {
   const otag = row.outboundTag.trim();
+  const btag = row.balancerTag.trim();
   const hasAny =
     otag ||
+    btag ||
     row.domainLines.trim() ||
     row.ipLines.trim() ||
     row.port.trim() ||
@@ -159,27 +206,32 @@ function formRowToRule(row: FieldRuleFormRow): Record<string, unknown> | null {
     row.protocolLines.trim() ||
     row.inboundTag.trim() ||
     row.source.trim() ||
-    row.user.trim();
+    row.user.trim() ||
+    Object.keys(row.extra).length > 0;
   if (!hasAny) return null;
   const r: Record<string, unknown> = { type: "field" };
   if (otag) r.outboundTag = otag;
+  else if (btag) r.balancerTag = btag;
   const d = stringArrayToLines(row.domainLines);
   if (d.length) r.domain = d;
   const ips = stringArrayToLines(row.ipLines);
   if (ips.length) r.ip = ips;
   if (row.port.trim()) {
     const n = Number(row.port);
-    r.port = Number.isFinite(n) ? n : row.port;
+    r.port = Number.isFinite(n) && row.shape?.port !== "string" ? n : row.port.trim();
   }
   if (row.network.trim()) r.network = row.network.trim();
   const prot = stringArrayToLines(row.protocolLines);
   if (prot.length) r.protocol = prot;
   if (row.inboundTag.trim()) {
-    r.inboundTag = toInboundTagList(row.inboundTag);
+    const tags = splitRoutingList(row.inboundTag);
+    r.inboundTag = tags.length === 1 && row.shape?.inboundTag === "string" ? tags[0] : tags;
   }
   const src = stringArrayToLines(row.source);
   if (src.length) r.source = src;
-  if (row.user.trim()) r.user = row.user.trim();
+  const users = stringArrayToLines(row.user);
+  if (users.length) r.user = users;
+  for (const [k, v] of Object.entries(row.extra)) r[k] = v;
   return r;
 }
 
@@ -190,18 +242,13 @@ export function defaultRoutingForm(): RoutingFormState {
     domainStrategy: "AsIs",
     rules: [
       {
-        id: randomId(),
+        ...newEmptyRule(),
         outboundTag: "direct",
-        domainLines: "",
         ipLines: "geoip:private",
-        port: "",
-        network: "",
-        protocolLines: "",
-        inboundTag: "",
-        source: "",
-        user: "",
       },
     ],
+    balancers: [],
+    extra: {},
   };
 }
 
@@ -227,27 +274,36 @@ export function parseRoutingSection(sectionJson: string): {
     return { state: null, needsAdvanced: true, error: null };
   }
   const ds = typeof o.domainStrategy === "string" ? o.domainStrategy : "AsIs";
-  const rulesRaw = o.rules;
   const rules: FieldRuleFormRow[] = [];
-  if (Array.isArray(rulesRaw)) {
-    for (const r of rulesRaw) {
+  if (Array.isArray(o.rules)) {
+    for (const r of o.rules) {
       const m = asRecord(r);
       if (m) rules.push(ruleToFormRow(m, randomId()));
     }
   }
-  if (rules.length === 0) {
-    return {
-      state: { domainStrategy: ds, rules: defaultRoutingForm().rules },
-      needsAdvanced: false,
-      error: null,
-    };
+  const balancers: BalancerRow[] = [];
+  if (Array.isArray(o.balancers)) {
+    for (const b of o.balancers) {
+      const m = asRecord(b);
+      if (m) balancers.push({ id: randomId(), raw: { ...m } });
+    }
   }
-  return { state: { domainStrategy: ds, rules }, needsAdvanced: false, error: null };
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (!MODELED_TOP_KEYS.has(k)) extra[k] = v;
+  }
+  return {
+    state: { domainStrategy: ds, rules, balancers, extra },
+    needsAdvanced: false,
+    error: null,
+  };
 }
 
 export function serializeRoutingSection(state: RoutingFormState): string {
   const rules = state.rules.map((row) => formRowToRule(row)).filter((x): x is Record<string, unknown> => x != null);
-  return JSON.stringify({ domainStrategy: state.domainStrategy, rules }, null, 2);
+  const out: Record<string, unknown> = { domainStrategy: state.domainStrategy, ...state.extra, rules };
+  if (state.balancers.length > 0) out.balancers = state.balancers.map((b) => b.raw);
+  return JSON.stringify(out, null, 2);
 }
 
 export function analyzeRoutingSection(sectionJson: string): "visual" | "advanced" {

@@ -1,14 +1,42 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  extractSimpleCore,
-  isKnownDomainStrategy,
-  isKnownLogLevel,
-  type XraySimpleCore,
-} from "@/lib/xraySimpleCore";
-import { CheckboxField, Input, SelectNative } from "@/components/ui";
+import { extractSimpleCore, type XraySimpleCore } from "@/lib/xraySimpleCore";
+import { Field, FieldGrid, TextField, ToggleChip, ToggleRow, makeTr } from "@/components/xray/configurator/fields";
+
+const LOG_LEVELS = ["debug", "info", "warning", "error", "none"];
+const DOMAIN_STRATEGIES = ["AsIs", "IPIfNonMatch", "IPOnDemand"];
+const API_SERVICES: { key: "apiHandlerService" | "apiLoggerService" | "apiStatsService"; label: string }[] = [
+  { key: "apiHandlerService", label: "HandlerService" },
+  { key: "apiLoggerService", label: "LoggerService" },
+  { key: "apiStatsService", label: "StatsService" },
+];
+
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)]">
+      <div className="border-b border-[var(--border)] px-3 py-2">
+        <div className="text-sm font-semibold text-[var(--fg)]">{title}</div>
+        {hint ? <div className="mt-0.5 text-[11px] leading-snug text-[var(--fg-subtle)]">{hint}</div> : null}
+      </div>
+      <div className="space-y-3 p-3">{children}</div>
+    </div>
+  );
+}
+
+function Chips({ value, options, onPick }: { value: string; options: string[]; onPick: (v: string) => void }) {
+  const list = options.includes(value) || value === "" ? options : [value, ...options];
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {list.map((o) => (
+        <ToggleChip key={o} active={value === o} onClick={() => onPick(o)}>
+          {o}
+        </ToggleChip>
+      ))}
+    </div>
+  );
+}
 
 export function SimpleCoreForm({
   template,
@@ -18,229 +46,75 @@ export function SimpleCoreForm({
   onPatch: (p: Partial<XraySimpleCore>) => void;
 }) {
   const { t } = useTranslation();
+  const tr = useMemo(() => makeTr(t), [t]);
   const v = useMemo(() => extractSimpleCore(template), [template]);
   const accessToFile = v.access !== "none";
 
-  const logLevelOptions = useMemo(() => {
-    const base = ["debug", "info", "warning", "error", "none"] as const;
-    const o = new Set(base);
-    if (!o.has(v.loglevel as (typeof base)[number])) {
-      return [v.loglevel, ...base];
-    }
-    return [...base];
-  }, [v.loglevel]);
-
-  const domainOptions = useMemo(() => {
-    const base = ["AsIs", "IPIfNonMatch", "IPOnDemand"] as const;
-    const o = new Set(base);
-    if (!o.has(v.domainStrategy as (typeof base)[number])) {
-      return [v.domainStrategy, ...base];
-    }
-    return [...base];
-  }, [v.domainStrategy]);
-
   return (
-    <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)]">
-      <div className="px-4 py-3">
-        <h3 className="text-sm font-semibold text-[var(--fg)]">
-          {t("pages.xray.simpleSectionTitle", { defaultValue: "Core (quick setup)" })}
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--fg-muted)]">
-          {t("pages.xray.simpleSectionHint", {
-            defaultValue:
-              "Common options without editing JSON. Use the menu for routing (balancers), DNS, and other sections.",
-          })}
-        </p>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.logLevel")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.logLevelDesc")}</div>
-        </div>
-        <SelectNative value={v.loglevel} onChange={(e) => onPatch({ loglevel: e.target.value })}>
-          {logLevelOptions.map((lvl) => (
-            <option key={lvl} value={lvl}>
-              {lvl}
-              {!isKnownLogLevel(lvl) ? ` (${t("pages.xray.customValue", { defaultValue: "custom" })})` : ""}
-            </option>
-          ))}
-        </SelectNative>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.accessLog")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.accessLogDesc")}</div>
-        </div>
-        <div className="flex min-w-0 flex-col gap-2">
-          <CheckboxField
-            label={t("pages.xray.accessLogToFile", { defaultValue: "Write access log to a file" })}
-            checked={accessToFile}
-            onChange={(e) => {
-              const on = e.target.checked;
-              onPatch({
-                access: on ? (v.access !== "none" ? v.access : "/var/log/xray/access.log") : "none",
-              });
-            }}
-          />
-          {accessToFile ? (
-            <Input
-              value={v.access === "none" ? "" : v.access}
-              onChange={(e) => onPatch({ access: e.target.value.trim() || "none" })}
-              placeholder="/var/log/xray/access.log"
-              className="w-full"
-            />
-          ) : null}
-        </div>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.errorLog")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.errorLogDesc")}</div>
-        </div>
-        <Input
-          value={v.error}
-          onChange={(e) => onPatch({ error: e.target.value })}
-          placeholder="none"
-          className="w-full"
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Group title={tr("qsLogs", "Logs")} hint={tr("qsLogsHint", "How much the core writes and where.")}>
+        <Field label={t("pages.xray.logLevel")} hint={t("pages.xray.logLevelDesc")}>
+          <Chips value={v.loglevel} options={LOG_LEVELS} onPick={(lvl) => onPatch({ loglevel: lvl })} />
+        </Field>
+        <ToggleRow
+          label={t("pages.xray.accessLogToFile", { defaultValue: "Write access log to a file" })}
+          hint={t("pages.xray.accessLogDesc")}
+          checked={accessToFile}
+          onChange={(on) => onPatch({ access: on ? (v.access !== "none" ? v.access : "/var/log/xray/access.log") : "none" })}
         />
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.dnsLog")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.dnsLogDesc")}</div>
-        </div>
-        <CheckboxField
+        {accessToFile ? (
+          <TextField mono value={v.access === "none" ? "" : v.access} placeholder="/var/log/xray/access.log" onChange={(val) => onPatch({ access: val.trim() || "none" })} />
+        ) : null}
+        <FieldGrid>
+          <Field label={t("pages.xray.errorLog")} hint={t("pages.xray.errorLogDesc")}>
+            <TextField mono value={v.error} placeholder="none" onChange={(val) => onPatch({ error: val })} />
+          </Field>
+          <Field label={t("pages.xray.maskAddress")} hint={t("pages.xray.maskAddressDesc")}>
+            <TextField mono value={v.maskAddress} placeholder="quarter | half | full" onChange={(val) => onPatch({ maskAddress: val })} />
+          </Field>
+        </FieldGrid>
+        <ToggleRow
           label={t("pages.xray.dnsLogEnable", { defaultValue: "Enable DNS query logging" })}
+          hint={t("pages.xray.dnsLogDesc")}
           checked={v.dnsLog}
-          onChange={(e) => onPatch({ dnsLog: e.target.checked })}
+          onChange={(on) => onPatch({ dnsLog: on })}
         />
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.maskAddress")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.maskAddressDesc")}</div>
-        </div>
-        <Input
-          value={v.maskAddress}
-          onChange={(e) => onPatch({ maskAddress: e.target.value })}
-          placeholder=""
-          className="w-full"
-        />
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.RoutingStrategy")}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.RoutingStrategyDesc")}</div>
-        </div>
-        <SelectNative
-          value={v.domainStrategy}
-          onChange={(e) => onPatch({ domainStrategy: e.target.value })}
-        >
-          {domainOptions.map((ds) => (
-            <option key={ds} value={ds}>
-              {ds}
-              {!isKnownDomainStrategy(ds)
-                ? ` (${t("pages.xray.customValue", { defaultValue: "custom" })})`
-                : ""}
-            </option>
-          ))}
-        </SelectNative>
+      </Group>
+
+      <div className="space-y-3">
+        <Group title={tr("qsRouting", "Routing")} hint={t("pages.xray.RoutingStrategyDesc")}>
+          <Field label={t("pages.xray.RoutingStrategy")}>
+            <Chips value={v.domainStrategy} options={DOMAIN_STRATEGIES} onPick={(ds) => onPatch({ domainStrategy: ds })} />
+          </Field>
+        </Group>
+
+        <Group title={t("pages.xray.simpleApiSectionTitle", { defaultValue: "API (gRPC)" })} hint={t("pages.xray.simpleApiSectionHint", { defaultValue: "Handler / Logger / Stats must match the API inbound tag used for the panel." })}>
+          <Field label={t("pages.xray.simpleApiTag", { defaultValue: "API tag" })} hint={t("pages.xray.simpleApiTagDesc", { defaultValue: "Same as the API inbound `tag` (e.g. api)." })}>
+            <TextField mono value={v.apiTag} onChange={(val) => onPatch({ apiTag: val })} />
+          </Field>
+          <Field label={t("pages.xray.simpleApiServices", { defaultValue: "API services" })}>
+            <div className="flex flex-wrap gap-1.5">
+              {API_SERVICES.map((s) => (
+                <ToggleChip key={s.key} active={v[s.key]} onClick={() => onPatch({ [s.key]: !v[s.key] })}>
+                  {s.label}
+                </ToggleChip>
+              ))}
+            </div>
+          </Field>
+        </Group>
       </div>
 
-      <div className="px-4 py-3">
-        <h3 className="text-sm font-semibold text-[var(--fg)]">
-          {t("pages.xray.simpleApiSectionTitle", { defaultValue: "API (gRPC)" })}
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--fg-muted)]">
-          {t("pages.xray.simpleApiSectionHint", {
-            defaultValue: "Handler / Logger / Stats must match the dokodemo-door inbound tag used for the panel.",
-          })}
-        </p>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.simpleApiTag", { defaultValue: "API tag" })}</div>
-          <div className="mt-0.5 text-xs text-[var(--fg-subtle)]">{t("pages.xray.simpleApiTagDesc", { defaultValue: "Same as the API inbound `tag` (e.g. api)." })}</div>
-        </div>
-        <Input
-          value={v.apiTag}
-          onChange={(e) => onPatch({ apiTag: e.target.value })}
-          className="w-full font-mono text-xs"
-          autoComplete="off"
-        />
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start sm:gap-y-1">
-        <div className="min-w-0 sm:row-span-3">
-          <div className="text-sm font-medium text-[var(--fg-muted)]">{t("pages.xray.simpleApiServices", { defaultValue: "API services" })}</div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <CheckboxField
-            label="HandlerService"
-            checked={v.apiHandlerService}
-            onChange={(e) => onPatch({ apiHandlerService: e.target.checked })}
-          />
-          <CheckboxField
-            label="LoggerService"
-            checked={v.apiLoggerService}
-            onChange={(e) => onPatch({ apiLoggerService: e.target.checked })}
-          />
-          <CheckboxField
-            label="StatsService"
-            checked={v.apiStatsService}
-            onChange={(e) => onPatch({ apiStatsService: e.target.checked })}
-          />
-        </div>
-      </div>
-
-      <div className="px-4 py-3">
-        <h3 className="text-sm font-semibold text-[var(--fg)]">
-          {t("pages.xray.simplePolicySectionTitle", { defaultValue: "Policy & stats" })}
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--fg-muted)]">
-          {t("pages.xray.simplePolicySectionHint", {
-            defaultValue: "Toggles for common `policy.levels.0` and `policy.system` stat switches.",
-          })}
-        </p>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0 text-xs font-medium text-[var(--fg-muted)]">policy.levels.0</div>
-        <div className="flex flex-col gap-2">
-          <CheckboxField
-            label="statsUserUplink"
-            checked={v.policyLevel0StatsUserUplink}
-            onChange={(e) => onPatch({ policyLevel0StatsUserUplink: e.target.checked })}
-          />
-          <CheckboxField
-            label="statsUserDownlink"
-            checked={v.policyLevel0StatsUserDownlink}
-            onChange={(e) => onPatch({ policyLevel0StatsUserDownlink: e.target.checked })}
-          />
-        </div>
-      </div>
-      <div className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(160px,260px)_1fr] sm:items-start">
-        <div className="min-w-0 text-xs font-medium text-[var(--fg-muted)]">policy.system</div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <CheckboxField
-            label="statsInboundUplink"
-            checked={v.policySystemStatsInboundUplink}
-            onChange={(e) => onPatch({ policySystemStatsInboundUplink: e.target.checked })}
-          />
-          <CheckboxField
-            label="statsInboundDownlink"
-            checked={v.policySystemStatsInboundDownlink}
-            onChange={(e) => onPatch({ policySystemStatsInboundDownlink: e.target.checked })}
-          />
-          <CheckboxField
-            label="statsOutboundUplink"
-            checked={v.policySystemStatsOutboundUplink}
-            onChange={(e) => onPatch({ policySystemStatsOutboundUplink: e.target.checked })}
-          />
-          <CheckboxField
-            label="statsOutboundDownlink"
-            checked={v.policySystemStatsOutboundDownlink}
-            onChange={(e) => onPatch({ policySystemStatsOutboundDownlink: e.target.checked })}
-          />
-        </div>
+      <div className="lg:col-span-2">
+        <Group title={t("pages.xray.simplePolicySectionTitle", { defaultValue: "Policy & stats" })} hint={tr("qsStatsHint", "Which traffic counters the core collects. Fine-tune levels in the Policy section.")}>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <ToggleRow label={tr("statsUserUplink", "Count user upload")} checked={v.policyLevel0StatsUserUplink} onChange={(on) => onPatch({ policyLevel0StatsUserUplink: on })} />
+            <ToggleRow label={tr("statsUserDownlink", "Count user download")} checked={v.policyLevel0StatsUserDownlink} onChange={(on) => onPatch({ policyLevel0StatsUserDownlink: on })} />
+            <ToggleRow label={tr("qsInUp", "Inbound upload")} checked={v.policySystemStatsInboundUplink} onChange={(on) => onPatch({ policySystemStatsInboundUplink: on })} />
+            <ToggleRow label={tr("qsInDown", "Inbound download")} checked={v.policySystemStatsInboundDownlink} onChange={(on) => onPatch({ policySystemStatsInboundDownlink: on })} />
+            <ToggleRow label={tr("qsOutUp", "Outbound upload")} checked={v.policySystemStatsOutboundUplink} onChange={(on) => onPatch({ policySystemStatsOutboundUplink: on })} />
+            <ToggleRow label={tr("qsOutDown", "Outbound download")} checked={v.policySystemStatsOutboundDownlink} onChange={(on) => onPatch({ policySystemStatsOutboundDownlink: on })} />
+          </div>
+        </Group>
       </div>
     </div>
   );
