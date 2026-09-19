@@ -261,9 +261,13 @@ export type TelemtFormState = {
    * public domain, the shared front port, and the decoy/secret-mode policy. */
   webEnabled: boolean;
   webVhostHost: string;
-  /** [[server.listeners]] / telemtweb front public HTTPS port; shared by every WEB inbound
-   * on the same node/panel. Empty = default 443. */
+  /** Port the telemtweb front listens on; shared by every WEB inbound on the same node/panel.
+   * Empty = default 443. public_addr is always :443 regardless (Telemt requires it). */
   webFrontPort: string;
+  /** Private loopback port of the WEB listener ([[server.listeners]]). Empty = 28100 + inbound id. */
+  webBackendPort: string;
+  /** TLS on 443 is terminated externally (nginx / xray fallback); SharX starts no front. */
+  webExternalTerminator: boolean;
   webDecoyMode: "http_upstream" | "static_directory";
   webDecoyUpstream: string;
   webDecoyDirectory: string;
@@ -331,6 +335,8 @@ export function defaultTelemtForm(): TelemtFormState {
     webEnabled: false,
     webVhostHost: "",
     webFrontPort: "",
+    webBackendPort: "",
+    webExternalTerminator: false,
     webDecoyMode: "http_upstream",
     webDecoyUpstream: "",
     webDecoyDirectory: "",
@@ -507,6 +513,8 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       if (typeof web.enabled === "boolean") base.webEnabled = web.enabled;
       if (typeof web.vhostHost === "string") base.webVhostHost = web.vhostHost.trim();
       base.webFrontPort = parseTelemtOptionalIntField(web.frontPort);
+      base.webBackendPort = parseTelemtOptionalIntField(web.backendPort);
+      if (typeof web.externalTerminator === "boolean") base.webExternalTerminator = web.externalTerminator;
       if (web.decoyMode === "http_upstream" || web.decoyMode === "static_directory") {
         base.webDecoyMode = web.decoyMode;
       }
@@ -682,6 +690,9 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     };
     const frontPort = parseInt(form.webFrontPort.trim(), 10);
     if (Number.isFinite(frontPort) && frontPort > 0) web.frontPort = frontPort;
+    if (form.webExternalTerminator) web.externalTerminator = true;
+    const backendPort = parseInt(form.webBackendPort.trim(), 10);
+    if (Number.isFinite(backendPort) && backendPort > 0) web.backendPort = backendPort;
     if (form.webDecoyMode === "static_directory") {
       web.decoyDirectory = form.webDecoyDirectory.trim();
       if (form.webDecoyIndex.trim()) web.decoyIndex = form.webDecoyIndex.trim();

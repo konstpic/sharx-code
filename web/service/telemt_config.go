@@ -123,6 +123,15 @@ type TelemtWebSettings struct {
 	// vhost on this node/panel (SNI-routed). All WEB inbounds sharing a node/panel must agree
 	// on the same port; defaults to 443 when unset.
 	FrontPort *int `json:"frontPort"`
+	// ExternalTerminator means TLS on public 443 is terminated by something else (nginx, or
+	// xray Reality fallback -> nginx) that reverse-proxies to the private WEB listener
+	// (127.0.0.1:BackendPort). SharX then does not start its own front, so nothing competes for
+	// the port. public_addr and the listener are rendered exactly as in the built-in mode.
+	ExternalTerminator *bool `json:"externalTerminator"`
+	// BackendPort overrides the private loopback port Telemt's WEB listener binds to and the
+	// front proxies to. Unset = telemtWebBackendPortBase + inbound.Id. Must be unique across
+	// this node/panel's inbounds and must not collide with other local services.
+	BackendPort *int `json:"backendPort"`
 	// DecoyMode is "http_upstream" (reverse-proxy to a real site) or "static_directory"
 	// (serve a static site) — Telemt's fallback for unauthenticated/invalid WEB traffic.
 	DecoyMode string `json:"decoyMode"`
@@ -140,6 +149,12 @@ type TelemtWebSettings struct {
 // when an inbound doesn't specify TelemtWebSettings.FrontPort.
 const DefaultTelemtWebFrontPort = 443
 
+// TelemtWebPublicPort is the port Telemt requires in [[web.vhosts]].public_addr
+// ("must be a concrete socket address on port 443"). It is independent of FrontPort: the front
+// may listen elsewhere (e.g. behind an nginx stream / xray fallback that owns public 443),
+// but public_addr is always :443.
+const TelemtWebPublicPort = 443
+
 // telemtWebBackendPortBase + inbound.Id gives each WEB-mode Telemt inbound its own private
 // loopback port for telemtweb.Manager to reverse-proxy to. Kept well clear of the existing
 // apiPort (9100+id) / metricsPort (apiPort+1000) ranges used elsewhere in this file.
@@ -150,6 +165,25 @@ const telemtWebBackendPortBase = 28100
 // to. Exported so the node/panel apply path can build the matching telemtweb.Vhost without
 // re-deriving the port formula.
 func TelemtWebBackendAddrForInbound(inboundId int) string {
+	addr, _ := TelemtWebBackendAddr(inboundId, nil)
+	return addr
+}
+
+// TelemtWebBackendAddr is TelemtWebBackendAddrForInbound honouring TelemtWebSettings.BackendPort.
+// An out-of-range override is an error rather than silently falling back, so the operator sees
+// that the port they typed was not applied.
+func TelemtWebBackendAddr(inboundId int, web *TelemtWebSettings) (string, error) {
+	if web != nil && web.BackendPort != nil && *web.BackendPort != 0 {
+		p := *web.BackendPort
+		if p < 1024 || p > 65535 {
+			return "", fmt.Errorf("telemt web mode: backendPort %d out of range (1024-65535)", p)
+		}
+		return fmt.Sprintf("127.0.0.1:%d", p), nil
+	}
+	return defaultTelemtWebBackendAddr(inboundId), nil
+}
+
+func defaultTelemtWebBackendAddr(inboundId int) string {
 	port := telemtWebBackendPortBase + inboundId
 	if port > 65535 {
 		port = 30000 + (inboundId % 35536)
@@ -661,18 +695,17 @@ func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSetting
 	if host == "" {
 		return fmt.Errorf("telemt web mode: vhostHost is required")
 	}
-	frontPort := DefaultTelemtWebFrontPort
-	if web.FrontPort != nil && *web.FrontPort > 0 {
-		frontPort = *web.FrontPort
-	}
-	publicAddr, err := TelemtWebResolvePublicIP(host, frontPort)
+	publicAddr, err := TelemtWebResolvePublicIP(host, TelemtWebPublicPort)
 	if err != nil {
 		return fmt.Errorf("telemt web mode: resolve vhostHost %q: %w", host, err)
 	}
 	// The front (node/telemtweb.Manager) and Telemt always run co-located on the same
 	// host/container, so the bind and trust boundary are fixed internal values, not
 	// operator-configurable — there is no external proxy to distrust anymore.
-	backend := TelemtWebBackendAddrForInbound(inbound.Id)
+	backend, err := TelemtWebBackendAddr(inbound.Id, web)
+	if err != nil {
+		return err
+	}
 	bindIP, bindPortStr, err := net.SplitHostPort(backend)
 	if err != nil {
 		return fmt.Errorf("telemt web mode: invalid backend addr %q: %w", backend, err)
@@ -953,6 +986,9 @@ func telemtWebVhostForInbound(ib *model.Inbound) (telemtweb.Vhost, bool) {
 	if cfg.Web == nil || cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
 		return telemtweb.Vhost{}, false
 	}
+	if cfg.Web.ExternalTerminator != nil && *cfg.Web.ExternalTerminator {
+		return telemtweb.Vhost{}, false
+	}
 	domain := strings.ToLower(strings.TrimSpace(cfg.Web.VhostHost))
 	if domain == "" {
 		return telemtweb.Vhost{}, false
@@ -961,9 +997,13 @@ func telemtWebVhostForInbound(ib *model.Inbound) (telemtweb.Vhost, bool) {
 	if cfg.Web.FrontPort != nil && *cfg.Web.FrontPort > 0 {
 		frontPort = *cfg.Web.FrontPort
 	}
+	backend, err := TelemtWebBackendAddr(ib.Id, cfg.Web)
+	if err != nil {
+		return telemtweb.Vhost{}, false
+	}
 	return telemtweb.Vhost{
 		Domain:    domain,
-		Backend:   TelemtWebBackendAddrForInbound(ib.Id),
+		Backend:   backend,
 		FrontPort: frontPort,
 	}, true
 }

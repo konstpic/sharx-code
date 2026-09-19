@@ -205,7 +205,7 @@ func TestBuildTelemtToml_WebMode(t *testing.T) {
 	}
 }
 
-func TestBuildTelemtToml_WebModeCustomFrontPort(t *testing.T) {
+func TestBuildTelemtToml_WebModePublicAddrAlwaysPort443(t *testing.T) {
 	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
 	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "proxy.example.com", "frontPort": 8443}}}`
 	inbound := testTelemtInbound(t, settings)
@@ -213,8 +213,63 @@ func TestBuildTelemtToml_WebModeCustomFrontPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(toml, `public_addr = "203.0.113.10:8443"`) {
-		t.Errorf("expected public_addr to use the custom frontPort, got:\n%s", toml)
+	// Telemt rejects any public_addr port other than 443, so a custom front (bind) port
+	// must not leak into it.
+	if !strings.Contains(toml, `public_addr = "203.0.113.10:443"`) {
+		t.Errorf("expected public_addr on port 443 regardless of frontPort, got:\n%s", toml)
+	}
+	inbound.Enable = true
+	v, ok := telemtWebVhostForInbound(inbound)
+	if !ok || v.FrontPort != 8443 {
+		t.Errorf("front should still bind the custom port, got %+v ok=%v", v, ok)
+	}
+}
+
+func TestBuildTelemtToml_WebModeCustomBackendPort(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
+	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "proxy.example.com", "backendPort": 9002}}}`
+	inbound := testTelemtInbound(t, settings)
+	toml, err := BuildTelemtToml(inbound, nil, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(toml, "ip = \"127.0.0.1\"\nport = 9002\n") {
+		t.Errorf("expected listener on the custom backend port, got:\n%s", toml)
+	}
+	inbound.Enable = true
+	v, ok := telemtWebVhostForInbound(inbound)
+	if !ok || v.Backend != "127.0.0.1:9002" {
+		t.Errorf("front must proxy to the same backend port, got %+v ok=%v", v, ok)
+	}
+}
+
+func TestBuildTelemtToml_WebModeExternalTerminatorNoFront(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
+	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "proxy.example.com", "externalTerminator": true, "backendPort": 28110}}}`
+	inbound := testTelemtInbound(t, settings)
+	inbound.Enable = true
+	toml, err := BuildTelemtToml(inbound, nil, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`public_addr = "203.0.113.10:443"`, "ip = \"127.0.0.1\"\nport = 28110\n", `transport = "web"`} {
+		if !strings.Contains(toml, want) {
+			t.Errorf("missing %q in:\n%s", want, toml)
+		}
+	}
+	// The built-in front must not be started, otherwise it would fight the external
+	// terminator (xray/nginx) for port 443.
+	if v, ok := telemtWebVhostForInbound(inbound); ok {
+		t.Errorf("external terminator must not register a front vhost, got %+v", v)
+	}
+}
+
+func TestBuildTelemtToml_WebModeBackendPortOutOfRange(t *testing.T) {
+	stubTelemtWebDNS(t, "proxy.example.com", net.ParseIP("203.0.113.10"))
+	settings := `{"telemt":{"web": {"enabled": true, "vhostHost": "proxy.example.com", "backendPort": 80}}}`
+	inbound := testTelemtInbound(t, settings)
+	if _, err := BuildTelemtToml(inbound, nil, "", 0, ""); err == nil {
+		t.Fatal("expected an error for a privileged/invalid backendPort")
 	}
 }
 

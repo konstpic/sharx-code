@@ -6518,6 +6518,24 @@ export function InboundsPage() {
                     />
                     {form.telemtForm.webEnabled ? (
                       <>
+                        <CheckboxField
+                          checked={form.telemtForm.webExternalTerminator}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              telemtForm: { ...f.telemtForm, webExternalTerminator: e.target.checked },
+                            }))
+                          }
+                          label={t("pages.inbounds.telemtWebExternalTerminator", {
+                            defaultValue: "External TLS terminator (nginx / Xray fallback)",
+                          })}
+                        />
+                        <p className="-mt-1 text-[11px] text-[var(--fg-subtle)]">
+                          {t("pages.inbounds.telemtWebExternalTerminatorHint", {
+                            defaultValue:
+                              "SharX will not start its own front or take port 443. Your nginx (or Xray Reality fallback → nginx) must terminate TLS for the domain and proxy to the private listener port below. Example: Xray :443 → fallback 127.0.0.1:9000 → nginx → 127.0.0.1:<listener port>.",
+                          })}
+                        </p>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div>
                             <label
@@ -6542,34 +6560,69 @@ export function InboundsPage() {
                               spellCheck={false}
                             />
                           </div>
+                          {!form.telemtForm.webExternalTerminator ? (
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-front-port"
+                              >
+                                {t("pages.inbounds.telemtWebFrontPort", {
+                                  defaultValue: "Front port (optional, default 443)",
+                                })}
+                              </label>
+                              <Input
+                                id="in-tm-web-front-port"
+                                type="number"
+                                min={1}
+                                max={65535}
+                                className="font-mono text-xs"
+                                placeholder="443"
+                                value={form.telemtForm.webFrontPort}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: { ...f.telemtForm, webFrontPort: e.target.value },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                              <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                                {t("pages.inbounds.telemtWebFrontPortHint", {
+                                  defaultValue:
+                                    "Port the built-in front listens on (leave 443 unless another service owns it, e.g. nginx stream). Every WEB inbound on this node/panel must use the same value. public_addr is always :443 — Telemt requires it.",
+                                })}
+                              </p>
+                            </div>
+                          ) : null}
                           <div>
                             <label
                               className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
-                              htmlFor="in-tm-web-front-port"
+                              htmlFor="in-tm-web-backend-port"
                             >
-                              {t("pages.inbounds.telemtWebFrontPort", {
-                                defaultValue: "Front port (optional, default 443)",
+                              {t("pages.inbounds.telemtWebBackendPort", {
+                                defaultValue: "Private listener port (optional)",
                               })}
                             </label>
                             <Input
-                              id="in-tm-web-front-port"
+                              id="in-tm-web-backend-port"
                               type="number"
-                              min={1}
+                              min={1024}
                               max={65535}
                               className="font-mono text-xs"
-                              placeholder="443"
-                              value={form.telemtForm.webFrontPort}
+                              placeholder="28100 + inbound ID"
+                              value={form.telemtForm.webBackendPort}
                               onChange={(e) =>
                                 setForm((f) => ({
                                   ...f,
-                                  telemtForm: { ...f.telemtForm, webFrontPort: e.target.value },
+                                  telemtForm: { ...f.telemtForm, webBackendPort: e.target.value },
                                 }))
                               }
                               spellCheck={false}
                             />
                             <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
-                              {t("pages.inbounds.telemtWebFrontPortHint", {
-                                defaultValue: "Every WEB inbound sharing this node/panel must use the same front port.",
+                              {t("pages.inbounds.telemtWebBackendPortHint", {
+                                defaultValue:
+                                  "Loopback port (127.0.0.1) of [[server.listeners]] that the front proxies to. Empty = 28100 + inbound ID. Must be unique per inbound.",
                               })}
                             </p>
                           </div>
