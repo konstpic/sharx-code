@@ -20,6 +20,9 @@ import (
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
+// promFallbackWarned remembers instances already reported as falling back to the JSON API.
+var promFallbackWarned sync.Map
+
 const (
 	telemtOctetsSnapshotFile = "sharx_telemt_octets.json"
 	telemtPromSnapshotFile   = "sharx_telemt_prom.json"
@@ -297,8 +300,14 @@ func (m *Manager) mergeTelemtPrometheusCounters(
 	cur, err := fetchTelemtPrometheusUserOctets(metricsURL)
 	if err != nil || len(cur) == 0 {
 		logger.Debugf("telemt stats: %s: prometheus: %v", tag, err)
+		// Falling back to the JSON API loses the up/down split (Telemt only reports a bidirectional
+		// total there), which shows up as "received = 0". Say so once instead of failing silently.
+		if _, warned := promFallbackWarned.LoadOrStore(tag, struct{}{}); !warned {
+			logger.Warningf("telemt stats: %s: no per-user octets in Prometheus metrics at %s (err=%v); using the JSON API total, which has no up/down split — check the Telemt metric names after a Telemt upgrade", tag, metricsURL, err)
+		}
 		return false
 	}
+	promFallbackWarned.Delete(tag)
 
 	root := m.stateDirForTag(tag)
 	snapPath := filepath.Join(root, telemtPromSnapshotFile)
@@ -390,25 +399,39 @@ func fetchTelemtPrometheusUserOctets(metricsURL string) (map[string]promUserOcte
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("GET %s: %s", metricsURL, strings.TrimSpace(string(body)))
 	}
+	return parsePromUserOctets(resp.Body)
+}
+
+// promUserOctetsKind classifies a Prometheus sample line as a per-user client→server ("from") or
+// server→client ("to") octets counter. Telemt 3.5+ exposes these as *_total counters, older builds
+// without the suffix — accept both so an upgrade does not silently break traffic accounting.
+func promUserOctetsKind(line string) string {
+	end := strings.IndexAny(line, "{ \t")
+	if end < 0 {
+		return ""
+	}
+	switch strings.TrimSuffix(line[:end], "_total") {
+	case "telemt_user_octets_from_client":
+		return "from"
+	case "telemt_user_octets_to_client":
+		return "to"
+	}
+	return ""
+}
+
+func parsePromUserOctets(r io.Reader) (map[string]promUserOctets, error) {
 	out := make(map[string]promUserOctets)
-	sc := bufio.NewScanner(resp.Body)
+	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		var metric string
-		var user string
-		var value uint64
-		if strings.HasPrefix(line, "telemt_user_octets_from_client{") {
-			metric = "from"
-			user = promLabelUser(line)
-		} else if strings.HasPrefix(line, "telemt_user_octets_to_client{") {
-			metric = "to"
-			user = promLabelUser(line)
-		} else {
+		kind := promUserOctetsKind(line)
+		if kind == "" {
 			continue
 		}
+		user := promLabelUser(line)
 		if user == "" {
 			continue
 		}
@@ -420,13 +443,11 @@ func fetchTelemtPrometheusUserOctets(metricsURL string) (map[string]promUserOcte
 		if err != nil {
 			continue
 		}
-		value = v
 		entry := out[user]
-		switch metric {
-		case "from":
-			entry.FromClient = value
-		case "to":
-			entry.ToClient = value
+		if kind == "from" {
+			entry.FromClient = v
+		} else {
+			entry.ToClient = v
 		}
 		out[user] = entry
 	}

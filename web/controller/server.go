@@ -66,6 +66,8 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/updater/workers/finish", a.dockerUpdaterWorkersFinish)
 	g.POST("/updater/panel/trigger", a.dockerUpdaterPanelTrigger)
 	g.POST("/updater/trigger", a.dockerUpdaterTrigger)
+	g.POST("/updater/job/start", a.dockerUpdaterJobStart)
+	g.GET("/updater/job", a.dockerUpdaterJob)
 	g.GET("/cpuHistory/:bucket", a.getCpuHistoryBucket)
 	g.GET("/memHistory/:bucket", a.getMemHistoryBucket)
 	g.GET("/diskHistory/:bucket", a.getDiskHistoryBucket)
@@ -298,6 +300,26 @@ func (a *ServerController) dockerUpdaterPanelTrigger(c *gin.Context) {
 		tg.NotifyPanelAction("Docker sidecar updater triggered (e.g. Watchtower)", "", getRemoteIp(c))
 	}
 	jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerSuccess"), nil)
+}
+
+// dockerUpdaterJobStart starts the server-side update job (or returns the one already running).
+// The job outlives HTTP connections and panel restarts; clients poll dockerUpdaterJob.
+func (a *ServerController) dockerUpdaterJobStart(c *gin.Context) {
+	job, err := service.StartDockerUpdateJob()
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.dockerUpdaterTriggerError"), err)
+		return
+	}
+	tg := service.Tgbot{}
+	if tg.IsRunning() && job != nil && job.Phase == "prep" {
+		tg.NotifyPanelAction("Docker update job started (workers first, then the panel)", "", getRemoteIp(c))
+	}
+	jsonObj(c, job, nil)
+}
+
+// dockerUpdaterJob returns the current or most recent update job.
+func (a *ServerController) dockerUpdaterJob(c *gin.Context) {
+	jsonObj(c, service.GetDockerUpdateJob(), nil)
 }
 
 func (a *ServerController) dockerUpdaterTrigger(c *gin.Context) {

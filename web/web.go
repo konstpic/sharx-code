@@ -432,6 +432,13 @@ func (s *Server) Start() (err error) {
 
 	s.startTask()
 
+	// A Docker update that was interrupted by this very restart (the panel is recreated by Watchtower
+	// as part of it) continues here once the database and the nodes have had a moment to come up.
+	go func() {
+		time.Sleep(8 * time.Second)
+		service.ResumeDockerUpdateJob()
+	}()
+
 	return nil
 }
 
