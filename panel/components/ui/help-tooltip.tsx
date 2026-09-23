@@ -20,6 +20,7 @@ export type HelpKey =
   | "clients.remark"
   | "clients.trafficLimit"
   | "clients.expireDate"
+  | "clients.trafficResetCadence"
   // nodes form
   | "nodes.address"
   | "nodes.port"

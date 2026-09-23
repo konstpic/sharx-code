@@ -905,7 +905,7 @@ func (t *Tgbot) sendBackup(chatId int64) {
 	output := t.I18nBot("tgbot.messages.backupTime", "Time=="+time.Now().Format("2006-01-02 15:04:05"))
 	t.SendMsgToTgbot(chatId, output)
 
-	tempFile, err := os.CreateTemp("", "x-ui-db-backup-*.sql")
+	tempFile, err := os.CreateTemp("", "sharx-db-backup-*.sql")
 	if err != nil {
 		logger.Error("Error creating temporary backup file: ", err)
 		return
@@ -971,7 +971,7 @@ func (t *Tgbot) sendBackup(chatId int64) {
 
 	document := tu.Document(
 		tu.ID(chatId),
-		tu.FileFromBytes(fileBytes, "x-ui-db-backup.sql"),
+		tu.FileFromBytes(fileBytes, "sharx-db-backup.sql"),
 	)
 	_, err = bot.SendDocument(context.Background(), document)
 	if err != nil {

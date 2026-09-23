@@ -535,7 +535,7 @@ Update an existing inbound.
 |-----------|------|-------------|
 | `id` | integer | Inbound ID to update |
 
-**Request Body:** Same as `add` endpoint. Only provided fields will be updated.
+**Request Body:** Same as `add` endpoint. Only provided fields will be updated (each field is applied only when its key is present in the JSON body, so omit a field to leave it unchanged rather than sending its zero value).
 
 **Example Request:**
 
@@ -1295,12 +1295,12 @@ Download the database backup file.
 ```bash
 curl -X GET "http://localhost:2053/panel/api/server/getDb" \
   -b cookies.txt \
-  -o x-ui-db-backup.sql
+  -o sharx-db-backup.sql
 ```
 
 **Response:** Binary SQL file download with headers:
 - `Content-Type: application/sql`
-- `Content-Disposition: attachment; filename=x-ui-db-backup.sql`
+- `Content-Disposition: attachment; filename=sharx-db-backup.sql`
 
 ---
 
@@ -3344,6 +3344,8 @@ curl -X GET "http://localhost:2053/panel/client/list" \
       "subId": "random-sub-id",
       "comment": "Test user",
       "reset": 0,
+      "trafficResetCadence": "monthly",
+      "trafficResetDay": 1,
       "createdAt": 1703980800,
       "updatedAt": 1704067200,
       "inboundIds": [1, 2],
@@ -3416,7 +3418,9 @@ Create a new client entity.
 | `tgId` | integer | No | Telegram user ID |
 | `subId` | string | No | Subscription ID |
 | `comment` | string | No | Comment |
-| `reset` | integer | No | Traffic reset period in days |
+| `reset` | integer | No | Legacy relative reset period in days. Not wired to any automatic reset for client entities — kept only for backward-compatible data; use `trafficResetCadence` below for a working automatic reset |
+| `trafficResetCadence` | string | No | Automatic, calendar-aligned traffic reset: `""` (off, default), `"daily"`, `"weekly"`, or `"monthly"`. Resets this client's `up`/`down`/`allTime` on its own schedule, independent of any inbound-level reset |
+| `trafficResetDay` | integer | No | Cadence's calendar anchor. Ignored for `"daily"`. For `"weekly"`: day of week, `0`-`6` (`0`=Sunday). For `"monthly"`: day of month, `1`-`31` — if a month has fewer days than the chosen value (e.g. `31` in April, or `28`/`29` in February), the reset is **clamped to that month's last day** instead of skipped, so the client never gets an extra reset-free period |
 | `hwidEnabled` | boolean | No | Enable HWID tracking |
 | `maxHwid` | integer | No | Max HWID devices (0 = unlimited) |
 | `ipLimitEnabled` | boolean | No | Enable concurrent unique source IP limit (default: false) |

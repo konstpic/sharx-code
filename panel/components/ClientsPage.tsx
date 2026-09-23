@@ -1325,6 +1325,8 @@ type ClientDetail = {
   comment?: string;
   announce?: string;
   reset?: number;
+  trafficResetCadence?: string;
+  trafficResetDay?: number;
   tgId?: number;
   subId?: string;
   security?: string;
@@ -1346,6 +1348,8 @@ type ClientFormState = {
   groupId: string;
   comment: string;
   reset: string;
+  trafficResetCadence: string;
+  trafficResetDay: string;
   tgId: string;
   /** Subscription id (пустой на сервере = сгенерировать при создании) */
   subId: string;
@@ -1364,6 +1368,8 @@ const FORM_DEFAULT: ClientFormState = {
   groupId: "",
   comment: "",
   reset: "0",
+  trafficResetCadence: "",
+  trafficResetDay: "1",
   tgId: "",
   subId: "",
   announce: "",
@@ -2050,23 +2056,99 @@ function ClientUnifiedCard({
                 </div>
                 <div>
                   <label
-                    className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
-                    htmlFor={id("reset")}
+                    className="mb-1.5 flex items-center gap-1 text-xs font-medium text-[var(--fg-muted)]"
+                    htmlFor={id("resetCadence")}
                   >
-                    {t("pages.clients.addModalResetDays")}
+                    {t("pages.clients.trafficResetCadence", { defaultValue: "Auto traffic reset" })}
+                    <HelpTooltip helpKey="clients.trafficResetCadence" />
                   </label>
-                  <Input
-                    id={id("reset")}
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={form.reset}
-                    onChange={(e) => setForm((f) => ({ ...f, reset: e.target.value }))}
-                  />
+                  <SelectNative
+                    id={id("resetCadence")}
+                    inputSize="sm"
+                    className="w-full min-w-0 shadow-none"
+                    value={form.trafficResetCadence}
+                    onChange={(e) => {
+                      const cadence = e.target.value;
+                      setForm((f) => ({
+                        ...f,
+                        trafficResetCadence: cadence,
+                        trafficResetDay: cadence === "weekly" ? "0" : "1",
+                      }));
+                    }}
+                  >
+                    <option value="">
+                      {t("pages.clients.trafficResetCadenceOff", { defaultValue: "Off" })}
+                    </option>
+                    <option value="daily">
+                      {t("pages.clients.trafficResetCadenceDaily", { defaultValue: "Daily" })}
+                    </option>
+                    <option value="weekly">
+                      {t("pages.clients.trafficResetCadenceWeekly", { defaultValue: "Weekly" })}
+                    </option>
+                    <option value="monthly">
+                      {t("pages.clients.trafficResetCadenceMonthly", { defaultValue: "Monthly" })}
+                    </option>
+                  </SelectNative>
                   <p className="mt-1 text-xs text-[var(--fg-subtle)]">
-                    {t("pages.clients.addModalResetHint")}
+                    {t("pages.clients.trafficResetCadenceHint", {
+                      defaultValue:
+                        "Resets this client's traffic counters — upload, download, and total used — on its own calendar schedule, independent of any inbound-level reset.",
+                    })}
                   </p>
                 </div>
+                {form.trafficResetCadence === "weekly" ? (
+                  <div>
+                    <label
+                      className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                      htmlFor={id("resetWeekday")}
+                    >
+                      {t("pages.clients.trafficResetWeekday", { defaultValue: "Reset on" })}
+                    </label>
+                    <SelectNative
+                      id={id("resetWeekday")}
+                      inputSize="sm"
+                      className="w-full min-w-0 shadow-none"
+                      value={form.trafficResetDay}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, trafficResetDay: e.target.value }))
+                      }
+                    >
+                      <option value="1">{t("pages.clients.weekday1", { defaultValue: "Monday" })}</option>
+                      <option value="2">{t("pages.clients.weekday2", { defaultValue: "Tuesday" })}</option>
+                      <option value="3">{t("pages.clients.weekday3", { defaultValue: "Wednesday" })}</option>
+                      <option value="4">{t("pages.clients.weekday4", { defaultValue: "Thursday" })}</option>
+                      <option value="5">{t("pages.clients.weekday5", { defaultValue: "Friday" })}</option>
+                      <option value="6">{t("pages.clients.weekday6", { defaultValue: "Saturday" })}</option>
+                      <option value="0">{t("pages.clients.weekday0", { defaultValue: "Sunday" })}</option>
+                    </SelectNative>
+                  </div>
+                ) : null}
+                {form.trafficResetCadence === "monthly" ? (
+                  <div>
+                    <label
+                      className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                      htmlFor={id("resetMonthDay")}
+                    >
+                      {t("pages.clients.trafficResetMonthDay", { defaultValue: "Day of month" })}
+                    </label>
+                    <Input
+                      id={id("resetMonthDay")}
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={form.trafficResetDay}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, trafficResetDay: e.target.value }))
+                      }
+                    />
+                    <p className="mt-1 text-xs text-[var(--fg-subtle)]">
+                      {t("pages.clients.trafficResetMonthDayHint", {
+                        defaultValue:
+                          "1-31. If a month is shorter than this, reset happens on that month's last day instead (e.g. day 31 resets on Apr 30 or Feb 28/29) — never skipped.",
+                      })}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -3470,6 +3552,10 @@ export function ClientsPage() {
         groupId: c.groupId != null && c.groupId > 0 ? String(c.groupId) : "",
         comment: c.comment ?? "",
         reset: String(c.reset ?? 0),
+        trafficResetCadence: c.trafficResetCadence ?? "",
+        trafficResetDay: String(
+          c.trafficResetDay ?? (c.trafficResetCadence === "weekly" ? 0 : 1),
+        ),
         tgId: c.tgId != null && c.tgId > 0 ? String(c.tgId) : "",
         subId: c.subId ?? "",
         announce: c.announce ?? "",
@@ -3577,6 +3663,22 @@ export function ClientsPage() {
       return;
     }
 
+    const trafficResetCadence = form.trafficResetCadence;
+    let trafficResetDay = 0;
+    if (trafficResetCadence === "weekly") {
+      trafficResetDay = parseInt(form.trafficResetDay, 10);
+      if (Number.isNaN(trafficResetDay) || trafficResetDay < 0 || trafficResetDay > 6) {
+        toast.error(t("pages.clients.addError"));
+        return;
+      }
+    } else if (trafficResetCadence === "monthly") {
+      trafficResetDay = parseInt(form.trafficResetDay, 10);
+      if (Number.isNaN(trafficResetDay) || trafficResetDay < 1 || trafficResetDay > 31) {
+        toast.error(t("pages.clients.addError"));
+        return;
+      }
+    }
+
     let tgId = 0;
     if (form.tgId.trim() !== "") {
       tgId = parseInt(form.tgId, 10);
@@ -3601,6 +3703,8 @@ export function ClientsPage() {
         ipLimitEnabled: form.ipLimitEnabled,
         maxIPs: form.ipLimitEnabled ? Math.max(1, parseInt(form.maxIPs, 10) || 1) : 0,
         reset: resetVal,
+        trafficResetCadence,
+        trafficResetDay,
         tgId,
         subId: subIdTrim,
         comment,

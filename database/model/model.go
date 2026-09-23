@@ -116,9 +116,9 @@ type OutboundTraffics struct {
 
 // InboundClientIps stores IP addresses associated with inbound clients for access control.
 type InboundClientIps struct {
-	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Id         int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	ClientName string `json:"clientName" form:"clientName" gorm:"column:client_name;unique"`
-	Ips         string `json:"ips" form:"ips"`
+	Ips        string `json:"ips" form:"ips"`
 }
 
 // HistoryOfSeeders tracks which database seeders have been executed to prevent re-running.
@@ -187,23 +187,33 @@ type Client struct {
 // ClientEntity represents a client as a separate database entity.
 // Clients can be assigned to multiple inbounds.
 type ClientEntity struct {
-	Id         int     `json:"id" gorm:"primaryKey;autoIncrement"`                   // Unique identifier
-	UserId     int     `json:"userId" gorm:"index"`                                  // Associated user ID
+	Id         int     `json:"id" gorm:"primaryKey;autoIncrement"`                // Unique identifier
+	UserId     int     `json:"userId" gorm:"index"`                               // Associated user ID
 	Name       string  `json:"name" form:"name" gorm:"uniqueIndex:idx_user_name"` // Client name identifier (unique per user, immutable)
-	UUID       string  `json:"uuid" form:"uuid"`                                     // UUID/ID for VMESS/VLESS
-	Security   string  `json:"security" form:"security"`                             // Security method (e.g., "auto", "aes-128-gcm")
-	Password   string  `json:"password" form:"password"`                             // Client password (for Trojan/Shadowsocks)
-	Flow       string  `json:"flow" form:"flow"`                                     // Flow control (XTLS)
-	TotalGB    float64 `json:"totalGB" form:"totalGB"`                               // Total traffic limit in GB (supports decimal values like 0.01 for MB)
-	ExpiryTime int64   `json:"expiryTime" form:"expiryTime"`                         // Expiration timestamp
-	Enable     bool    `json:"enable" form:"enable"`                                 // Whether the client is enabled
-	Status     string  `json:"status" form:"status" gorm:"default:active"`           // Client status: active, expired_traffic, expired_time
-	TgID       int64   `json:"tgId" form:"tgId"`                                     // Telegram user ID for notifications
-	SubID      string  `json:"subId" form:"subId" gorm:"index"`                      // Subscription identifier
-	Comment    string  `json:"comment" form:"comment"`                               // Client comment
-	Reset      int     `json:"reset" form:"reset"`                                   // Reset period in days
-	CreatedAt  int64   `json:"createdAt" gorm:"autoCreateTime"`                      // Creation timestamp
-	UpdatedAt  int64   `json:"updatedAt" gorm:"autoUpdateTime"`                      // Last update timestamp
+	UUID       string  `json:"uuid" form:"uuid"`                                  // UUID/ID for VMESS/VLESS
+	Security   string  `json:"security" form:"security"`                          // Security method (e.g., "auto", "aes-128-gcm")
+	Password   string  `json:"password" form:"password"`                          // Client password (for Trojan/Shadowsocks)
+	Flow       string  `json:"flow" form:"flow"`                                  // Flow control (XTLS)
+	TotalGB    float64 `json:"totalGB" form:"totalGB"`                            // Total traffic limit in GB (supports decimal values like 0.01 for MB)
+	ExpiryTime int64   `json:"expiryTime" form:"expiryTime"`                      // Expiration timestamp
+	Enable     bool    `json:"enable" form:"enable"`                              // Whether the client is enabled
+	Status     string  `json:"status" form:"status" gorm:"default:active"`        // Client status: active, expired_traffic, expired_time
+	TgID       int64   `json:"tgId" form:"tgId"`                                  // Telegram user ID for notifications
+	SubID      string  `json:"subId" form:"subId" gorm:"index"`                   // Subscription identifier
+	Comment    string  `json:"comment" form:"comment"`                            // Client comment
+	Reset      int     `json:"reset" form:"reset"`                                // Reset period in days (legacy relative period; unused by the calendar-aligned reset below)
+	// TrafficResetCadence is the automatic, calendar-aligned traffic reset schedule for this
+	// client: "" (off, default) | "daily" | "weekly" | "monthly". Mirrors the inbound-level
+	// TrafficReset field but scoped to one client instead of every client on an inbound.
+	TrafficResetCadence string `json:"trafficResetCadence" form:"trafficResetCadence" gorm:"column:traffic_reset_cadence;default:''"`
+	// TrafficResetDay is the cadence's calendar anchor: ignored for "daily"; day of week
+	// 0-6 (Sunday=0) for "weekly"; day of month 1-31 for "monthly". A month shorter than
+	// the chosen day (e.g. 31 in April, or 29-31 in February) resets on that month's last
+	// day instead — clamped, not skipped, so the client never gets an extra period for free.
+	TrafficResetDay      int   `json:"trafficResetDay" form:"trafficResetDay" gorm:"column:traffic_reset_day;default:0"`
+	LastTrafficResetTime int64 `json:"lastTrafficResetTime" form:"-" gorm:"column:last_traffic_reset_time;default:0"` // ms epoch of the last automatic reset
+	CreatedAt            int64 `json:"createdAt" gorm:"autoCreateTime"`                                               // Creation timestamp
+	UpdatedAt            int64 `json:"updatedAt" gorm:"autoUpdateTime"`                                               // Last update timestamp
 
 	// Relations (not stored in DB, loaded via joins)
 	InboundIds []int `json:"inboundIds,omitempty" form:"-" gorm:"-"` // Inbound IDs this client is assigned to
@@ -219,9 +229,9 @@ type ClientEntity struct {
 	AllTime int64 `json:"allTime" form:"-" gorm:"default:0"` // All-time traffic usage
 
 	// Speed statistics (calculated on backend, not stored in DB)
-	UpSpeed    int64 `json:"upSpeed" form:"-" gorm:"-"`   // Upload speed in bits per second (calculated)
-	DownSpeed  int64 `json:"downSpeed" form:"-" gorm:"-"` // Download speed in bits per second (calculated)
-	LastOnline int64 `json:"lastOnline" form:"-" gorm:"default:0"`  // Last online timestamp
+	UpSpeed    int64 `json:"upSpeed" form:"-" gorm:"-"`            // Upload speed in bits per second (calculated)
+	DownSpeed  int64 `json:"downSpeed" form:"-" gorm:"-"`          // Download speed in bits per second (calculated)
+	LastOnline int64 `json:"lastOnline" form:"-" gorm:"default:0"` // Last online timestamp
 	// Multi-node live hint: last node where this client was observed online.
 	// Not persisted in DB; refreshed from node stats collector.
 	LastConnectedNode string `json:"lastConnectedNode,omitempty" form:"-" gorm:"-"`
@@ -295,26 +305,26 @@ const (
 
 // Node represents a worker node in multi-node architecture.
 type Node struct {
-	Id           int    `json:"id" gorm:"primaryKey;autoIncrement"`                                      // Unique identifier
-	Name         string `json:"name" form:"name"`                                                        // Node name/identifier
-	Address      string `json:"address" form:"address"`                                                  // Node API address (e.g., "http://192.168.1.100:8080" or "https://...")
-	ApiKey       string `json:"apiKey" form:"apiKey"`                                                    // API key for authentication
-	Status       string `json:"status" gorm:"default:unknown"`                                           // Status: online, offline, unknown
-	LastCheck    int64  `json:"lastCheck" gorm:"default:0"`                                              // Last health check timestamp
-	ResponseTime int64  `json:"responseTime" gorm:"default:0"`                                           // Response time in milliseconds (0 = not measured or error)
-	UseTLS       bool   `json:"useTls" form:"useTls" gorm:"column:use_tls;default:false"`                // Whether to use TLS/HTTPS for API calls
-	CertPath     string `json:"certPath" form:"certPath" gorm:"column:cert_path"`                        // Path to certificate file (optional, for custom CA)
-	KeyPath      string `json:"keyPath" form:"keyPath" gorm:"column:key_path"`                           // Path to private key file (optional, for custom CA)
-	InsecureTLS  bool   `json:"insecureTls" form:"insecureTls" gorm:"column:insecure_tls;default:false"` // Skip certificate verification (not recommended)
-	CreatedAt    int64  `json:"createdAt" gorm:"autoCreateTime"`                                         // Creation timestamp
-	UpdatedAt    int64  `json:"updatedAt" gorm:"autoUpdateTime"`                                         // Last update timestamp
-	Enable       bool   `json:"enable" form:"enable" gorm:"column:enable;default:true"`                  // When false, panel skips health checks, stats collection, and config push
-	XrayState    string `json:"xrayState" gorm:"column:xray_state;default:unknown"`                      // running | stopped | error | unknown (worker Xray)
-	XrayVersion  string `json:"xrayVersion" gorm:"column:xray_version;default:''"`                       // cached Xray version from worker (e.g. "26.5.3"), empty when unknown
-	WorkerVersion string `json:"workerVersion" gorm:"column:worker_version;default:''"`                     // cached SharX worker build/version from node API (sharxVersion)
-	TelemtState   string `json:"telemtState" gorm:"column:telemt_state;default:unknown"`                 // running | stopped | unknown (worker Telemt sidecars)
-	TelemtVersion string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`                  // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown
-	AmneziaWgState string `json:"amneziawgState" gorm:"column:amneziawg_state;default:unknown"`          // running | stopped | unknown (worker AmneziaWG sidecars)
+	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`                                      // Unique identifier
+	Name           string `json:"name" form:"name"`                                                        // Node name/identifier
+	Address        string `json:"address" form:"address"`                                                  // Node API address (e.g., "http://192.168.1.100:8080" or "https://...")
+	ApiKey         string `json:"apiKey" form:"apiKey"`                                                    // API key for authentication
+	Status         string `json:"status" gorm:"default:unknown"`                                           // Status: online, offline, unknown
+	LastCheck      int64  `json:"lastCheck" gorm:"default:0"`                                              // Last health check timestamp
+	ResponseTime   int64  `json:"responseTime" gorm:"default:0"`                                           // Response time in milliseconds (0 = not measured or error)
+	UseTLS         bool   `json:"useTls" form:"useTls" gorm:"column:use_tls;default:false"`                // Whether to use TLS/HTTPS for API calls
+	CertPath       string `json:"certPath" form:"certPath" gorm:"column:cert_path"`                        // Path to certificate file (optional, for custom CA)
+	KeyPath        string `json:"keyPath" form:"keyPath" gorm:"column:key_path"`                           // Path to private key file (optional, for custom CA)
+	InsecureTLS    bool   `json:"insecureTls" form:"insecureTls" gorm:"column:insecure_tls;default:false"` // Skip certificate verification (not recommended)
+	CreatedAt      int64  `json:"createdAt" gorm:"autoCreateTime"`                                         // Creation timestamp
+	UpdatedAt      int64  `json:"updatedAt" gorm:"autoUpdateTime"`                                         // Last update timestamp
+	Enable         bool   `json:"enable" form:"enable" gorm:"column:enable;default:true"`                  // When false, panel skips health checks, stats collection, and config push
+	XrayState      string `json:"xrayState" gorm:"column:xray_state;default:unknown"`                      // running | stopped | error | unknown (worker Xray)
+	XrayVersion    string `json:"xrayVersion" gorm:"column:xray_version;default:''"`                       // cached Xray version from worker (e.g. "26.5.3"), empty when unknown
+	WorkerVersion  string `json:"workerVersion" gorm:"column:worker_version;default:''"`                   // cached SharX worker build/version from node API (sharxVersion)
+	TelemtState    string `json:"telemtState" gorm:"column:telemt_state;default:unknown"`                  // running | stopped | unknown (worker Telemt sidecars)
+	TelemtVersion  string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`                   // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown
+	AmneziaWgState string `json:"amneziawgState" gorm:"column:amneziawg_state;default:unknown"`            // running | stopped | unknown (worker AmneziaWG sidecars)
 
 	// Admin-selected core versions (empty = not pinned, worker keeps whatever it already has).
 	// Set when the admin explicitly installs a version via the panel; re-asserted on health
@@ -330,11 +340,11 @@ type Node struct {
 	CaCertPem          string `json:"-" gorm:"column:ca_cert_pem;type:text"` // CA: trust node server cert + issue client certs
 
 	// Traffic statistics
-	Up             int64   `json:"up" gorm:"default:0"`                                                           // Upload traffic in bytes
-	Down           int64   `json:"down" gorm:"default:0"`                                                         // Download traffic in bytes
-	AllTime        int64   `json:"allTime" gorm:"default:0"`                                                      // All-time traffic usage in bytes
-	TrafficLimitGB float64 `json:"trafficLimitGB" form:"trafficLimitGB" gorm:"column:traffic_limit_gb;default:0"` // Traffic limit in GB (0 = unlimited)
-	TrafficResetDay  int     `json:"trafficResetDay" form:"trafficResetDay" gorm:"column:traffic_reset_day;default:0"`   // Day of month to reset counters (0 = off, 1-31)
+	Up              int64   `json:"up" gorm:"default:0"`                                                              // Upload traffic in bytes
+	Down            int64   `json:"down" gorm:"default:0"`                                                            // Download traffic in bytes
+	AllTime         int64   `json:"allTime" gorm:"default:0"`                                                         // All-time traffic usage in bytes
+	TrafficLimitGB  float64 `json:"trafficLimitGB" form:"trafficLimitGB" gorm:"column:traffic_limit_gb;default:0"`    // Traffic limit in GB (0 = unlimited)
+	TrafficResetDay int     `json:"trafficResetDay" form:"trafficResetDay" gorm:"column:traffic_reset_day;default:0"` // Day of month to reset counters (0 = off, 1-31)
 
 	// Egress IP geolocation (map); optional, updated on node startup / push-geo.
 	GeoLat       *float64 `json:"geoLat,omitempty" gorm:"column:geo_lat"`
@@ -532,8 +542,8 @@ type Host struct {
 	//   "tls"        — force security=tls (e.g. when a TLS terminator fronts Xray),
 	//   "none"       — force security=none (e.g. when Xray serves plain TCP).
 	SubscriptionSecurity string `json:"subscriptionSecurity" gorm:"column:subscription_security;default:''"`
-	CreatedAt                 int64  `json:"createdAt" gorm:"autoCreateTime"`                                               // Creation timestamp
-	UpdatedAt                 int64  `json:"updatedAt" gorm:"autoUpdateTime"`                                               // Last update timestamp
+	CreatedAt            int64  `json:"createdAt" gorm:"autoCreateTime"` // Creation timestamp
+	UpdatedAt            int64  `json:"updatedAt" gorm:"autoUpdateTime"` // Last update timestamp
 
 	// Relations (not stored in DB, loaded via joins)
 	InboundIds []int `json:"inboundIds,omitempty" form:"-" gorm:"-"` // Inbound IDs this host applies to

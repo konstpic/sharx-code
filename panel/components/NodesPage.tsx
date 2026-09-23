@@ -765,10 +765,19 @@ export function NodesPage() {
       toast.error(t("pages.nodes.enterNodeAddress"));
       return;
     }
-    setForm((f) => ({
-      ...f,
-      ...parseNodeAddressToHostPort(pack.address),
-    }));
+    // buildAddressFromHostPort always returns a scheme-prefixed address — a bare host gets an
+    // implicit http/https:// added — and parseNodeAddressToHostPort's URL branch keeps that
+    // scheme baked into the returned host (e.g. "http://1.2.3.4") so an admin-typed URL
+    // round-trips losslessly. Re-deriving host/port here was only meant to canonicalize an
+    // explicit URL the admin pasted into the host field; for a bare host/IP it corrupts the
+    // field with the implicit scheme, which then goes straight to SSH on the automatic-install
+    // step and breaks the connection. Only reparse when the admin's own input already had one.
+    if (/^https?:\/\//i.test(form.host.trim())) {
+      setForm((f) => ({
+        ...f,
+        ...parseNodeAddressToHostPort(pack.address),
+      }));
+    }
     setAddWizardStep(2);
     setRegisterError(null);
     setRegisterFailKind(null);

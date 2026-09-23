@@ -285,6 +285,9 @@ func (s *Server) startTask() {
 	// Run once a month, midnight, first of month
 	s.cron.AddJob("@monthly", job.NewPeriodicTrafficResetJob("monthly"))
 	s.cron.AddJob("@daily", job.NewNodeTrafficResetJob())
+	// Per-client calendar reset (daily/weekly-by-weekday/monthly-by-day), independent of the
+	// inbound-level jobs above which reset every client on an inbound together.
+	s.cron.AddJob("@daily", job.NewClientTrafficResetJob())
 
 	// LDAP sync scheduling
 	if ldapEnabled, _ := s.settingService.GetLdapEnable(); ldapEnabled {

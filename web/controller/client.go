@@ -488,6 +488,21 @@ func (a *ClientController) updateClient(c *gin.Context) {
 					client.Reset = reset
 				}
 			}
+			// Calendar-aligned auto reset — must be copied here for the same reason as
+			// ipLimitEnabled/maxIPs above, otherwise the UI's selection never reaches
+			// ClientService.UpdateClient and is silently dropped on every save.
+			if cadenceVal, exists := updateData["trafficResetCadence"]; exists {
+				if cadence, ok := cadenceVal.(string); ok {
+					client.TrafficResetCadence = cadence
+				}
+			}
+			if resetDayVal, exists := updateData["trafficResetDay"]; exists {
+				if resetDay, ok := resetDayVal.(float64); ok {
+					client.TrafficResetDay = int(resetDay)
+				} else if resetDay, ok := resetDayVal.(int); ok {
+					client.TrafficResetDay = resetDay
+				}
+			}
 			if hwidEnabled, ok := updateData["hwidEnabled"].(bool); ok {
 				client.HWIDEnabled = hwidEnabled
 			}

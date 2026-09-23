@@ -156,6 +156,44 @@ func (s *ClientService) GetClients(userId int) ([]*model.ClientEntity, error) {
 	return clients, nil
 }
 
+// GetClientIDsForDailyOrWeeklyTrafficReset returns ids of clients on the "daily" cadence
+// (day is ignored), or on "weekly" whose traffic_reset_day equals today's weekday
+// (0=Sunday..6=Saturday, time.Weekday's numbering). Every week has 7 days, so there is no
+// short-period edge case here — unlike monthly, which needs GetClientIDsForMonthlyTrafficReset.
+// Only ids, not full rows — the job reloads each client fresh through ResetClientTrafficSystem
+// so it always resets against current state.
+func (s *ClientService) GetClientIDsForDailyOrWeeklyTrafficReset(cadence string, day int) ([]int, error) {
+	db := database.GetDB()
+	q := db.Model(&model.ClientEntity{}).Where("traffic_reset_cadence = ?", cadence)
+	if cadence != "daily" {
+		q = q.Where("traffic_reset_day = ?", day)
+	}
+	var ids []int
+	if err := q.Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// GetClientIDsForMonthlyTrafficReset returns ids of "monthly" clients whose traffic_reset_day
+// falls due today: an exact match on monthDay, OR — when the client's chosen day does not
+// exist in the current month (e.g. day 31 in April, or 29/30/31 in February) — a match on
+// today being the last day of the month. This clamps a short month's reset to its last day
+// instead of skipping it entirely: skipping would silently hand that client roughly a whole
+// extra period of traffic, since their next reset would then be ~2 months instead of ~1 away.
+func (s *ClientService) GetClientIDsForMonthlyTrafficReset(monthDay, lastDayOfMonth int) ([]int, error) {
+	db := database.GetDB()
+	var ids []int
+	q := db.Model(&model.ClientEntity{}).
+		Where("traffic_reset_cadence = ?", "monthly").
+		Where("traffic_reset_day = ? OR (? = ? AND traffic_reset_day > ?)",
+			monthDay, monthDay, lastDayOfMonth, monthDay)
+	if err := q.Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
 // GetClient retrieves a client by ID.
 // Traffic statistics are now stored directly in ClientEntity table.
 func (s *ClientService) GetClient(id int) (*model.ClientEntity, error) {
@@ -344,7 +382,38 @@ func (s *ClientService) vlessFlowFromAssignedInboundList(inboundIds []int) strin
 
 // AddClient creates a new client.
 // Returns whether Xray needs restart and any error.
+// normalizeClientTrafficResetCadence validates and canonicalizes the calendar-reset fields:
+// cadence must be "", "daily", "weekly" or "monthly"; the day anchor is cleared for "daily"
+// (irrelevant) and range-checked for "weekly" (0-6, Sunday=0) and "monthly" (1-31).
+func normalizeClientTrafficResetCadence(client *model.ClientEntity) error {
+	cadence := strings.ToLower(strings.TrimSpace(client.TrafficResetCadence))
+	switch cadence {
+	case "":
+		client.TrafficResetCadence = ""
+		client.TrafficResetDay = 0
+	case "daily":
+		client.TrafficResetCadence = cadence
+		client.TrafficResetDay = 0
+	case "weekly":
+		if client.TrafficResetDay < 0 || client.TrafficResetDay > 6 {
+			return common.NewError("Weekly traffic reset day must be 0-6 (Sunday-Saturday)")
+		}
+		client.TrafficResetCadence = cadence
+	case "monthly":
+		if client.TrafficResetDay < 1 || client.TrafficResetDay > 31 {
+			return common.NewError("Monthly traffic reset day must be 1-31")
+		}
+		client.TrafficResetCadence = cadence
+	default:
+		return common.NewError("Invalid traffic reset cadence: ", cadence)
+	}
+	return nil
+}
+
 func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool, error) {
+	if err := normalizeClientTrafficResetCadence(client); err != nil {
+		return false, err
+	}
 	// Validate name uniqueness for this user
 	existing, err := s.GetClientByName(userId, client.Name)
 	if err == nil && existing != nil {
@@ -440,7 +509,7 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 		"total_gb", "expiry_time", "enable", "status",
 		"tg_id", "sub_id", "comment", "reset", "created_at", "updated_at",
 		"up", "down", "all_time", "last_online", "hwid_enabled", "max_hwid",
-		"announce",
+		"announce", "traffic_reset_cadence", "traffic_reset_day",
 	}
 	// Add group_id only if it's not nil
 	if client.GroupId != nil {
@@ -637,6 +706,10 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	}
 	client.Announce = strings.TrimSpace(client.Announce)
 
+	if err := normalizeClientTrafficResetCadence(client); err != nil {
+		return false, err
+	}
+
 	var effectiveInboundIds []int
 	if client.InboundIds != nil {
 		effectiveInboundIds = append(effectiveInboundIds, client.InboundIds...)
@@ -693,6 +766,8 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	updates["announce"] = client.Announce
 	// flow is set from assigned VLESS inbounds after mapping (see below), not from the request
 	updates["reset"] = client.Reset
+	updates["traffic_reset_cadence"] = client.TrafficResetCadence
+	updates["traffic_reset_day"] = client.TrafficResetDay
 	// Update group_id - can be nil (no group)
 	// Only update if it's different from existing value
 	if existing.GroupId == nil && client.GroupId == nil {
@@ -1727,8 +1802,6 @@ func (s *ClientService) ResetAllClientTraffics(userId int) (bool, error) {
 // ResetClientTraffic resets traffic counter for a specific client.
 // Returns whether Xray needs restart and any error.
 func (s *ClientService) ResetClientTraffic(userId int, clientId int) (bool, error) {
-	db := database.GetDB()
-
 	// Get client and verify ownership
 	client, err := s.GetClient(clientId)
 	if err != nil {
@@ -1737,6 +1810,39 @@ func (s *ClientService) ResetClientTraffic(userId int, clientId int) (bool, erro
 	if client.UserId != userId {
 		return false, common.NewError("Client not found or access denied")
 	}
+
+	return s.resetClientTrafficCore(client)
+}
+
+// ResetClientTrafficSystem resets one client's traffic the same way ResetClientTraffic does,
+// but without an owning-user check and additionally stamping last_traffic_reset_time — for
+// system-triggered resets (the calendar-aligned cadence job) rather than an authenticated
+// admin action.
+func (s *ClientService) ResetClientTrafficSystem(clientId int) (bool, error) {
+	client, err := s.GetClient(clientId)
+	if err != nil {
+		return false, err
+	}
+	needRestart, err := s.resetClientTrafficCore(client)
+	if err != nil {
+		return needRestart, err
+	}
+	db := database.GetDB()
+	if uerr := db.Model(&model.ClientEntity{}).
+		Where("id = ?", clientId).
+		Update("last_traffic_reset_time", time.Now().UnixMilli()).Error; uerr != nil {
+		logger.Warningf("ResetClientTrafficSystem: failed to stamp last_traffic_reset_time for client %d: %v", clientId, uerr)
+	}
+	return needRestart, nil
+}
+
+// resetClientTrafficCore zeroes client's traffic counters, clears its per-node traffic rows,
+// reactivates it if it was expired due to traffic/time, and re-adds it to Xray when needed.
+// Shared by the authenticated single-client reset and the system-triggered cadence job.
+func (s *ClientService) resetClientTrafficCore(client *model.ClientEntity) (bool, error) {
+	db := database.GetDB()
+	clientId := client.Id
+	userId := client.UserId
 
 	// Check if client was expired due to traffic
 	wasExpired := client.Status == "expired_traffic" || client.Status == "expired_time"

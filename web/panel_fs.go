@@ -79,6 +79,13 @@ func MountPanelStaticAssets(r gin.IRoutes) {
 	r.GET("/custom.min.css", func(c *gin.Context) {
 		c.FileFromFS("custom.min.css", panelRootHTTP)
 	})
+	// favicon.ico is only reachable here: engine.NoRoute only serves the SPA fallback under
+	// the /panel prefix, so without an explicit route a request for the bare /favicon.ico
+	// (or webBasePath + favicon.ico) 404s and browsers keep the previous/default icon.
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		c.Header("Cache-Control", "max-age=31536000, public, immutable")
+		c.FileFromFS("favicon.ico", panelRootHTTP)
+	})
 }
 
 // rewritePanelHTML injects runtime base path and rewrites root-absolute asset URLs for secret-path mode.
