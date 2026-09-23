@@ -81,10 +81,7 @@ func (s *XrayService) applySidecarsToNodeIDsMulti(nodeIDs []int) error {
 			}
 			telm, awg, webv, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
 			if terr != nil {
-				mu.Lock()
-				failures = append(failures, fmt.Errorf("node %s: build sidecars: %w", n.Name, terr))
-				mu.Unlock()
-				return
+				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
 			}
 			tPtr, aPtr, wPtr := &telm, &awg, &webv
 			if err := s.nodeService.ApplySidecarsToNode(n, tPtr, aPtr, wPtr); err != nil {

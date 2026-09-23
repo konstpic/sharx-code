@@ -977,10 +977,7 @@ func (s *XrayService) applyWorkerConfigToNodeIDsMulti(nodeIDs []int) error {
 			}
 			telm, awg, webv, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
 			if terr != nil {
-				mu.Lock()
-				failures = append(failures, fmt.Errorf("node %s: build sidecars: %w", n.Name, terr))
-				mu.Unlock()
-				return
+				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
 			}
 			meta := NewApplyWorkerConfigMeta(configJSON, coreH)
 			if err := s.nodeService.ApplyConfigToNode(n, configJSON, &telm, &awg, &webv, meta); err != nil {
