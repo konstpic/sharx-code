@@ -751,7 +751,10 @@ func (s *Server) userOnlineSessions(c *gin.Context) {
 	if s.telemtManager != nil {
 		sessions = append(sessions, s.telemtManager.CollectOnlineSessionsForUser(telemtUsername)...)
 	}
-	if xrayNotReady && len(sessions) == 0 && (s.telemtManager == nil || !s.telemtManager.HasRunning()) {
+	if s.amneziawgManager != nil {
+		sessions = append(sessions, s.amneziawgManager.CollectOnlineSessionsForUser(email)...)
+	}
+	if xrayNotReady && len(sessions) == 0 && (s.telemtManager == nil || !s.telemtManager.HasRunning()) && (s.amneziawgManager == nil || s.amneziawgManager.RunningCount() == 0) {
 		logXrayNotReadyThrottled("user-online-sessions")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": xray.ErrXrayNotReady.Error(), "code": errCodeXrayNotReady})
 		return

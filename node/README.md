@@ -54,6 +54,8 @@ Worker-узел для multi-mode панели SharX: на машине крут
 - Панель обращается к узлу по HTTPS с **mTLS**; в заголовке **`Authorization: Bearer <JWT>`** — токен, который **выпускает панель**, а не строка «api-key» пользователя.
 - `GET /health` — без авторизации (проверка «узел поднялся»).
 
+- `GET /api/v1/user-online-sessions?email=` — IP активных сессий клиента для модалки «Активные сессии»: Xray (`user>>>email>>>online`), Telemt (MTProto) и **AmneziaWG** (endpoint пира из `awg show <iface> dump`, только пиры с handshake не старше 180 с — то же окно, что у флага «онлайн»). Кнопка Block/Drop для AWG-IP действует только через блоклист подписки; Xray-роутинг и conntrack-drop на AWG-трафик не влияют.
+
 Детальный список маршрутов см. в коде `node/api/server.go` и в `web/docs/API.md` панели.
 
 ---

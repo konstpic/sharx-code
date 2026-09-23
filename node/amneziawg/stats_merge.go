@@ -2,6 +2,7 @@ package amneziawg
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ type awgDumpPeer struct {
 	Rx              uint64
 	Tx              uint64
 	LatestHandshake int64
+	Endpoint        string
 }
 
 // MergeAmneziaWgIntoNodeStats polls `awg show dump` for each running sidecar and merges
@@ -206,7 +208,7 @@ func fetchAwgDumpPeers(awg, iface string) (map[string]awgDumpPeer, error) {
 		hs, _ := strconv.ParseInt(strings.TrimSpace(fields[4]), 10, 64)
 		rx, _ := strconv.ParseUint(strings.TrimSpace(fields[5]), 10, 64)
 		tx, _ := strconv.ParseUint(strings.TrimSpace(fields[6]), 10, 64)
-		peers[pubKey] = awgDumpPeer{Rx: rx, Tx: tx, LatestHandshake: hs}
+		peers[pubKey] = awgDumpPeer{Rx: rx, Tx: tx, LatestHandshake: hs, Endpoint: strings.TrimSpace(fields[2])}
 	}
 	return peers, nil
 }
@@ -243,4 +245,69 @@ func saveAwgTransferSnapshot(path string, s awgTransferSnapshot) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+const awgSessionHandshakeWindow = 180
+
+// CollectOnlineSessionsForUser returns endpoint IPs of AmneziaWG peers belonging to email
+// whose latest handshake is recent (same window as the online flag in node stats).
+func (m *Manager) CollectOnlineSessionsForUser(email string) []xray.OnlineIPSession {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if m == nil || email == "" {
+		return nil
+	}
+	type row struct {
+		tag, iface string
+		pubKeys    []string
+	}
+	m.mu.Lock()
+	var rows []row
+	for tag, st := range m.running {
+		if st == nil || !st.configured || strings.TrimSpace(st.iface) == "" {
+			continue
+		}
+		var keys []string
+		for pub, em := range st.peerEmails {
+			if strings.ToLower(strings.TrimSpace(em)) == email {
+				keys = append(keys, pub)
+			}
+		}
+		if len(keys) > 0 {
+			rows = append(rows, row{tag: tag, iface: strings.TrimSpace(st.iface), pubKeys: keys})
+		}
+	}
+	m.mu.Unlock()
+	if len(rows) == 0 {
+		return nil
+	}
+	awg := findAwgBinary()
+	if awg == "" {
+		return nil
+	}
+	now := time.Now().Unix()
+	var out []xray.OnlineIPSession
+	for _, r := range rows {
+		peers, err := fetchAwgDumpPeers(awg, r.iface)
+		if err != nil {
+			logger.Debugf("amneziawg sessions: %s: %v", r.tag, err)
+			continue
+		}
+		for _, pub := range r.pubKeys {
+			p, ok := peers[pub]
+			if !ok || p.LatestHandshake <= 0 || now-p.LatestHandshake > awgSessionHandshakeWindow {
+				continue
+			}
+			host, _, err := net.SplitHostPort(p.Endpoint)
+			if err != nil || host == "" {
+				continue
+			}
+			out = append(out, xray.OnlineIPSession{
+				IP:       host,
+				LastSeen: p.LatestHandshake,
+				Protocol: "amneziawg",
+				Remark:   r.tag,
+			})
+		}
+	}
+	return out
 }
