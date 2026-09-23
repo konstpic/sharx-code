@@ -3063,7 +3063,10 @@ Automatic (SSH) node install: the panel connects to a fresh server over SSH, ins
 **Example Request:**
 
 ```bash
-curl -X POST "http://localhost:2053/panel/node/ssh-provision"   -H "Content-Type: application/json"   -b cookies.txt   -d '{
+curl -X POST "http://localhost:2053/panel/node/ssh-provision" \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
     "host": "203.0.113.10",
     "port": 22,
     "username": "root",
