@@ -143,9 +143,21 @@ func main() {
 	}
 	telemtWebManager := telemtweb.NewManager(telemtWebCertDir)
 	telemtWebManager.SetCachePath(filepath.Join(nodeCacheDir, "telemtweb.json"))
-	if err := telemtWebManager.LoadAndApplyCache(); err != nil {
-		logger.Warningf("telemtweb: resume from local cache: %v", err)
-	}
+	// Resuming the front from cache is deferred a few seconds, not done inline like the sidecars
+	// above: xray.NewManager() (already called) only *initiates* xray-core via exec.Cmd.Start(),
+	// which returns as soon as fork+exec succeeds — well before the external xray-core process
+	// has actually loaded its config and called bind() on its own inbounds. The front's own
+	// net.Listen(), by contrast, runs in-process and completes in microseconds. So even though
+	// xray is started first in this file's source order, on a cold boot/restart the front would
+	// almost always win an actual race for a port they both want (e.g. :443 shared with an xray
+	// inbound), locking xray out with "address already in use" until an operator noticed and
+	// intervened by hand. A few seconds is ample time for xray-core to have bound by comparison.
+	go func() {
+		time.Sleep(3 * time.Second)
+		if err := telemtWebManager.LoadAndApplyCache(); err != nil {
+			logger.Warningf("telemtweb: resume from local cache: %v", err)
+		}
+	}()
 	if panelURL != "" {
 		configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
 		configpull.StartBackgroundPull(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)

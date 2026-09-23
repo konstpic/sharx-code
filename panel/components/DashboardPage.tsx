@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
+  ChevronRight,
   CircleStop,
   Clock,
   CloudDownload,
@@ -16,7 +17,7 @@ import {
   History,
   LayoutDashboard,
   LayoutGrid,
-  Link2,
+  type LucideIcon,
   Network,
   Play,
   Power,
@@ -43,6 +44,7 @@ import {
   ConfirmDialog,
   IconButton,
   IconTile,
+  type IconTileTone,
   Input,
   LinearProgress,
   Modal,
@@ -171,6 +173,43 @@ function CountSize({ value }: { value: number }) {
 function CountNumber({ value }: { value: number }) {
   const v = useCountUp(value, { duration: 700, decimals: 0 });
   return <>{Math.round(v)}</>;
+}
+
+/** Full-width clickable action tile for the maintenance card (logs / core versions / backup) —
+ * replaces a row of bare icon buttons with something an admin can actually recognize and scan
+ * at a glance instead of hovering each icon to learn what it does. */
+function MaintenanceTile({
+  icon: Icon,
+  tone,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: LucideIcon;
+  tone: IconTileTone;
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_2%,transparent)] p-3 text-left transition-colors hover:border-[var(--accent)]/50 hover:bg-[var(--accent)]/5"
+    >
+      <IconTile icon={Icon} tone={tone} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-[var(--fg)]">{title}</p>
+        <p className="truncate text-[10px] text-[var(--fg-subtle)]" title={subtitle}>
+          {subtitle}
+        </p>
+      </div>
+      <ChevronRight
+        size={14}
+        className="shrink-0 text-[var(--fg-subtle)] transition-transform group-hover:translate-x-0.5"
+      />
+    </button>
+  );
 }
 
 function xrayTagClass(color: string) {
@@ -1428,19 +1467,54 @@ export function DashboardPage() {
           {showQuickActions && (
           <Surface>
             <div className="flex items-center gap-2">
-              <IconTile icon={Link2} tone="info" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("menu.link")}</h3>
+              <IconTile icon={Wrench} tone="accent" size="sm" />
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-[var(--fg)]">
+                  {t("pages.index.maintenanceTitle", { defaultValue: "Maintenance" })}
+                </h3>
+                <p className="text-[11px] text-[var(--fg-subtle)]">
+                  {t("pages.index.maintenanceSubtitle", {
+                    defaultValue: "Panel logs, core versions, and database backup",
+                  })}
+                </p>
+              </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center justify-end gap-0.5 border-t border-[var(--border)] pt-3">
-              <IconButton label={t("pages.index.logs")} onClick={openLogs}>
-                <History size={16} />
-              </IconButton>
-              <IconButton label={t("pages.index.config")} onClick={openConfig}>
-                <SlidersHorizontal size={16} />
-              </IconButton>
-              <IconButton label={t("pages.index.backup")} onClick={() => setBackupOpen(true)}>
-                <Server size={16} />
-              </IconButton>
+            <div className="mt-3 grid grid-cols-1 gap-2 border-t border-[var(--border)] pt-3 sm:grid-cols-3">
+              <MaintenanceTile
+                icon={History}
+                tone="info"
+                title={t("pages.index.logs")}
+                subtitle={t("pages.index.logsCardSubtitle", {
+                  defaultValue: "Live panel, Xray & node logs",
+                })}
+                onClick={openLogs}
+              />
+              <MaintenanceTile
+                icon={Wrench}
+                tone="accent"
+                title={t("pages.index.coreVersionSwitch")}
+                subtitle={`Xray ${st.xray?.version || "—"} · Telemt ${st.telemt?.version || "—"}`}
+                onClick={openVer}
+              />
+              <MaintenanceTile
+                icon={Server}
+                tone="success"
+                title={t("pages.index.backup")}
+                subtitle={t("pages.index.backupCardSubtitle", {
+                  defaultValue: "Download or restore the database",
+                })}
+                onClick={() => setBackupOpen(true)}
+              />
+            </div>
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={openConfig}
+                className="inline-flex items-center gap-1 text-[11px] text-[var(--fg-subtle)] transition-colors hover:text-[var(--fg)] hover:underline"
+              >
+                <SlidersHorizontal size={12} />
+                {t("pages.index.config")}
+              </button>
             </div>
           </Surface>
           )}

@@ -410,6 +410,16 @@ func (s *Server) applyConfig(c *gin.Context) {
 		logger.Infof("apply-config: coreProfileHash from panel: %s", reqCoreProfileHash)
 	}
 
+	// Sidecars first, Xray second: a Telemt WEB front can hold a port Xray now needs (e.g. an
+	// admin just enabled "External TLS terminator" or turned WEB off, both meaning the front
+	// should give up :443). applySidecarPayloads(...) stops/reconfigures the front immediately
+	// against the new vhost list; only once that has happened do we let Xray try to bind. Doing
+	// it in the other order (as before) left a window where Xray could hit
+	// "bind: address already in use" against the still-running front whenever the two changed
+	// in the same apply, with no automatic recovery — the operator had to notice, stop the
+	// stale sidecar/inbound by hand, and reapply.
+	s.applySidecarPayloads(telemtRaw, amneziawgRaw, telemtWebRaw)
+
 	logger.Infof("Applying XRAY configuration...")
 	var applyErr error
 	if requestData.ForceReload {
@@ -422,8 +432,6 @@ func (s *Server) applyConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": applyErr.Error()})
 		return
 	}
-
-	s.applySidecarPayloads(telemtRaw, amneziawgRaw, telemtWebRaw)
 
 	st := s.xrayManager.GetStatus()
 	appliedAt := time.Now().Unix()
