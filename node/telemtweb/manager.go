@@ -49,9 +49,10 @@ type Manager struct {
 
 	certDir string // autocert.DirCache directory
 	certMgr *autocert.Manager
-	srv     *http.Server
-	routes  map[string]*httputil.ReverseProxy
-	running bool
+	srv      *http.Server
+	listener net.Listener
+	routes   map[string]*httputil.ReverseProxy
+	running  bool
 
 	// cachePath, when set, persists every successful Apply's vhost list to disk so
 	// LoadAndApplyCache can resume the WEB front on process restart without the panel — see
@@ -270,6 +271,14 @@ func (m *Manager) start(port int) error {
 		return fmt.Errorf("telemtweb: listen %s: %w", addr, err)
 	}
 	tlsLn := tls.NewListener(ln, srv.TLSConfig)
+	m.mu.Lock()
+	if !m.running || m.srv != srv {
+		m.mu.Unlock()
+		_ = tlsLn.Close()
+		return fmt.Errorf("telemtweb: listener stopped during startup")
+	}
+	m.listener = tlsLn
+	m.mu.Unlock()
 
 	go func() {
 		err := srv.Serve(tlsLn)
@@ -284,14 +293,19 @@ func (m *Manager) start(port int) error {
 func (m *Manager) stopLocked() error {
 	m.mu.Lock()
 	srv := m.srv
+	listener := m.listener
 	m.running = false
 	m.srv = nil
+	m.listener = nil
 	m.port = 0
 	m.mu.Unlock()
 	if srv == nil {
 		return nil
 	}
 	logger.Infof("telemtweb: stopping TLS front")
+	if listener != nil {
+		_ = listener.Close()
+	}
 	return srv.Shutdown(context.Background())
 }
 
