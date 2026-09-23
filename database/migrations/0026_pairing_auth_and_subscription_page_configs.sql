@@ -1,3 +1,6 @@
+-- Normalize legacy auth_mode to pairing (SECRET_KEY + JWT + mTLS).
+UPDATE nodes SET auth_mode = 'pairing' WHERE auth_mode = 'remna';
+
 -- Subscription page builder configs (builder-driven SPA; external client compatibility)
 CREATE TABLE IF NOT EXISTS subscription_page_configs (
     uuid VARCHAR(36) PRIMARY KEY,
