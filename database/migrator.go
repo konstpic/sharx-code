@@ -80,6 +80,7 @@ func (m *Migrator) LoadMigrations() ([]MigrationFile, error) {
 	}
 
 	var migrations []MigrationFile
+	versions := make(map[int64]string)
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -103,6 +104,10 @@ func (m *Migrator) LoadMigrations() ([]MigrationFile, error) {
 			logger.Warningf("DB migrations: skipping migration file with invalid version: %s", entry.Name())
 			continue
 		}
+		if previous, exists := versions[version]; exists {
+			return nil, fmt.Errorf("duplicate migration version %d: %s and %s", version, previous, entry.Name())
+		}
+		versions[version] = entry.Name()
 
 		content, err := migrationsFS.ReadFile(filepath.Join("migrations", entry.Name()))
 		if err != nil {

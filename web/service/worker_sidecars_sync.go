@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -64,23 +65,32 @@ func (s *XrayService) applySidecarsToNodeIDsMulti(nodeIDs []int) error {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var errors []error
+	var failures []error
 
 	for _, node := range nodes {
 		n := node
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ibs, _ := s.InboundsForWorkerNode(n)
+			ibs, err := s.InboundsForWorkerNode(n)
+			if err != nil {
+				mu.Lock()
+				failures = append(failures, fmt.Errorf("node %s: load inbounds: %w", n.Name, err))
+				mu.Unlock()
+				return
+			}
 			telm, awg, webv, terr := BuildWorkerSidecarPayloadsForNode(n, ibs)
 			if terr != nil {
-				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
+				mu.Lock()
+				failures = append(failures, fmt.Errorf("node %s: build sidecars: %w", n.Name, terr))
+				mu.Unlock()
+				return
 			}
 			tPtr, aPtr, wPtr := &telm, &awg, &webv
 			if err := s.nodeService.ApplySidecarsToNode(n, tPtr, aPtr, wPtr); err != nil {
 				logger.Errorf("[Node: %s] Failed to apply sidecars: %v", n.Name, err)
 				mu.Lock()
-				errors = append(errors, fmt.Errorf("node %s: %w", n.Name, err))
+				failures = append(failures, fmt.Errorf("node %s: %w", n.Name, err))
 				mu.Unlock()
 			} else {
 				logger.Infof("[Node: %s] Sidecars synced (Xray untouched)", n.Name)
@@ -90,13 +100,13 @@ func (s *XrayService) applySidecarsToNodeIDsMulti(nodeIDs []int) error {
 
 	wg.Wait()
 
-	if len(errors) > 0 {
-		logger.Warningf("Failed to apply sidecars to %d node(s) out of %d", len(errors), attempted)
-		for _, err := range errors {
+	if len(failures) > 0 {
+		logger.Warningf("Failed to apply sidecars to %d node(s) out of %d", len(failures), attempted)
+		for _, err := range failures {
 			logger.Warningf("  - %v", err)
 		}
-		if len(errors) == attempted {
-			return fmt.Errorf("failed to apply sidecars to all targeted nodes: %d errors", len(errors))
+		if len(failures) == attempted {
+			return fmt.Errorf("failed to apply sidecars to all targeted nodes: %w", errors.Join(failures...))
 		}
 	}
 	return nil
