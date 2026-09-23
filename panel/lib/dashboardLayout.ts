@@ -5,7 +5,6 @@
 
 export const DASHBOARD_WIDGET_ORDER = [
   "resources",
-  "xray",
   "quick_actions",
   "uptime",
   "users_online",
@@ -19,7 +18,6 @@ export type DashboardWidgetId = (typeof DASHBOARD_WIDGET_ORDER)[number];
 
 export const DASHBOARD_WIDGET_I18N: Record<DashboardWidgetId, string> = {
   resources: "pages.index.dashWidgetResources",
-  xray: "pages.index.dashWidgetXray",
   quick_actions: "pages.index.dashWidgetQuickActions",
   uptime: "pages.index.dashWidgetUptime",
   users_online: "pages.index.dashWidgetUsersOnline",

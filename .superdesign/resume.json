@@ -6,7 +6,9 @@
       "projectId": "f21ae669-9ff2-4a09-b649-e05fab996136",
       "activeDraftId": "02ef9cb0-5869-434e-aca6-2246813fa556",
       "designSystemPath": ".superdesign/design-system.md",
-      "contextFiles": [".superdesign/design-system.md"],
+      "contextFiles": [
+        ".superdesign/design-system.md"
+      ],
       "fingerprints": {
         ".superdesign/design-system.md": "2b713160c7fb00a61b2f69886f6ea618286adc9eefc7ac34d33f98ee1585068b"
       },
@@ -21,6 +23,38 @@
           "visualDirection": "hacker/terminal-forward, ASCII grid, scanline overlay",
           "parentDraftId": "02ef9cb0-5869-434e-aca6-2246813fa556",
           "currentVersion": 1
+        }
+      }
+    },
+    "/dashboard": {
+      "targetKind": "existing-rendered-target",
+      "projectId": "57348955-c71e-4195-a30b-3cd619159c34",
+      "activeDraftId": "49517248-ed39-4c1d-926b-afd25c64c4b5",
+      "designSystemPath": ".superdesign/design-system.md",
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        ".superdesign/init/theme.md",
+        "panel/components/DashboardPage.tsx:110:215",
+        "panel/components/DashboardPage.tsx:1235:1520",
+        "panel/components/ui/icon-tile.tsx",
+        "panel/components/ui/pill-tag.tsx",
+        "panel/components/ui/icon-button.tsx",
+        "panel/components/panel/Surface.tsx"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "2b713160c7fb00a61b2f69886f6ea618286adc9eefc7ac34d33f98ee1585068b",
+        ".superdesign/init/theme.md": "ddfd056001318c459e6c04c5c5da352b381610d297d4e40dde0a1c67937faab9",
+        "panel/components/DashboardPage.tsx": "211c9045f2f0380672344d2859c1efbac2e0a5364ce805075c4a67053f2ee811",
+        "panel/components/ui/icon-tile.tsx": "68ed9b5a5a6409995ee4e970b5d663534253e60776f334b9d6649bfa9004a51c",
+        "panel/components/ui/pill-tag.tsx": "63c90811be04049ad2c05d53f876fc5420c3095a8ded3aed26fcba070e50f064",
+        "panel/components/ui/icon-button.tsx": "349273f0cf89a74075cce6be65cdd47b5c054367a5878f4db444eff721e6b577",
+        "panel/components/panel/Surface.tsx": "4db507a987a83e1cd156bc9d60c16849221eb12ae6f10cc413e4becf233b3a38"
+      },
+      "drafts": {
+        "49517248-ed39-4c1d-926b-afd25c64c4b5": {
+          "title": "SharX Admin Dashboard - Card Restructure",
+          "visualDirection": "Services & Nodes card removed (duplicated Nodes page); System Load full width; Maintenance split into 4 peer cards: Logs (with preview), Core Version, Backup (export/import buttons), Uptime",
+          "currentVersion": 3
         }
       }
     }
