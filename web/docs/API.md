@@ -1138,6 +1138,61 @@ Planned docker update steps (panel + workers) before triggering an update.
 
 ---
 
+### POST `/panel/api/server/updater/job/start`
+
+Start the server-side Docker update job (the panel's own "Update containers" flow since v1.7.26). Runs on the server and survives the panel container being recreated mid-update by a shared Watchtower — the UI (`GET updater/job` below) just polls it; a broken connection while polling is not an error. Idempotent: calling it again while a job is already running returns that job's id instead of starting a second one.
+
+**Response (`obj`):** `{ "id": "<job id>" }`.
+
+```json
+{ "success": true, "msg": "", "obj": { "id": "a1b2c3d4" } }
+```
+
+---
+
+### GET `/panel/api/server/updater/job`
+
+Poll the current (or last) Docker update job's progress.
+
+**Response (`obj`):** a `DockerUpdateJob`:
+
+```json
+{
+  "id": "a1b2c3d4",
+  "state": "running",
+  "phase": "workers",
+  "multiNode": true,
+  "startedAt": 1735689600000,
+  "updatedAt": 1735689630000,
+  "finishedAt": 0,
+  "panel": {
+    "status": "pending",
+    "versionBefore": "1.7.28",
+    "versionAfter": "",
+    "triggeredAt": 0
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "name": "FI-1",
+      "enable": true,
+      "colocated": false,
+      "status": "updated",
+      "versionBefore": "1.7.28",
+      "versionAfter": "1.7.29",
+      "triggeredAt": 1735689610000,
+      "sawOffline": true
+    }
+  ]
+}
+```
+
+- `state`: `running` | `done` | `failed`.
+- `phase`: `prep` | `workers` | `local` | `finish` | `panel`. Remote workers update in parallel first, then nodes co-located with the panel's host (sharing its Watchtower) one at a time, then the panel itself last — that order is what guarantees a shared-Watchtower panel restart never races with a worker still updating.
+- Each node/panel `status`: `pending` | `triggering` | `restarting` | `updated` | `uptodate` | `error` | `skipped`.
+
+---
+
 ### POST `/panel/api/server/stopTelemtService`
 
 Stop Telemt on the panel host (standalone).
@@ -2936,6 +2991,8 @@ Add a new node. By default the panel generates **pairing** (`authMode`: `pairing
 | `certPath` | string | No | Path to CA certificate (for custom CA, legacy) |
 | `keyPath` | string | No | Path to private key (legacy) |
 | `insecureTls` | boolean | No | Skip certificate verification (legacy) |
+| `trafficLimitGB` | float | No | Traffic limit for this node in GB (0 = unlimited) |
+| `trafficResetDay` | integer | No | Day of month (1-31) to auto-reset this node's traffic counters; `0` = off. Checked once a day — if the month has fewer days than chosen (e.g. `31` in April), that month's reset is skipped rather than clamped (unlike the per-client `trafficResetDay` in section 10, which clamps to the month's last day) |
 
 **Example Request (pairing, default):**
 
@@ -2982,6 +3039,73 @@ curl -X POST "http://localhost:2053/panel/node/add" \
   }
 }
 ```
+
+---
+
+### POST `/panel/node/ssh-provision`
+
+Automatic (SSH) node install: the panel connects to a fresh server over SSH, installs Docker if missing, writes the node's `docker-compose.yml` (baked with the panel's pairing `SECRET_KEY`), and runs `docker compose up`. Mirrors what an admin would otherwise copy-paste by hand. Runs **before** any node record exists — the frontend calls `node/add` itself once this task succeeds and the node is confirmed reachable. Credentials are used once for this run and never persisted.
+
+**Request Body** (JSON):
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `host` | string | Yes | SSH host — a bare IP/hostname, not a URL (no `http://` prefix) |
+| `port` | integer | No | SSH port (default 22) |
+| `username` | string | No | SSH username (default `root`) |
+| `authMethod` | string | Yes | `"password"` or `"key"` |
+| `password` | string | If `authMethod=password` | SSH password |
+| `privateKey` | string | If `authMethod=key` | PEM-encoded private key |
+| `privateKeyPassphrase` | string | No | Passphrase for an encrypted private key |
+| `installDir` | string | No | Remote directory for `docker-compose.yml` (default `/opt/sharxnode`) |
+| `watchtowerPort` | integer | No | Loopback port for the node's own Watchtower sidecar (default 8081) — override if that port is already taken on the target server |
+
+**Example Request:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/node/ssh-provision"   -H "Content-Type: application/json"   -b cookies.txt   -d '{
+    "host": "203.0.113.10",
+    "port": 22,
+    "username": "root",
+    "authMethod": "password",
+    "password": "..."
+  }'
+```
+
+**Response (`obj`):** `{ "taskId": "<task id>" }` — poll it with `ssh-provision-status` below.
+
+---
+
+### GET `/panel/node/ssh-provision-status/{taskId}`
+
+Poll progress of an automatic (SSH) node install started by `ssh-provision`.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `taskId` | string | Task id returned by `ssh-provision` |
+
+**Response (`obj`):**
+
+```json
+{
+  "id": "task-id",
+  "nodeId": 0,
+  "status": "running",
+  "steps": [
+    { "key": "connect", "status": "success" },
+    { "key": "check_docker", "status": "success" },
+    { "key": "install_docker", "status": "skipped" },
+    { "key": "write_compose", "status": "running" },
+    { "key": "compose_up", "status": "pending" }
+  ],
+  "createdAtMs": 1735689600000,
+  "updatedAtMs": 1735689610000
+}
+```
+
+`status` (task and each step): `pending` | `running` | `success` | `skipped` | `error` (task also has `running` | `success` | `error`). On failure, `error` holds the reason and the failing step's `detail` has more context.
 
 ---
 
@@ -3221,7 +3345,7 @@ curl -X POST "http://localhost:2053/panel/node/check-connection" \
 
 ### POST `/panel/node/resetTraffic/{id}`
 
-Reset traffic statistics for a specific node.
+Reset traffic statistics for a specific node immediately (one-off, admin-triggered — separate from the automatic `trafficResetDay` schedule set via `add`/`update` above).
 
 **Path Parameters:**
 
@@ -5337,6 +5461,8 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
   "subId": "string",
   "comment": "",
   "reset": 0,
+  "trafficResetCadence": "",
+  "trafficResetDay": 0,
   "createdAt": 0,
   "updatedAt": 0,
   "inboundIds": [],
@@ -5344,6 +5470,8 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
   "down": 0,
   "allTime": 0,
   "lastOnline": 0,
+  "upSpeed": 0,
+  "downSpeed": 0,
   "hwidEnabled": false,
   "maxHwid": 1,
   "ipLimitEnabled": false,
@@ -5352,6 +5480,8 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
   "announce": ""
 }
 ```
+
+`upSpeed`/`downSpeed` (bits per second) are live, not persisted: computed from a sliding window of recent traffic ticks and merged into the response at read time, so they are 0/absent once a client has been idle for a few seconds. See `trafficResetCadence`/`trafficResetDay` in section 10 (`POST /panel/client/add`) for the automatic reset schedule; `reset` is a legacy unused field.
 
 ### Node
 
@@ -5368,6 +5498,8 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
   "certPath": "",
   "keyPath": "",
   "insecureTls": false,
+  "trafficLimitGB": 0,
+  "trafficResetDay": 0,
   "createdAt": 0,
   "updatedAt": 0
 }
@@ -5486,12 +5618,40 @@ Panel and API store Telemt options inside `settings` as:
     "metricsPort": 9090,
     "apiEnabled": false,
     "apiListen": "127.0.0.1:9091",
-    "proxyProtocol": false
+    "proxyProtocol": false,
+    "web": {
+      "enabled": false,
+      "vhostHost": "proxy.example.com",
+      "frontPort": 443,
+      "backendPort": 0,
+      "externalTerminator": false,
+      "decoyMode": "http_upstream",
+      "decoyUpstream": "http://127.0.0.1:80",
+      "decoyDirectory": "",
+      "decoyIndex": "",
+      "profileSecretMode": "dd"
+    }
   }
 }
 ```
 
 Optional keys may be omitted; the panel only writes non-empty / explicitly set values into generated `config.toml` (Telemt defaults apply otherwise).
+
+**`telemt.web`** carries Telegram-Desktop-over-HTTPS ("WEB" transport, since v1.7.28). SharX runs its own TLS front (`node/telemtweb.Manager`, ACME-managed cert) that terminates the public connection and reverse-proxies to Telemt's private listener — no external NGINX/HAProxy needed by default.
+
+| Key | Type | Description |
+|-----|------|--------------|
+| `enabled` | boolean | Turn WEB transport on for this inbound |
+| `vhostHost` | string | Public FQDN clients connect to (lowercase); its DNS A/AAAA record must already point at this node/panel before enabling |
+| `frontPort` | integer | Port the built-in front listens on for **every** WEB inbound sharing this node/panel (they must all agree). Default `443`. Change it only when something else owns 443 (see `externalTerminator`) |
+| `backendPort` | integer | Private loopback port of Telemt's own `[[server.listeners]]` that the front (or an external terminator) reverse-proxies to. `0`/omitted = `28100 + inbound id`. Must be unique per inbound, 1024-65535 |
+| `externalTerminator` | boolean | `true`: the built-in front is **not** started and does not take `frontPort` — an operator-managed nginx (or an Xray Reality fallback → nginx chain) must terminate TLS on the public port and reverse-proxy to `127.0.0.1:backendPort` itself. Use when `frontPort`/443 is already owned by Xray or nginx |
+| `decoyMode` | string | `"http_upstream"` (reverse-proxy to a real site) or `"static_directory"` — fallback for unauthenticated/invalid WEB traffic |
+| `decoyUpstream` | string | `http://` origin on loopback/private IP (when `decoyMode="http_upstream"`) |
+| `decoyDirectory` / `decoyIndex` | string | Static site root / index file (when `decoyMode="static_directory"`) |
+| `profileSecretMode` | string | `"plain"` or `"dd"` (Telegram Desktop secret representation) for generated client profiles |
+
+Note: Telemt itself requires `[[web.vhosts]].public_addr` to be a literal address on port **443** — the panel always renders it that way regardless of `frontPort`, so a non-default `frontPort` (e.g. behind `externalTerminator`) does not break Telemt's own validation.
 
 `links.publicHost` / `links.publicPort` are optional; per-node **published** address/port from inbound node bindings usually override them when building node TOML and subscription `tg://proxy` links. Client secrets are **not** in `settings`; they live on `client_inbound_mappings.telemt_secret`. Per-client Telemt AD tags (32 hex, optional) live on `client_inbound_mappings.telemt_ad_tag` and are exposed on the client API as `telemtAdTags` (`inboundId` string → tag). The inbound-level `adTag` is the global fallback when a mapping has no per-client tag. Optional `censorship.sni` is accepted as an alias for `censorship.tlsDomain` (Fake-TLS / SNI host in [Telemt `config.toml`](https://github.com/telemt/telemt/blob/main/config.toml)). Subscription `tg://proxy` links use lowercase **hex** in `secret` (`ee…` / `dd…` prefixes for TLS / secure modes), not base64.
 
