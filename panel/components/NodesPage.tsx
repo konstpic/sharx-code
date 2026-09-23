@@ -515,6 +515,62 @@ export function NodesPage() {
     [],
   );
 
+  // Shared verify + finish tail: node/check, then either hand off to the profile-assignment
+  // step (multi-node) or close the wizard. Takes `stash` as a plain argument rather than
+  // reading it back from `pendingReg` state, so a caller that just computed it (runAutoInstallFlow,
+  // right after its own node/add call) can hand it over directly instead of going through a
+  // setPendingReg + re-render + stale-closure-ref round trip to get it back — that round trip
+  // is exactly what used to leave the SSH auto-install wizard stuck forever on "Installed —
+  // verifying connection…" once every SSH step had already finished.
+  const verifyAndFinishRegistration = useCallback(
+    async (stash: PendingRegistration) => {
+      const sk0 = stash.secretKey?.trim() ?? "";
+      if (sk0) {
+        setCreatedSecretKey(sk0);
+      }
+      setRegisterPhase("verify");
+      await wait(REGISTER_HANDSHAKE_PREVIEW_MS);
+      const checkR = await postJson<unknown>(
+        panel(`node/check/${stash.nodeId}`),
+        {},
+        true,
+      );
+      if (!checkR.success) {
+        setRegisterFailKind("check");
+        setRegisterError(
+          (checkR as { msg?: string }).msg || t("pages.nodes.checkError"),
+        );
+        return;
+      }
+
+      if (multiNode === true) {
+        setProfileAssignNodeId(stash.nodeId);
+        setPendingReg(null);
+        setAddWizardStep(3);
+        void load();
+        toast.success(t("pages.nodes.addSuccess"));
+        void loadProfilesForAssign();
+        return;
+      }
+
+      const sk = stash.secretKey?.trim() ?? "";
+      if (!sk) {
+        setPendingReg(null);
+        setAddOpen(false);
+        resetAddModal();
+        void load();
+        toast.success(t("pages.nodes.addSuccess"));
+        return;
+      }
+      setPendingReg(null);
+      void load();
+      setAddOpen(false);
+      resetAddModal();
+      toast.success(t("pages.nodes.addSuccess"));
+    },
+    [t, toast, load, resetAddModal, multiNode, loadProfilesForAssign, wait],
+  );
+
   const runRegisterFlow = useCallback(
     async (checkOnly: boolean) => {
       if (checkOnly && !pendingReg) return;
@@ -523,10 +579,8 @@ export function NodesPage() {
       setRegisterFailKind(null);
       setRegisterPhase("create");
 
-      let stash: PendingRegistration | null =
-        checkOnly && pendingReg ? { ...pendingReg } : null;
-
       try {
+        let stash: PendingRegistration;
         if (!checkOnly) {
           const pack = getAddBody();
           if (!pack) {
@@ -557,53 +611,7 @@ export function NodesPage() {
           stash = { ...pendingReg };
         }
 
-        if (!stash) return;
-
-        {
-          const sk0 = stash.secretKey?.trim() ?? "";
-          if (sk0) {
-            setCreatedSecretKey(sk0);
-          }
-        }
-        setRegisterPhase("verify");
-        await wait(REGISTER_HANDSHAKE_PREVIEW_MS);
-        const checkR = await postJson<unknown>(
-          panel(`node/check/${stash.nodeId}`),
-          {},
-          true,
-        );
-        if (!checkR.success) {
-          setRegisterFailKind("check");
-          setRegisterError(
-            (checkR as { msg?: string }).msg || t("pages.nodes.checkError"),
-          );
-          return;
-        }
-
-        if (multiNode === true) {
-          setProfileAssignNodeId(stash.nodeId);
-          setPendingReg(null);
-          setAddWizardStep(3);
-          void load();
-          toast.success(t("pages.nodes.addSuccess"));
-          void loadProfilesForAssign();
-          return;
-        }
-
-        const sk = stash.secretKey?.trim() ?? "";
-        if (!sk) {
-          setPendingReg(null);
-          setAddOpen(false);
-          resetAddModal();
-          void load();
-          toast.success(t("pages.nodes.addSuccess"));
-          return;
-        }
-        setPendingReg(null);
-        void load();
-        setAddOpen(false);
-        resetAddModal();
-        toast.success(t("pages.nodes.addSuccess"));
+        await verifyAndFinishRegistration(stash);
       } catch {
         setRegisterError(t("pages.nodes.addError"));
         setRegisterFailKind(checkOnly ? "check" : "add");
@@ -611,46 +619,44 @@ export function NodesPage() {
         setIsRegistering(false);
       }
     },
-    [
-      getAddBody,
-      pendingReg,
-      t,
-      toast,
-      load,
-      resetAddModal,
-      multiNode,
-      loadProfilesForAssign,
-      wait,
-    ],
+    [getAddBody, pendingReg, t, verifyAndFinishRegistration],
   );
 
   runRegisterRef.current = runRegisterFlow;
 
+  // Resolves to the task's final status ("success"/"error") instead of void: the caller needs
+  // that value the instant polling ends, and reading it back afterwards via React state is
+  // unreliable here — setSshTaskStatus(cur => ...) mutating an outer `let` from its updater is
+  // a common trick, but React does not guarantee the updater runs synchronously at call time
+  // (only that it eventually resolves against the latest queued state), so a check performed
+  // right after calling it can still observe the updater's default/unset value. That was
+  // exactly why the wizard used to stall forever on "Installed — verifying connection…": the
+  // caller's "was it a success?" read raced the state update and (normally) lost.
   const pollSSHProvisionTask = useCallback(
-    async (taskId: string) => {
+    async (taskId: string): Promise<"success" | "error"> => {
       const token = { cancelled: false };
       sshPollAbort.current = token;
       for (;;) {
-        if (token.cancelled) return;
+        if (token.cancelled) return "error";
         const r = await getJson<{
           status: "running" | "success" | "error";
           steps: SSHProvisionStep[];
           error?: string;
         }>(panel(`node/ssh-provision-status/${taskId}`));
-        if (token.cancelled) return;
+        if (token.cancelled) return "error";
         if (!r.success || !r.obj) {
           setSshTaskStatus("error");
           setSshTaskError(r.msg || t("pages.nodes.sshTaskLost", { defaultValue: "Lost track of the install task" }));
-          return;
+          return "error";
         }
         setSshSteps(r.obj.steps ?? []);
         setSshTaskStatus(r.obj.status);
         if (r.obj.status === "error") {
           setSshTaskError(r.obj.error || t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }));
-          return;
+          return "error";
         }
         if (r.obj.status === "success") {
-          return;
+          return "success";
         }
         await wait(1500);
       }
@@ -674,6 +680,11 @@ export function NodesPage() {
     setSshTaskError(null);
 
     try {
+      // Tracks the task's outcome directly (see pollSSHProvisionTask's doc comment for why this
+      // must not be re-derived from React state afterwards). Defaults to the already-settled
+      // state for the (practically unreached, since the button/form is hidden once a task
+      // starts) case where this runs again with an existing non-error task.
+      let finalStatus: "success" | "error" = sshTaskStatus === "success" ? "success" : "error";
       if (!sshTaskId || sshTaskStatus === "error") {
         setSshSteps([]);
         setSshTaskStatus("running");
@@ -698,16 +709,10 @@ export function NodesPage() {
           return;
         }
         setSshTaskId(startR.obj.taskId);
-        await pollSSHProvisionTask(startR.obj.taskId);
+        finalStatus = await pollSSHProvisionTask(startR.obj.taskId);
       }
 
-      // Re-check status via a fresh functional update rather than trusting a stale closure.
-      let installed = false;
-      setSshTaskStatus((current) => {
-        installed = current === "success";
-        return current;
-      });
-      if (!installed) return;
+      if (finalStatus !== "success") return;
 
       const pack = getAddBody();
       if (!pack) {
@@ -722,8 +727,18 @@ export function NodesPage() {
         return;
       }
       const obj = r.obj as NodeRow & { secretKey?: string };
-      setPendingReg({ nodeId: obj.id, secretKey: obj.secretKey?.trim() || undefined });
-      void runRegisterRef.current(true);
+      const stash: PendingRegistration = {
+        nodeId: obj.id,
+        secretKey: obj.secretKey?.trim() || undefined,
+      };
+      setPendingReg(stash);
+      // Hand `stash` to the shared verify+finish tail directly instead of going through
+      // runRegisterRef.current(true) (which reads pendingReg back from state): that state
+      // update hasn't rendered yet here, so the ref would still run its *previous* closure —
+      // the one still seeing pendingReg=null — and bail out immediately, which is exactly what
+      // used to leave the wizard stuck forever on "Installed — verifying connection…" right
+      // after every SSH step had finished.
+      await verifyAndFinishRegistration(stash);
     } catch {
       setSshTaskStatus("error");
       setSshTaskError(t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }));
@@ -745,6 +760,7 @@ export function NodesPage() {
     sshInstallDir,
     sshWatchtowerPort,
     pollSSHProvisionTask,
+    verifyAndFinishRegistration,
   ]);
 
   const goToRegister = useCallback(() => {
