@@ -80,7 +80,13 @@ func GetLoginUser(c *gin.Context) *model.User {
 // IsLogin checks if a user is currently authenticated in the session.
 // Returns true if a valid user session exists, false otherwise.
 func IsLogin(c *gin.Context) bool {
-	return GetLoginUser(c) != nil
+	if GetLoginUser(c) == nil {
+		return false
+	}
+	if isAPIRequest(c) {
+		return true
+	}
+	return sessionRecordValid(c)
 }
 
 // ClearSession removes all session data and invalidates the session.

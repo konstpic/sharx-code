@@ -71,6 +71,9 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/subscriptionPageConfig/get", a.subscriptionPageConfigGet)
 	g.POST("/subscriptionPageConfig/save", a.subscriptionPageConfigSave)
 
+	g.POST("/sessions/list", a.listLoginSessions)
+	g.POST("/sessions/revoke", a.revokeLoginSession)
+	g.POST("/sessions/revokeOthers", a.revokeOtherLoginSessions)
 	g.POST("/twoFactor/begin", a.beginTwoFactorSetup)
 	g.POST("/twoFactor/complete", a.completeTwoFactorSetup)
 	g.POST("/twoFactor/cancel", a.cancelTwoFactorSetup)
@@ -352,4 +355,63 @@ func (a *SettingController) setUIPreference(c *gin.Context) {
 		return
 	}
 	jsonMsg(c, "", nil)
+}
+
+type revokeSessionForm struct {
+	ID string `json:"id" form:"id"`
+}
+
+// listLoginSessions returns the active panel login sessions of the current admin.
+func (a *SettingController) listLoginSessions(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	rows, err := session.ListLoginSessions(c, user.Id)
+	if err != nil {
+		jsonMsg(c, "Failed to list sessions", err)
+		return
+	}
+	jsonObj(c, rows, nil)
+}
+
+// revokeLoginSession ends one active session of the current admin (not the one making the request).
+func (a *SettingController) revokeLoginSession(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	form := &revokeSessionForm{}
+	if err := c.ShouldBind(form); err != nil || form.ID == "" {
+		jsonMsg(c, "Failed to end session", errors.New("session id is required"))
+		return
+	}
+	if form.ID == session.CurrentSessionID(c) {
+		jsonMsg(c, "Failed to end session", errors.New("use logout to end the current session"))
+		return
+	}
+	if !session.RevokeLoginSession(user.Id, form.ID) {
+		jsonMsg(c, "Failed to end session", errors.New("session not found"))
+		return
+	}
+	if tgbot := (service.Tgbot{}); tgbot.IsRunning() {
+		tgbot.NotifyPanelAction("Panel session ended", "", getRemoteIp(c))
+	}
+	jsonMsg(c, "Session ended", nil)
+}
+
+// revokeOtherLoginSessions ends all sessions of the current admin except the current one.
+func (a *SettingController) revokeOtherLoginSessions(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	n := session.RevokeOtherLoginSessions(user.Id, session.CurrentSessionID(c))
+	if tgbot := (service.Tgbot{}); tgbot.IsRunning() && n > 0 {
+		tgbot.NotifyPanelAction("Other panel sessions ended", fmt.Sprintf("<b>Count:</b> %d\n", n), getRemoteIp(c))
+	}
+	jsonObj(c, n, nil)
 }

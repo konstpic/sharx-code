@@ -8,9 +8,9 @@ import {
   Download,
   Globe,
   Gauge,
+  MonitorSmartphone,
   KeyRound,
   Link2,
-  ListOrdered,
   Palette,
   Power,
   RefreshCw,
@@ -21,7 +21,9 @@ import {
   Shield,
   SlidersHorizontal,
   Tags,
-  ToggleLeft,
+  Fingerprint,
+  Network,
+  ScrollText,
   Type,
   UserCog,
   Webhook,
@@ -68,6 +70,18 @@ import {
   type IconTileTone,
 } from "@/components/ui";
 import type { HelpKey } from "@/components/ui/help-tooltip";
+
+type LoginSessionRow = {
+  id: string;
+  ip: string;
+  userAgent: string;
+  device: string;
+  location: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  current: boolean;
+};
 
 type ApiTokenRow = {
   id: number;
@@ -203,6 +217,10 @@ export function SettingsPage() {
     newUsername: "",
     newPassword: "",
   });
+  const [loginSessions, setLoginSessions] = useState<LoginSessionRow[]>([]);
+  const [loginSessionsLoading, setLoginSessionsLoading] = useState(false);
+  const [sessionRevokeTarget, setSessionRevokeTarget] = useState<LoginSessionRow | "others" | null>(null);
+  const [sessionRevoking, setSessionRevoking] = useState(false);
   const [apiTokens, setApiTokens] = useState<ApiTokenRow[]>([]);
   const [apiTokensLoading, setApiTokensLoading] = useState(false);
   const [newApiTokenName, setNewApiTokenName] = useState("");
@@ -251,10 +269,22 @@ export function SettingsPage() {
     }
   }, [t, toast]);
 
+  const loadLoginSessions = useCallback(async () => {
+    setLoginSessionsLoading(true);
+    const r = await postJson<LoginSessionRow[]>(panel("setting/sessions/list"));
+    setLoginSessionsLoading(false);
+    if (r.success && Array.isArray(r.obj)) {
+      setLoginSessions(r.obj);
+    } else {
+      toast.error(r.msg || t("pages.settings.security.sessionsLoadError", { defaultValue: "Could not load sessions" }));
+    }
+  }, [t, toast]);
+
   useEffect(() => {
     if (activeTab !== "security" || !form) return;
     void loadApiTokens();
-  }, [activeTab, form, loadApiTokens]);
+    void loadLoginSessions();
+  }, [activeTab, form, loadApiTokens, loadLoginSessions]);
 
   const dirty = useMemo(() => {
     if (!form || !baseline) return false;
@@ -640,17 +670,10 @@ export function SettingsPage() {
           </SettingsSection>
 
           <SettingsSection
-            title={t("pages.settings.sections.generalSessionLists")}
-            icon={ListOrdered}
-            iconTone="accent"
+            title={t("pages.settings.sections.generalThresholdsDisplay")}
+            icon={Gauge}
+            iconTone="warning"
           >
-            <Row label={t("pages.settings.sessionMaxAge")} hint={t("pages.settings.sessionMaxAgeDesc")}>
-              <Input
-                type="number"
-                value={form.sessionMaxAge}
-                onChange={(e) => patch("sessionMaxAge", parseInt(e.target.value, 10) || 0)}
-              />
-            </Row>
             <Row label={t("pages.settings.pageSize")} hint={t("pages.settings.pageSizeDesc")}>
               <Input
                 type="number"
@@ -658,13 +681,6 @@ export function SettingsPage() {
                 onChange={(e) => patch("pageSize", parseInt(e.target.value, 10) || 0)}
               />
             </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.generalThresholdsDisplay")}
-            icon={Gauge}
-            iconTone="warning"
-          >
             <Row label={t("pages.settings.expireTimeDiff")} hint={t("pages.settings.expireTimeDiffDesc")}>
               <div className="flex max-w-xs items-center gap-2">
                 <Input
@@ -743,8 +759,8 @@ export function SettingsPage() {
           </SettingsSection>
 
           <SettingsSection
-            title={t("pages.settings.sections.generalModes")}
-            icon={ToggleLeft}
+            title={t("pages.settings.sections.generalLogging", { defaultValue: "Logging" })}
+            icon={ScrollText}
             iconTone="success"
           >
             <Row
@@ -801,6 +817,13 @@ export function SettingsPage() {
             <Row label={t("pages.settings.logRotateCompress", { defaultValue: "Compress rotated logs" })} hint={t("pages.settings.logRotateCompressDesc", { defaultValue: "Gzip old log files to save disk space." })}>
               <Switch checked={form.logRotateCompress} onChange={(on) => patch("logRotateCompress", on)} ariaLabel={t("pages.settings.logRotateCompress", { defaultValue: "Compress rotated logs" })} />
             </Row>
+          </SettingsSection>
+
+          <SettingsSection
+            title={t("pages.settings.sections.generalNodesNetwork", { defaultValue: "Nodes and network" })}
+            icon={Network}
+            iconTone="accent"
+          >
             <Row label={t("pages.settings.multiNodeMode")} hint={t("pages.settings.multiNodeModeDesc")}>
               <Switch
                 checked={form.multiNodeMode}
@@ -879,6 +902,16 @@ export function SettingsPage() {
                 </Row>
               </>
             ) : null}
+          </SettingsSection>
+
+          <SettingsSection
+            title={t("pages.settings.sections.generalClientLimits", { defaultValue: "Client restrictions" })}
+            hint={t("pages.settings.sections.generalClientLimitsDesc", {
+              defaultValue: "Device binding (HWID) and concurrent IP limits per client.",
+            })}
+            icon={Fingerprint}
+            iconTone="warning"
+          >
             <Row label={t("hwidSettings")} hint={t("hwidBetaWarningDesc")}>
               <SelectNative value={form.hwidMode} onChange={(e) => patch("hwidMode", e.target.value)}>
                 <option value="off">{t("pages.settings.hwidMode.off")}</option>
@@ -1278,6 +1311,95 @@ export function SettingsPage() {
             </div>
           )}
         </SettingsSection>
+          <SettingsSection
+            title={t("pages.settings.security.sessionsTitle", { defaultValue: "Sessions" })}
+            hint={t("pages.settings.security.sessionsHint", {
+              defaultValue: "Where your account is signed in. End a session to sign that browser out.",
+            })}
+            icon={MonitorSmartphone}
+            iconTone="accent"
+            full
+          >
+            <Row label={t("pages.settings.sessionMaxAge")} hint={t("pages.settings.sessionMaxAgeDesc")}>
+              <Input
+                type="number"
+                value={form.sessionMaxAge}
+                onChange={(e) => patch("sessionMaxAge", parseInt(e.target.value, 10) || 0)}
+              />
+            </Row>
+            {loginSessionsLoading && loginSessions.length === 0 ? (
+              <div className="flex justify-center px-4 py-8">
+                <Spinner size={28} />
+              </div>
+            ) : (
+              <div className="px-4 pb-4 pt-1 sm:pt-0">
+                <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-sm">
+                  <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_4%,transparent)] text-xs text-[var(--fg-muted)]">
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("pages.settings.security.sessionsDevice", { defaultValue: "Device" })}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">IP</th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("pages.settings.security.sessionsLocation", { defaultValue: "Location" })}
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">
+                          {t("pages.settings.security.sessionsLastSeen", { defaultValue: "Last activity" })}
+                        </th>
+                        <th className="px-3 py-2.5" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loginSessions.map((row) => (
+                        <tr key={row.id} className="border-b border-[var(--border)] last:border-b-0 align-top">
+                          <td className="px-3 py-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-[var(--fg)]">{row.device}</span>
+                              {row.current ? (
+                                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                                  {t("pages.settings.security.sessionsCurrent", { defaultValue: "This device" })}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div
+                              className="mt-0.5 max-w-[22rem] truncate text-[11px] text-[var(--fg-subtle)]"
+                              title={row.userAgent}
+                            >
+                              {row.userAgent || "—"}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 font-mono text-xs text-[var(--fg-muted)]">{row.ip || "—"}</td>
+                          <td className="px-3 py-2.5 text-[var(--fg-muted)]">{row.location || "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-[var(--fg-muted)] tabular-nums">
+                            {new Date(row.lastSeenAt * 1000).toLocaleString(i18n.language)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-right">
+                            {row.current ? null : (
+                              <Button type="button" variant="secondary" onClick={() => setSessionRevokeTarget(row)}>
+                                {t("pages.settings.security.sessionsEnd", { defaultValue: "End session" })}
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" onClick={() => void loadLoginSessions()}>
+                    {t("pages.settings.security.sessionsRefresh", { defaultValue: "Refresh" })}
+                  </Button>
+                  {loginSessions.some((r) => !r.current) ? (
+                    <Button type="button" variant="secondary" onClick={() => setSessionRevokeTarget("others")}>
+                      {t("pages.settings.security.sessionsEndOthers", { defaultValue: "End all other sessions" })}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </SettingsSection>
+
           <SettingsSection
             title={t("pages.settings.sections.adminCredentials")}
             icon={UserCog}
@@ -1984,6 +2106,42 @@ export function SettingsPage() {
           </div>
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={sessionRevokeTarget !== null}
+        title={
+          sessionRevokeTarget === "others"
+            ? t("pages.settings.security.sessionsEndOthers", { defaultValue: "End all other sessions" })
+            : t("pages.settings.security.sessionsEnd", { defaultValue: "End session" })
+        }
+        description={t("pages.settings.security.sessionsConfirmEnd", {
+          defaultValue: "The selected browser will be signed out and must log in again.",
+        })}
+        confirmLabel={t("pages.settings.security.sessionsEnd", { defaultValue: "End session" })}
+        cancelLabel={t("cancel")}
+        danger
+        loading={sessionRevoking}
+        onCancel={() => setSessionRevokeTarget(null)}
+        onConfirm={() => {
+          void (async () => {
+            const target = sessionRevokeTarget;
+            if (target === null) return;
+            setSessionRevoking(true);
+            const r =
+              target === "others"
+                ? await postJson(panel("setting/sessions/revokeOthers"))
+                : await postJson(panel("setting/sessions/revoke"), { id: target.id }, true);
+            setSessionRevoking(false);
+            setSessionRevokeTarget(null);
+            if (r.success) {
+              toast.success(r.msg || t("success"));
+              await loadLoginSessions();
+            } else {
+              toast.error(r.msg || t("fail"));
+            }
+          })();
+        }}
+      />
 
       <ConfirmDialog
         open={apiTokenRevokeOpen}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/locale"
+	"github.com/konstpic/sharx-code/v2/web/service"
 	"github.com/konstpic/sharx-code/v2/web/session"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,13 @@ func (a *BaseController) checkLogin(c *gin.Context) {
 		}
 		c.Abort()
 	} else {
+		if u := session.GetLoginUser(c); u != nil {
+			maxAge, err := (&service.SettingService{}).GetSessionMaxAge()
+			if err != nil || maxAge <= 0 {
+				maxAge = 360
+			}
+			session.EnsureRegistered(c, u.Id, maxAge*60, getRemoteIp(c))
+		}
 		c.Next()
 	}
 }

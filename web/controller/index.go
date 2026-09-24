@@ -210,8 +210,12 @@ func (a *IndexController) finishLoginSuccess(c *gin.Context, user *model.User, s
 		logger.Warning("Unable to get session's max age from DB")
 	}
 
+	session.EndCurrentLoginSession(c)
 	session.SetMaxAge(c, sessionMaxAge*60)
 	session.SetLoginUser(c, user)
+	if err := session.RegisterLoginSession(c, user.Id, sessionMaxAge*60, getRemoteIp(c)); err != nil {
+		logger.Warning("Unable to register login session:", err)
+	}
 	if err := sessions.Default(c).Save(); err != nil {
 		logger.Warning("Unable to save session: ", err)
 		return
@@ -227,6 +231,7 @@ func (a *IndexController) logout(c *gin.Context) {
 	if user != nil {
 		logger.Infof("%s logged out successfully", user.Username)
 	}
+	session.EndCurrentLoginSession(c)
 	session.ClearSession(c)
 	if err := sessions.Default(c).Save(); err != nil {
 		logger.Warning("Unable to save session after clearing:", err)

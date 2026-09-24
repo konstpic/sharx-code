@@ -77,6 +77,22 @@ type APIToken struct {
 // TableName names the api_tokens table for GORM.
 func (APIToken) TableName() string { return "api_tokens" }
 
+// LoginSession is one panel login (browser session) tracked server-side so it can be listed and revoked.
+type LoginSession struct {
+	Id         string `json:"id" gorm:"primaryKey;column:id;type:varchar(64)"`
+	UserId     int    `json:"userId" gorm:"column:user_id;index"`
+	IP         string `json:"ip" gorm:"column:ip;type:varchar(64)"`
+	UserAgent  string `json:"userAgent" gorm:"column:user_agent"`
+	Location   string `json:"location" gorm:"column:location;type:varchar(255)"`
+	CreatedAt  int64  `json:"createdAt" gorm:"column:created_at"`
+	LastSeenAt int64  `json:"lastSeenAt" gorm:"column:last_seen_at"`
+	ExpiresAt  int64  `json:"expiresAt" gorm:"column:expires_at"`
+	RevokedAt  *int64 `json:"revokedAt,omitempty" gorm:"column:revoked_at"`
+}
+
+// TableName names the login_sessions table for GORM.
+func (LoginSession) TableName() string { return "login_sessions" }
+
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
 	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                    // Unique identifier
