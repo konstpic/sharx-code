@@ -7,7 +7,6 @@ export const SETTINGS_TAB_IDS = [
   "subscription",
   "ldap",
   "grafana",
-  "admin",
 ] as const;
 
 export type SettingsTabId = (typeof SETTINGS_TAB_IDS)[number];
@@ -30,8 +29,6 @@ export function tSettingsTabLabel(t: TFunction, id: SettingsTabId): string {
       return t("pages.settings.tabs.ldap");
     case "grafana":
       return t("pages.settings.tabs.grafana");
-    case "admin":
-      return t("pages.settings.tabs.admin");
     default: {
       const _e: never = id;
       return _e;

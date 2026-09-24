@@ -4,7 +4,7 @@ import { Globe, KeyRound, Lock, User } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { api, postJson } from "@/lib/api";
+import { postJson } from "@/lib/api";
 import { changeLanguage, panelSelectLangValue, supported } from "@/lib/i18n";
 import { easeStandard, durations } from "@/lib/motion";
 import { parsePanelTheme, applyPanelTheme } from "@/lib/panelTheme";
@@ -19,38 +19,34 @@ export default function LoginPage() {
   const reduceMotion = useReducedMotion();
   const [form, setForm] = useState({ username: "", password: "", twoFactorCode: "" });
   const [ready, setReady] = useState(false);
-  const [two, setTwo] = useState(false);
   const [awaiting2FA, setAwaiting2FA] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
   const publicMeta = usePublicAppMeta();
   useEffect(() => {
-    (async () => {
-      const res = (await api.post<{ success: boolean; obj: boolean }>(p("getTwoFactorEnable"))).data;
-      if (res.success) {
-        setTwo(Boolean(res.obj));
-      }
-      setReady(true);
-    })().catch(() => setReady(true));
+    setReady(true);
   }, []);
 
   useEffect(() => {
     setAwaiting2FA(false);
+    setResendIn(0);
   }, [form.username, form.password]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const id = window.setTimeout(() => setResendIn((n) => Math.max(0, n - 1)), 1000);
+    return () => window.clearTimeout(id);
+  }, [resendIn]);
 
   useEffect(() => {
     const theme = parsePanelTheme(publicMeta?.panelTheme);
     applyPanelTheme(theme);
   }, [publicMeta?.panelTheme]);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (two && awaiting2FA && !form.twoFactorCode.trim()) {
-      toast.error(t("pages.login.toasts.needTwoFactor"));
-      return;
-    }
+  const submitLogin = async (resend: boolean) => {
     setLoading(true);
     try {
-      const v = { ...form };
+      const v = { ...form, twoFactorCode: resend ? "" : form.twoFactorCode };
       const res = await postJson(p("login"), v);
       if (res.success) {
         toast.success(res.msg || t("pages.login.toasts.successLogin"));
@@ -60,13 +56,23 @@ export default function LoginPage() {
         }
         return;
       }
-      const obj = res.obj as { needTwoFactor?: boolean; telegramSent?: boolean } | undefined;
+      const obj = res.obj as
+        | { needTwoFactor?: boolean; telegramSent?: boolean; resendIn?: number }
+        | undefined;
       if (obj?.needTwoFactor) {
         if (obj.telegramSent) {
           toast.success(t("pages.login.toasts.twoFactorTelegramSent"));
+        } else if (typeof obj.resendIn === "number") {
+          toast.info(
+            t("pages.login.toasts.twoFactorResendWait", {
+              defaultValue: "A code was already sent. You can request a new one in {{seconds}} s.",
+              seconds: obj.resendIn,
+            }),
+          );
         } else {
           toast.info(res.msg || t("pages.login.toasts.needTwoFactor"));
         }
+        if (typeof obj.resendIn === "number") setResendIn(obj.resendIn);
         setAwaiting2FA(true);
         return;
       }
@@ -76,6 +82,15 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (awaiting2FA && !form.twoFactorCode.trim()) {
+      toast.error(t("pages.login.toasts.needTwoFactor"));
+      return;
+    }
+    await submitLogin(false);
   };
 
   if (!ready) {
@@ -183,6 +198,8 @@ export default function LoginPage() {
           </p>
           <Surface>
             <form onSubmit={onSubmit} className="flex flex-col gap-4">
+              {!awaiting2FA ? (
+                <>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="u">
                   {t("username")}
@@ -228,29 +245,71 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-              {two ? (
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="t">
-                    {t("twoFactorCode")}
-                  </label>
-                  <div className="relative">
-                    <KeyRound
-                      className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"
-                      aria-hidden
-                    />
-                    <Input
-                      id="t"
-                      name="twoFactorCode"
-                      autoComplete="one-time-code"
-                      inputSize="lg"
-                      className="!pl-10"
-                      placeholder={t("twoFactorCode")}
-                      value={form.twoFactorCode}
-                      onChange={(e) => setForm((f) => ({ ...f, twoFactorCode: e.target.value }))}
-                      required={awaiting2FA}
-                    />
+                </>
+              ) : null}
+              {awaiting2FA ? (
+                <motion.div
+                  className="flex flex-col gap-4"
+                  initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: durations.base, ease: easeStandard }}
+                >
+                  <p className="text-center text-sm text-[var(--fg-muted)] text-balance">
+                    {t("pages.login.twoFactorStepHint", {
+                      defaultValue: "Enter the code to finish signing in.",
+                    })}
+                  </p>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="t">
+                      {t("twoFactorCode")}
+                    </label>
+                    <div className="relative">
+                      <KeyRound
+                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"
+                        aria-hidden
+                      />
+                      <Input
+                        id="t"
+                        name="twoFactorCode"
+                        autoComplete="one-time-code"
+                        inputMode="numeric"
+                        autoFocus
+                        inputSize="lg"
+                        className="!pl-10"
+                        placeholder={t("twoFactorCode")}
+                        value={form.twoFactorCode}
+                        onChange={(e) => setForm((f) => ({ ...f, twoFactorCode: e.target.value }))}
+                        required
+                      />
+                    </div>
                   </div>
-                </div>
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <button
+                      type="button"
+                      className="text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                      onClick={() => {
+                        setAwaiting2FA(false);
+                        setResendIn(0);
+                        setForm((f) => ({ ...f, twoFactorCode: "" }));
+                      }}
+                    >
+                      {t("back")}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-[var(--accent)] disabled:cursor-not-allowed disabled:text-[var(--fg-subtle)]"
+                      disabled={loading || resendIn > 0}
+                      onClick={() => void submitLogin(true)}
+                    >
+                      {resendIn > 0
+                        ? t("pages.login.resendCodeIn", {
+                            defaultValue: "Resend code in {{seconds}} s",
+                            seconds: resendIn,
+                          })
+                        : t("pages.login.resendCode", { defaultValue: "Resend code" })}
+                    </button>
+                  </div>
+                </motion.div>
               ) : null}
               <Button
                 type="submit"
@@ -258,7 +317,7 @@ export default function LoginPage() {
                 className="!mt-2 w-full !py-3"
                 loading={loading}
               >
-                {t("login")}
+                {awaiting2FA ? t("confirm") : t("login")}
               </Button>
             </form>
           </Surface>

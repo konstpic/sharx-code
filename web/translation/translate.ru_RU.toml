@@ -120,6 +120,9 @@ noExpiry = "Бессрочно"
 hello = "Привет!"
 title = "Привет!"
 loginAgain = "Сессия истекла. Войдите в систему снова"
+resendCode = "Отправить код ещё раз"
+resendCodeIn = "Повторная отправка через {{.Seconds}} с"
+twoFactorStepHint = "Введите код, чтобы завершить вход."
 
   [pages.login.toasts]
   invalidFormData = "Недопустимый формат данных"
@@ -129,6 +132,7 @@ loginAgain = "Сессия истекла. Войдите в систему сн
   needTwoFactor = "Введите код из приложения или отправьте форму снову без кода — код придёт в Telegram, если включена доставка."
   wrongTwoFactorCode = "Неверный код двухфакторной аутентификации."
   twoFactorTelegramSent = "Код входа отправлен в Telegram (чаты администраторов)."
+  twoFactorResendWait = "Код уже отправлен. Новый можно запросить через {{.Seconds}} с."
   successLogin = "Вход выполнен успешно"
 
 [pages.help]
@@ -1123,13 +1127,13 @@ remarkModelDragHint = "Перетащите, чтобы упорядочить"
   "executeConfirm.content" = "Это перенесет данные из SQLite в PostgreSQL. Существующие данные могут быть обновлены. Продолжить?"
 
   [pages.settings.security]
-  twoFactorSection = "Двухфакторная аутентификация (2FA)"
+  twoFactorSection = "2FA и TOTP"
   admin = "Учетные данные администратора"
   twoFactor = "Двухфакторная аутентификация"
-  twoFactorEnable = "Включить 2FA"
-  twoFactorEnableDesc = "Добавляет дополнительный уровень аутентификации для повышения безопасности."
-  twoFactorModalSetTitle = "Включить двухфакторную аутентификацию"
-  twoFactorModalDeleteTitle = "Отключить двухфакторную аутентификацию"
+  twoFactorEnable = "Включить TOTP"
+  twoFactorEnableDesc = "Добавляет вход по одноразовому TOTP-коду из приложения-аутентификатора."
+  twoFactorModalSetTitle = "Включить TOTP"
+  twoFactorModalDeleteTitle = "Отключить TOTP"
   twoFactorModalSteps = "Для настройки двухфакторной аутентификации выполните несколько шагов:"
   twoFactorModalFirstStep = "1. Отсканируйте этот QR-код в приложении для аутентификации или скопируйте токен рядом с QR-кодом и вставьте его в приложение"
   twoFactorModalSecondStep = "2. Введите код из приложения"
@@ -1142,12 +1146,15 @@ remarkModelDragHint = "Перетащите, чтобы упорядочить"
   twoFactorBeginUnauthorized = "Войдите в панель, чтобы настроить двухфакторную аутентификацию."
   twoFactorBeginError = "Не удалось начать настройку. Попробуйте снова."
   twoFactorCompleteError = "Не удалось завершить настройку. Начните заново со сканирования QR."
-  twoFactorTelegram = "Отправлять код входа в Telegram"
+  twoFactorTelegram = "Отправлять TOTP-код в Telegram"
   twoFactorTelegramDesc = "После верного пароля отправляет тот же 6-значный код в чаты админов из настроек Telegram. Нужен включённый и запущенный бот."
-  twoFactorSetupButton = "Настроить приложение"
-  twoFactorEnabledHint = "Двухфакторная аутентификация включена."
-  twoFactorDisable = "Отключить 2FA"
-  twoFactorDisableConfirm = "Отключить двухфакторную аутентификацию? Позже можно настроить снова."
+  tgTwoFactor = "2FA через Telegram"
+  tgTwoFactorDesc = "При входе одноразовый код отправляется ботом в админский чат Telegram, его нужно ввести в панели. Новый код можно запросить через 60 секунд."
+  tgTwoFactorNeedBot = "Сначала включите Telegram-бота и укажите токен и ID админского чата (вкладка Telegram)."
+  twoFactorSetupButton = "Настроить TOTP"
+  twoFactorEnabledHint = "TOTP включён."
+  twoFactorDisable = "Отключить TOTP"
+  twoFactorDisableConfirm = "Отключить TOTP? Позже можно настроить снова."
   apiTokenSection = "API-токены"
   apiTokenHint = "Используйте Bearer-токены для скриптов и клиентов API без cookie браузера. Храните их в безопасности; полный токен показывается только один раз при создании."
   apiTokenName = "Название токена"
@@ -3227,9 +3234,14 @@ online = "🟢 Онлайн"
 """
   twoFactorLoginCode = """
 🔐 <b>Код входа в панель</b>\r
-👤 {{ .Username }}\r
-🌐 {{ .IP }}\r
+\r
 <code>{{ .Code }}</code>\r
+<i>Нажмите на код, чтобы скопировать</i>\r
+\r
+👤 <b>{{ .Username }}</b>\r
+🌐 {{ .IP }}\r
+\r
+⚠️ Никому не сообщайте этот код. Если вход выполняли не вы — сразу смените пароль.\r
 """
   report = """
 🕰 Запланированные отчеты: {{ .RunTime }}\r

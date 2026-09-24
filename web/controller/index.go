@@ -104,6 +104,12 @@ func (a *IndexController) login(c *gin.Context) {
 		return
 	}
 
+	if !twoFactorEnable {
+		if !a.checkTelegramTwoFactor(c, form, safeUser, timeStr) {
+			return
+		}
+	}
+
 	if twoFactorEnable {
 		twoFactorToken, err := a.settingService.GetTwoFactorToken()
 		if err != nil || twoFactorToken == "" {
@@ -143,6 +149,58 @@ func (a *IndexController) login(c *gin.Context) {
 	a.finishLoginSuccess(c, user, safeUser, timeStr)
 }
 
+// checkTelegramTwoFactor enforces the Telegram one-time-code step. It returns true when the login may
+// proceed (feature off, or a valid code was submitted) and has already written the response otherwise.
+func (a *IndexController) checkTelegramTwoFactor(c *gin.Context, form LoginForm, safeUser, timeStr string) bool {
+	enabled, err := a.settingService.GetTgTwoFactorEnable()
+	if err != nil {
+		logger.Warning("telegram two-factor setting read error:", err)
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
+		return false
+	}
+	if !enabled {
+		return true
+	}
+	store := service.TgLoginCodes()
+	now := time.Now()
+
+	if code := strings.TrimSpace(form.TwoFactorCode); code != "" {
+		if store.Verify(form.Username, code, now) {
+			return true
+		}
+		logger.Warningf("wrong telegram two-factor code for user \"%s\", IP: \"%s\"", safeUser, getRemoteIp(c))
+		a.tgbot.UserLoginNotify(safeUser, getRemoteIp(c), timeStr, 0)
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongTwoFactorCode"))
+		return false
+	}
+
+	if !a.tgbot.CanSendLoginCode() {
+		logger.Warning("telegram two-factor is enabled but the Telegram bot is not running or has no admin chat")
+		pureJsonMsg(c, http.StatusOK, false, "Telegram 2FA is enabled but the Telegram bot is unavailable")
+		return false
+	}
+	otp, wait, err := store.Issue(form.Username, now)
+	if err != nil {
+		logger.Warning("telegram two-factor code generation failed:", err)
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
+		return false
+	}
+	sent := otp != ""
+	if sent {
+		a.tgbot.SendTwoFactorLoginCode(safeUser, getRemoteIp(c), otp)
+	}
+	c.JSON(http.StatusOK, entity.Msg{
+		Success: false,
+		Msg:     I18nWeb(c, "pages.login.toasts.needTwoFactor"),
+		Obj: map[string]any{
+			"needTwoFactor": true,
+			"telegramSent":  sent,
+			"resendIn":      wait,
+		},
+	})
+	return false
+}
+
 func (a *IndexController) finishLoginSuccess(c *gin.Context, user *model.User, safeUser, timeStr string) {
 	logger.Infof("%s logged in successfully, Ip Address: %s\n", safeUser, getRemoteIp(c))
 	a.tgbot.UserLoginNotify(safeUser, getRemoteIp(c), timeStr, 1)
@@ -179,7 +237,13 @@ func (a *IndexController) logout(c *gin.Context) {
 // getTwoFactorEnable retrieves the current status of two-factor authentication.
 func (a *IndexController) getTwoFactorEnable(c *gin.Context) {
 	status, err := a.settingService.GetTwoFactorEnable()
-	if err == nil {
-		jsonObj(c, status, nil)
+	if err != nil {
+		return
 	}
+	if !status {
+		if tg, tgErr := a.settingService.GetTgTwoFactorEnable(); tgErr == nil {
+			status = tg
+		}
+	}
+	jsonObj(c, status, nil)
 }

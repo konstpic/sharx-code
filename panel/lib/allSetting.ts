@@ -27,6 +27,7 @@ export type AllSetting = {
   twoFactorEnable: boolean;
   twoFactorToken: string;
   twoFactorTelegram: boolean;
+  tgTwoFactorEnable: boolean;
   subEnable: boolean;
   subJsonEnable: boolean;
   subTitle: string;
@@ -162,6 +163,7 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     twoFactorEnable: toBool(raw.twoFactorEnable),
     twoFactorToken: toStr(raw.twoFactorToken),
     twoFactorTelegram: toBool(raw.twoFactorTelegram),
+    tgTwoFactorEnable: toBool(raw.tgTwoFactorEnable),
     subEnable: toBool(raw.subEnable),
     subJsonEnable: toBool(raw.subJsonEnable),
     subTitle: toStr(raw.subTitle),

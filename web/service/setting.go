@@ -65,6 +65,7 @@ var defaultValueMap = map[string]string{
 	"twoFactorEnable":             "false",
 	"twoFactorToken":              "",
 	"twoFactorTelegram":           "false",
+	"tgTwoFactorEnable":           "false",
 	"subEnable":                   "true",
 	"subJsonEnable":               "false",
 	"subTitle":                    "",
@@ -833,6 +834,10 @@ func (s *SettingService) SetTwoFactorToken(value string) error {
 	return s.setString("twoFactorToken", value)
 }
 
+func (s *SettingService) GetTgTwoFactorEnable() (bool, error) {
+	return s.getBool("tgTwoFactorEnable")
+}
+
 func (s *SettingService) GetTwoFactorTelegram() (bool, error) {
 	return s.getBool("twoFactorTelegram")
 }
@@ -1384,6 +1389,11 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 
 	if !allSetting.TwoFactorEnable {
 		allSetting.TwoFactorToken = ""
+	}
+
+	if allSetting.TgTwoFactorEnable &&
+		(!allSetting.TgBotEnable || strings.TrimSpace(allSetting.TgBotToken) == "" || strings.TrimSpace(allSetting.TgBotChatId) == "") {
+		return common.NewError("Telegram 2FA requires the Telegram bot to be enabled with a token and admin chat ID")
 	}
 
 	envConfigurable := map[string]bool{

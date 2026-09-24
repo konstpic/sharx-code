@@ -896,6 +896,11 @@ func (t *Tgbot) SendTwoFactorLoginCode(username, ip, code string) {
 	t.SendMsgToTgbotAdmins(msg)
 }
 
+// CanSendLoginCode reports whether the bot is running and has at least one admin chat to deliver codes to.
+func (t *Tgbot) CanSendLoginCode() bool {
+	return t.IsRunning() && len(adminIds) > 0
+}
+
 // sendBackup sends a backup of the database and configuration files.
 func (t *Tgbot) sendBackup(chatId int64) {
 	if !t.IsRunning() {

@@ -53,6 +53,7 @@ type AllSetting struct {
 	TwoFactorEnable   bool   `json:"twoFactorEnable" form:"twoFactorEnable"`     // Enable two-factor authentication
 	TwoFactorToken    string `json:"twoFactorToken" form:"twoFactorToken"`       // Two-factor authentication TOTP secret (base32)
 	TwoFactorTelegram bool   `json:"twoFactorTelegram" form:"twoFactorTelegram"` // Send current TOTP to admin Telegram chats on login (password step)
+	TgTwoFactorEnable bool   `json:"tgTwoFactorEnable" form:"tgTwoFactorEnable"` // Login 2FA via one-time code sent by the Telegram bot (no TOTP secret)
 	// Subscription server settings
 	SubEnable                   bool   `json:"subEnable" form:"subEnable"`                                     // Enable subscription server
 	SubJsonEnable               bool   `json:"subJsonEnable" form:"subJsonEnable"`                             // Enable JSON subscription endpoint

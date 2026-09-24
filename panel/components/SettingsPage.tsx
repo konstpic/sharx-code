@@ -425,7 +425,6 @@ export function SettingsPage() {
       { id: "subscription", label: t("pages.settings.tabs.subscription"), icon: Link2 },
       { id: "ldap", label: t("pages.settings.tabs.ldap"), icon: Building2 },
       { id: "grafana", label: t("pages.settings.tabs.grafana"), icon: BarChart3 },
-      { id: "admin", label: t("pages.settings.tabs.admin"), icon: UserCog },
     ],
     [t],
   );
@@ -1062,6 +1061,19 @@ export function SettingsPage() {
               </>
             ) : null}
           </SettingsSection>
+          <SettingsSection
+            title={t("pages.settings.sections.adminRestart")}
+            hint={t("pages.settings.restartPanelDesc")}
+            icon={Power}
+            iconTone="warning"
+          >
+            <Row label={t("pages.settings.actions")}>
+              <Button type="button" variant="secondary" className="!gap-2" onClick={() => setRestartOpen(true)}>
+                <Power size={16} />
+                {t("pages.settings.restartPanel")}
+              </Button>
+            </Row>
+          </SettingsSection>
         </SettingsGrid>
       ) : null}
 
@@ -1128,6 +1140,29 @@ export function SettingsPage() {
               </Button>
             </Row>
           )}
+          <Row
+            label={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
+            hint={
+              form.tgBotEnable && form.tgBotToken.trim() && form.tgBotChatId.trim()
+                ? t("pages.settings.security.tgTwoFactorDesc", {
+                    defaultValue:
+                      "On login, a one-time code is sent to the admin chat via the Telegram bot; enter it in the panel. A new code can be requested after 60 seconds.",
+                  })
+                : t("pages.settings.security.tgTwoFactorNeedBot", {
+                    defaultValue: "Enable the Telegram bot and set its token and admin chat ID first (Telegram tab).",
+                  })
+            }
+          >
+            <Switch
+              checked={form.tgTwoFactorEnable}
+              disabled={
+                !form.tgTwoFactorEnable &&
+                !(form.tgBotEnable && form.tgBotToken.trim() && form.tgBotChatId.trim())
+              }
+              onChange={(v) => patch("tgTwoFactorEnable", v)}
+              ariaLabel={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
+            />
+          </Row>
         </SettingsSection>
 
         <SettingsSection
@@ -1243,6 +1278,48 @@ export function SettingsPage() {
             </div>
           )}
         </SettingsSection>
+          <SettingsSection
+            title={t("pages.settings.sections.adminCredentials")}
+            icon={UserCog}
+            iconTone="danger"
+          >
+            <Row label={t("pages.settings.oldUsername")}>
+              <Input
+                value={account.oldUsername}
+                onChange={(e) => setAccount((a) => ({ ...a, oldUsername: e.target.value }))}
+                autoComplete="username"
+              />
+            </Row>
+            <Row label={t("pages.settings.currentPassword")}>
+              <Input
+                type="password"
+                value={account.oldPassword}
+                onChange={(e) => setAccount((a) => ({ ...a, oldPassword: e.target.value }))}
+                autoComplete="current-password"
+              />
+            </Row>
+            <Row label={t("pages.settings.newUsername")}>
+              <Input
+                value={account.newUsername}
+                onChange={(e) => setAccount((a) => ({ ...a, newUsername: e.target.value }))}
+                autoComplete="off"
+              />
+            </Row>
+            <Row label={t("pages.settings.newPassword")}>
+              <Input
+                type="password"
+                value={account.newPassword}
+                onChange={(e) => setAccount((a) => ({ ...a, newPassword: e.target.value }))}
+                autoComplete="new-password"
+              />
+            </Row>
+            <Row label={t("pages.settings.actions")}>
+              <Button type="button" variant="primary" onClick={() => void saveAccount()} className="!gap-2">
+                <Save size={16} />
+                {t("update")}
+              </Button>
+            </Row>
+          </SettingsSection>
         </SettingsGrid>
       ) : null}
 
@@ -1612,67 +1689,6 @@ export function SettingsPage() {
               <Button type="button" variant="secondary" className="!gap-2" onClick={downloadGrafana}>
                 <Download size={16} />
                 {t("download")}
-              </Button>
-            </Row>
-          </SettingsSection>
-        </SettingsGrid>
-      ) : null}
-
-      {activeTab === "admin" ? (
-        <SettingsGrid>
-          <SettingsSection
-            title={t("pages.settings.sections.adminCredentials")}
-            icon={UserCog}
-            iconTone="danger"
-          >
-            <Row label={t("pages.settings.oldUsername")}>
-              <Input
-                value={account.oldUsername}
-                onChange={(e) => setAccount((a) => ({ ...a, oldUsername: e.target.value }))}
-                autoComplete="username"
-              />
-            </Row>
-            <Row label={t("pages.settings.currentPassword")}>
-              <Input
-                type="password"
-                value={account.oldPassword}
-                onChange={(e) => setAccount((a) => ({ ...a, oldPassword: e.target.value }))}
-                autoComplete="current-password"
-              />
-            </Row>
-            <Row label={t("pages.settings.newUsername")}>
-              <Input
-                value={account.newUsername}
-                onChange={(e) => setAccount((a) => ({ ...a, newUsername: e.target.value }))}
-                autoComplete="off"
-              />
-            </Row>
-            <Row label={t("pages.settings.newPassword")}>
-              <Input
-                type="password"
-                value={account.newPassword}
-                onChange={(e) => setAccount((a) => ({ ...a, newPassword: e.target.value }))}
-                autoComplete="new-password"
-              />
-            </Row>
-            <Row label={t("pages.settings.actions")}>
-              <Button type="button" variant="primary" onClick={() => void saveAccount()} className="!gap-2">
-                <Save size={16} />
-                {t("update")}
-              </Button>
-            </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.adminRestart")}
-            hint={t("pages.settings.restartPanelDesc")}
-            icon={Power}
-            iconTone="warning"
-          >
-            <Row label={t("pages.settings.actions")}>
-              <Button type="button" variant="secondary" className="!gap-2" onClick={() => setRestartOpen(true)}>
-                <Power size={16} />
-                {t("pages.settings.restartPanel")}
               </Button>
             </Row>
           </SettingsSection>
