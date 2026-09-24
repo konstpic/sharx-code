@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -293,4 +294,30 @@ func dialTestSSHClient(t *testing.T, addr, user, pass string) *ssh.Client {
 		t.Fatalf("dial test ssh server: %v", err)
 	}
 	return client
+}
+
+func TestSSHHostKeyPinning(t *testing.T) {
+	addr := startTestSSHServer(t, "root", "testpass")
+	host, portStr, _ := net.SplitHostPort(addr)
+	port, _ := strconv.Atoi(portStr)
+
+	fp, kt, err := ProbeSSHHostKey(host, port)
+	if err != nil || !strings.HasPrefix(fp, "SHA256:") || kt == "" {
+		t.Fatalf("probe: fp=%q type=%q err=%v", fp, kt, err)
+	}
+	req := NodeSSHProvisionRequest{Host: host, Port: port, Username: "root", AuthMethod: "password", Password: "testpass"}
+
+	if _, err := dialNodeSSH(req); err == nil {
+		t.Fatal("empty fingerprint must be refused")
+	}
+	req.HostKeyFingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if _, err := dialNodeSSH(req); err == nil {
+		t.Fatal("mismatching fingerprint must be refused")
+	}
+	req.HostKeyFingerprint = fp
+	c, err := dialNodeSSH(req)
+	if err != nil {
+		t.Fatalf("matching fingerprint must connect: %v", err)
+	}
+	_ = c.Close()
 }

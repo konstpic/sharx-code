@@ -261,6 +261,21 @@ export function NodesPage() {
   const [profileAssignSubmitting, setProfileAssignSubmitting] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<NodeRow | null>(null);
+  const [hostKeyPrompt, setHostKeyPrompt] = useState<{ fingerprint: string; keyType: string } | null>(null);
+  const hostKeyResolver = useRef<((ok: boolean) => void) | null>(null);
+  const askHostKey = useCallback(
+    (info: { fingerprint: string; keyType: string }) =>
+      new Promise<boolean>((resolve) => {
+        hostKeyResolver.current = resolve;
+        setHostKeyPrompt(info);
+      }),
+    [],
+  );
+  const answerHostKey = useCallback((ok: boolean) => {
+    hostKeyResolver.current?.(ok);
+    hostKeyResolver.current = null;
+    setHostKeyPrompt(null);
+  }, []);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [draftDeleteBusy, setDraftDeleteBusy] = useState(false);
   const [form, setForm] = useState({
@@ -692,7 +707,23 @@ export function NodesPage() {
       if (!sshTaskId || sshTaskStatus === "error") {
         setSshSteps([]);
         setSshTaskStatus("running");
+        // Read the server's SSH host key and let the admin confirm it before any credentials are sent.
+        const probe = await postJson<{ fingerprint: string; keyType: string }>(
+          panel("node/ssh-hostkey"),
+          { host: form.host.trim(), port: parseInt(sshPort, 10) || 22 },
+          true,
+        );
+        if (!probe.success || !probe.obj?.fingerprint) {
+          setSshTaskStatus("error");
+          setSshTaskError((probe as { msg?: string }).msg || t("pages.nodes.sshInstallFailed", { defaultValue: "Automatic install failed" }));
+          return;
+        }
+        if (!(await askHostKey(probe.obj))) {
+          setSshTaskStatus(null);
+          return;
+        }
         const triggerBody = {
+          hostKeyFingerprint: probe.obj.fingerprint,
           host: form.host.trim(),
           port: parseInt(sshPort, 10) || 22,
           username: sshUsername.trim() || "root",
@@ -752,6 +783,7 @@ export function NodesPage() {
   }, [
     sshTaskId,
     sshTaskStatus,
+    askHostKey,
     getAddBody,
     t,
     form.host,
@@ -2653,6 +2685,34 @@ export function NodesPage() {
             {deleteTarget.name} — {deleteTarget.address}
           </p>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={hostKeyPrompt != null}
+        onClose={() => answerHostKey(false)}
+        title={t("pages.nodes.sshHostKeyTitle", { defaultValue: "Confirm the server's SSH host key" })}
+        width={520}
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => answerHostKey(false)}>
+              {t("cancel")}
+            </Button>
+            <Button type="button" variant="primary" onClick={() => answerHostKey(true)}>
+              {t("pages.nodes.sshHostKeyTrust", { defaultValue: "Fingerprint matches, connect" })}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm text-[var(--fg-muted)]">
+          {t("pages.nodes.sshHostKeyText", {
+            defaultValue:
+              "Compare this fingerprint with the one on the server (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). If it differs, someone may be impersonating the server: do not continue.",
+          })}
+        </p>
+        <p className="mt-3 break-all rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-xs text-[var(--fg)]">
+          {hostKeyPrompt?.fingerprint}
+        </p>
+        <p className="mt-1 text-xs text-[var(--fg-subtle)]">{hostKeyPrompt?.keyType}</p>
       </Modal>
 
       <NodeResourceDrawer

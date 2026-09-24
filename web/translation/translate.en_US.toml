@@ -2065,6 +2065,9 @@ selectNoneNodes = "Clear"
 deleteProfileDetail = "This cannot be undone. Profiles used by outbounds cannot be deleted."
 
 [pages.nodes]
+sshHostKeyTitle = "Confirm the server's SSH host key"
+sshHostKeyText = "Compare this fingerprint with the one on the server (ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub). If it differs, someone may be impersonating the server: do not continue."
+sshHostKeyTrust = "Fingerprint matches, connect"
 dndDrag = "Drag to reorder"
 dndNeedNoFilter = "Clear filters to change the order"
 

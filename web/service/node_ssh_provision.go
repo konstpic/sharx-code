@@ -13,7 +13,9 @@ package service
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -80,6 +82,9 @@ type NodeSSHProvisionRequest struct {
 	// have something bound there (observed live: an unrelated nginx on a shared box) — letting
 	// the admin override it avoids a predictable docker-compose port conflict on compose_up.
 	WatchtowerPort int
+	// HostKeyFingerprint is the SHA256 fingerprint ("SHA256:...") of the SSH host key the admin confirmed
+	// (see ProbeSSHHostKey). Required: the connection is refused when the server presents any other key.
+	HostKeyFingerprint string
 }
 
 const nodeSSHProvisionDefaultInstallDir = "/opt/sharxnode"
@@ -365,13 +370,13 @@ func dialNodeSSH(req NodeSSHProvisionRequest) (*ssh.Client, error) {
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
+	if strings.TrimSpace(req.HostKeyFingerprint) == "" {
+		return nil, errors.New("SSH host key fingerprint is required: confirm it before connecting")
+	}
 	config := &ssh.ClientConfig{
-		User: req.Username,
-		Auth: authMethods,
-		// The admin is provisioning a server they just identified by IP themselves (no prior
-		// panel<->host relationship to pin a host key against) — same trust-on-first-connect
-		// model as running `ssh -o StrictHostKeyChecking=no` by hand for a fresh box.
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		User:            req.Username,
+		Auth:            authMethods,
+		HostKeyCallback: pinnedHostKeyCallback(req.HostKeyFingerprint),
 		Timeout:         15 * time.Second,
 	}
 	addr := net.JoinHostPort(req.Host, strconv.Itoa(req.Port))
@@ -432,4 +437,49 @@ func truncateForError(s string) string {
 		return s[:max] + "…"
 	}
 	return s
+}
+
+// pinnedHostKeyCallback accepts only the host key whose SHA256 fingerprint equals want.
+func pinnedHostKeyCallback(want string) ssh.HostKeyCallback {
+	want = strings.TrimSpace(want)
+	return func(_ string, _ net.Addr, key ssh.PublicKey) error {
+		got := ssh.FingerprintSHA256(key)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			return fmt.Errorf("SSH host key mismatch: server presented %s, confirmed %s (possible man-in-the-middle)", got, want)
+		}
+		return nil
+	}
+}
+
+// ProbeSSHHostKey connects to host:port only far enough to read the server's host key and returns its
+// SHA256 fingerprint and type. No credentials are sent. The admin compares it with the server's own
+// (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before provisioning.
+func ProbeSSHHostKey(host string, port int) (fingerprint, keyType string, err error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", "", errors.New("host is required")
+	}
+	if port <= 0 {
+		port = 22
+	}
+	errStop := errors.New("host key captured")
+	cfg := &ssh.ClientConfig{
+		User: "sharx-probe",
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			fingerprint, keyType = ssh.FingerprintSHA256(key), key.Type()
+			return errStop
+		},
+		Timeout: 10 * time.Second,
+	}
+	c, dialErr := ssh.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port)), cfg)
+	if c != nil {
+		_ = c.Close()
+	}
+	if fingerprint != "" {
+		return fingerprint, keyType, nil
+	}
+	if dialErr == nil {
+		dialErr = errors.New("no host key received")
+	}
+	return "", "", dialErr
 }

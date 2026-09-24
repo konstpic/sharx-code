@@ -62,6 +62,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 	g.GET("/secret", a.getPairingSecret) // Panel-wide SECRET_KEY for node docker-compose
 	g.GET("/geography", a.getNodesGeography)
 	g.GET("/client-traffic-per-node", a.getClientTrafficPerNode)
+	g.POST("/ssh-hostkey", a.probeSSHHostKey)
 	g.POST("/ssh-provision", a.startNodeSSHProvision)
 	g.GET("/ssh-provision-status/:taskId", a.getNodeSSHProvisionStatus)
 	// push-logs endpoint moved to APIController to bypass session auth
@@ -112,6 +113,7 @@ func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
 		PrivateKeyPassphrase string `json:"privateKeyPassphrase"`
 		InstallDir           string `json:"installDir"`
 		WatchtowerPort       int    `json:"watchtowerPort"`
+		HostKeyFingerprint   string `json:"hostKeyFingerprint"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		jsonMsg(c, "Invalid request", err)
@@ -136,6 +138,7 @@ func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
 		SecretKey:            secret,
 		InstallDir:           body.InstallDir,
 		WatchtowerPort:       body.WatchtowerPort,
+		HostKeyFingerprint:   body.HostKeyFingerprint,
 	})
 	if err != nil {
 		jsonMsg(c, "Failed to start automatic install: "+err.Error(), err)
@@ -143,6 +146,25 @@ func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
 	}
 	logger.Infof("SSH auto-install started: task=%s host=%s", taskID, body.Host)
 	jsonObj(c, gin.H{"taskId": taskID}, nil)
+}
+
+// probeSSHHostKey returns the SSH host key fingerprint of the target so the admin can confirm it before
+// any credentials are sent (the provisioning call refuses to connect without a confirmed fingerprint).
+func (a *NodeController) probeSSHHostKey(c *gin.Context) {
+	var body struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "Invalid request", err)
+		return
+	}
+	fp, kt, err := service.ProbeSSHHostKey(body.Host, body.Port)
+	if err != nil {
+		jsonMsg(c, "Could not read the SSH host key: "+err.Error(), err)
+		return
+	}
+	jsonObj(c, gin.H{"fingerprint": fp, "keyType": kt}, nil)
 }
 
 // getNodeSSHProvisionStatus returns progress for a running/finished automatic install task.
