@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform, type MotionValue } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelNavLink } from "@/components/panel/PanelNavLink";
 import type { NavNode } from "@/components/panel/nav/navModel";
 
@@ -128,6 +128,21 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const activeKey = nodes.find((n) => n.active)?.id;
+  const [hovering, setHovering] = useState(false);
+  const leaveTimer = useRef<number | null>(null);
+  // A short grace period keeps the blur steady while the cursor crosses the gaps between icons.
+  const enter = useCallback(() => {
+    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    setHovering(true);
+  }, []);
+  const leave = useCallback(() => {
+    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    leaveTimer.current = window.setTimeout(() => setHovering(false), 140);
+  }, []);
+  useEffect(() => () => {
+    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+  }, []);
+  const focusMode = hovering || openId !== null;
 
   useEffect(() => setOpenId(null), [activeKey]);
   useEffect(() => {
@@ -145,14 +160,37 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
   }, [openId]);
 
   return (
+    <>
+      <AnimatePresence>
+        {focusMode ? (
+          <motion.div
+            key="dock-focus"
+            aria-hidden
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduce ? 0 : 0.22 }}
+            className="pointer-events-none fixed inset-0 z-[65] hidden md:block"
+            style={{
+              backdropFilter: "blur(7px) saturate(1.1)",
+              WebkitBackdropFilter: "blur(7px) saturate(1.1)",
+              background: "color-mix(in oklab, var(--bg) 28%, transparent)",
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] hidden justify-center md:flex">
       <motion.div
         ref={wrap}
+        onMouseEnter={enter}
         initial={reduce ? false : { y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 260, damping: 24 }}
         onMouseMove={(e) => mouseX.set(e.clientX)}
-        onMouseLeave={() => mouseX.set(Infinity)}
+        onMouseLeave={() => {
+          mouseX.set(Infinity);
+          leave();
+        }}
         className="panel-dock pointer-events-auto flex items-end gap-2.5 rounded-[26px] border border-[var(--border-strong)] px-3.5 pb-2 pt-2.5 shadow-[0_18px_50px_-12px_rgba(0,0,0,0.55)] backdrop-blur-xl"
         style={{ background: "color-mix(in oklab, var(--bg-elevated) 72%, transparent)" }}
         role="menubar"
@@ -170,5 +208,6 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
         ))}
       </motion.div>
     </div>
+    </>
   );
 }
