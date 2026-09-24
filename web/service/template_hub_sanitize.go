@@ -124,7 +124,7 @@ func SanitizeInboundSettings(protocol, raw string) (map[string]any, []string, er
 // hostSpecificSidecarKeys are dropped from Telemt / WireGuard / AmneziaWG settings: they identify the source
 // server or account rather than describe a reusable setup.
 var hostSpecificSidecarKeys = map[string]bool{
-	"adtag": true, "publichost": true, "middleproxynatip": true, "headerprotectionkey": true,
+	"adtag": true, "apilisten": true, "publichost": true, "middleproxynatip": true, "headerprotectionkey": true,
 	"peers": true, "users": true, "accounts": true,
 }
 

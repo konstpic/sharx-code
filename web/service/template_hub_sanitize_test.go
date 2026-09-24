@@ -96,7 +96,7 @@ func TestSanitizeInboundSettingsSidecars(t *testing.T) {
 		t.Fatalf("obfuscation: %v", obf)
 	}
 
-	tm := `{"telemt":{"adTag":"abc","links":{"publicHost":"h.example","publicPort":443},"censorship":{"tlsDomain":"ya.ru"},"modes":{"tls":true}}}`
+	tm := `{"telemt":{"adTag":"abc","apiListen":"127.0.0.1:9092","links":{"publicHost":"h.example","publicPort":443},"censorship":{"tlsDomain":"ya.ru"},"modes":{"tls":true}}}`
 	out, _, err = SanitizeInboundSettings("telemt", tm)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestSanitizeInboundSettingsSidecars(t *testing.T) {
 	inner, _ := out["telemt"].(map[string]any)
 	links, _ := inner["links"].(map[string]any)
 	cens, _ := inner["censorship"].(map[string]any)
-	if inner["adTag"] != nil || links["publicHost"] != nil || links["publicPort"] == nil || cens["tlsDomain"] != "ya.ru" {
+	if inner["adTag"] != nil || inner["apiListen"] != nil || links["publicHost"] != nil || links["publicPort"] == nil || cens["tlsDomain"] != "ya.ru" {
 		t.Fatalf("telemt: %v", inner)
 	}
 }
