@@ -41,7 +41,7 @@ The panel lets you:
 | **Single-node** | Xray runs on the same server as the panel. Suitable for small deployments. |
 | **Multi-Node** | Xray **does not run** on the panel; configurations are sent to remote **nodes**. Traffic is processed on workers. |
 
-Multi-Node mode is enabled in **Settings → General → Multi-Node mode**.
+Multi-Node mode is enabled in **Panel Settings → “Panel & general” → “Nodes and network” → “Multi-Node Mode”**.
 
 ## Core Entities
 

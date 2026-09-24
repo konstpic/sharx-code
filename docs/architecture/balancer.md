@@ -30,7 +30,7 @@ balancers            id, name, address (public host clients see), api_address, e
                      agent_version, engine_version, config_hash, applied_hash, last_error, sort_order
 balancer_pools       id, balancer_id, inbound_id, listen_port (0 = inbound port),
                      algorithm (roundrobin|leastconn|source), sub_enabled, sub_mode (replace|prepend|append),
-                     host_id (managed Host), auto_members, enable
+                     auto_members, enable, sort_order
 balancer_pool_members pool_id, node_id, weight, backup, enable, address_override, port_override
 ```
 
@@ -58,20 +58,26 @@ client ──► balancer:PORT ──(TCP/UDP passthrough)──► node:inbound
 
 ## Subscription: balancer, direct, or both
 
-Every pool with `sub_enabled` owns one **managed Host** (marked `managed_by_pool`). The panel keeps only these fields
-in sync: address (balancer address), port (0 when equal to the inbound port), apply mode, enable, inbound mapping.
-TLS/SNI/path overrides stay editable in the normal Hosts UI and are never overwritten.
+The subscription builder (`getAddressesForInbound`) applies **only one Host per inbound**, so a balancer must not be
+modelled as a Host: it would clash with the operator's own Host (CDN, custom domain) and could not coexist with a
+second balancer. Balancer pools are therefore a native step in the same function, applied after nodes and the Host:
+
+1. Start from the direct node entries (respecting `include in subscription` per node) and the optional Host.
+2. For every enabled pool with `sub_enabled` add an entry: address = balancer address, port = pool listen port
+   (or the inbound port), remark = balancer name.
+3. Combine by the pool's mode. All `replace` pools together replace the direct entries and the Host; `prepend` pools
+   go before, `append` pools go after.
 
 | Pool mode | Client sees |
 |---|---|
-| `replace` | only the balancer entry. Node IPs are hidden. |
+| `replace` | only the balancer entry (several replace pools: all of them). Node IPs are hidden. |
 | `prepend` (default choice in the UI) | balancer first, then the direct node entries as fallback. |
 | `append` | direct node entries, balancer last. |
 
-The mode is chosen per pool. Disabling `sub_enabled` gives "direct only" for that inbound (the pool still balances, the
-client just does not see it). Every entry (balancer, each direct node) can be shown or hidden on its own.
-Combined with `include in subscription` on each node binding this covers: balancer only, balancer plus all direct,
-balancer plus selected direct nodes. Deleting a pool deletes its managed Host.
+The mode is chosen per pool. Disabling `sub_enabled` gives "direct only" for that inbound (the pool still balances,
+the client just does not see it). Every entry (balancer, each direct node) can be shown or hidden on its own via
+`sub_enabled` and the node binding's `include in subscription`. Because the balancer passes bytes through, no
+SNI/TLS overrides are needed (Reality and TLS parameters come from the inbound unchanged).
 
 ## Control plane
 

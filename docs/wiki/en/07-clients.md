@@ -7,7 +7,7 @@
 | | Client | Administrator |
 |---|--------|---------------|
 | Purpose | End VPN/proxy user | Panel login |
-| Where created | **Clients** → Add client | On first install; change in **Settings → Administrator** |
+| Where created | **Clients** → Add client | On first install; change in **Panel Settings → “Security” → “Change login & password”** |
 | DB table | `client_entities` | `users` |
 | Count | Many | One (in current version) |
 

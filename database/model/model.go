@@ -112,7 +112,7 @@ func (LocalTemplate) TableName() string { return "local_templates" }
 
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
-	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                    // Unique identifier
+	Id int `json:"id" form:"id" gorm:"primaryKey;autoIncrement"` // Unique identifier
 	// SortOrder is the manual position in the panel lists. It is read-only for GORM (the DB trigger appends new
 	// rows and reordering uses dedicated statements), so saving a partially filled struct can never reset it.
 	SortOrder            int                  `json:"sortOrder" gorm:"column:sort_order;->"`
@@ -342,7 +342,7 @@ const (
 // Node represents a worker node in multi-node architecture.
 type Node struct {
 	// SortOrder is the manual position in the panel lists (read-only for GORM, see Inbound.SortOrder).
-	SortOrder int `json:"sortOrder" gorm:"column:sort_order;->"`
+	SortOrder      int    `json:"sortOrder" gorm:"column:sort_order;->"`
 	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`                                      // Unique identifier
 	Name           string `json:"name" form:"name"`                                                        // Node name/identifier
 	Address        string `json:"address" form:"address"`                                                  // Node API address (e.g., "http://192.168.1.100:8080" or "https://...")
@@ -671,4 +671,106 @@ type GeofileAsset struct {
 
 func (GeofileAsset) TableName() string {
 	return "geofile_assets"
+}
+
+// Balancer engines and pool options. See docs/architecture/balancer.md.
+const (
+	BalancerEngineHAProxy = "haproxy"
+	BalancerEngineNginx   = "nginx"
+
+	BalancerAlgoRoundRobin = "roundrobin"
+	BalancerAlgoLeastConn  = "leastconn"
+	BalancerAlgoSource     = "source"
+
+	BalancerSubReplace = "replace"
+	BalancerSubPrepend = "prepend"
+	BalancerSubAppend  = "append"
+)
+
+// Balancer is a separate server running an L4 proxy (HAProxy or nginx stream) in front of nodes.
+// It is managed like a node (agent API with the panel JWT) but never runs Xray.
+type Balancer struct {
+	Id         int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name       string `json:"name" form:"name"`
+	Address    string `json:"address" form:"address"`                                 // public host clients connect to
+	ApiAddress string `json:"apiAddress" form:"apiAddress" gorm:"column:api_address"` // agent API base URL, e.g. http://1.2.3.4:8080
+	Remark     string `json:"remark" form:"remark"`
+	Engine     string `json:"engine" form:"engine"`
+	Enable     bool   `json:"enable" form:"enable" gorm:"column:enable;default:true"`
+
+	Status        string `json:"status" gorm:"default:unknown"`
+	LastCheck     int64  `json:"lastCheck" gorm:"column:last_check"`
+	ResponseTime  int64  `json:"responseTime" gorm:"column:response_time"`
+	AgentVersion  string `json:"agentVersion" gorm:"column:agent_version"`
+	EngineVersion string `json:"engineVersion" gorm:"column:engine_version"`
+	ConfigHash    string `json:"configHash" gorm:"column:config_hash"`
+	AppliedHash   string `json:"appliedHash" gorm:"column:applied_hash"`
+	LastAppliedAt int64  `json:"lastAppliedAt" gorm:"column:last_applied_at"`
+	LastError     string `json:"lastError" gorm:"column:last_error"`
+
+	// SortOrder is the manual position in the panel list (read-only for GORM, see Inbound.SortOrder).
+	SortOrder int   `json:"sortOrder" gorm:"column:sort_order;->"`
+	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime"`
+	UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime"`
+
+	Pools []BalancerPool `json:"pools,omitempty" gorm:"-"`
+}
+
+func (Balancer) TableName() string { return "balancers" }
+
+// BalancerPool puts one inbound behind one balancer.
+type BalancerPool struct {
+	Id            int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	BalancerId    int    `json:"balancerId" gorm:"column:balancer_id"`
+	InboundId     int    `json:"inboundId" gorm:"column:inbound_id"`
+	ListenPort    int    `json:"listenPort" gorm:"column:listen_port"` // 0 = inbound port
+	Algorithm     string `json:"algorithm"`
+	ProxyProtocol bool   `json:"proxyProtocol" gorm:"column:proxy_protocol"`
+	HealthCheck   bool   `json:"healthCheck" gorm:"column:health_check"`
+	SubEnabled    bool   `json:"subEnabled" gorm:"column:sub_enabled"`
+	SubMode       string `json:"subMode" gorm:"column:sub_mode"`
+	AutoMembers   bool   `json:"autoMembers" gorm:"column:auto_members"`
+	Enable        bool   `json:"enable" gorm:"column:enable"`
+	SortOrder     int    `json:"sortOrder" gorm:"column:sort_order"`
+	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt     int64  `json:"updatedAt" gorm:"column:updated_at"`
+
+	// Read-only extras for the panel.
+	InboundRemark   string               `json:"inboundRemark,omitempty" gorm:"-"`
+	InboundProtocol string               `json:"inboundProtocol,omitempty" gorm:"-"`
+	InboundPort     int                  `json:"inboundPort,omitempty" gorm:"-"`
+	Transport       string               `json:"transport,omitempty" gorm:"-"` // tcp | udp
+	Members         []BalancerPoolMember `json:"members,omitempty" gorm:"-"`
+}
+
+func (BalancerPool) TableName() string { return "balancer_pools" }
+
+// BalancerPoolMember is one node (backend) of a pool.
+type BalancerPoolMember struct {
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	PoolId          int    `json:"poolId" gorm:"column:pool_id"`
+	NodeId          int    `json:"nodeId" gorm:"column:node_id"`
+	Weight          int    `json:"weight"`
+	Backup          bool   `json:"backup"`
+	Enable          bool   `json:"enable" gorm:"column:enable"`
+	AddressOverride string `json:"addressOverride" gorm:"column:address_override"`
+	PortOverride    int    `json:"portOverride" gorm:"column:port_override"`
+
+	NodeName   string `json:"nodeName,omitempty" gorm:"-"`
+	NodeAddr   string `json:"nodeAddr,omitempty" gorm:"-"`
+	NodeStatus string `json:"nodeStatus,omitempty" gorm:"-"`
+}
+
+func (BalancerPoolMember) TableName() string { return "balancer_pool_members" }
+
+// NormalizeBalancerSubMode returns replace, prepend or append (default prepend).
+func NormalizeBalancerSubMode(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case BalancerSubReplace:
+		return BalancerSubReplace
+	case BalancerSubAppend:
+		return BalancerSubAppend
+	default:
+		return BalancerSubPrepend
+	}
 }

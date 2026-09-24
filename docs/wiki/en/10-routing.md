@@ -7,9 +7,9 @@ SharX has **several independent types of routing**. Don't confuse them:
 | Type | Where configured | What it does |
 |------|------------------|--------------|
 | **Hosts** | [Hosts](./06-hosts.md) | Address and TLS substitution in subscription |
-| **Client routing** | Settings → Subscription → Client routing | Rules for Happ / sing-box on device |
+| **Client routing** | Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)” → “Client routing” | Rules for Happ / sing-box on device |
 | **Xray routing** | Xray → Template / Core profiles | Server-side rules on node |
-| **JSON templates** | Settings → Subscription → JSON templates | Extra rules in JSON subscription |
+| **JSON templates** | Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)” → “JSON templates” | Extra rules in JSON subscription |
 | **IP blocking (limit)** | Automatic with IP limit | Hot-push blocking to nodes |
 
 > Address substitution in subscription (CDN, domains) is **[Hosts](./06-hosts.md)**, not this section.
@@ -18,7 +18,7 @@ SharX has **several independent types of routing**. Don't confuse them:
 
 ## Client Routing (Happ)
 
-**Settings → Subscription → Client routing**
+**Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)” → “Client routing”**
 
 Routing profiles in a format compatible with **Happ** and similar clients. Delivered via subscription HTTP headers:
 
@@ -135,7 +135,7 @@ In multi-node each node can be assigned a **core config profile** — separate r
 
 ## JSON Routing Templates
 
-**Settings → Subscription → JSON templates → Rules**
+**Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)” → “JSON templates” → Rules**
 
 Additional routing rules **prepended** to the routing section of JSON subscription (for sing-box, Xray JSON format).
 

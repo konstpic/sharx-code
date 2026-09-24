@@ -71,7 +71,7 @@ In client form, **HWID settings** section:
 
 ### Global HWID Mode
 
-**Settings → Security → HWID mode**:
+**Panel Settings → “Panel & general” → “Client restrictions” → “HWID Settings”**:
 
 | Mode | Description |
 |------|-------------|
@@ -133,7 +133,7 @@ Separate mechanism from HWID. Limits the number of **concurrent unique IP addres
 
 ### Global Settings
 
-**Settings → Security**:
+**Panel Settings → “Panel & general” → “Client restrictions”**:
 
 | Parameter | Description |
 |-----------|-------------|
@@ -177,7 +177,7 @@ Separate mechanism from HWID. Limits the number of **concurrent unique IP addres
 | HWID exceeded | Too many devices | 403 or `HWIDMaxDevicesExceeded` |
 | IP exceeded | Too many IPs | Drop/Block per settings |
 
-**Show custom remarks** toggle (Settings → Subscription) determines whether to show placeholder or real servers when restricted.
+**Show custom remarks** toggle (Panel Settings → “Subscription & JSON”) determines whether to show placeholder or real servers when restricted.
 
 ---
 

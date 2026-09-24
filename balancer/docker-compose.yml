@@ -1,0 +1,19 @@
+# SharX balancer. Host networking: the pool ports are opened directly on the server.
+# SECRET_KEY is the same plain secret as for nodes (panel: Settings -> Nodes).
+services:
+  balancer:
+    build:
+      context: ..
+      dockerfile: balancer/Dockerfile
+    # image: harbor.sharxconnect.app/sharx/sharxbalancer:latest
+    container_name: sharx-balancer
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - sharx-balancer-data:/app/data
+    environment:
+      SECRET_KEY: ""
+      SHARX_BALANCER_PORT: "8080"
+
+volumes:
+  sharx-balancer-data:

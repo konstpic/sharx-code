@@ -10,7 +10,7 @@ Nodes are used only in **Multi-Node** mode.
 
 ## Enabling Multi-Node Mode
 
-1. Go to **Settings → General**.
+1. Open **Panel Settings → “Panel & general”** and find the **“Nodes and network”** section.
 2. Enable the **Multi-Node mode** toggle.
 3. Save settings.
 
@@ -195,7 +195,7 @@ The **Traffic limit (GB)** field on a node limits total traffic through that nod
 ## Full Cycle: Panel to Working Node
 
 ```
-1. Settings → General → enable Multi-Node
+1. Panel Settings → “Panel & general” → “Nodes and network” → enable “Multi-Node Mode”
 2. Nodes → Add node → fill name and address
 3. Registration step → copy docker-compose.yml
 4. On node server: docker compose up -d --build

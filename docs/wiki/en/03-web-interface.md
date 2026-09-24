@@ -106,7 +106,7 @@ Built-in REST API viewer (`/panel/api-docs/`) — endpoint descriptions for auto
 1. Dashboard       → check system status
 2. Inbounds        → create/configure inbound
 3. Clients         → add user, assign inbound
-4. Settings → Subscription → design subscription page
+4. Panel Settings → “Subscription & JSON” → design subscription page
 5. Give client the subscription link
 ```
 
@@ -118,7 +118,7 @@ For multi-node:
 3. Inbounds → create inbound → assign nodes
 4. Hosts → configure CDN/domains for subscriptions
 5. Clients → create and assign inbounds
-6. Settings → Subscription → design page
+6. Panel Settings → “Subscription & JSON” → design page
 ```
 
 ## What's Next

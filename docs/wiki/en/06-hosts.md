@@ -23,7 +23,7 @@ A host **does not replace a node** and **does not accept traffic itself**. The n
 
 The **Hosts** section (`/panel/hosts/`) is available **only** when **Multi-Node mode** is enabled:
 
-1. **Settings → General** → enable **Multi-Node mode**.
+1. **Panel Settings → “Panel & general” → “Nodes and network”** → enable **“Multi-Node Mode”**.
 2. Add and connect **nodes**.
 3. On inbounds **assign nodes** (Nodes step when creating inbound).
 
@@ -279,7 +279,7 @@ Inbound (protocol, port, TLS on node)
 
 | Problem | Possible cause | Solution |
 |---------|----------------|----------|
-| Hosts not shown | Multi-Node disabled | Enable in Settings → General |
+| Hosts not shown | Multi-Node disabled | Enable in Panel Settings → “Panel & general” → “Nodes and network” |
 | Empty subscription | No client inbounds / host disabled | Check client and Enabled flag |
 | Client won't connect via CDN | Wrong path / Host / TLS | Check overrides on Advanced tab |
 | Duplicate entries | prepend/append mode + replace on another host | Check all host modes |

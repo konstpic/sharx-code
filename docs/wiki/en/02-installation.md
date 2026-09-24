@@ -111,11 +111,11 @@ http://your-server-IP:2053
 | Login | `admin` |
 | Password | `admin` |
 
-> Change the password immediately after login: **Settings → Administrator**.
+> Change the password immediately after login: **Panel Settings → “Security” → “Change login & password”**.
 
 ### Step 6. Configure TLS in the Panel
 
-1. Go to **Settings → General**.
+1. Open **Panel Settings → “Panel & general” → “Secret URL paths”** (it holds “Panel domain”, “Panel port” and the certificate/key paths).
 2. Specify the **domain name** (e.g. `panel.example.com`).
 3. Specify certificate paths (see above).
 4. Save and restart the container:

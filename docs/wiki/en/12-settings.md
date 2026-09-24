@@ -2,11 +2,15 @@
 
 [← HWID and Limits](./11-hwid-and-limits.md) | [Contents](./README.md)
 
-The **Settings** section (`/panel/settings/`) has seven tabs.
+The **Panel Settings** section (`/panel/settings/`) has six tabs: “Panel & general”, “Security”, “Telegram”, “Subscription & JSON”, “LDAP”, “Grafana” (the same menu also has the “DB Inspector” page).
+
+> Accurate for panel v1.10 (checked against the source code). The exact names and location of every setting are in the UI map used by the assistant bot.
 
 ---
 
-## General
+## Panel & general
+
+Tab sections: “Interface”, “Secret URL paths” (domain, port, certificate/key paths, panel and subscription URL prefixes), “Thresholds and display”, “Logging”, “Nodes and network” (**“Multi-Node Mode”**), “Client restrictions” (HWID, IP limit, restricting the subscription by client app), “Panel restart” (the “Restart Panel” button).
 
 `/panel/settings/general/`
 
@@ -37,6 +41,8 @@ When enabled:
 ---
 
 ## Security
+
+> The “Security” tab contains: 2FA/TOTP, API tokens, sessions and the “Change login & password” section. The HWID and IP-limit parameters in the table below are in the “Panel & general” tab → “Client restrictions” section.
 
 `/panel/settings/security/`
 
@@ -94,10 +100,11 @@ Builder tabs:
 - Branding
 - Blocks
 - Response rules
-- Custom remarks
+- App settings
 - Client routing
 - JSON templates
 - Raw JSON
+- Subscription remarks
 
 ---
 
@@ -136,9 +143,9 @@ Built-in Prometheus metrics: `{basePath}panel/metrics` — restrict access at ne
 
 ---
 
-## Administrator
+## Change login & password
 
-`/panel/settings/admin/`
+> “Change login & password” is in the “Security” tab; the “Restart Panel” button is in “Panel & general” → “Panel restart”.
 
 ### Administrator Credentials
 
@@ -208,13 +215,13 @@ Full reference: `ENV_VARIABLES.md`.
 ## Initial Setup Checklist
 
 ```
-☐ Change administrator password (Settings → Administrator)
-☐ Configure TLS and domain (Settings → General)
+☐ Change administrator password (Panel Settings → “Security” → “Change login & password”)
+☐ Configure TLS and domain (Panel Settings → “Panel & general” → “Secret URL paths”)
 ☐ Configure subscription domain and port
 ☐ Enable 2FA (recommended)
 ☐ Create first inbound
 ☐ Create test client
-☐ Design subscription page (Settings → Subscription)
+☐ Design subscription page (Panel Settings → “Subscription & JSON”)
 ☐ Verify subscription link in browser and app
 ☐ (Optional) Enable Multi-Node and add nodes
 ☐ (Optional) Configure Telegram bot

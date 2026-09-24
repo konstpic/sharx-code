@@ -35,7 +35,7 @@ Force format: `?format=clash` or `?format=mihomo`.
 
 ### Step 1. Branding
 
-1. **Settings → Subscription**.
+1. **Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)”**.
 2. **Branding** tab:
    - **Name** — service name (`MyVPN`, `SharX Net`);
    - **Logo** — PNG/SVG URL (e.g. `https://example.com/logo.png`);
@@ -71,7 +71,7 @@ Drag blocks to change order.
 
 ### Step 4. Custom Remarks
 
-**Custom remarks** tab — texts shown when blocked:
+**“Subscription remarks”** tab — texts shown when blocked:
 
 ```
 Expired: "Subscription expired. Contact support."
@@ -89,7 +89,7 @@ Enable **Show custom remarks** if you want to hide real servers when restricted.
 
 ## Subscription Page Builder
 
-Configuration: **Settings → Subscription** (`/panel/settings/subscription/`).
+Configuration: **Panel Settings → “Subscription & JSON” → “Public subscription page (SharX)”** (`/panel/settings/subscription/`).
 
 Visual builder with tabs:
 
