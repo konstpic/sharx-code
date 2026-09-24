@@ -2043,6 +2043,8 @@ deleteProfileDetail = "This cannot be undone. Profiles used by outbounds cannot 
 
 [pages.nodes]
 
+
+coresTitle = "Cores"
 loadCpu = "CPU"
 
 loadRam = "RAM"

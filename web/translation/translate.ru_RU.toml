@@ -2068,6 +2068,8 @@ deleteProfileDetail = "Действие необратимо. Профили, и
 
 [pages.nodes]
 
+
+coresTitle = "Ядра"
 loadCpu = "CPU"
 
 loadRam = "ОЗУ"

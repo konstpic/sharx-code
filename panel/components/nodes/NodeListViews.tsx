@@ -9,6 +9,7 @@ import {
   AmneziaWgStateBadge,
   XrayStateBadge,
 } from "@/components/nodes/nodeBadges";
+import { NodeCoresBlock, NodeInboundChips } from "@/components/nodes/NodeCoresBlock";
 import { NodeLoadBlock } from "@/components/nodes/NodeLoadBlock";
 import { Button, Switch } from "@/components/ui";
 import type { NodeLoad } from "@/lib/nodeLoad";
@@ -443,26 +444,10 @@ export function NodeTileCardView({
           <MetaItem label={t("pages.nodes.responseTime")}>
             <span className="font-mono">{responseTimeLabel(r)}</span>
           </MetaItem>
-          <MetaItem label={t("pages.nodes.workerVersion")}>
-            <span className="font-mono text-[11px]">{r.workerVersion || "—"}</span>
-          </MetaItem>
-          <MetaItem label={t("pages.nodes.xrayVersion")}>
-            <span className="font-mono text-[11px]">{r.xrayVersion || "—"}</span>
-          </MetaItem>
-          <MetaItem label={t("pages.nodes.telemtVersion")}>
-            <span className="font-mono text-[11px]">{r.telemtVersion || "—"}</span>
-          </MetaItem>
         </dl>
-        <p className="line-clamp-2 text-[11px] leading-snug text-[var(--fg-subtle)]">
-          <span className="font-semibold uppercase tracking-wide">
-            {t("pages.nodes.assignedInbounds")}:{" "}
-          </span>
-          {inboundsLabel(r)}
-        </p>
-        <div className="mt-auto flex flex-col gap-2 border-t border-[var(--border)] pt-3">
-          <NodeXrayControls r={r} ctx={ctx} />
-          <NodeTelemtControls r={r} ctx={ctx} />
-          <NodeAmneziaWgControls r={r} ctx={ctx} />
+        <NodeInboundChips r={r} label={t("pages.nodes.assignedInbounds")} />
+        <div className="mt-auto border-t border-[var(--border)] pt-3">
+          <NodeCoresBlock r={r} ctx={ctx} />
         </div>
       </div>
     </article>
