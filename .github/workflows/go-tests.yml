@@ -18,3 +18,18 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./...
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm audit --omit=dev --audit-level=high
+        working-directory: panel
