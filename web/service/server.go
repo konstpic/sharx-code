@@ -2414,7 +2414,7 @@ func (s *ServerService) StartGeofileDownloadTask(fileName, rawURL string) (strin
 	s.setGeofileTask(task)
 
 	go func() {
-		client := &http.Client{Timeout: 5 * time.Minute}
+		client := newSafeDownloadClient(5 * time.Minute)
 		resp, err := client.Get(parsedURL.String())
 		if err != nil {
 			s.updateGeofileTask(taskID, func(t *GeofileDownloadTask) {

@@ -343,7 +343,7 @@ func downloadGeofileContent(rawURL string) ([]byte, error) {
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, common.NewError("source URL must use http or https")
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := newSafeDownloadClient(5 * time.Minute)
 	resp, err := client.Get(parsedURL.String())
 	if err != nil {
 		return nil, common.NewErrorf("download failed: %v", err)
