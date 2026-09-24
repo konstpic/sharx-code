@@ -9,7 +9,9 @@ import {
   AmneziaWgStateBadge,
   XrayStateBadge,
 } from "@/components/nodes/nodeBadges";
+import { NodeLoadBlock } from "@/components/nodes/NodeLoadBlock";
 import { Button, Switch } from "@/components/ui";
+import type { NodeLoad } from "@/lib/nodeLoad";
 
 import type { ListViewMode } from "@/lib/listViewModeStorage";
 
@@ -38,6 +40,8 @@ export type NodeListViewContext = {
   t: TFunction;
   authModeLabel: (m?: string) => string;
   onlineUsersByNode: Record<number, number>;
+  /** Recent CPU/RAM/disk history per node id (tiles view). */
+  loadByNode?: Record<number, NodeLoad>;
   onOpenEdit: (r: NodeListRow) => void;
   onPatchEnable: (r: NodeListRow, next: boolean) => void;
   togglingEnableId: number | null;
@@ -398,7 +402,7 @@ export function NodeTileCardView({
   r: NodeListRow;
   ctx: NodeListViewContext;
 }) {
-  const { t, onPatchEnable, togglingEnableId, authModeLabel, onlineUsersByNode } = ctx;
+  const { t, onPatchEnable, togglingEnableId, authModeLabel, onlineUsersByNode, loadByNode } = ctx;
   return (
     <article
       className={`${nodeCardClass(r.enable === false)} flex h-full flex-col`}
@@ -431,6 +435,7 @@ export function NodeTileCardView({
             {authModeLabel(r.authMode)}
           </span>
         </div>
+        <NodeLoadBlock load={loadByNode?.[r.id]} />
         <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
           <MetaItem label={t("pages.nodes.onlineUsers")}>
             <span className="font-mono">{onlineUsersByNode[r.id] ?? 0}</span>

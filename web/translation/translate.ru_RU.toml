@@ -2067,6 +2067,12 @@ selectNoneNodes = "Сбросить"
 deleteProfileDetail = "Действие необратимо. Профили, используемые исходящими подключениями, удалить нельзя."
 
 [pages.nodes]
+
+loadCpu = "CPU"
+
+loadRam = "ОЗУ"
+
+loadDisk = "Диск"
 responseTime = "Время ответа"
 workerVersion = "Версия worker"
 xrayVersion = "Версия ядра"

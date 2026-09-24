@@ -2042,6 +2042,12 @@ selectNoneNodes = "Clear"
 deleteProfileDetail = "This cannot be undone. Profiles used by outbounds cannot be deleted."
 
 [pages.nodes]
+
+loadCpu = "CPU"
+
+loadRam = "RAM"
+
+loadDisk = "Disk"
 responseTime = "Response Time"
 workerVersion = "Worker Version"
 xrayVersion = "Xray Version"

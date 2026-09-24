@@ -51,6 +51,7 @@ import {
 } from "@/lib/listViewModeStorage";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { panel } from "@/lib/paths";
+import { mergeNodeLoad, parseSeriesByNode, type NodeLoad } from "@/lib/nodeLoad";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   Button,
@@ -1278,11 +1279,43 @@ export function NodesPage() {
     );
   }, [nameFilter, statusFilter, xrayStateFilter]);
 
+  const [loadByNode, setLoadByNode] = useState<Record<number, NodeLoad>>({});
+  useEffect(() => {
+    if (viewMode !== "tiles") return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const [c, m, d] = await Promise.all([
+          getJson<unknown>(panel("api/server/cpuHistory/60")),
+          getJson<unknown>(panel("api/server/memHistory/60")),
+          getJson<unknown>(panel("api/server/diskHistory/60")),
+        ]);
+        if (cancelled) return;
+        setLoadByNode(
+          mergeNodeLoad(
+            c.success ? parseSeriesByNode(c.obj, "cpu") : {},
+            m.success ? parseSeriesByNode(m.obj, "mem") : {},
+            d.success ? parseSeriesByNode(d.obj, "disk") : {},
+          ),
+        );
+      } catch {
+        /* tiles simply show no load until the next refresh */
+      }
+    };
+    void pull();
+    const timer = window.setInterval(() => void pull(), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [viewMode]);
+
   const listViewCtx = useMemo(
     () => ({
       t,
       authModeLabel,
       onlineUsersByNode,
+      loadByNode,
       onOpenEdit: (r: NodeRow) => void openEdit(r),
       onPatchEnable: patchNodeEnable,
       togglingEnableId,
@@ -1305,6 +1338,7 @@ export function NodesPage() {
       t,
       authModeLabel,
       onlineUsersByNode,
+      loadByNode,
       patchNodeEnable,
       togglingEnableId,
       stopXrayOnRow,
