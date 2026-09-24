@@ -1060,6 +1060,15 @@ h1.font-heading,
   border-color: var(--border) !important;
 }
 
+/* The slide-out drawer sits over page content: keep it (almost) opaque so text does not bleed through the cards. */
+@media (max-width: 767px) {
+  .panel-doc-sidebar {
+    background: color-mix(in oklab, var(--bg-elevated) 97%, transparent) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+}
+
 /* Named view layers (panel-header / panel-aside / panel-content) — only if you set
    viewTransitionName on those nodes and re-enable experimental.viewTransition in next.config.
    Panel shell fade is handled by .route-fade on the main content wrapper in PanelShell. */
