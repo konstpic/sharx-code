@@ -154,6 +154,9 @@ compat = "Compatibility"
 needsDomain = "Needs domain + certificate"
 
 [pages.templates]
+sumOutbounds = "{{.N}} outbounds"
+sumRules = "{{.N}} routing rules"
+sumDns = "{{.N}} DNS servers"
 hiddenBadge = "Hidden after reports"
 hiddenExplain = "This template received reports and is not shown to others. It will stay hidden until the gallery administrator reviews it. You can delete it any time."
 reportTitle = "Report template"

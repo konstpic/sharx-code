@@ -50,6 +50,8 @@ type LocalTemplateView struct {
 	SourceCloudID string   `json:"sourceCloudId"`
 	CreatedAt     int64    `json:"createdAt"`
 	UpdatedAt     int64    `json:"updatedAt"`
+	// Summary is a small digest of the content (protocol/transport/security or config counts) for card previews.
+	Summary map[string]any `json:"summary"`
 }
 
 // NormalizeLocalTags lowercases, dedupes and validates tags (at most 8).
@@ -117,7 +119,7 @@ func toLocalView(t *model.LocalTemplate) LocalTemplateView {
 		tags = []string{}
 	}
 	return LocalTemplateView{ID: t.Id, Kind: t.Kind, Title: t.Title, Description: t.Description, Tags: tags, SizeBytes: t.SizeBytes,
-		SourceCloudID: t.SourceCloudID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt}
+		SourceCloudID: t.SourceCloudID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, Summary: SummarizeTemplate(t.Kind, []byte(t.Content))}
 }
 
 func escapeLikeLocal(s string) string {

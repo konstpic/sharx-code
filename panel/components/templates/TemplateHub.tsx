@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { TemplateSummary } from "@/components/templates/TemplateSummary";
 import { Button, ConfirmDialog, Input, Modal, Segmented, SelectNative, Spinner, Textarea, useToast } from "@/components/ui";
 
 export type HubKind = "inbound" | "xray_config";
@@ -27,6 +28,7 @@ export type HubTemplate = {
   mine: boolean;
   myRating: number;
   status?: string;
+  summary?: Record<string, unknown>;
 };
 
 type HubList = { items: HubTemplate[]; total: number; stale?: boolean; staleAt?: number };
@@ -47,6 +49,7 @@ type LocalTemplate = {
   sourceCloudId: string;
   createdAt: number;
   updatedAt: number;
+  summary?: Record<string, unknown>;
 };
 type LocalList = { items: LocalTemplate[]; total: number };
 
@@ -246,6 +249,7 @@ function LocalTemplateList({
               <div className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
                 {new Date(tpl.createdAt * 1000).toLocaleDateString()} · {(tpl.sizeBytes / 1024).toFixed(1)} KB
               </div>
+              <TemplateSummary kind={tpl.kind} summary={tpl.summary} />
               {tpl.description ? <p className="mt-1.5 text-sm text-[var(--fg-muted)]">{tpl.description}</p> : null}
               {tpl.tags.length > 0 ? (
                 <div className="mt-1.5 flex flex-wrap gap-1">
@@ -656,6 +660,7 @@ export function TemplateGalleryModal({
                         {tpl.panelVersion ? ` · panel ${tpl.panelVersion}` : ""}
                         {tpl.xrayVersion ? ` · xray ${tpl.xrayVersion}` : ""} · {(tpl.sizeBytes / 1024).toFixed(1)} KB
                       </div>
+                      <TemplateSummary kind={tpl.kind} summary={tpl.summary} />
                       {tpl.status === "hidden" ? (
                         <p className="mt-1.5 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-xs text-[var(--fg-muted)]">
                           {t("pages.templates.hiddenExplain", {
