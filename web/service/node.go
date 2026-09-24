@@ -72,7 +72,7 @@ func (e *ErrNodeNeedsReregistration) Error() string {
 func (s *NodeService) GetAllNodes() ([]*model.Node, error) {
 	db := database.GetDB()
 	var nodes []*model.Node
-	err := db.Order("id ASC").Find(&nodes).Error
+	err := db.Order("sort_order ASC, id ASC").Find(&nodes).Error
 	return nodes, err
 }
 

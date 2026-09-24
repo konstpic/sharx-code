@@ -113,6 +113,9 @@ func (LocalTemplate) TableName() string { return "local_templates" }
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
 	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                    // Unique identifier
+	// SortOrder is the manual position in the panel lists. It is read-only for GORM (the DB trigger appends new
+	// rows and reordering uses dedicated statements), so saving a partially filled struct can never reset it.
+	SortOrder            int                  `json:"sortOrder" gorm:"column:sort_order;->"`
 	UserId               int                  `json:"-"`                                                                                               // Associated user ID
 	Up                   int64                `json:"up" form:"up"`                                                                                    // Upload traffic in bytes
 	Down                 int64                `json:"down" form:"down"`                                                                                // Download traffic in bytes
@@ -338,6 +341,8 @@ const (
 
 // Node represents a worker node in multi-node architecture.
 type Node struct {
+	// SortOrder is the manual position in the panel lists (read-only for GORM, see Inbound.SortOrder).
+	SortOrder int `json:"sortOrder" gorm:"column:sort_order;->"`
 	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`                                      // Unique identifier
 	Name           string `json:"name" form:"name"`                                                        // Node name/identifier
 	Address        string `json:"address" form:"address"`                                                  // Node API address (e.g., "http://192.168.1.100:8080" or "https://...")

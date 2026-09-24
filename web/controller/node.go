@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 	g.GET("/list", a.getNodes)
 	g.GET("/get/:id", a.getNode)
 	g.POST("/add", a.addNode)
+	g.POST("/reorder", a.reorderNodes)
 	g.POST("/update/:id", a.updateNode)
 	g.POST("/del/:id", a.deleteNode)
 	g.POST("/check/:id", a.checkNode)
@@ -989,4 +991,18 @@ func (a *NodeController) resetNodeTraffic(c *gin.Context) {
 	a.broadcastNodesUpdate()
 
 	jsonMsg(c, "Node traffic reset successfully", nil)
+}
+
+// reorderNodes stores the manual order of nodes.
+func (a *NodeController) reorderNodes(c *gin.Context) {
+	var form reorderForm
+	if err := c.ShouldBindJSON(&form); err != nil || len(form.IDs) == 0 {
+		jsonMsg(c, "Failed to reorder nodes", errors.New("ids are required"))
+		return
+	}
+	if err := a.nodeService.ReorderNodes(form.IDs); err != nil {
+		jsonMsg(c, "Failed to reorder nodes", err)
+		return
+	}
+	jsonMsg(c, "Nodes reordered", nil)
 }

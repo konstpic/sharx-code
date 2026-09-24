@@ -157,7 +157,7 @@ func enrichInboundNodeBindings(inbound *model.Inbound) {
 func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
 	db := database.GetDB()
 	var result []*model.Inbound
-	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Find(&result).Error
+	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Order("sort_order ASC, id ASC").Find(&result).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}

@@ -3,8 +3,10 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -157,6 +159,7 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	g.POST("/computeTlsPin", a.computeTlsPin)
 
 	g.POST("/add", a.addInbound)
+	g.POST("/reorder", a.reorderInbounds)
 	g.POST("/del/:id", a.delInbound)
 	g.POST("/update/:id", a.updateInbound)
 	g.POST("/previewXray", a.previewInboundXray)
@@ -1187,4 +1190,27 @@ func (a *InboundController) delInboundClientByEmail(c *gin.Context) {
 	clientService := service.ClientService{}
 	clients, _ := clientService.GetClients(user.Id)
 	websocket.BroadcastClients(clients)
+}
+
+type reorderForm struct {
+	IDs []int `json:"ids"`
+}
+
+// reorderInbounds stores the manual order of the current user's inbounds.
+func (a *InboundController) reorderInbounds(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	var form reorderForm
+	if err := c.ShouldBindJSON(&form); err != nil || len(form.IDs) == 0 {
+		jsonMsg(c, "Failed to reorder inbounds", errors.New("ids are required"))
+		return
+	}
+	if err := a.inboundService.ReorderInbounds(user.Id, form.IDs); err != nil {
+		jsonMsg(c, "Failed to reorder inbounds", err)
+		return
+	}
+	jsonMsg(c, "Inbounds reordered", nil)
 }
