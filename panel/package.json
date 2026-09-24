@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "prebuild": "node scripts/gen-locales.mjs",
+    "prebuild": "node scripts/gen-locales.mjs && node scripts/gen-theme-palettes.mjs",
     "sync-toml": "node scripts/sync-toml-from-en.mjs",
     "build": "next build",
     "start": "next start",

@@ -44,7 +44,6 @@ import { linkP, panel, p } from "@/lib/paths";
 import {
   applyPanelTheme,
   PANEL_THEME_DEFAULT,
-  PANEL_THEME_IDS,
   parsePanelTheme,
   type PanelThemeId,
 } from "@/lib/panelTheme";
@@ -54,6 +53,7 @@ import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import { RemarkModelConstructor } from "@/components/settings/RemarkModelConstructor";
 import { SubscriptionBuilder } from "@/components/settings/subscription/SubscriptionBuilder";
 import { TgRunTimeField } from "@/components/settings/TgRunTimeField";
+import { ThemeGallery } from "@/components/settings/ThemeGallery";
 import {
   AlertBanner,
   Button,
@@ -563,29 +563,23 @@ export function SettingsPage() {
                 ))}
               </SelectNative>
             </Row>
-            <Row
-              label={t("pages.settings.panelTheme")}
-              hint={t("pages.settings.panelThemeDesc")}
-            >
-              <SelectNative
-                value={panelTheme}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if ((PANEL_THEME_IDS as readonly string[]).includes(v)) {
-                    const id = v as PanelThemeId;
-                    setPanelTheme(id);
-                    applyPanelTheme(id);
-                    void setUiPref("panelTheme", id);
-                  }
-                }}
-              >
-                {PANEL_THEME_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {t(`pages.settings.panelThemePreset.${id}`)}
-                  </option>
-                ))}
-              </SelectNative>
-            </Row>
+          </SettingsSection>
+
+          <SettingsSection
+            title={t("pages.settings.panelTheme")}
+            hint={t("pages.settings.panelThemeDesc")}
+            icon={Palette}
+            iconTone="accent"
+            full
+          >
+            <ThemeGallery
+              value={panelTheme}
+              onChange={(id) => {
+                setPanelTheme(id);
+                applyPanelTheme(id);
+                void setUiPref("panelTheme", id);
+              }}
+            />
           </SettingsSection>
 
           <SettingsSection
