@@ -25,16 +25,17 @@ import (
 
 // SubService provides business logic for generating subscription links and managing subscription data.
 type SubService struct {
-	address        string
-	showInfo       bool
-	remarkModel    string
-	datepicker     string
-	inboundService service.InboundService
-	settingService service.SettingService
-	nodeService    service.NodeService
-	hostService    service.HostService
-	clientService  service.ClientService
-	hwidService    service.ClientHWIDService
+	address         string
+	showInfo        bool
+	remarkModel     string
+	datepicker      string
+	inboundService  service.InboundService
+	settingService  service.SettingService
+	nodeService     service.NodeService
+	hostService     service.HostService
+	balancerService service.BalancerService
+	clientService   service.ClientService
+	hwidService     service.ClientHWIDService
 }
 
 // NewSubService creates a new subscription service with the given configuration.
@@ -941,6 +942,8 @@ func (s *SubService) getAddressesForInbound(inbound *model.Inbound) ([]AddressPo
 			}
 		}
 	}
+
+	nodeAddrs = applyBalancerEntries(nodeAddrs, s.balancerService.SubscriptionEntries(inbound.Id, inbound.Port))
 
 	nonEmpty := make([]AddressPort, 0, len(nodeAddrs))
 	for _, ap := range nodeAddrs {
@@ -3530,4 +3533,35 @@ func (s *SubService) registerHWIDFromRequest(c *gin.Context, clientEntity *model
 			clientEntity.Id, clientEntity.SubID, clientEntity.Name, hwid, hwidRecord.Id)
 	}
 	return nil
+}
+
+// applyBalancerEntries adds balancer addresses to the subscription entries. All "replace" pools replace the direct
+// entries (and the Host); "prepend" pools go first, "append" pools last. With no balancer entries the input is returned as is.
+func applyBalancerEntries(direct []AddressPort, entries []service.BalancerSubEntry) []AddressPort {
+	if len(entries) == 0 {
+		return direct
+	}
+	mk := func(e service.BalancerSubEntry) AddressPort {
+		return AddressPort{Address: e.Address, Port: e.Port, RemarkNodeName: e.Name, RemarkDisplayHost: e.Address}
+	}
+	var replace, prepend, appendix []AddressPort
+	for _, e := range entries {
+		switch e.Mode {
+		case model.BalancerSubReplace:
+			replace = append(replace, mk(e))
+		case model.BalancerSubAppend:
+			appendix = append(appendix, mk(e))
+		default:
+			prepend = append(prepend, mk(e))
+		}
+	}
+	base := direct
+	if len(replace) > 0 {
+		base = replace
+	}
+	out := make([]AddressPort, 0, len(prepend)+len(base)+len(appendix))
+	out = append(out, prepend...)
+	out = append(out, base...)
+	out = append(out, appendix...)
+	return out
 }

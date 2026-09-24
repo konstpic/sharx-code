@@ -275,6 +275,7 @@ func (s *Server) startTask() {
 	// s.cron.AddJob("@every 1s", job.NewCheckClientIpJob())
 
 	// Check client HWIDs from log file every 1 second for real-time updates
+	s.cron.AddFunc("@every 15s", func() { (&service.BalancerService{}).Reconcile() })
 	s.cron.AddJob("@every 1s", job.NewCheckClientHWIDJob())
 	s.cron.AddJob(job.IPLimitJobTickSchedule, job.NewCheckClientIPLimitJob())
 	s.cron.AddJob(job.GeofileAutoUpdateJobTickSchedule, job.NewGeofileAutoUpdateJob())
