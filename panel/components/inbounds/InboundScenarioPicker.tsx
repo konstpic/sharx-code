@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, Cloud, Feather, Lock, ShieldCheck, Zap, type LucideIcon } from "lucide-react";
+import { Check, Cloud, Feather, Globe, Lock, Send, ShieldCheck, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-export type InboundScenarioId = "reality" | "xhttp" | "hysteria2" | "trojan" | "shadowsocks";
+export type InboundScenarioId = "reality" | "xhttp" | "hysteria2" | "trojan" | "shadowsocks" | "telemt" | "telemtWeb";
 
 type Scenario = {
   id: InboundScenarioId;
@@ -22,6 +22,8 @@ const SCENARIOS: Scenario[] = [
   { id: "xhttp", icon: Cloud, stealth: 3, speed: 2, compat: 2, protocol: "VLESS · XHTTP · TLS", needs: "domain" },
   { id: "trojan", icon: Lock, stealth: 2, speed: 2, compat: 3, protocol: "Trojan · TLS", needs: "domain" },
   { id: "shadowsocks", icon: Feather, stealth: 1, speed: 3, compat: 3, protocol: "Shadowsocks" },
+  { id: "telemt", icon: Send, stealth: 2, speed: 3, compat: 1, protocol: "Telemt · MTProto · TLS" },
+  { id: "telemtWeb", icon: Globe, stealth: 3, speed: 3, compat: 1, protocol: "Telemt WEB · MTProto + сайт", needs: "domain" },
 ];
 
 function Meter({ label, value }: { label: string; value: number }) {
@@ -56,6 +58,8 @@ export function InboundScenarioPicker({
       xhttp: t("pages.inbounds.scenario.xhttp", { defaultValue: "Behind CDN or proxy" }),
       trojan: t("pages.inbounds.scenario.trojan", { defaultValue: "Broad compatibility" }),
       shadowsocks: t("pages.inbounds.scenario.shadowsocks", { defaultValue: "Simple and light" }),
+      telemt: t("pages.inbounds.scenario.telemt", { defaultValue: "Telegram proxy" }),
+      telemtWeb: t("pages.inbounds.scenario.telemtWeb", { defaultValue: "Telegram proxy behind a website" }),
     })[id];
   const desc = (id: InboundScenarioId) =>
     ({
@@ -73,6 +77,12 @@ export function InboundScenarioPicker({
       }),
       shadowsocks: t("pages.inbounds.scenario.shadowsocksDesc", {
         defaultValue: "Minimal setup and overhead. Easier to detect than the others; fine where blocking is light.",
+      }),
+      telemt: t("pages.inbounds.scenario.telemtDesc", {
+        defaultValue: "MTProto proxy for Telegram only, disguised as TLS to a real site. Ready to run, no domain needed.",
+      }),
+      telemtWeb: t("pages.inbounds.scenario.telemtWebDesc", {
+        defaultValue: "Telemt on port 443 together with a real website (decoy): visitors see the site, Telegram gets the proxy. Needs a domain.",
       }),
     })[id];
 

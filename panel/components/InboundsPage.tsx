@@ -1652,8 +1652,49 @@ export function InboundsPage() {
     (id: InboundScenarioId) => {
       setScenario(id);
       const proto: InboundFormProtocol =
-        id === "hysteria2" ? "hysteria2" : id === "trojan" ? "trojan" : id === "shadowsocks" ? "shadowsocks" : "vless";
+        id === "hysteria2"
+          ? "hysteria2"
+          : id === "trojan"
+            ? "trojan"
+            : id === "shadowsocks"
+              ? "shadowsocks"
+              : id === "telemt" || id === "telemtWeb"
+                ? "telemt"
+                : "vless";
       applyStreamPresetForProtocol(proto);
+      if (id === "telemt" || id === "telemtWeb") {
+        // Values mirror working Telemt inbounds: TLS-only mode, masking on with TLS emulation,
+        // IPv4, and a random local API port so a second Telemt inbound on the node does not clash.
+        const web = id === "telemtWeb";
+        const telemtForm = {
+          ...defaultTelemtForm(),
+          modesTls: true,
+          censorshipMask: true,
+          censorshipTlsEmulation: true,
+          censorshipTlsDomain: web ? "dev.max.ru" : "dzen.ru",
+          fastMode: "true" as const,
+          networkIpv4: "true" as const,
+          apiListen: `127.0.0.1:${9100 + Math.floor(Math.random() * 800)}`,
+          ...(web
+            ? {
+                webEnabled: true,
+                webFrontPort: "443",
+                webDecoyMode: "http_upstream" as const,
+                webDecoyUpstream: "http://127.0.0.1:80",
+                webProfileSecretMode: "dd" as const,
+              }
+            : {}),
+        };
+        setForm((f) => ({
+          ...f,
+          telemtForm,
+          vlessFlow: "",
+          port: web ? 40443 : 443,
+          listen: web ? "" : "0.0.0.0",
+          remark: f.remark.trim() ? f.remark : web ? "Telemt WEB" : "Telemt MTProto",
+        }));
+        return;
+      }
       setForm((f) => {
         const streamForm = { ...f.streamForm };
         let vlessFlow = "";
