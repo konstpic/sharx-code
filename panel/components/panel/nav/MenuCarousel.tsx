@@ -67,7 +67,7 @@ export function MenuCarousel({ nodes, onNavigate }: { nodes: NavNode[]; onNaviga
             const Icon = n.icon;
             const body = (
               <motion.span
-                className="relative flex h-[62px] w-[88px] shrink-0 snap-center flex-col items-center justify-center gap-1 rounded-2xl border border-transparent px-2 text-center"
+                className="relative flex min-h-[64px] w-[92px] shrink-0 snap-center flex-col items-center justify-center gap-1 rounded-2xl border border-transparent px-1.5 py-1.5 text-center"
                 whileHover={reduce ? undefined : { y: -3, scale: 1.05, rotateX: 6 }}
                 whileTap={reduce ? undefined : { scale: 0.96 }}
                 transition={spring}
@@ -85,7 +85,7 @@ export function MenuCarousel({ nodes, onNavigate }: { nodes: NavNode[]; onNaviga
                   />
                 ) : null}
                 <Icon size={20} className={`relative ${n.active ? "text-[var(--accent)]" : "text-[var(--fg-muted)]"}`} aria-hidden />
-                <span className={`relative max-w-full truncate text-[11px] font-medium leading-none ${n.active ? "text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}>
+                <span className={`relative line-clamp-2 max-w-full break-words text-[11px] font-medium leading-tight ${n.active ? "text-[var(--fg)]" : "text-[var(--fg-muted)]"}`}>
                   {n.label}
                 </span>
               </motion.span>

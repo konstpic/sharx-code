@@ -233,8 +233,11 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
 
   const isActive = (item: NavItem) => {
     if (item.key === p("logout/")) return false;
-    const u = routePath(pathname || "");
-    const k = routePath(item.key);
+    const trim = (x: string) => x.replace(/\/+$/, "");
+    const u = trim(routePath(pathname || ""));
+    const k = trim(routePath(item.key));
+    // The dashboard lives at the panel root: matching it by prefix would light it up on every page.
+    if (k === trim(routePath(p("panel")))) return u === k;
     return u === k || u.startsWith(`${k}/`);
   };
 
