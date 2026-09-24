@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, Cloud, Feather, Globe, Lock, Send, ShieldCheck, Zap, type LucideIcon } from "lucide-react";
+import { Check, Cloud, Feather, Globe, Lock, Network, Send, ShieldCheck, ShieldHalf, Zap, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-export type InboundScenarioId = "reality" | "xhttp" | "hysteria2" | "trojan" | "shadowsocks" | "telemt" | "telemtWeb";
+export type InboundScenarioId = "reality" | "xhttp" | "hysteria2" | "trojan" | "shadowsocks" | "telemt" | "telemtWeb" | "wireguard" | "amneziawg";
 
 type Scenario = {
   id: InboundScenarioId;
@@ -24,6 +24,8 @@ const SCENARIOS: Scenario[] = [
   { id: "shadowsocks", icon: Feather, stealth: 1, speed: 3, compat: 3, protocol: "Shadowsocks" },
   { id: "telemt", icon: Send, stealth: 2, speed: 3, compat: 1, protocol: "Telemt · MTProto · TLS" },
   { id: "telemtWeb", icon: Globe, stealth: 3, speed: 3, compat: 1, protocol: "Telemt WEB · MTProto + сайт", needs: "domain" },
+  { id: "wireguard", icon: Network, stealth: 1, speed: 3, compat: 3, protocol: "WireGuard · UDP" },
+  { id: "amneziawg", icon: ShieldHalf, stealth: 2, speed: 3, compat: 2, protocol: "AmneziaWG · UDP" },
 ];
 
 function Meter({ label, value }: { label: string; value: number }) {
@@ -60,6 +62,8 @@ export function InboundScenarioPicker({
       shadowsocks: t("pages.inbounds.scenario.shadowsocks", { defaultValue: "Simple and light" }),
       telemt: t("pages.inbounds.scenario.telemt", { defaultValue: "Telegram proxy" }),
       telemtWeb: t("pages.inbounds.scenario.telemtWeb", { defaultValue: "Telegram proxy behind a website" }),
+      wireguard: t("pages.inbounds.scenario.wireguard", { defaultValue: "Classic VPN" }),
+      amneziawg: t("pages.inbounds.scenario.amneziawg", { defaultValue: "VPN with obfuscation" }),
     })[id];
   const desc = (id: InboundScenarioId) =>
     ({
@@ -83,6 +87,12 @@ export function InboundScenarioPicker({
       }),
       telemtWeb: t("pages.inbounds.scenario.telemtWebDesc", {
         defaultValue: "Telemt on port 443 together with a real website (decoy): visitors see the site, Telegram gets the proxy. Needs a domain.",
+      }),
+      wireguard: t("pages.inbounds.scenario.wireguardDesc", {
+        defaultValue: "Native VPN for phones, computers and routers: fast and simple. Easy to detect and block; UDP.",
+      }),
+      amneziawg: t("pages.inbounds.scenario.amneziawgDesc", {
+        defaultValue: "WireGuard with traffic obfuscation: same speed, but the handshake is disguised. Clients need the AmneziaWG app.",
       }),
     })[id];
 

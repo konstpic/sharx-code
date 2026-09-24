@@ -136,6 +136,10 @@ twoFactorStepHint = "Введите код, чтобы завершить вхо
   successLogin = "Вход выполнен успешно"
 
 [pages.inbounds.scenario]
+wireguard = "Классический VPN"
+wireguardDesc = "Штатный VPN для телефонов, компьютеров и роутеров: быстрый и простой. Легко обнаруживается и блокируется; UDP."
+amneziawg = "VPN с маскировкой"
+amneziawgDesc = "WireGuard с маскировкой трафика: та же скорость, но рукопожатие замаскировано. Клиентам нужно приложение AmneziaWG."
 telemt = "Прокси для Telegram"
 telemtDesc = "MTProto-прокси только для Telegram, маскируется под TLS к настоящему сайту. Работает сразу, домен не нужен."
 telemtWeb = "Прокси для Telegram за сайтом"

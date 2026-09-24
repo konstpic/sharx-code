@@ -1660,8 +1660,25 @@ export function InboundsPage() {
               ? "shadowsocks"
               : id === "telemt" || id === "telemtWeb"
                 ? "telemt"
-                : "vless";
+                : id === "wireguard"
+                  ? "wireguard"
+                  : id === "amneziawg"
+                    ? "amneziawg"
+                    : "vless";
       applyStreamPresetForProtocol(proto);
+      if (id === "wireguard" || id === "amneziawg") {
+        // The protocol preset already sets port, listen address and the protocol's own defaults.
+        const own = t(id === "wireguard" ? "pages.inbounds.wireguardDefaultRemark" : "pages.inbounds.amneziawgDefaultRemark", {
+          defaultValue: id === "wireguard" ? "WireGuard" : "AmneziaWG",
+        });
+        const stale = new Set(
+          ["pages.inbounds.telemtDefaultRemark", "pages.inbounds.wireguardDefaultRemark", "pages.inbounds.amneziawgDefaultRemark"].map((k) =>
+            t(k, { defaultValue: "" }),
+          ),
+        );
+        setForm((f) => ({ ...f, vlessFlow: "", remark: !f.remark.trim() || stale.has(f.remark) || f.remark === "Telemt WEB" ? own : f.remark }));
+        return;
+      }
       if (id === "telemt" || id === "telemtWeb") {
         // Values mirror working Telemt inbounds: TLS-only mode, masking on with TLS emulation,
         // IPv4, and a random local API port so a second Telemt inbound on the node does not clash.

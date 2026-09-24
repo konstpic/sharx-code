@@ -136,6 +136,10 @@ twoFactorResendWait = "A code was already sent. You can request a new one in {{.
 successLogin = " You have successfully logged into your account."
 
 [pages.inbounds.scenario]
+wireguard = "Classic VPN"
+wireguardDesc = "Native VPN for phones, computers and routers: fast and simple. Easy to detect and block; UDP."
+amneziawg = "VPN with obfuscation"
+amneziawgDesc = "WireGuard with traffic obfuscation: same speed, but the handshake is disguised. Clients need the AmneziaWG app."
 telemt = "Telegram proxy"
 telemtDesc = "MTProto proxy for Telegram only, disguised as TLS to a real site. Ready to run, no domain needed."
 telemtWeb = "Telegram proxy behind a website"
