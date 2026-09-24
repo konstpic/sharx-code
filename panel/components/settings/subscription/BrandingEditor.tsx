@@ -2,11 +2,8 @@
 
 import { useTranslation } from "react-i18next";
 import { Input, SelectNative } from "@/components/ui";
+import { SubPagePresetGallery } from "@/components/settings/subscription/SubPagePresetGallery";
 import type { SharxBranding, SharxSubpageConfigV2 } from "@/lib/sharxSubpageConfig";
-import {
-  SUB_PAGE_COLOR_PRESET_IDS,
-  type SubPageColorPresetId,
-} from "@/lib/subPageColorPreset";
 
 type Props = {
   config: SharxSubpageConfigV2;
@@ -146,29 +143,21 @@ export function BrandingEditor({ config, onChange }: Props) {
             </option>
           </SelectNative>
         </Field>
-        <Field
-          label={t("subBuilder.branding.colorPreset", { defaultValue: "Color palette" })}
-          hint={t("subBuilder.branding.colorPresetHint", {
-            defaultValue:
-              "Same presets as the panel appearance. Applies to dark style; light mode keeps the standard light shell.",
-          })}
-        >
-          <SelectNative
+        <div className="sm:col-span-2">
+          <div className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--fg-subtle)]">
+            {t("subBuilder.branding.colorPreset", { defaultValue: "Color palette" })}
+          </div>
+          <SubPagePresetGallery
             value={config.colorPreset}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                colorPreset: e.target.value as SubPageColorPresetId,
-              })
-            }
-          >
-            {SUB_PAGE_COLOR_PRESET_IDS.map((id) => (
-              <option key={id} value={id}>
-                {t(`pages.settings.panelThemePreset.${id}`)}
-              </option>
-            ))}
-          </SelectNative>
-        </Field>
+            onChange={(id) => onChange({ ...config, colorPreset: id })}
+          />
+          <p className="mt-1.5 text-[11px] text-[var(--fg-subtle)]">
+            {t("subBuilder.branding.colorPresetHint", {
+              defaultValue:
+                "Same presets as the panel appearance. Applies to dark style; light mode keeps the standard light shell.",
+            })}
+          </p>
+        </div>
       </div>
 
       <div>
