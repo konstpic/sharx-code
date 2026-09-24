@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Building2,
-  ChevronDown,
-  Database,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -26,12 +24,12 @@ import { linkP, panel, p, stripBasePath } from "@/lib/paths";
 import { SETTINGS_TAB_IDS, tSettingsTabLabel } from "@/lib/settingsTabs";
 import { getUiPref } from "@/lib/uiPrefs";
 import { PanelHeaderAppMeta } from "@/components/panel/PanelHeaderAppMeta";
-import { PanelNavLink } from "@/components/panel/PanelNavLink";
 import { PanelTelegramNavLink } from "@/components/panel/PanelTelegramNavLink";
 import { PanelDonateNavLink } from "@/components/panel/PanelDonateNavLink";
 import { PanelGitHubStarLink } from "@/components/panel/PanelGitHubStarLink";
 import { MenuCarousel } from "@/components/panel/nav/MenuCarousel";
 import { MenuDock } from "@/components/panel/nav/MenuDock";
+import { MenuSidebarNav } from "@/components/panel/nav/MenuSidebarNav";
 import type { NavNode } from "@/components/panel/nav/navModel";
 import { useMenuStyle } from "@/lib/menuStyle";
 type NavItem = { key: string; href: string; icon: React.ReactNode; label: string };
@@ -42,10 +40,6 @@ type NavEntry =
   | { kind: "xray" }
   | { kind: "clients" };
 
-function navLinkClass(active: boolean) {
-  return active ? "panel-menu-link panel-menu-link--active" : "panel-menu-link";
-}
-
 function routePath(path: string) {
   return stripBasePath(path);
 }
@@ -55,11 +49,6 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [multi, setMulti] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(true);
-  const [nodesOpen, setNodesOpen] = useState(true);
-  const [clientsOpen, setClientsOpen] = useState(true);
-  const [xrayOpen, setXrayOpen] = useState(true);
-  const prevInSettings = useRef(false);
   const [menuStyle] = useMenuStyle();
   const ws = usePanelWebSocket();
   const resyncAfterDisconnect = useRef(false);
@@ -161,25 +150,6 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     );
   }, [pathname, xrayListHref, xrayProfilesHref, xrayGeoHref]);
 
-  useEffect(() => {
-    if (inSettings && !prevInSettings.current) {
-      setSettingsOpen(true);
-    }
-    prevInSettings.current = inSettings;
-  }, [inSettings]);
-
-  useEffect(() => {
-    if (inNodes) setNodesOpen(true);
-  }, [inNodes]);
-
-  useEffect(() => {
-    if (inClients) setClientsOpen(true);
-  }, [inClients]);
-
-  useEffect(() => {
-    if (inXray) setXrayOpen(true);
-  }, [inXray]);
-
   const items: NavEntry[] = useMemo(() => {
     const base: NavEntry[] = [
       {
@@ -239,12 +209,6 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     // The dashboard lives at the panel root: matching it by prefix would light it up on every page.
     if (k === trim(routePath(p("panel")))) return u === k;
     return u === k || u.startsWith(`${k}/`);
-  };
-
-  const isSettingsSubActive = (id: (typeof SETTINGS_TAB_IDS)[number]) => {
-    const u = routePath(pathname || "");
-    const k = routePath(p(`panel/settings/${id}`));
-    return u === k;
   };
 
   const navNodes: NavNode[] = useMemo(() => {
@@ -387,270 +351,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
             mobileNav ? "translate-x-0" : "-translate-x-full md:translate-x-0"
           } ${menuStyle === "sidebar" ? "" : "md:hidden"}`}
         >
-          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-3 md:pt-2">
-            {items.map((item) => {
-              if ("kind" in item && item.kind === "settings") {
-                return (
-                  <div key="nav-settings" className="flex flex-col gap-0.5">
-                    <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <PanelNavLink
-                        href={linkP("panel/settings/general")}
-                        className={`${navLinkClass(inSettings)} min-w-0 flex-1`}
-                        onClick={closeMobile}
-                      >
-                        <Settings className="size-[18px] shrink-0 opacity-90" />
-                        <span className="min-w-0">{t("menu.settings")}</span>
-                      </PanelNavLink>
-                      <button
-                        type="button"
-                        className="panel-menu-link shrink-0 rounded-xl px-2.5"
-                        aria-expanded={settingsOpen}
-                        aria-label={t("menu.settingsToggle", {
-                          defaultValue: "Toggle settings sections",
-                        })}
-                        onClick={() => setSettingsOpen((o) => !o)}
-                      >
-                        <ChevronDown
-                          className={`size-4 text-[var(--ifm-color-content)] transition-transform ${settingsOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                    </div>
-                    {settingsOpen ? (
-                      <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        {SETTINGS_TAB_IDS.map((id) => (
-                          <PanelNavLink
-                            key={id}
-                            href={linkP(`panel/settings/${id}`)}
-                            className={`${navLinkClass(isSettingsSubActive(id))} panel-menu-link--sub`}
-                            onClick={closeMobile}
-                          >
-                            <span className="min-w-0 pl-0.5">{tSettingsTabLabel(t, id)}</span>
-                          </PanelNavLink>
-                        ))}
-                        <PanelNavLink
-                          href={linkP("panel/db-inspector")}
-                          className={`${navLinkClass(routePath(pathname || "") === dbInspectorHref)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <Database className="size-3.5 shrink-0 opacity-80" />
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.dbInspector")}
-                          </span>
-                        </PanelNavLink>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              }
-              if ("kind" in item && item.kind === "xray") {
-                const u = routePath(pathname || "");
-                const isTemplate = u === xrayListHref;
-                const isProfiles =
-                  u === xrayProfilesHref || u.startsWith(`${xrayProfilesHref}/`);
-                const isGeo = u === xrayGeoHref || u.startsWith(`${xrayGeoHref}/`);
-                return (
-                  <div key="nav-xray" className="flex flex-col gap-0.5">
-                    <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <PanelNavLink
-                        href={linkP("panel/xray")}
-                        className={`${navLinkClass(inXray)} min-w-0 flex-1`}
-                        onClick={closeMobile}
-                      >
-                        <Wrench className="size-[18px] shrink-0 opacity-90" />
-                        <span className="min-w-0">{t("menu.xray")}</span>
-                      </PanelNavLink>
-                      <button
-                        type="button"
-                        className="panel-menu-link shrink-0 rounded-xl px-2.5"
-                        aria-expanded={xrayOpen}
-                        aria-label={t("menu.xrayToggle", {
-                          defaultValue: "Toggle Xray sections",
-                        })}
-                        onClick={() => setXrayOpen((o) => !o)}
-                      >
-                        <ChevronDown
-                          className={`size-4 text-[var(--ifm-color-content)] transition-transform ${xrayOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                    </div>
-                    {xrayOpen ? (
-                      <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <PanelNavLink
-                          href={linkP("panel/xray")}
-                          className={`${navLinkClass(isTemplate)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">{t("menu.xrayTemplate")}</span>
-                        </PanelNavLink>
-                        <PanelNavLink
-                          href={linkP("panel/xray/geo")}
-                          className={`${navLinkClass(isGeo)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.xrayGeoFiles", { defaultValue: "Geo-files" })}
-                          </span>
-                        </PanelNavLink>
-                        <PanelNavLink
-                          href={linkP("panel/xray-core-config-profiles")}
-                          className={`${navLinkClass(isProfiles)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.xrayCoreConfigProfiles")}
-                          </span>
-                        </PanelNavLink>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              }
-              if ("kind" in item && item.kind === "clients") {
-                const u = routePath(pathname || "");
-                const isManage = u === clientsListHref;
-                const isStats = u === clientsStatsHref || u.startsWith(`${clientsStatsHref}/`);
-                return (
-                  <div key="nav-clients" className="flex flex-col gap-0.5">
-                    <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <PanelNavLink
-                        href={linkP("panel/clients")}
-                        className={`${navLinkClass(inClients)} min-w-0 flex-1`}
-                        onClick={closeMobile}
-                      >
-                        <Users className="size-[18px] shrink-0 opacity-90" />
-                        <span className="min-w-0">{t("menu.clients")}</span>
-                      </PanelNavLink>
-                      <button
-                        type="button"
-                        className="panel-menu-link shrink-0 rounded-xl px-2.5"
-                        aria-expanded={clientsOpen}
-                        aria-label={t("menu.clientsToggle", {
-                          defaultValue: "Toggle clients sections",
-                        })}
-                        onClick={() => setClientsOpen((o) => !o)}
-                      >
-                        <ChevronDown
-                          className={`size-4 text-[var(--ifm-color-content)] transition-transform ${clientsOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                    </div>
-                    {clientsOpen ? (
-                      <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <PanelNavLink
-                          href={linkP("panel/clients")}
-                          className={`${navLinkClass(isManage)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">{t("menu.clientsManage")}</span>
-                        </PanelNavLink>
-                        <PanelNavLink
-                          href={linkP("panel/clients/statistics")}
-                          className={`${navLinkClass(isStats)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">{t("menu.clientsStatistics")}</span>
-                        </PanelNavLink>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              }
-              if ("kind" in item && item.kind === "nodes") {
-                const u = routePath(pathname || "");
-                const isManage = u === nodesListHref;
-                const isStats =
-                  u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`);
-                const isGeo = u === nodesGeoHref;
-                return (
-                  <div key="nav-nodes" className="flex flex-col gap-0.5">
-                    <div className="flex w-full min-w-0 items-stretch gap-0.5">
-                      <PanelNavLink
-                        href={linkP("panel/nodes")}
-                        className={`${navLinkClass(inNodes)} min-w-0 flex-1`}
-                        onClick={closeMobile}
-                      >
-                        <Network className="size-[18px] shrink-0 opacity-90" />
-                        <span className="min-w-0">{t("menu.nodes")}</span>
-                      </PanelNavLink>
-                      <button
-                        type="button"
-                        className="panel-menu-link shrink-0 rounded-xl px-2.5"
-                        aria-expanded={nodesOpen}
-                        aria-label={t("menu.nodesToggle", {
-                          defaultValue: "Toggle nodes sections",
-                        })}
-                        onClick={() => setNodesOpen((o) => !o)}
-                      >
-                        <ChevronDown
-                          className={`size-4 text-[var(--ifm-color-content)] transition-transform ${nodesOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                    </div>
-                    {nodesOpen ? (
-                      <div className="ml-1 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2">
-                        <PanelNavLink
-                          href={linkP("panel/nodes")}
-                          className={`${navLinkClass(isManage)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.nodesManage")}
-                          </span>
-                        </PanelNavLink>
-                        <PanelNavLink
-                          href={linkP("panel/nodes/statistics")}
-                          className={`${navLinkClass(isStats)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.nodesStatistics")}
-                          </span>
-                        </PanelNavLink>
-                        <PanelNavLink
-                          href={linkP("panel/nodes/geography")}
-                          className={`${navLinkClass(isGeo)} panel-menu-link--sub`}
-                          onClick={closeMobile}
-                        >
-                          <span className="min-w-0 pl-0.5">
-                            {t("menu.nodesGeography")}
-                          </span>
-                        </PanelNavLink>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              }
-              if (item.key === p("logout/")) {
-                return (
-                  <a
-                    key={item.key}
-                    id="logout-link"
-                    href={item.href}
-                    className="panel-menu-link"
-                    onClick={closeMobile}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </a>
-                );
-              }
-              return (
-                <PanelNavLink
-                  key={item.key}
-                  href={item.href}
-                  className={navLinkClass(isActive(item))}
-                  onClick={closeMobile}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </PanelNavLink>
-              );
-            })}
-          </nav>
+          <MenuSidebarNav nodes={navNodes} onNavigate={closeMobile} />
         </aside>
 
         <div className="panel-main relative z-10 flex min-h-0 min-w-0 flex-1 flex-col md:z-10">

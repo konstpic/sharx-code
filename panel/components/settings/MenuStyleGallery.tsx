@@ -26,11 +26,19 @@ function MenuPreview({ id }: { id: MenuStyleId }) {
     >
       {id === "sidebar" ? (
         <>
-          <div className="flex w-[26%] flex-col gap-1.5 border-r border-[var(--border)] p-2">
-            <span className="h-2.5 rounded" style={{ background: "var(--accent)" }} />
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span key={i} className="h-1.5 rounded-full" style={{ background: soft, width: `${88 - i * 9}%` }} />
-            ))}
+          <div className="flex w-[30%] flex-col gap-1 border-r border-[var(--border)] p-1.5">
+            <span className="h-3.5 rounded-lg" style={{ background: soft }} />
+            <span
+              className="h-3.5 rounded-lg"
+              style={{ background: "color-mix(in oklab, var(--accent) 22%, transparent)", border: "1px solid var(--accent)", boxShadow: "0 0 8px -2px var(--accent)" }}
+            />
+            <div className="ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-1.5">
+              {[70, 55, 62].map((w, i) => (
+                <span key={i} className="h-1 rounded-full" style={{ background: i === 0 ? "var(--accent)" : soft, width: `${w}%` }} />
+              ))}
+            </div>
+            <span className="h-3.5 rounded-lg" style={{ background: soft }} />
+            <span className="h-3.5 rounded-lg" style={{ background: soft }} />
           </div>
           {content}
         </>
@@ -94,7 +102,7 @@ export function MenuStyleGallery() {
     })[id];
   const desc = (id: MenuStyleId) =>
     ({
-      sidebar: t("pages.settings.menuStyle.sidebarDesc", { defaultValue: "Classic menu on the left with expandable sections." }),
+      sidebar: t("pages.settings.menuStyle.sidebarDesc", { defaultValue: "Cards on the left; click a section and its pages slide out underneath." }),
       carousel: t("pages.settings.menuStyle.carouselDesc", { defaultValue: "Glowing cards on top with a gliding highlight; sections appear in a row below." }),
       dock: t("pages.settings.menuStyle.dockDesc", { defaultValue: "Floating dock at the bottom: icons grow under the cursor, sections open as a pop-over." }),
     })[id];
