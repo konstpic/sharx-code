@@ -53,6 +53,7 @@ import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import { RemarkModelConstructor } from "@/components/settings/RemarkModelConstructor";
 import { SubscriptionBuilder } from "@/components/settings/subscription/SubscriptionBuilder";
 import { TgRunTimeField } from "@/components/settings/TgRunTimeField";
+import { TgMessagePreviews } from "@/components/settings/TgMessagePreviews";
 import { ThemeGallery } from "@/components/settings/ThemeGallery";
 import {
   AlertBanner,
@@ -1507,6 +1508,15 @@ export function SettingsPage() {
                 ))}
               </SelectNative>
             </Row>
+          </SettingsSection>
+          <SettingsSection
+            title={t("pages.settings.tgPreview.title", { defaultValue: "Message previews" })}
+            hint={t("pages.settings.tgPreview.hint", { defaultValue: "How the bot's notifications look in Telegram." })}
+            icon={Send}
+            iconTone="accent"
+            full
+          >
+            <TgMessagePreviews langCode={BCP47_TO_PANEL_CODE[form.tgLang] ?? "en"} />
           </SettingsSection>
         </SettingsGrid>
       ) : null}
