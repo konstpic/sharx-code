@@ -46,6 +46,9 @@ type SettingController struct {
 	settingService service.SettingService
 	userService    service.UserService
 	panelService   service.PanelService
+	inboundService service.InboundService
+	templateHub    service.TemplateHubService
+	localTemplates service.LocalTemplateService
 }
 
 // NewSettingController creates a new SettingController and initializes its routes.
@@ -71,6 +74,7 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/subscriptionPageConfig/get", a.subscriptionPageConfigGet)
 	g.POST("/subscriptionPageConfig/save", a.subscriptionPageConfigSave)
 
+	a.registerTemplateHubRoutes(g)
 	g.POST("/sessions/list", a.listLoginSessions)
 	g.POST("/sessions/revoke", a.revokeLoginSession)
 	g.POST("/sessions/revokeOthers", a.revokeOtherLoginSessions)

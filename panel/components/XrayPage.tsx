@@ -1,6 +1,6 @@
 "use client";
 
-import { RotateCcw, Save, Wand2, FileCode2, Radio, Wrench, Upload, Download } from "lucide-react";
+import { RotateCcw, Save, Wand2, FileCode2, Radio, Wrench, Upload, Download, LayoutTemplate, Share2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import { api, getJson, postJson } from "@/lib/api";
 import { linkP, panel } from "@/lib/paths";
 import { normalizeAllSetting } from "@/lib/allSetting";
 import { PageScaffold, PageHeader, Surface } from "@/components/panel";
+import { ShareTemplateModal, TemplateGalleryModal } from "@/components/templates/TemplateHub";
 import { XrayConfigurator, type XrayConfiguratorHandle } from "@/components/xray/configurator/XrayConfigurator";
 import { Button, ConfirmDialog, Spinner, useToast, Input, Modal, Switch } from "@/components/ui";
 
@@ -75,6 +76,9 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
   const [saving, setSaving] = useState(false);
   const [loadingRuntime, setLoadingRuntime] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [pendingImport, setPendingImport] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [multi, setMulti] = useState(false);
   const [xrayState, setXrayState] = useState<string | null>(null);
@@ -452,6 +456,24 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
                     <RotateCcw size={16} />
                     {t("reset")}
                   </Button>
+                  <Button variant="secondary" onClick={() => setGalleryOpen(true)} className="!gap-2">
+                    <LayoutTemplate size={16} />
+                    {t("pages.templates.gallery", { defaultValue: "Templates" })}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShareOpen(true)}
+                    disabled={dirty}
+                    title={
+                      dirty
+                        ? t("pages.templates.saveBeforeShare", { defaultValue: "Save the template first: the saved version is what gets shared" })
+                        : undefined
+                    }
+                    className="!gap-2"
+                  >
+                    <Share2 size={16} />
+                    {t("pages.templates.shareShort", { defaultValue: "Share" })}
+                  </Button>
                   <Button variant="secondary" onClick={() => setResetOpen(true)} className="!gap-2">
                     <Wand2 size={16} />
                     {t("pages.xrayCoreConfigProfiles.resetToDefaultTemplate")}
@@ -736,6 +758,33 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
         </div>
       </div>
 
+      <TemplateGalleryModal
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        kind="xray_config"
+        onImport={(_, content) => setPendingImport(JSON.stringify(content, null, 2))}
+      />
+      <ShareTemplateModal open={shareOpen} onClose={() => setShareOpen(false)} kind="xray_config" />
+      <ConfirmDialog
+        open={pendingImport !== null}
+        title={t("pages.templates.importConfigTitle", { defaultValue: "Load shared config" })}
+        description={t("pages.templates.importConfigDesc", {
+          defaultValue:
+            "The editor content will be replaced with the shared config. Nothing is saved until you press Save, and your current inbounds are not touched.",
+        })}
+        confirmLabel={t("pages.templates.import", { defaultValue: "Import" })}
+        cancelLabel={t("cancel")}
+        onCancel={() => setPendingImport(null)}
+        onConfirm={() => {
+          if (pendingImport !== null) {
+            setTemplate(pendingImport);
+            setDataEpoch((e) => e + 1);
+            setViewMode("template");
+            toast.success(t("pages.templates.importedUnsaved", { defaultValue: "Config loaded into the editor (not saved yet)" }));
+          }
+          setPendingImport(null);
+        }}
+      />
       <ConfirmDialog
         open={resetOpen}
         title={t("pages.xrayCoreConfigProfiles.resetToDefault")}

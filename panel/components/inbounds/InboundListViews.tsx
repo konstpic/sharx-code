@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Share2, Trash2 } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { sizeFormat } from "@/lib/format";
@@ -23,6 +23,7 @@ export type InboundListViewContext = {
   onToggleEnable: (id: number, next: boolean) => void;
   toggleEnableBusyId: number | null;
   onDelete: (id: number) => void;
+  onShare: (id: number, remark: string) => void;
 };
 
 function MetaItem({
@@ -73,13 +74,23 @@ function InboundOperateButtons({
   ctx: InboundListViewContext;
   compact?: boolean;
 }) {
-  const { t, onDelete } = ctx;
+  const { t, onDelete, onShare } = ctx;
   return (
     <div
       className={`flex items-center ${compact ? "gap-0.5" : "gap-1"}`}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
+      <Button
+        type="button"
+        variant="ghost"
+        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+        onClick={() => onShare(r.id, r.remark)}
+        title={t("pages.templates.share", { defaultValue: "Share as template" })}
+        aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
+      >
+        <Share2 size={16} />
+      </Button>
       <Button
         type="button"
         variant="ghost"

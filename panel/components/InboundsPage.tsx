@@ -14,12 +14,15 @@ import {
   Network,
   Plus,
   Server,
+  Share2,
+  LayoutTemplate,
   SlidersHorizontal,
   Table2,
   Trash2,
   User,
   type LucideIcon,
 } from "lucide-react";
+import { ShareTemplateModal, TemplateGalleryModal, type ImportMeta } from "@/components/templates/TemplateHub";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -569,6 +572,8 @@ export function InboundsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState<{ id: number; remark: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toggleEnableBusyId, setToggleEnableBusyId] = useState<number | null>(null);
 
@@ -713,6 +718,73 @@ export function InboundsPage() {
     setModalOpen(true);
   };
 
+  const applyInboundDetail = useCallback((ib: InboundDetail, mode: "edit" | "import") => {
+    const proto = isInboundFormProtocol(ib.protocol) ? ib.protocol : "vless";
+    const parsed = parseFirstClientFromSettings(ib.settings || "{}", proto);
+    if (mode === "edit") {
+      setBaselineSettings(ib.settings || "{}");
+      setPreserveTraffic({
+        up: ib.up ?? 0,
+        down: ib.down ?? 0,
+        allTime: ib.allTime ?? 0,
+      });
+    }
+    const { flag: nameFlag, text: remarkText } = splitNameFlag(
+      ib.remark ?? "",
+    );
+    const streamForm = parseStreamSettingsToForm(
+      proto === "telemt" || proto === "amneziawg"
+        ? "{}"
+        : (ib.streamSettings || defaultStreamSettingsString()),
+      proto,
+    );
+    const vlessEncryption = parsed.vlessEncryption ?? "";
+    const vlessFlow =
+      proto === "vless"
+        ? effectiveVlessFlow(streamForm, parsed.vlessFlow ?? "", vlessEncryption)
+        : (parsed.vlessFlow ?? "");
+    setForm({
+      nameFlag,
+      remark: remarkText,
+      tag: ib.tag ?? "",
+      port: ib.port,
+      listen: ib.listen ?? "",
+      enable: ib.enable,
+      protocol: proto,
+      vlessFlow,
+      vlessEncryption,
+      vlessDecryption: parsed.vlessDecryption ?? "none",
+      trojanPassword: parsed.trojanPassword ?? randomPassword(12),
+      hysteriaAuth: parsed.hysteriaAuth ?? randomPassword(8),
+      ssMethod: parsed.ssMethod ?? "aes-256-gcm",
+      ssPassword: parsed.ssPassword ?? randomShadowsocksServerPassword(parsed.ssMethod ?? "aes-256-gcm"),
+      mixedUser: parsed.mixedUser ?? "proxy",
+      mixedPassword: parsed.mixedPassword ?? randomPassword(12),
+      wireguardForm:
+        proto === "wireguard"
+          ? parseWireguardSettingsToForm(ib.settings || "{}")
+          : defaultWireguardForm(),
+      amneziawgForm:
+        proto === "amneziawg"
+          ? parseAmneziaWgSettingsToForm(ib.settings || "{}")
+          : defaultAmneziaWgInboundForm(),
+      telemtForm:
+        proto === "telemt"
+          ? parseTelemtSettingsToForm(ib.settings || "{}")
+          : defaultTelemtForm(),
+      totalGb: totalBytesToGbInput(ib.total ?? 0),
+      trafficReset: ib.trafficReset || "never",
+      streamForm,
+      sniffingForm: parseSniffingToForm(
+        proto === "telemt" || proto === "amneziawg"
+          ? '{"enabled":false,"destOverride":[],"metadataOnly":false,"routeOnly":false}'
+          : (ib.sniffing || defaultSniffingString()),
+      ),
+      vlessTrojanFallbacks: parsed.vlessTrojanFallbacks ?? ([] as VlessTrojanFallbackFormRow[]),
+    });
+    setNodeBindings(mode === "edit" ? inboundBindingsToForm(ib) : []);
+  }, []);
+
   const openEdit = useCallback(async (id: number) => {
     setModalOpen(true);
     setInboundModalView("form");
@@ -728,68 +800,7 @@ export function InboundsPage() {
         return;
       }
       const ib = r.obj as InboundDetail;
-      const proto = isInboundFormProtocol(ib.protocol) ? ib.protocol : "vless";
-      const parsed = parseFirstClientFromSettings(ib.settings || "{}", proto);
-      setBaselineSettings(ib.settings || "{}");
-      setPreserveTraffic({
-        up: ib.up ?? 0,
-        down: ib.down ?? 0,
-        allTime: ib.allTime ?? 0,
-      });
-      const { flag: nameFlag, text: remarkText } = splitNameFlag(
-        ib.remark ?? "",
-      );
-      const streamForm = parseStreamSettingsToForm(
-        proto === "telemt" || proto === "amneziawg"
-          ? "{}"
-          : (ib.streamSettings || defaultStreamSettingsString()),
-        proto,
-      );
-      const vlessEncryption = parsed.vlessEncryption ?? "";
-      const vlessFlow =
-        proto === "vless"
-          ? effectiveVlessFlow(streamForm, parsed.vlessFlow ?? "", vlessEncryption)
-          : (parsed.vlessFlow ?? "");
-      setForm({
-        nameFlag,
-        remark: remarkText,
-        tag: ib.tag ?? "",
-        port: ib.port,
-        listen: ib.listen ?? "",
-        enable: ib.enable,
-        protocol: proto,
-        vlessFlow,
-        vlessEncryption,
-        vlessDecryption: parsed.vlessDecryption ?? "none",
-        trojanPassword: parsed.trojanPassword ?? randomPassword(12),
-        hysteriaAuth: parsed.hysteriaAuth ?? randomPassword(8),
-        ssMethod: parsed.ssMethod ?? "aes-256-gcm",
-        ssPassword: parsed.ssPassword ?? randomShadowsocksServerPassword(parsed.ssMethod ?? "aes-256-gcm"),
-        mixedUser: parsed.mixedUser ?? "proxy",
-        mixedPassword: parsed.mixedPassword ?? randomPassword(12),
-        wireguardForm:
-          proto === "wireguard"
-            ? parseWireguardSettingsToForm(ib.settings || "{}")
-            : defaultWireguardForm(),
-        amneziawgForm:
-          proto === "amneziawg"
-            ? parseAmneziaWgSettingsToForm(ib.settings || "{}")
-            : defaultAmneziaWgInboundForm(),
-        telemtForm:
-          proto === "telemt"
-            ? parseTelemtSettingsToForm(ib.settings || "{}")
-            : defaultTelemtForm(),
-        totalGb: totalBytesToGbInput(ib.total ?? 0),
-        trafficReset: ib.trafficReset || "never",
-        streamForm,
-        sniffingForm: parseSniffingToForm(
-          proto === "telemt" || proto === "amneziawg"
-            ? '{"enabled":false,"destOverride":[],"metadataOnly":false,"routeOnly":false}'
-            : (ib.sniffing || defaultSniffingString()),
-        ),
-        vlessTrojanFallbacks: parsed.vlessTrojanFallbacks ?? ([] as VlessTrojanFallbackFormRow[]),
-      });
-      setNodeBindings(inboundBindingsToForm(ib));
+      applyInboundDetail(ib, "edit");
     } catch {
       toast.error(t("fail"));
       setModalOpen(false);
@@ -797,7 +808,7 @@ export function InboundsPage() {
     } finally {
       setFetchingInbound(false);
     }
-  }, [t, toast]);
+  }, [applyInboundDetail, t, toast]);
 
   const moveNodeBinding = useCallback((idx: number, dir: -1 | 1) => {
     setNodeBindings((rows) => {
@@ -1634,6 +1645,49 @@ export function InboundsPage() {
     toast.success(t("success", { defaultValue: "OK" }));
   }, [toast, t]);
 
+  const importSharedInbound = useCallback(
+    (content: unknown, meta: ImportMeta) => {
+      const c = content as {
+        protocol?: string;
+        port?: number;
+        settings?: unknown;
+        streamSettings?: { security?: string } | null;
+        sniffing?: unknown;
+        trafficReset?: string;
+      } | null;
+      if (!c || typeof c.protocol !== "string") {
+        toast.error(t("pages.templates.badTemplate", { defaultValue: "This template has an unsupported format" }));
+        return;
+      }
+      resetAddForm();
+      setEditId(null);
+      setStep("basics");
+      setFetchingInbound(false);
+      applyInboundDetail(
+        {
+          id: 0,
+          remark: meta.title,
+          protocol: c.protocol,
+          port: typeof c.port === "number" && c.port > 0 ? c.port : randomPort(),
+          listen: "",
+          enable: true,
+          settings: JSON.stringify(c.settings ?? {}),
+          streamSettings: JSON.stringify(c.streamSettings ?? {}),
+          sniffing: JSON.stringify(c.sniffing ?? {}),
+          up: 0,
+          down: 0,
+          total: 0,
+          expiryTime: 0,
+          trafficReset: c.trafficReset || "never",
+        },
+        "import",
+      );
+      setModalOpen(true);
+      if (c.streamSettings?.security === "reality") void generateRealityX25519();
+    },
+    [applyInboundDetail, generateRealityX25519, resetAddForm, t, toast],
+  );
+
   const generateRealityMldsa65 = useCallback(async () => {
     const r = await getJson<{ seed: string; verify: string }>(
       panel("api/server/getNewmldsa65"),
@@ -1746,6 +1800,7 @@ export function InboundsPage() {
         void setInboundEnableFromRow(id, next),
       toggleEnableBusyId: toggleEnableBusyId,
       onDelete: (id: number) => setDeleteId(id),
+      onShare: (id: number, remark: string) => setShareTarget({ id, remark }),
     }),
     [t, openEdit, setInboundEnableFromRow, toggleEnableBusyId],
   );
@@ -1779,6 +1834,10 @@ export function InboundsPage() {
             >
               <Plus size={16} />
               {t("pages.inbounds.addInbound")}
+            </Button>
+            <Button variant="secondary" onClick={() => setGalleryOpen(true)} className="!gap-2">
+              <LayoutTemplate size={16} />
+              {t("pages.templates.gallery", { defaultValue: "Templates" })}
             </Button>
             <SectionHelpModal
               titleKey="pages.inbounds.helpModalTitle"
@@ -2013,6 +2072,15 @@ export function InboundsPage() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex flex-wrap gap-1">
+                          <Button
+                            variant="secondary"
+                            className="!p-2"
+                            onClick={() => setShareTarget({ id: r.id, remark: r.remark })}
+                            aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
+                            title={t("pages.templates.share", { defaultValue: "Share as template" })}
+                          >
+                            <Share2 size={16} />
+                          </Button>
                           <Button
                             variant="danger"
                             className="!p-2"
@@ -7643,6 +7711,19 @@ export function InboundsPage() {
         )}
       </Modal>
 
+      <TemplateGalleryModal
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        kind="inbound"
+        onImport={(_, content, meta) => importSharedInbound(content, meta)}
+      />
+      <ShareTemplateModal
+        open={shareTarget !== null}
+        onClose={() => setShareTarget(null)}
+        kind="inbound"
+        inboundId={shareTarget?.id}
+        defaultTitle={shareTarget?.remark}
+      />
       <ConfirmDialog
         open={deleteId != null}
         title={t("sure")}

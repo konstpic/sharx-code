@@ -93,6 +93,23 @@ type LoginSession struct {
 // TableName names the login_sessions table for GORM.
 func (LoginSession) TableName() string { return "login_sessions" }
 
+// LocalTemplate is a template kept in this panel only (kind: inbound | xray_config); Content is sanitized JSON.
+type LocalTemplate struct {
+	Id            int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Kind          string `json:"kind" gorm:"column:kind;type:varchar(32);index"`
+	Title         string `json:"title" gorm:"column:title;type:varchar(255)"`
+	Description   string `json:"description" gorm:"column:description"`
+	Tags          string `json:"-" gorm:"column:tags"`
+	Content       string `json:"-" gorm:"column:content"`
+	SizeBytes     int    `json:"sizeBytes" gorm:"column:size_bytes"`
+	SourceCloudID string `json:"sourceCloudId" gorm:"column:source_cloud_id;type:varchar(64)"`
+	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt     int64  `json:"updatedAt" gorm:"column:updated_at"`
+}
+
+// TableName names the local_templates table for GORM.
+func (LocalTemplate) TableName() string { return "local_templates" }
+
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
 	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                    // Unique identifier

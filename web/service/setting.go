@@ -66,6 +66,8 @@ var defaultValueMap = map[string]string{
 	"twoFactorToken":              "",
 	"twoFactorTelegram":           "false",
 	"tgTwoFactorEnable":           "false",
+	"templateHubUrl":              "https://templates.sharxconnect.app",
+	"templateHubKey":              "",
 	"subEnable":                   "true",
 	"subJsonEnable":               "false",
 	"subTitle":                    "",
