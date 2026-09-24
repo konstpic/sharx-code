@@ -81,7 +81,7 @@
 | Переменная | Описание | Значение по умолчанию | Пример |
 |------------|----------|----------------------|--------|
 | `POSTGRES_USER` | Пользователь PostgreSQL | - | `xui_user` |
-| `POSTGRES_PASSWORD` | Пароль PostgreSQL | - | `change_this_password` |
+| `POSTGRES_PASSWORD` | Пароль PostgreSQL (можно задать в `.env`; порт БД слушает только 127.0.0.1) | - | `change_this_password` |
 | `POSTGRES_DB` | Имя базы данных | - | `xui_db` |
 
 ---

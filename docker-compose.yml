@@ -53,11 +53,11 @@ services:
       XUI_WEB_PORT: 2053
       
       # PostgreSQL: при network_mode: host контейнер не в sharx_network — имя postgres не резолвится.
-      # Порт БД проброшен на хост (5432:5432), подключайтесь к 127.0.0.1.
+      # Порт БД проброшен на хост (5432:5432), подключайтесь к 127.0.0.1 (порт слушает только loopback).
       XUI_DB_HOST: 127.0.0.1
       XUI_DB_PORT: 5432
       XUI_DB_USER: xui_user
-      XUI_DB_PASSWORD: change_this_password
+      XUI_DB_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
       XUI_DB_NAME: xui_db
       XUI_DB_SSLMODE: disable
       # Host network: use localhost — watchtower публикуется только на 127.0.0.1:8081 (см. сервис watchtower).
@@ -98,10 +98,12 @@ services:
     image: postgres:16-alpine
     container_name: sharx_postgres
     ports:
-      - "5432:5432"
+      # Only loopback: the panel runs with host networking and reaches the DB via 127.0.0.1.
+      # Never publish 5432 on all interfaces.
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: xui_user
-      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
       POSTGRES_DB: xui_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
