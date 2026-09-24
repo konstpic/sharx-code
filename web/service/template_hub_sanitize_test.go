@@ -28,8 +28,8 @@ func TestSharedInboundContentVlessReality(t *testing.T) {
 	}
 }
 
-func TestSharedInboundContentRejectsSidecarProtocols(t *testing.T) {
-	for _, p := range []string{"wireguard", "amneziawg", "telemt", "unknown"} {
+func TestSharedInboundContentRejectsUnknownProtocols(t *testing.T) {
+	for _, p := range []string{"unknown"} {
 		if _, _, err := SharedInboundContent(p, 1, "{}", "{}", "{}", ""); err == nil {
 			t.Errorf("%s should not be shareable", p)
 		}
@@ -76,5 +76,35 @@ func TestSanitizeXrayTemplateDropsCredentialOutbounds(t *testing.T) {
 	}
 	if _, ok := m["routing"]; !ok {
 		t.Error("routing lost")
+	}
+}
+
+func TestSanitizeInboundSettingsSidecars(t *testing.T) {
+	awg := `{"mtu":1420,"secretKey":"KEY","address":["10.8.0.1/24"],"peers":[{"publicKey":"P"}],"obfuscation":{"jc":4,"s1":10,"headerProtectionKey":"HP"}}`
+	out, _, err := SanitizeInboundSettings("amneziawg", awg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out["secretKey"]; ok {
+		t.Fatal("secretKey must be removed")
+	}
+	if peers, _ := out["peers"].([]any); len(peers) != 0 {
+		t.Fatal("peers must be emptied")
+	}
+	obf, _ := out["obfuscation"].(map[string]any)
+	if obf["jc"] == nil || obf["headerProtectionKey"] != nil {
+		t.Fatalf("obfuscation: %v", obf)
+	}
+
+	tm := `{"telemt":{"adTag":"abc","links":{"publicHost":"h.example","publicPort":443},"censorship":{"tlsDomain":"ya.ru"},"modes":{"tls":true}}}`
+	out, _, err = SanitizeInboundSettings("telemt", tm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner, _ := out["telemt"].(map[string]any)
+	links, _ := inner["links"].(map[string]any)
+	cens, _ := inner["censorship"].(map[string]any)
+	if inner["adTag"] != nil || links["publicHost"] != nil || links["publicPort"] == nil || cens["tlsDomain"] != "ya.ru" {
+		t.Fatalf("telemt: %v", inner)
 	}
 }

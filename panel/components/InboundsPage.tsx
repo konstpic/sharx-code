@@ -1785,6 +1785,12 @@ export function InboundsPage() {
         },
         "import",
       );
+      // Shared WireGuard / AmneziaWG documents carry no interface key: generate a fresh one.
+      if (c.protocol === "wireguard") {
+        setForm((f) => (f.wireguardForm.secretKey ? f : { ...f, wireguardForm: { ...f.wireguardForm, secretKey: newWireGuardSecretKeyBase64() } }));
+      } else if (c.protocol === "amneziawg") {
+        setForm((f) => (f.amneziawgForm.secretKey ? f : { ...f, amneziawgForm: { ...f.amneziawgForm, secretKey: newWireGuardSecretKeyBase64() } }));
+      }
       setModalOpen(true);
       if (c.streamSettings?.security === "reality") void generateRealityX25519();
     },

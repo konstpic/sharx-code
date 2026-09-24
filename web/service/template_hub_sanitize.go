@@ -110,6 +110,8 @@ func SanitizeInboundSettings(protocol, raw string) (map[string]any, []string, er
 		if _, ok := src["accounts"]; ok {
 			warns = append(warns, "settings.accounts: accounts removed")
 		}
+	case "telemt", "amneziawg", "wireguard":
+		out = sanitizeSidecarSettings(protocol, src, &warns)
 	default:
 		return nil, nil, fmt.Errorf("inbounds of protocol %q cannot be shared", protocol)
 	}
@@ -117,6 +119,80 @@ func SanitizeInboundSettings(protocol, raw string) (map[string]any, []string, er
 		warns = append(warns, fmt.Sprintf("settings.clients: %d client(s) removed", len(arr)))
 	}
 	return out, warns, nil
+}
+
+// hostSpecificSidecarKeys are dropped from Telemt / WireGuard / AmneziaWG settings: they identify the source
+// server or account rather than describe a reusable setup.
+var hostSpecificSidecarKeys = map[string]bool{
+	"adtag": true, "publichost": true, "middleproxynatip": true, "headerprotectionkey": true,
+	"peers": true, "users": true, "accounts": true,
+}
+
+// sanitizeSidecarSettings keeps the protocol tuning (obfuscation, censorship, modes, MTU, …) and removes keys,
+// peers, ad tags and host addresses. Works on a copy at any nesting depth, so both flat and {"telemt": {...}} shapes are covered.
+func sanitizeSidecarSettings(protocol string, src map[string]any, warns *[]string) map[string]any {
+	var strip func(v any, path string) any
+	strip = func(v any, path string) any {
+		switch x := v.(type) {
+		case map[string]any:
+			out := make(map[string]any, len(x))
+			for k, child := range x {
+				p := k
+				if path != "" {
+					p = path + "." + k
+				}
+				lk := strings.ToLower(k)
+				if hostSpecificSidecarKeys[lk] {
+					if !isEmptyShareValue(child) {
+						*warns = append(*warns, "settings."+p+": removed (specific to the source server)")
+					}
+					continue
+				}
+				if secretFieldNames[lk] {
+					if !isEmptyShareValue(child) {
+						*warns = append(*warns, "settings."+p+": secret removed")
+					}
+					continue
+				}
+				if lk == "clients" {
+					out[k] = []any{}
+					continue
+				}
+				out[k] = strip(child, p)
+			}
+			return out
+		case []any:
+			out := make([]any, len(x))
+			for i, c := range x {
+				out[i] = strip(c, path)
+			}
+			return out
+		}
+		return v
+	}
+	res, _ := strip(src, "").(map[string]any)
+	if res == nil {
+		res = map[string]any{}
+	}
+	if protocol == "wireguard" || protocol == "amneziawg" {
+		res["peers"] = []any{}
+		*warns = append(*warns, "settings.secretKey: interface key removed (a new one is generated on import)")
+	}
+	return res
+}
+
+func isEmptyShareValue(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	}
+	return false
 }
 
 // SanitizeStreamSettings removes keys, certificates and host-specific values from streamSettings.
