@@ -1898,9 +1898,7 @@ section[id] {
 }
 
 
-/* Manual ordering: the dragged item stays in the list as a dimmed placeholder while the others slide around it. */
+/* Manual ordering: the dragged item stays in the list as a dimmed while the others slide around it. */
 [data-dnd-dragging="true"] {
   opacity: 0.5;
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
 }
