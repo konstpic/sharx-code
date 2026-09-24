@@ -4,7 +4,9 @@ module github.com/konstpic/sharx-code/v2
 // These replace directives ensure we use local code during development
 // Remove these when changes are pushed to GitHub
 
-go 1.26
+go 1.26.0
+
+toolchain go1.26.6
 
 require (
 	github.com/gin-contrib/gzip v1.2.5
@@ -12,7 +14,8 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/goccy/go-json v0.10.5
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/goccy/go-yaml v1.19.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
@@ -27,11 +30,12 @@ require (
 	github.com/xlzd/gotp v0.1.0
 	github.com/xtls/xray-core v1.260327.0
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.49.0
-	golang.org/x/mod v0.33.0
-	golang.org/x/sys v0.42.0
-	golang.org/x/text v0.35.0
-	google.golang.org/grpc v1.79.3
+	golang.org/x/crypto v0.56.0
+	golang.org/x/mod v0.38.0
+	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0
+	google.golang.org/grpc v1.83.1
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/gorm v1.31.1
 	modernc.org/sqlite v1.44.0
@@ -55,16 +59,15 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
-	github.com/goccy/go-yaml v1.19.1 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/sessions v1.4.0 // indirect
 	github.com/grbit/go-json v0.11.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
-	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.5.5 // indirect
-	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.9.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -81,7 +84,7 @@ require (
 	github.com/pires/go-proxyproto v0.11.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.58.0 // indirect
+	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/refraction-networking/utls v1.8.3-0.20260301010127-aa6edf4b11af // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
@@ -100,15 +103,14 @@ require (
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20260122175437-89a5d21be8f0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	modernc.org/libc v1.67.4 // indirect
