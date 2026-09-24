@@ -5,6 +5,7 @@ import { panel } from "@/lib/paths";
 
 type UiPrefKey =
   | "panelTheme"
+  | "panelMenuStyle"
   | "panelLang"
   | "dashboardWidgets"
   | "hideSecAlert"

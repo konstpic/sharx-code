@@ -150,6 +150,7 @@ var defaultValueMap = map[string]string{
 	"geofileAutoUpdateIntervalHours": "24",
 	// Panel UI preferences persisted in DB (instead of browser localStorage)
 	"panelTheme":        "web",
+	"panelMenuStyle":    "sidebar",
 	"panelLang":         "en",
 	"dashboardWidgets":  `["resources","xray","quick_actions","uptime","users_online","user_agent","database","network","panel_runtime"]`,
 	"hideSecAlert":      "false",
@@ -158,6 +159,7 @@ var defaultValueMap = map[string]string{
 
 var allowedUIPreferenceKeys = map[string]bool{
 	"panelTheme":        true,
+	"panelMenuStyle":    true,
 	"panelLang":         true,
 	"dashboardWidgets":  true,
 	"hideSecAlert":      true,

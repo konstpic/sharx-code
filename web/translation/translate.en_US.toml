@@ -153,6 +153,17 @@ speed = "Speed"
 compat = "Compatibility"
 needsDomain = "Needs domain + certificate"
 
+[pages.settings.menuStyle]
+title = "Menu style"
+hint = "How navigation looks and behaves. Applies to the whole panel."
+sidebar = "Sidebar"
+sidebarDesc = "Classic menu on the left with expandable sections."
+carousel = "Top carousel"
+carouselDesc = "Glowing cards on top with a gliding highlight; sections appear in a row below."
+dock = "Dock"
+dockDesc = "Floating dock at the bottom: icons grow under the cursor, sections open as a pop-over."
+mobileNote = "On phones the classic slide-out menu is always used."
+
 [pages.templates]
 sumOutbounds = "{{.N}} outbounds"
 sumRules = "{{.N}} routing rules"

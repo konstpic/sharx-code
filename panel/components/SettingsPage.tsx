@@ -12,6 +12,7 @@ import {
   KeyRound,
   Link2,
   Palette,
+  PanelTop,
   Power,
   RefreshCw,
   RotateCcw,
@@ -53,6 +54,7 @@ import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import { RemarkModelConstructor } from "@/components/settings/RemarkModelConstructor";
 import { SubscriptionBuilder } from "@/components/settings/subscription/SubscriptionBuilder";
 import { TgRunTimeField } from "@/components/settings/TgRunTimeField";
+import { MenuStyleGallery } from "@/components/settings/MenuStyleGallery";
 import { ThemeGallery } from "@/components/settings/ThemeGallery";
 import {
   AlertBanner,
@@ -580,6 +582,16 @@ export function SettingsPage() {
                 void setUiPref("panelTheme", id);
               }}
             />
+          </SettingsSection>
+
+          <SettingsSection
+            title={t("pages.settings.menuStyle.title", { defaultValue: "Menu style" })}
+            hint={t("pages.settings.menuStyle.hint", { defaultValue: "How navigation looks and behaves. Applies to the whole panel." })}
+            icon={PanelTop}
+            iconTone="accent"
+            full
+          >
+            <MenuStyleGallery />
           </SettingsSection>
 
           <SettingsSection

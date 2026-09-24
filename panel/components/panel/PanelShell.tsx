@@ -30,6 +30,10 @@ import { PanelNavLink } from "@/components/panel/PanelNavLink";
 import { PanelTelegramNavLink } from "@/components/panel/PanelTelegramNavLink";
 import { PanelDonateNavLink } from "@/components/panel/PanelDonateNavLink";
 import { PanelGitHubStarLink } from "@/components/panel/PanelGitHubStarLink";
+import { MenuCarousel } from "@/components/panel/nav/MenuCarousel";
+import { MenuDock } from "@/components/panel/nav/MenuDock";
+import type { NavNode } from "@/components/panel/nav/navModel";
+import { useMenuStyle } from "@/lib/menuStyle";
 type NavItem = { key: string; href: string; icon: React.ReactNode; label: string };
 type NavEntry =
   | NavItem
@@ -56,6 +60,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
   const [clientsOpen, setClientsOpen] = useState(true);
   const [xrayOpen, setXrayOpen] = useState(true);
   const prevInSettings = useRef(false);
+  const [menuStyle] = useMenuStyle();
   const ws = usePanelWebSocket();
   const resyncAfterDisconnect = useRef(false);
 
@@ -239,6 +244,88 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     return u === k;
   };
 
+  const navNodes: NavNode[] = useMemo(() => {
+    const u = routePath(pathname || "");
+    const icons: Record<string, NavNode["icon"]> = {
+      [p("panel/")]: LayoutDashboard,
+      [p("panel/inbounds")]: User,
+      [p("panel/groups")]: Building2,
+      [p("panel/hosts")]: Server,
+      [p("panel/api-docs")]: BookOpen,
+      [p("logout/")]: LogOut,
+    };
+    const child = (id: string, label: string, href: string, active: boolean) => ({ id, label, href, active });
+    const out: NavNode[] = [];
+    for (const item of items) {
+      if ("kind" in item) {
+        if (item.kind === "settings") {
+          out.push({
+            id: "settings",
+            label: t("menu.settings"),
+            href: linkP("panel/settings/general"),
+            icon: Settings,
+            active: inSettings,
+            children: [
+              ...SETTINGS_TAB_IDS.map((id) =>
+                child(id, tSettingsTabLabel(t, id), linkP(`panel/settings/${id}`), u === routePath(p(`panel/settings/${id}`))),
+              ),
+              child("db", t("menu.dbInspector"), linkP("panel/db-inspector"), u === dbInspectorHref),
+            ],
+          });
+        } else if (item.kind === "xray") {
+          out.push({
+            id: "xray",
+            label: t("menu.xray"),
+            href: linkP("panel/xray"),
+            icon: Wrench,
+            active: inXray,
+            children: [
+              child("tpl", t("menu.xrayTemplate"), linkP("panel/xray"), u === xrayListHref),
+              child("geo", t("menu.xrayGeoFiles", { defaultValue: "Geo-files" }), linkP("panel/xray/geo"), u === xrayGeoHref || u.startsWith(`${xrayGeoHref}/`)),
+              child("profiles", t("menu.xrayCoreConfigProfiles"), linkP("panel/xray-core-config-profiles"), u === xrayProfilesHref || u.startsWith(`${xrayProfilesHref}/`)),
+            ],
+          });
+        } else if (item.kind === "clients") {
+          out.push({
+            id: "clients",
+            label: t("menu.clients"),
+            href: linkP("panel/clients"),
+            icon: Users,
+            active: inClients,
+            children: [
+              child("manage", t("menu.clientsManage"), linkP("panel/clients"), u === clientsListHref),
+              child("stats", t("menu.clientsStatistics"), linkP("panel/clients/statistics"), u === clientsStatsHref || u.startsWith(`${clientsStatsHref}/`)),
+            ],
+          });
+        } else if (item.kind === "nodes") {
+          out.push({
+            id: "nodes",
+            label: t("menu.nodes"),
+            href: linkP("panel/nodes"),
+            icon: Network,
+            active: inNodes,
+            children: [
+              child("manage", t("menu.nodesManage"), linkP("panel/nodes"), u === nodesListHref),
+              child("stats", t("menu.nodesStatistics"), linkP("panel/nodes/statistics"), u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`)),
+              child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
+            ],
+          });
+        }
+        continue;
+      }
+      out.push({
+        id: item.key,
+        label: item.label,
+        href: item.href,
+        icon: icons[item.key] ?? LayoutDashboard,
+        active: isActive(item),
+        external: item.key === p("logout/"),
+      });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, t, pathname, inSettings, inXray, inClients, inNodes, dbInspectorHref, xrayListHref, xrayGeoHref, xrayProfilesHref, clientsListHref, clientsStatsHref, nodesListHref, nodesStatsHref, nodesGeoHref]);
+
   const closeMobile = () => setMobileNav(false);
 
   return (
@@ -279,6 +366,8 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
+      {menuStyle === "carousel" ? <MenuCarousel nodes={navNodes} /> : null}
+
       {mobileNav ? (
         <button
           type="button"
@@ -293,7 +382,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
           id="panel-doc-nav"
           className={`panel-doc-sidebar fixed left-0 top-16 z-50 flex h-[calc(100dvh-4rem)] w-[min(280px,92vw)] shrink-0 flex-col overflow-hidden border border-[var(--border)] shadow-2xl transition-transform duration-200 ease-out md:static md:top-auto md:z-20 md:h-full md:min-h-0 md:max-h-none md:w-[280px] md:translate-x-0 md:border-0 md:border-r md:border-[var(--border)] md:shadow-none md:transition-none ${
             mobileNav ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-          }`}
+          } ${menuStyle === "sidebar" ? "" : "md:hidden"}`}
         >
           <nav className="flex flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-3 md:pt-2">
             {items.map((item) => {
@@ -568,12 +657,13 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
               content flashed from ~invisible and felt like a full page reload; the shell
               looked like it disappeared with the "new page" load.
             */}
-            <div className="route-fade route-fade-in min-h-0 min-w-0">
+            <div className={`route-fade route-fade-in min-h-0 min-w-0 ${menuStyle === "dock" ? "md:pb-28" : ""}`}>
               {children}
             </div>
           </main>
         </div>
       </div>
+      {menuStyle === "dock" ? <MenuDock nodes={navNodes} /> : null}
     </div>
   );
 }
