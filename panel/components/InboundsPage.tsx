@@ -22,6 +22,7 @@ import {
   User,
   type LucideIcon,
 } from "lucide-react";
+import { InboundScenarioPicker, type InboundScenarioId } from "@/components/inbounds/InboundScenarioPicker";
 import { ShareTemplateModal, TemplateGalleryModal, type ImportMeta } from "@/components/templates/TemplateHub";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -573,6 +574,7 @@ export function InboundsPage() {
   const [loading, setLoading] = useState(true);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [scenario, setScenario] = useState<InboundScenarioId | null>(null);
   const [shareTarget, setShareTarget] = useState<{ id: number; remark: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toggleEnableBusyId, setToggleEnableBusyId] = useState<number | null>(null);
@@ -698,6 +700,7 @@ export function InboundsPage() {
   }, [modalOpen, loadNodes, loadMultiNodeMode]);
 
   const resetAddForm = useCallback(() => {
+    setScenario(null);
     setForm(defaultForm());
     setNodeBindings([]);
     setBaselineSettings("");
@@ -1645,6 +1648,35 @@ export function InboundsPage() {
     toast.success(t("success", { defaultValue: "OK" }));
   }, [toast, t]);
 
+  const applyScenario = useCallback(
+    (id: InboundScenarioId) => {
+      setScenario(id);
+      const proto: InboundFormProtocol =
+        id === "hysteria2" ? "hysteria2" : id === "trojan" ? "trojan" : id === "shadowsocks" ? "shadowsocks" : "vless";
+      applyStreamPresetForProtocol(proto);
+      setForm((f) => {
+        const streamForm = { ...f.streamForm };
+        let vlessFlow = "";
+        if (id === "reality") {
+          streamForm.network = "tcp";
+          streamForm.security = "reality";
+          vlessFlow = "xtls-rprx-vision";
+        } else if (id === "xhttp") {
+          streamForm.network = "xhttp";
+          streamForm.security = "tls";
+        } else if (id === "trojan") {
+          streamForm.network = "tcp";
+          streamForm.security = "tls";
+        }
+        return { ...f, streamForm, vlessFlow, port: id === "shadowsocks" ? f.port : 443 };
+      });
+      if (id === "reality") void generateRealityX25519();
+    },
+    // applyStreamPresetForProtocol is recreated each render but only touches state setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [generateRealityX25519],
+  );
+
   const importSharedInbound = useCallback(
     (content: unknown, meta: ImportMeta) => {
       const c = content as {
@@ -2402,6 +2434,10 @@ export function InboundsPage() {
             )}
 
             {step === "basics" ? (
+            <>
+            {editId === null ? (
+              <InboundScenarioPicker value={scenario} onPick={applyScenario} />
+            ) : null}
             <InboundFormSection
               title={t("pages.inbounds.sectionBasics", { defaultValue: "Basics" })}
             >
@@ -2563,6 +2599,7 @@ export function InboundsPage() {
                 />
               </div>
             </InboundFormSection>
+            </>
             ) : null}
 
             {step === "transport" ? (
