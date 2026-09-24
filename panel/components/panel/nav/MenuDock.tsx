@@ -13,6 +13,7 @@ function DockItem({
   node,
   mouseX,
   open,
+  hovered,
   onToggle,
   onNavigate,
   reduce,
@@ -20,12 +21,12 @@ function DockItem({
   node: NavNode;
   mouseX: MotionValue<number>;
   open: boolean;
+  hovered: boolean;
   onToggle: () => void;
   onNavigate: () => void;
   reduce: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState(false);
   const distance = useTransform(mouseX, (v) => {
     const b = ref.current?.getBoundingClientRect();
     return b ? v - b.x - b.width / 2 : Infinity;
@@ -52,14 +53,9 @@ function DockItem({
   );
 
   return (
-    <div
-      ref={ref}
-      className="relative flex flex-col items-center justify-end"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
+    <div ref={ref} data-dock-id={node.id} className="relative flex flex-col items-center justify-end">
       <AnimatePresence>
-        {hover && !open ? (
+        {hovered && !open ? (
           <motion.span
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -74,6 +70,7 @@ function DockItem({
       <AnimatePresence>
         {open && hasChildren ? (
           <motion.div
+            data-dock-popover
             initial={{ opacity: 0, y: 10, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.97 }}
@@ -129,20 +126,56 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
   const wrap = useRef<HTMLDivElement>(null);
   const activeKey = nodes.find((n) => n.active)?.id;
   const [hovering, setHovering] = useState(false);
+  const [hoverId, setHoverId] = useState<string | null>(null);
   const leaveTimer = useRef<number | null>(null);
   // A short grace period keeps the blur steady while the cursor crosses the gaps between icons.
   const enter = useCallback(() => {
     if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    leaveTimer.current = null;
     setHovering(true);
   }, []);
   const leave = useCallback(() => {
-    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
-    leaveTimer.current = window.setTimeout(() => setHovering(false), 140);
+    if (leaveTimer.current) return;
+    leaveTimer.current = window.setTimeout(() => {
+      leaveTimer.current = null;
+      setHovering(false);
+    }, 140);
   }, []);
-  useEffect(() => () => {
-    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
-  }, []);
-  const focusMode = hovering || openId !== null;
+
+  // Track the pointer position instead of relying on mouseenter/mouseleave: when the pop-over (a child of
+  // the dock) unmounts under the cursor the browser sends no "leave", which used to leave the blur and the
+  // tooltips stuck on. The position check always resolves to the truth.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const el = e.target instanceof Element ? e.target : null;
+      const inside = !!el && !!wrap.current?.contains(el);
+      if (inside) {
+        enter();
+        const item = el.closest<HTMLElement>("[data-dock-id]");
+        setHoverId(item?.dataset.dockId ?? null);
+        mouseX.set(el.closest("[data-dock-popover]") ? Infinity : e.clientX);
+      } else {
+        leave();
+        setHoverId(null);
+        mouseX.set(Infinity);
+      }
+    };
+    const onAway = () => {
+      leave();
+      setHoverId(null);
+      mouseX.set(Infinity);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.documentElement.addEventListener("pointerleave", onAway);
+    window.addEventListener("blur", onAway);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      document.documentElement.removeEventListener("pointerleave", onAway);
+      window.removeEventListener("blur", onAway);
+      if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    };
+  }, [enter, leave, mouseX]);
+  const focusMode = hovering;
 
   useEffect(() => setOpenId(null), [activeKey]);
   useEffect(() => {
@@ -182,15 +215,9 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[70] hidden justify-center md:flex">
       <motion.div
         ref={wrap}
-        onMouseEnter={enter}
         initial={reduce ? false : { y: 40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 260, damping: 24 }}
-        onMouseMove={(e) => mouseX.set(e.clientX)}
-        onMouseLeave={() => {
-          mouseX.set(Infinity);
-          leave();
-        }}
         className="panel-dock pointer-events-auto flex items-end gap-2.5 rounded-[26px] border border-[var(--border-strong)] px-3.5 pb-2 pt-2.5 shadow-[0_18px_50px_-12px_rgba(0,0,0,0.55)] backdrop-blur-xl"
         style={{ background: "color-mix(in oklab, var(--bg-elevated) 72%, transparent)" }}
         role="menubar"
@@ -202,6 +229,7 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
             mouseX={mouseX}
             reduce={reduce}
             open={openId === n.id}
+            hovered={hoverId === n.id}
             onToggle={() => setOpenId((cur) => (cur === n.id ? null : n.id))}
             onNavigate={() => setOpenId(null)}
           />
