@@ -153,15 +153,6 @@ speed = "Speed"
 compat = "Compatibility"
 needsDomain = "Needs domain + certificate"
 
-[pages.settings.tgPreview]
-title = "Message previews"
-hint = "How the bot's notifications look in Telegram."
-login = "Successful panel login"
-code = "Telegram 2FA login code"
-cpu = "High CPU alert"
-backup = "Scheduled backup"
-note = "Sample data in the selected bot language. Real messages use your actual hostname, IP and values."
-
 [pages.templates]
 sumOutbounds = "{{.N}} outbounds"
 sumRules = "{{.N}} routing rules"
