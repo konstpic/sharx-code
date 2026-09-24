@@ -423,6 +423,10 @@ noLogs = "Нет логов"
 toggleAutoScroll = "Авто"
 
 [pages.inbounds]
+dndDrag = "Перетащите, чтобы изменить порядок"
+dndNeedManual = "Включите ручной порядок, чтобы перетаскивать"
+dndNeedNoFilter = "Сбросьте фильтры, чтобы менять порядок"
+dndManualOrder = "Ручной порядок"
 allTimeTraffic = "Общий трафик"
 allTimeTrafficUsage = "Общее использование за все время"
 title = "Подключения"
@@ -2086,6 +2090,8 @@ selectNoneNodes = "Сбросить"
 deleteProfileDetail = "Действие необратимо. Профили, используемые исходящими подключениями, удалить нельзя."
 
 [pages.nodes]
+dndDrag = "Перетащите, чтобы изменить порядок"
+dndNeedNoFilter = "Сбросьте фильтры, чтобы менять порядок"
 
 
 coresTitle = "Ядра"

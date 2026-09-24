@@ -22,6 +22,8 @@ import {
   User,
   type LucideIcon,
 } from "lucide-react";
+import { useReorderDnd } from "@/lib/useReorderDnd";
+import { DragHandle } from "@/components/ui/drag-handle";
 import { InboundScenarioPicker, type InboundScenarioId } from "@/components/inbounds/InboundScenarioPicker";
 import { ShareTemplateModal, TemplateGalleryModal, type ImportMeta } from "@/components/templates/TemplateHub";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
@@ -168,6 +170,8 @@ type Row = {
   down: number;
   total: number;
   enable: boolean;
+  /** Manual position (1..n) from the server. */
+  sortOrder: number;
 };
 
 /** Maps panel API / WebSocket inbounds array to list rows. */
@@ -188,6 +192,7 @@ function inboundsPayloadToRows(raw: unknown): Row[] {
       down: Number(o.down) || 0,
       total: Number(o.total) || 0,
       enable: Boolean(o.enable),
+      sortOrder: Number(o.sortOrder) || 0,
     });
   }
   return out;
@@ -197,7 +202,7 @@ function cx(...parts: (string | false | undefined | null)[]): string {
   return parts.filter(Boolean).join(" ");
 }
 
-type InboundSortKey = "id" | "remark" | "tag" | "protocol" | "port" | "used" | "status";
+type InboundSortKey = "manual" | "id" | "remark" | "tag" | "protocol" | "port" | "used" | "status";
 type SortDir = "asc" | "desc";
 type InboundFilterStatus = "" | "enabled" | "disabled";
 
@@ -256,6 +261,9 @@ function compareInbounds(
   const m = dir === "asc" ? 1 : -1;
   let c = 0;
   switch (key) {
+    case "manual":
+      c = a.sortOrder - b.sortOrder;
+      break;
     case "id":
       c = a.id - b.id;
       break;
@@ -607,7 +615,7 @@ export function InboundsPage() {
     allTime: 0,
   });
 
-  const [sortKey, setSortKey] = useState<InboundSortKey>("id");
+  const [sortKey, setSortKey] = useState<InboundSortKey>("manual");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [columnFilters, setColumnFilters] = useState<
@@ -1807,6 +1815,7 @@ export function InboundsPage() {
     switch (k) {
       case "used":
         return "desc";
+      case "manual":
       case "id":
       case "remark":
       case "tag":
@@ -1887,6 +1896,32 @@ export function InboundsPage() {
     return next;
   }, [filteredInboundRows, sortKey, sortDir]);
 
+  const inboundDndEnabled = sortKey === "manual" && filteredInboundRows.length === rows.length;
+  const reorderInbounds = useCallback(
+    async (nextIds: number[]) => {
+      setRows((prev) => {
+        const pos = new Map(nextIds.map((id, i) => [id, i + 1]));
+        return prev.map((r) => ({ ...r, sortOrder: pos.get(r.id) ?? r.sortOrder }));
+      });
+      const res = await postJson(panel("api/inbounds/reorder"), { ids: nextIds }, true);
+      if (!res.success) {
+        toast.error(res.msg || t("fail"));
+        void load();
+      }
+    },
+    [load, t, toast],
+  );
+  const inboundDnd = useReorderDnd({
+    ids: displayedInboundRows.map((r) => r.id),
+    enabled: inboundDndEnabled,
+    orientation: viewMode === "tiles" ? "horizontal" : "vertical",
+    onReorder: reorderInbounds,
+  });
+  const dndDisabledHint =
+    sortKey !== "manual"
+      ? t("pages.inbounds.dndNeedManual", { defaultValue: "Switch to manual order to drag" })
+      : t("pages.inbounds.dndNeedNoFilter", { defaultValue: "Clear filters to change the order" });
+
   const inboundListViewCtx = useMemo(
     () => ({
       t,
@@ -1896,8 +1931,10 @@ export function InboundsPage() {
       toggleEnableBusyId: toggleEnableBusyId,
       onDelete: (id: number) => setDeleteId(id),
       onShare: (id: number, remark: string) => setShareTarget({ id, remark }),
+      dnd: inboundDnd,
+      dndHint: dndDisabledHint,
     }),
-    [t, openEdit, setInboundEnableFromRow, toggleEnableBusyId],
+    [t, openEdit, setInboundEnableFromRow, toggleEnableBusyId, inboundDnd, dndDisabledHint],
   );
 
   const isHysteriaFamily =
@@ -2044,8 +2081,9 @@ export function InboundsPage() {
       ) : viewMode === "table" ? (
         <Surface padding="none" className="overflow-hidden">
           <div className="panel-data-table overflow-x-auto">
-            <table className="w-full min-w-[1020px] table-fixed border-collapse text-left text-sm">
+            <table className="w-full min-w-[1060px] table-fixed border-collapse text-left text-sm">
               <colgroup>
+                <col className="w-[44px]" />
                 <col className="w-[18%]" />
                 <col className="w-[16%]" />
                 <col className="w-[10%]" />
@@ -2056,6 +2094,21 @@ export function InboundsPage() {
               </colgroup>
               <thead>
                 <tr className="sticky top-0 z-[1] border-b border-[var(--border)] bg-[var(--surface)] text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
+                  <th className="w-[44px] p-2" aria-label={t("pages.inbounds.dndOrder", { defaultValue: "Order" })}>
+                    {sortKey !== "manual" ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-[var(--border)] px-1 py-0.5 text-[9px] normal-case text-[var(--accent)] hover:bg-[var(--surface-strong)]"
+                        title={t("pages.inbounds.dndManualOrder", { defaultValue: "Manual order" })}
+                        onClick={() => {
+                          setSortKey("manual");
+                          setSortDir("asc");
+                        }}
+                      >
+                        ↺
+                      </button>
+                    ) : null}
+                  </th>
                   <InboundSortableTh
                     label={t("remark")}
                     sortKey="remark"
@@ -2122,6 +2175,7 @@ export function InboundsPage() {
                       key={r.id}
                       role="button"
                       tabIndex={0}
+                      {...inboundDnd.itemProps(r.id)}
                       className="cursor-pointer border-b border-[var(--border)] text-[var(--fg-muted)] hover:bg-[color-mix(in_oklab,var(--accent)_5%,transparent)]"
                       onClick={() => void openEdit(r.id)}
                       onKeyDown={(e) => {
@@ -2131,6 +2185,14 @@ export function InboundsPage() {
                         }
                       }}
                     >
+                      <td className="w-[44px] p-2" onClick={(e) => e.stopPropagation()}>
+                        <DragHandle
+                          enabled={inboundDnd.enabled}
+                          label={t("pages.inbounds.dndDrag", { defaultValue: "Drag to reorder" })}
+                          disabledHint={dndDisabledHint}
+                          {...inboundDnd.handleProps(r.id)}
+                        />
+                      </td>
                       <td
                         className="truncate p-3 font-medium text-[var(--fg)]"
                         title={r.remark || "—"}

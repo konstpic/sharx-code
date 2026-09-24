@@ -1896,3 +1896,33 @@ section[id] {
 .hover\:panel-inset-strong:hover {
   background-color: color-mix(in oklab, var(--fg) 9%, transparent);
 }
+
+
+/* Manual ordering: dragged item is dimmed, the drop position shows as an accent line. */
+[data-dnd-dragging="true"] {
+  opacity: 0.45;
+}
+[data-dnd-over="before"] {
+  box-shadow: inset 0 3px 0 0 var(--accent);
+}
+[data-dnd-over="after"] {
+  box-shadow: inset 0 -3px 0 0 var(--accent);
+}
+[data-dnd-over="before-x"] {
+  box-shadow: inset 4px 0 0 0 var(--accent);
+}
+[data-dnd-over="after-x"] {
+  box-shadow: inset -4px 0 0 0 var(--accent);
+}
+tr[data-dnd-over="before"] {
+  box-shadow: none;
+}
+tr[data-dnd-over="after"] {
+  box-shadow: none;
+}
+tr[data-dnd-over="before"] > td {
+  box-shadow: inset 0 3px 0 0 var(--accent);
+}
+tr[data-dnd-over="after"] > td {
+  box-shadow: inset 0 -3px 0 0 var(--accent);
+}

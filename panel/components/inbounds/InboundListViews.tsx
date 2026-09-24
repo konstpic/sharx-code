@@ -3,6 +3,8 @@
 import { Share2, Trash2 } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
+import { DragHandle } from "@/components/ui/drag-handle";
+import type { ReorderDnd } from "@/lib/useReorderDnd";
 import { sizeFormat } from "@/lib/format";
 import { Button, Switch } from "@/components/ui";
 
@@ -24,6 +26,8 @@ export type InboundListViewContext = {
   toggleEnableBusyId: number | null;
   onDelete: (id: number) => void;
   onShare: (id: number, remark: string) => void;
+  dnd?: ReorderDnd;
+  dndHint?: string;
 };
 
 function MetaItem({
@@ -140,12 +144,20 @@ export function InboundListRowView({
   r: InboundListRow;
   ctx: InboundListViewContext;
 }) {
-  const { t, onToggleEnable, toggleEnableBusyId } = ctx;
+  const { t, onToggleEnable, toggleEnableBusyId, dnd, dndHint } = ctx;
   return (
-    <article className={inboundCardClass(!r.enable)} {...openEditProps(r.id, ctx)}>
+    <article className={inboundCardClass(!r.enable)} {...openEditProps(r.id, ctx)} {...(dnd ? dnd.itemProps(r.id) : {})}>
       <div className="flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
+            {dnd ? (
+              <DragHandle
+                enabled={dnd.enabled}
+                label={t("pages.inbounds.dndDrag", { defaultValue: "Drag to reorder" })}
+                disabledHint={dndHint}
+                {...dnd.handleProps(r.id)}
+              />
+            ) : null}
             <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
               <Switch
                 size="sm"
@@ -184,19 +196,28 @@ export function InboundTileCardView({
   r: InboundListRow;
   ctx: InboundListViewContext;
 }) {
-  const { t, onToggleEnable, toggleEnableBusyId } = ctx;
+  const { t, onToggleEnable, toggleEnableBusyId, dnd, dndHint } = ctx;
   return (
     <article
       className={`${inboundCardClass(!r.enable)} flex h-full flex-col`}
       {...openEditProps(r.id, ctx)}
+      {...(dnd ? dnd.itemProps(r.id) : {})}
     >
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <div
-            className="shrink-0"
+            className="flex shrink-0 items-center gap-1.5"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
+            {dnd ? (
+              <DragHandle
+                enabled={dnd.enabled}
+                label={t("pages.inbounds.dndDrag", { defaultValue: "Drag to reorder" })}
+                disabledHint={dndHint}
+                {...dnd.handleProps(r.id)}
+              />
+            ) : null}
             <Switch
               size="sm"
               checked={r.enable}

@@ -3,6 +3,8 @@
 import { Activity, Power, RefreshCw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
+import { DragHandle } from "@/components/ui/drag-handle";
+import type { ReorderDnd } from "@/lib/useReorderDnd";
 import {
   NodeStatusBadge,
   TelemtStateBadge,
@@ -39,6 +41,8 @@ export type NodeListRow = {
 
 export type NodeListViewContext = {
   t: TFunction;
+  dnd?: ReorderDnd;
+  dndHint?: string;
   authModeLabel: (m?: string) => string;
   onlineUsersByNode: Record<number, number>;
   /** Recent CPU/RAM/disk history per node id (tiles view). */
@@ -362,10 +366,19 @@ export function NodeListRowView({
     <article
       className={nodeCardClass(r.enable === false)}
       {...openEditProps(r, ctx)}
+      {...(ctx.dnd ? ctx.dnd.itemProps(r.id) : {})}
     >
       <div className="flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
+            {ctx.dnd ? (
+              <DragHandle
+                enabled={ctx.dnd.enabled}
+                label={t("pages.nodes.dndDrag", { defaultValue: "Drag to reorder" })}
+                disabledHint={ctx.dndHint}
+                {...ctx.dnd.handleProps(r.id)}
+              />
+            ) : null}
             <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
               <Switch
                 size="sm"
@@ -408,14 +421,23 @@ export function NodeTileCardView({
     <article
       className={`${nodeCardClass(r.enable === false)} flex h-full flex-col`}
       {...openEditProps(r, ctx)}
+      {...(ctx.dnd ? ctx.dnd.itemProps(r.id) : {})}
     >
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <div
-            className="shrink-0"
+            className="flex shrink-0 items-center gap-1.5"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
+            {ctx.dnd ? (
+              <DragHandle
+                enabled={ctx.dnd.enabled}
+                label={t("pages.nodes.dndDrag", { defaultValue: "Drag to reorder" })}
+                disabledHint={ctx.dndHint}
+                {...ctx.dnd.handleProps(r.id)}
+              />
+            ) : null}
             <Switch
               size="sm"
               checked={r.enable !== false}

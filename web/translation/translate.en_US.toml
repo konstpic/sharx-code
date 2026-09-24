@@ -423,6 +423,10 @@ noLogs = "No logs"
 toggleAutoScroll = "Auto"
 
 [pages.inbounds]
+dndDrag = "Drag to reorder"
+dndNeedManual = "Switch to manual order to drag"
+dndNeedNoFilter = "Clear filters to change the order"
+dndManualOrder = "Manual order"
 allTimeTraffic = "All-time Traffic"
 allTimeTrafficUsage = "All Time Total Usage"
 title = "Inbounds"
@@ -2061,6 +2065,8 @@ selectNoneNodes = "Clear"
 deleteProfileDetail = "This cannot be undone. Profiles used by outbounds cannot be deleted."
 
 [pages.nodes]
+dndDrag = "Drag to reorder"
+dndNeedNoFilter = "Clear filters to change the order"
 
 
 coresTitle = "Cores"

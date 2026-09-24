@@ -37,6 +37,8 @@ import {
   NodeTilesView,
   type NodeViewMode,
 } from "@/components/nodes/NodeListViews";
+import { useReorderDnd } from "@/lib/useReorderDnd";
+import { DragHandle } from "@/components/ui/drag-handle";
 import { NodeColumnFiltersBar } from "@/components/nodes/NodeColumnFiltersBar";
 import {
   NodeStatusBadge,
@@ -107,6 +109,7 @@ type NodeRow = {
   amneziawgState?: string;
   /** When false, panel skips health, stats, and config to this node */
   enable?: boolean;
+  sortOrder?: number;
 };
 
 type ClientNodeMatrixCell = {
@@ -1250,6 +1253,8 @@ export function NodesPage() {
   const sortedAndFilteredRows = useMemo(() => {
     const q = nameFilter.trim().toLowerCase();
     const byId = [...rows].sort((a, b) => {
+      const so = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      if (so !== 0) return so;
       if (a.id !== b.id) return a.id - b.id;
       return a.name.localeCompare(b.name);
     });
@@ -1310,9 +1315,36 @@ export function NodesPage() {
     };
   }, [viewMode]);
 
+  const nodeDndEnabled = sortedAndFilteredRows.length === rows.length;
+  const reorderNodes = useCallback(
+    async (nextIds: number[]) => {
+      const pos = new Map(nextIds.map((id, i) => [id, i]));
+      setRows((prev) =>
+        [...prev]
+          .sort((a, b) => (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9))
+          .map((r, i) => ({ ...r, sortOrder: i + 1 })),
+      );
+      const res = await postJson(panel("node/reorder"), { ids: nextIds }, true);
+      if (!res.success) {
+        toast.error(res.msg || t("pages.nodes.loadError"));
+        void load();
+      }
+    },
+    [load, t, toast],
+  );
+  const nodeDnd = useReorderDnd({
+    ids: sortedAndFilteredRows.map((r) => r.id),
+    enabled: nodeDndEnabled,
+    orientation: viewMode === "tiles" ? "horizontal" : "vertical",
+    onReorder: (ids) => void reorderNodes(ids),
+  });
+  const nodeDndHint = t("pages.nodes.dndNeedNoFilter", { defaultValue: "Clear filters to change the order" });
+
   const listViewCtx = useMemo(
     () => ({
       t,
+      dnd: nodeDnd,
+      dndHint: nodeDndHint,
       authModeLabel,
       onlineUsersByNode,
       loadByNode,
@@ -1336,6 +1368,8 @@ export function NodesPage() {
     }),
     [
       t,
+      nodeDnd,
+      nodeDndHint,
       authModeLabel,
       onlineUsersByNode,
       loadByNode,
@@ -1487,6 +1521,7 @@ export function NodesPage() {
             <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
+                  <th className="w-10 p-2" scope="col" />
                   <th
                     className="w-14 p-3"
                     scope="col"
@@ -1515,7 +1550,7 @@ export function NodesPage() {
                 {sortedAndFilteredRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={14}
+                      colSpan={15}
                       className="p-6 text-center text-sm text-[var(--fg-subtle)]"
                     >
                       {t("pages.nodes.noMatches")}
@@ -1526,6 +1561,7 @@ export function NodesPage() {
                     key={r.id}
                     role="button"
                     tabIndex={0}
+                    {...nodeDnd.itemProps(r.id)}
                     className={`border-b border-[var(--border)] text-[var(--fg-muted)] hover:bg-[color-mix(in_oklab,var(--accent)_5%,transparent)] ${
                       r.enable === false ? "opacity-[0.7]" : ""
                     } cursor-pointer`}
@@ -1537,6 +1573,14 @@ export function NodesPage() {
                       }
                     }}
                   >
+                    <td className="w-10 p-2" onClick={(e) => e.stopPropagation()}>
+                      <DragHandle
+                        enabled={nodeDnd.enabled}
+                        label={t("pages.nodes.dndDrag", { defaultValue: "Drag to reorder" })}
+                        disabledHint={nodeDndHint}
+                        {...nodeDnd.handleProps(r.id)}
+                      />
+                    </td>
                     <td
                       className="p-3 w-14"
                       onClick={(e) => e.stopPropagation()}
