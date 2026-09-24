@@ -111,6 +111,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
   }, [pathname, settingsPrefix, dbInspectorHref]);
 
   const nodesListHref = useMemo(() => routePath(p("panel/nodes")), []);
+  const nodesBalancersHref = useMemo(() => routePath(p("panel/nodes/balancers")), []);
   const nodesStatsHref = useMemo(
     () => routePath(p("panel/nodes/statistics")),
     [],
@@ -275,6 +276,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
               child("manage", t("menu.nodesManage"), linkP("panel/nodes"), u === nodesListHref),
               child("stats", t("menu.nodesStatistics"), linkP("panel/nodes/statistics"), u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`)),
               child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
+              child("balancers", t("menu.balancers", { defaultValue: "Balancers" }), linkP("panel/nodes/balancers"), u === nodesBalancersHref),
             ],
           });
         }
@@ -291,7 +293,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, t, pathname, inSettings, inXray, inClients, inNodes, dbInspectorHref, xrayListHref, xrayGeoHref, xrayProfilesHref, clientsListHref, clientsStatsHref, nodesListHref, nodesStatsHref, nodesGeoHref]);
+  }, [items, t, pathname, inSettings, inXray, inClients, inNodes, dbInspectorHref, xrayListHref, xrayGeoHref, xrayProfilesHref, clientsListHref, clientsStatsHref, nodesListHref, nodesStatsHref, nodesGeoHref, nodesBalancersHref]);
 
   const closeMobile = () => setMobileNav(false);
 
