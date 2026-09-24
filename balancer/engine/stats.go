@@ -15,6 +15,7 @@ import (
 type haproxyServer struct {
 	Up       bool
 	Sessions int
+	Total    int64
 }
 
 // readHAProxyStats asks the runtime socket for `show stat` and returns servers keyed as "backend/server".
@@ -47,9 +48,10 @@ func parseHAProxyStat(r *bufio.Reader) (map[string]haproxyServer, error) {
 			continue
 		}
 		sessions, _ := strconv.Atoi(row[4])
+		total, _ := strconv.ParseInt(row[7], 10, 64)
 		// status: UP, DOWN, NOLB, MAINT, "UP 1/2" (transitioning up), "DOWN 1/2"
 		up := strings.HasPrefix(row[17], "UP")
-		out[row[0]+"/"+row[1]] = haproxyServer{Up: up, Sessions: sessions}
+		out[row[0]+"/"+row[1]] = haproxyServer{Up: up, Sessions: sessions, Total: total}
 	}
 	return out, nil
 }

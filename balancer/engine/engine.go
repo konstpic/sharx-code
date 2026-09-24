@@ -242,14 +242,18 @@ type MemberStatus struct {
 	Port     int    `json:"port"`
 	Up       *bool  `json:"up"` // nil = unknown (UDP)
 	Sessions int    `json:"sessions"`
+	Total    int64  `json:"total"` // connections served since the engine started (HAProxy only)
 }
 
 // PoolStatus is the health of one pool.
 type PoolStatus struct {
-	ID      int            `json:"id"`
-	Port    int            `json:"port"`
-	Proto   string         `json:"proto"`
-	Members []MemberStatus `json:"members"`
+	ID    int    `json:"id"`
+	Port  int    `json:"port"`
+	Proto string `json:"proto"`
+	// Listening is whether the listener really accepts connections on the port (false = the bind failed, e.g. the port is
+	// taken by another program). nil for UDP, where this cannot be probed.
+	Listening *bool          `json:"listening"`
+	Members   []MemberStatus `json:"members"`
 }
 
 // Status is what the agent reports to the panel.
@@ -279,11 +283,15 @@ func (m *Manager) Status() Status {
 	}
 	for _, p := range cur.Pools {
 		ps := PoolStatus{ID: p.ID, Port: p.ListenPort, Proto: p.Proto}
+		if p.Proto == spec.ProtoTCP && st.Running {
+			l := probeTCP("127.0.0.1", p.ListenPort)
+			ps.Listening = &l
+		}
 		for i, mem := range p.Members {
 			ms := MemberStatus{Host: mem.Host, Port: mem.Port}
 			if hs, ok := stats[fmt.Sprintf("be_%d/s%d", p.ID, i)]; ok {
 				up := hs.Up
-				ms.Up, ms.Sessions = &up, hs.Sessions
+				ms.Up, ms.Sessions, ms.Total = &up, hs.Sessions, hs.Total
 			} else if p.Proto == spec.ProtoTCP {
 				up := probeTCP(mem.Host, mem.Port)
 				ms.Up = &up

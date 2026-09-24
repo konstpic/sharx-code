@@ -59,8 +59,10 @@ func newSafeDownloadClient(timeout time.Duration) *http.Client {
 		},
 	}
 	tr := &http.Transport{
-		Proxy:               nil,
-		DialContext:         func(ctx context.Context, network, addr string) (net.Conn, error) { return dialer.DialContext(ctx, network, addr) },
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
 		TLSHandshakeTimeout: 15 * time.Second,
 		MaxIdleConns:        2,
 	}

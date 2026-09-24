@@ -466,14 +466,16 @@ type AgentStatus struct {
 	AppliedAt int64  `json:"appliedAt"`
 	LastError string `json:"lastError"`
 	Pools     []struct {
-		ID      int    `json:"id"`
-		Port    int    `json:"port"`
-		Proto   string `json:"proto"`
-		Members []struct {
+		ID        int    `json:"id"`
+		Port      int    `json:"port"`
+		Proto     string `json:"proto"`
+		Listening *bool  `json:"listening"`
+		Members   []struct {
 			Host     string `json:"host"`
 			Port     int    `json:"port"`
 			Up       *bool  `json:"up"`
 			Sessions int    `json:"sessions"`
+			Total    int64  `json:"total"`
 		} `json:"members"`
 	} `json:"pools"`
 }
