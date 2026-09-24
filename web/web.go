@@ -90,6 +90,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	}
 
 	engine := gin.New()
+	// Trust forwarding headers only from reverse proxies (loopback / private networks by default,
+	// override with XUI_TRUSTED_PROXIES); a direct client can not spoof its IP with X-Forwarded-For.
+	if err := engine.SetTrustedProxies(trustedProxyCIDRs()); err != nil {
+		return nil, err
+	}
 	engine.Use(gin.Logger(), gin.Recovery())
 	// Avoid Gin's trailing-slash / case-fix redirects; they can emit relative Location (e.g. ./) and loops.
 	engine.RedirectTrailingSlash = false

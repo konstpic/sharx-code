@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"net"
 	"net/http"
-	"strings"
 
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/entity"
@@ -11,20 +9,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getRemoteIp extracts the real IP address from the request headers or remote address.
+// getRemoteIp returns the client IP. Forwarding headers are honoured only when the request came from a
+// trusted reverse proxy (see the engine's trusted proxies), otherwise the socket address is used.
 func getRemoteIp(c *gin.Context) string {
-	value := c.GetHeader("X-Real-IP")
-	if value != "" {
-		return value
-	}
-	value = c.GetHeader("X-Forwarded-For")
-	if value != "" {
-		ips := strings.Split(value, ",")
-		return ips[0]
-	}
-	addr := c.Request.RemoteAddr
-	ip, _, _ := net.SplitHostPort(addr)
-	return ip
+	return c.ClientIP()
 }
 
 // jsonMsg sends a JSON response with a message and error status.
