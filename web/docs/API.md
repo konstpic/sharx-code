@@ -5687,3 +5687,20 @@ Note: Telemt itself requires `[[web.vhosts]].public_addr` to be a literal addres
 ---
 
 *Documentation generated for SharX panel. For more information, see the project repository.*
+
+## Balancers
+
+Edge load balancers (HAProxy / nginx) in front of nodes. See `balancer/README.md`.
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/panel/balancer/list` | | Balancers with pools, members and the last agent status (`live`). |
+| POST | `/panel/balancer/add` | `{name, address, apiAddress?, engine, remark?}` | Create. `engine`: `haproxy` or `nginx`. |
+| POST | `/panel/balancer/update/{id}` | same | Update (pushes the configuration). |
+| POST | `/panel/balancer/del/{id}` | | Delete (pools cascade). |
+| POST | `/panel/balancer/enable/{id}` | `{enable}` | Turn on or off. |
+| POST | `/panel/balancer/reorder` | `{ids:[...]}` | Manual order. |
+| POST | `/panel/balancer/pool/save` | `{id?, balancerId, inboundId, listenPort, algorithm, healthCheck, proxyProtocol, subEnabled, subMode, autoMembers, enable, members:[{nodeId, weight, backup, enable}]}` | Create or update a pool. `subMode`: `replace`, `prepend`, `append`. |
+| POST | `/panel/balancer/pool/del/{id}` | | Remove a pool. |
+| POST | `/panel/balancer/apply/{id}` | | Push the configuration now. |
+| POST | `/panel/balancer/refresh/{id}` | | Poll the agent now. |
