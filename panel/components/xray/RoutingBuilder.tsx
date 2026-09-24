@@ -49,6 +49,7 @@ import {
   TextField,
   moveItem,
 } from "@/components/xray/configurator/fields";
+import { RoutingPresetCards, type RoutingPreset } from "@/components/xray/routing/RoutingPresetCards";
 import { TagChipsInput, type ChipSuggestion } from "@/components/xray/routing/TagChipsInput";
 import type { RoutingTagContext } from "@/components/xray/routing/useRoutingTags";
 
@@ -123,6 +124,20 @@ export function RoutingBuilder({ value, onChange, readOnly, t, syncKey, tags = E
   const ipSuggestions = useMemo(() => toSuggestions(IP_SUGGESTIONS, lang), [lang]);
 
   const firstCatchAll = rules.findIndex((r) => isCatchAllRule(r));
+  const outboundTagNames = useMemo(() => tags.outbounds.map((o) => o.tag), [tags.outbounds]);
+
+  const addPreset = (preset: RoutingPreset, outboundTag: string) => {
+    const added = preset.rules.map((pr) => {
+      const row = newEmptyRule();
+      row.outboundTag = outboundTag;
+      row.domainLines = (pr.domain ?? []).join("\n");
+      row.ipLines = (pr.ip ?? []).join("\n");
+      row.protocolLines = (pr.protocol ?? []).join("\n");
+      return row;
+    });
+    const at = firstCatchAll >= 0 ? firstCatchAll : rules.length;
+    apply({ ...state, rules: [...rules.slice(0, at), ...added, ...rules.slice(at)] });
+  };
   const balancerTags = useMemo(
     () => state.balancers.map((b) => (typeof b.raw.tag === "string" ? b.raw.tag.trim() : "")).filter(Boolean),
     [state.balancers],
@@ -194,6 +209,8 @@ export function RoutingBuilder({ value, onChange, readOnly, t, syncKey, tags = E
         </div>
         <p className="text-xs text-[var(--fg-subtle)]">{strategyHint[state.domainStrategy] ?? ""}</p>
       </div>
+
+      <RoutingPresetCards rules={rules} outboundTags={outboundTagNames} readOnly={readOnly} onAdd={addPreset} />
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
