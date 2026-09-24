@@ -1060,13 +1060,14 @@ h1.font-heading,
   border-color: var(--border) !important;
 }
 
-/* The slide-out drawer sits over page content: keep it (almost) opaque so text does not bleed through the cards. */
+/* The slide-out drawer sits over page content: an opaque base color plus the themed layer, so text never shows through. */
 @media (max-width: 767px) {
   .panel-doc-sidebar,
   html[data-panel-theme] .panel-doc-sidebar {
-    background: color-mix(in oklab, var(--bg-elevated) 97%, transparent) !important;
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background-color: var(--bg) !important;
+    background-image: linear-gradient(var(--bg-elevated), var(--bg-elevated)) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
