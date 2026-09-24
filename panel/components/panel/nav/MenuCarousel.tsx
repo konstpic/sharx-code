@@ -57,7 +57,7 @@ export function MenuCarousel({ nodes, onNavigate }: { nodes: NavNode[]; onNaviga
         <div
           ref={scroller}
           role="menubar"
-          className="flex min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto scroll-smooth px-2 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{
             maskImage: `linear-gradient(90deg, ${edges.left ? "transparent, #000 28px" : "#000, #000 0"}, #000 calc(100% - 28px), ${edges.right ? "transparent" : "#000"})`,
             WebkitMaskImage: `linear-gradient(90deg, ${edges.left ? "transparent, #000 28px" : "#000, #000 0"}, #000 calc(100% - 28px), ${edges.right ? "transparent" : "#000"})`,
@@ -68,7 +68,7 @@ export function MenuCarousel({ nodes, onNavigate }: { nodes: NavNode[]; onNaviga
             const body = (
               <motion.span
                 className="relative flex min-h-[64px] w-[92px] shrink-0 snap-center flex-col items-center justify-center gap-1 rounded-2xl border border-transparent px-1.5 py-1.5 text-center"
-                whileHover={reduce ? undefined : { y: -3, scale: 1.05, rotateX: 6 }}
+                whileHover={reduce ? undefined : { y: -2, scale: 1.04, rotateX: 5 }}
                 whileTap={reduce ? undefined : { scale: 0.96 }}
                 transition={spring}
                 style={{ transformPerspective: 500 }}
@@ -80,7 +80,7 @@ export function MenuCarousel({ nodes, onNavigate }: { nodes: NavNode[]; onNaviga
                     className="absolute inset-0 rounded-2xl border border-[var(--accent)]"
                     style={{
                       background: "color-mix(in oklab, var(--accent) 14%, transparent)",
-                      boxShadow: "0 0 22px -4px color-mix(in oklab, var(--accent) 65%, transparent), inset 0 0 12px -6px var(--accent)",
+                      boxShadow: "0 0 14px -4px color-mix(in oklab, var(--accent) 65%, transparent), inset 0 0 12px -6px var(--accent)",
                     }}
                   />
                 ) : null}
