@@ -37,7 +37,7 @@ import {
   NodeTilesView,
   type NodeViewMode,
 } from "@/components/nodes/NodeListViews";
-import { useReorderDnd } from "@/lib/useReorderDnd";
+import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { NodeColumnFiltersBar } from "@/components/nodes/NodeColumnFiltersBar";
 import {
@@ -1338,6 +1338,7 @@ export function NodesPage() {
     orientation: viewMode === "tiles" ? "horizontal" : "vertical",
     onReorder: (ids) => void reorderNodes(ids),
   });
+  const shownNodeRows = applyOrder(sortedAndFilteredRows, nodeDnd.order);
   const nodeDndHint = t("pages.nodes.dndNeedNoFilter", { defaultValue: "Clear filters to change the order" });
 
   const listViewCtx = useMemo(
@@ -1556,7 +1557,7 @@ export function NodesPage() {
                       {t("pages.nodes.noMatches")}
                     </td>
                   </tr>
-                ) : sortedAndFilteredRows.map((r) => (
+                ) : shownNodeRows.map((r) => (
                   <tr
                     key={r.id}
                     role="button"
@@ -1808,13 +1809,13 @@ export function NodesPage() {
         </Surface>
       ) : viewMode === "list" ? (
         <NodeListView
-          rows={sortedAndFilteredRows}
+          rows={shownNodeRows}
           ctx={listViewCtx}
           emptyLabel={t("pages.nodes.noMatches")}
         />
       ) : (
         <NodeTilesView
-          rows={sortedAndFilteredRows}
+          rows={shownNodeRows}
           ctx={listViewCtx}
           emptyLabel={t("pages.nodes.noMatches")}
         />

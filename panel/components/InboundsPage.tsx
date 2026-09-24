@@ -22,7 +22,7 @@ import {
   User,
   type LucideIcon,
 } from "lucide-react";
-import { useReorderDnd } from "@/lib/useReorderDnd";
+import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
 import { DragHandle } from "@/components/ui/drag-handle";
 import { InboundScenarioPicker, type InboundScenarioId } from "@/components/inbounds/InboundScenarioPicker";
 import { ShareTemplateModal, TemplateGalleryModal, type ImportMeta } from "@/components/templates/TemplateHub";
@@ -1917,6 +1917,7 @@ export function InboundsPage() {
     orientation: viewMode === "tiles" ? "horizontal" : "vertical",
     onReorder: reorderInbounds,
   });
+  const shownInboundRows = applyOrder(displayedInboundRows, inboundDnd.order);
   const dndDisabledHint =
     sortKey !== "manual"
       ? t("pages.inbounds.dndNeedManual", { defaultValue: "Switch to manual order to drag" })
@@ -2170,7 +2171,7 @@ export function InboundsPage() {
                     </td>
                   </tr>
                 ) : (
-                  displayedInboundRows.map((r) => (
+                  shownInboundRows.map((r) => (
                     <tr
                       key={r.id}
                       role="button"
@@ -2257,7 +2258,7 @@ export function InboundsPage() {
         </Surface>
       ) : viewMode === "list" ? (
         <InboundListView
-          rows={displayedInboundRows}
+          rows={shownInboundRows}
           ctx={inboundListViewCtx}
           emptyLabel={t("pages.inbounds.filterNoResults", {
             defaultValue: "No inbounds match the current filters.",
@@ -2265,7 +2266,7 @@ export function InboundsPage() {
         />
       ) : (
         <InboundTilesView
-          rows={displayedInboundRows}
+          rows={shownInboundRows}
           ctx={inboundListViewCtx}
           emptyLabel={t("pages.inbounds.filterNoResults", {
             defaultValue: "No inbounds match the current filters.",
