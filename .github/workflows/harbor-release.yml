@@ -268,6 +268,51 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
+  build-sharxbalancer:
+    needs: [prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_HOST }}
+          username: ${{ secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Determine image tags
+        env:
+          HARBOR_HOST: ${{ secrets.HARBOR_HOST }}
+          HARBOR_PROJECT: ${{ secrets.HARBOR_PROJECT }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
+        run: |
+          echo "SHARXBALANCER_TAG_VERSION=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:$VERSION" >> $GITHUB_ENV
+          case "$RELEASE_CHANNEL" in
+            beta) echo "SHARXBALANCER_TAG_LATEST=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:latest-beta" >> $GITHUB_ENV ;;
+            dev)  echo "SHARXBALANCER_TAG_LATEST=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:latest-dev" >> $GITHUB_ENV ;;
+            *)    echo "SHARXBALANCER_TAG_LATEST=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:latest" >> $GITHUB_ENV ;;
+          esac
+
+      - name: Build and push sharxbalancer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./balancer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.SHARXBALANCER_TAG_VERSION }}
+            ${{ env.SHARXBALANCER_TAG_LATEST }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   postgres:
     needs: prepare
     runs-on: ubuntu-latest
