@@ -16,6 +16,7 @@ function DockItem({
   hovered,
   onToggle,
   onNavigate,
+  onPick,
   reduce,
 }: {
   node: NavNode;
@@ -24,6 +25,7 @@ function DockItem({
   hovered: boolean;
   onToggle: () => void;
   onNavigate: () => void;
+  onPick: () => void;
   reduce: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -82,7 +84,7 @@ function DockItem({
               <PanelNavLink
                 key={c.id}
                 href={c.href}
-                onClick={onNavigate}
+                onClick={onPick}
                 className={`rounded-xl px-3 py-1.5 text-sm ${
                   c.active ? "bg-[color-mix(in_oklab,var(--accent)_16%,transparent)] font-medium text-[var(--fg)]" : "text-[var(--fg-muted)] hover:bg-[color-mix(in_oklab,var(--fg)_8%,transparent)] hover:text-[var(--fg)]"
                 }`}
@@ -177,6 +179,25 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
   }, [enter, leave, mouseX]);
   const focusMode = hovering;
 
+  // mouseleave never fires when the element under the cursor is removed (e.g. the pop-over
+  // unmounting after a section is picked), so re-check the real pointer target while focused.
+  useEffect(() => {
+    if (!focusMode) return;
+    const onMove = (e: PointerEvent) => {
+      if (wrap.current?.contains(e.target as Node)) enter();
+      else leave();
+    };
+    const onOut = (e: MouseEvent) => {
+      if (!e.relatedTarget) leave();
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("mouseout", onOut);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("mouseout", onOut);
+    };
+  }, [focusMode, enter, leave]);
+
   useEffect(() => setOpenId(null), [activeKey]);
   useEffect(() => {
     if (!openId) return;
@@ -232,6 +253,11 @@ export function MenuDock({ nodes }: { nodes: NavNode[] }) {
             hovered={hoverId === n.id}
             onToggle={() => setOpenId((cur) => (cur === n.id ? null : n.id))}
             onNavigate={() => setOpenId(null)}
+            onPick={() => {
+              setOpenId(null);
+              mouseX.set(Infinity);
+              leave();
+            }}
           />
         ))}
       </motion.div>
