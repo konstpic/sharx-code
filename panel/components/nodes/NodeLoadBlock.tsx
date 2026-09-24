@@ -13,7 +13,7 @@ function last(a: number[]): number | null {
 function Sparkline({ points, color }: { points: number[]; color: string }) {
   const id = useId().replace(/[:]/g, "");
   const data = points.slice(-40);
-  if (data.length < 2) return <div className="h-8 w-full rounded bg-[var(--surface-strong)]" aria-hidden />;
+  if (data.length < 2) return <div className="h-8 w-full rounded panel-inset-strong" aria-hidden />;
   const w = 100;
   const h = 28;
   const step = w / (data.length - 1);
@@ -52,7 +52,7 @@ export function NodeLoadBlock({ load }: { load?: NodeLoad }) {
   const cpu = load ? last(load.cpu) : null;
   const color = TONE_COLOR[loadTone(cpu ?? 0)];
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-2">
+    <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--border)] panel-inset p-2">
       <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-[var(--fg-muted)]">
         <span>{t("pages.nodes.loadCpu", { defaultValue: "CPU" })}</span>
         <span className="font-mono text-xs font-semibold normal-case" style={{ color }}>

@@ -1870,3 +1870,18 @@ section[id] {
     animation: none;
   }
 }
+
+
+/*
+ * Nested surfaces inside glass cards: a translucent tint of the text color instead of an opaque
+ * white/dark plate, so light glass themes (Vision, Hello Kitty) keep the color of the glass underneath.
+ */
+.panel-inset {
+  background-color: color-mix(in oklab, var(--fg) 5%, transparent);
+}
+.panel-inset-strong {
+  background-color: color-mix(in oklab, var(--fg) 9%, transparent);
+}
+.hover\:panel-inset-strong:hover {
+  background-color: color-mix(in oklab, var(--fg) 9%, transparent);
+}

@@ -94,7 +94,7 @@ export function RoutingPresetCards({
           const Icon = p.icon;
           const block = p.target === "block";
           return (
-            <div key={p.id} className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+            <div key={p.id} className="flex flex-col gap-2 rounded-xl border border-[var(--border)] panel-inset p-3">
               <div className="flex items-center gap-2">
                 <span
                   className="grid size-8 shrink-0 place-items-center rounded-lg"
@@ -108,7 +108,7 @@ export function RoutingPresetCards({
                 <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--fg)]">{label(p.id)}</div>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 text-[10px]" aria-hidden>
-                <span className="rounded-md bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[var(--fg-muted)]">{traffic(p.id)}</span>
+                <span className="rounded-md panel-inset-strong px-1.5 py-0.5 font-mono text-[var(--fg-muted)]">{traffic(p.id)}</span>
                 <ArrowRight size={11} className="text-[var(--fg-subtle)]" />
                 <span
                   className={`rounded-md px-1.5 py-0.5 font-mono font-semibold uppercase ${

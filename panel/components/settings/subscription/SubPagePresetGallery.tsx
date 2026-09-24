@@ -80,7 +80,7 @@ export function SubPagePresetGallery({
             className={`flex flex-col gap-2 rounded-xl border p-2 text-left transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
               selected
                 ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)] shadow-[0_0_0_1px_var(--accent)]"
-                : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)]"
+                : "border-[var(--border)] panel-inset hover:border-[var(--border-strong)]"
             }`}
           >
             <SubPagePreview id={id} />

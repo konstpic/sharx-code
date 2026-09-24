@@ -120,7 +120,7 @@ export function NodeCoresBlock({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
       <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
         <span>{t("pages.nodes.coresTitle", { defaultValue: "Cores" })}</span>
         {r.workerVersion ? (
-          <span className="rounded bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[10px] font-medium normal-case tracking-normal text-[var(--fg-muted)]">
+          <span className="rounded panel-inset-strong px-1.5 py-0.5 font-mono text-[10px] font-medium normal-case tracking-normal text-[var(--fg-muted)]">
             worker {r.workerVersion}
           </span>
         ) : null}
@@ -134,7 +134,7 @@ export function NodeCoresBlock({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
         return (
           <div
             key={c.id}
-            className="grid grid-cols-[minmax(5.75rem,auto)_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5"
+            className="grid grid-cols-[minmax(5.75rem,auto)_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--border)] panel-inset px-2 py-1.5"
           >
             <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--fg)]">
               <Icon size={13} className="shrink-0 text-[var(--fg-muted)]" aria-hidden />
@@ -146,7 +146,7 @@ export function NodeCoresBlock({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
                 {stateLabel(c, st)}
               </span>
               {c.version ? (
-                <span className="rounded bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-muted)]">
+                <span className="rounded panel-inset-strong px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-muted)]">
                   {c.version}
                 </span>
               ) : null}
@@ -187,7 +187,7 @@ export function NodeInboundChips({ r, label }: { r: NodeListRow; label: string }
             <span
               key={`${name}-${i}`}
               title={name}
-              className="max-w-full truncate rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] text-[var(--fg-muted)]"
+              className="max-w-full truncate rounded-full border border-[var(--border)] panel-inset px-2 py-0.5 text-[10px] text-[var(--fg-muted)]"
             >
               {name}
             </span>
@@ -196,7 +196,7 @@ export function NodeInboundChips({ r, label }: { r: NodeListRow; label: string }
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="rounded-full border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)] hover:bg-[var(--surface-strong)]"
+              className="rounded-full border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)] hover:panel-inset-strong"
             >
               {open ? "−" : `+${items.length - LIMIT}`}
             </button>

@@ -32,7 +32,7 @@ export function TemplateSummary({ kind, summary }: { kind: string; summary: Temp
     return (
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
         {parts.map((p) => (
-          <Chip key={p} className="bg-[var(--surface-strong)] text-[var(--fg-muted)]">
+          <Chip key={p} className="panel-inset-strong text-[var(--fg-muted)]">
             {p}
           </Chip>
         ))}
@@ -49,13 +49,13 @@ export function TemplateSummary({ kind, summary }: { kind: string; summary: Temp
       {s.network ? (
         <>
           <ArrowRight size={10} className="text-[var(--fg-subtle)]" aria-hidden />
-          <Chip className="bg-[var(--surface-strong)] text-[var(--fg-muted)]">{String(s.network)}</Chip>
+          <Chip className="panel-inset-strong text-[var(--fg-muted)]">{String(s.network)}</Chip>
         </>
       ) : null}
       {security ? (
         <>
           <ArrowRight size={10} className="text-[var(--fg-subtle)]" aria-hidden />
-          <Chip className={SECURITY_STYLE[security] ?? "bg-[var(--surface-strong)] text-[var(--fg-muted)]"}>{security}</Chip>
+          <Chip className={SECURITY_STYLE[security] ?? "panel-inset-strong text-[var(--fg-muted)]"}>{security}</Chip>
         </>
       ) : null}
       {s.port ? <Chip className="ml-1 text-[var(--fg-subtle)]">:{String(s.port)}</Chip> : null}

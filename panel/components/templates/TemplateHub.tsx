@@ -237,11 +237,11 @@ function LocalTemplateList({
       ) : (
         <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1">
           {items.map((tpl) => (
-            <li key={tpl.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+            <li key={tpl.id} className="rounded-xl border border-[var(--border)] panel-inset p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium text-[var(--fg)]">{tpl.title}</span>
                 {tpl.sourceCloudId ? (
-                  <span className="rounded bg-[var(--surface-strong)] px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
+                  <span className="rounded panel-inset-strong px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
                     {t("pages.templates.fromCloud", { defaultValue: "from cloud" })}
                   </span>
                 ) : null}
@@ -312,7 +312,7 @@ function LocalTemplateList({
       ) : null}
 
       <Modal open={preview !== null} onClose={() => setPreview(null)} title={preview?.title ?? ""} width={720}>
-        <pre className="max-h-[60vh] overflow-auto rounded-lg bg-[var(--surface-strong)] p-3 text-xs">{preview?.json}</pre>
+        <pre className="max-h-[60vh] overflow-auto rounded-lg panel-inset-strong p-3 text-xs">{preview?.json}</pre>
       </Modal>
 
       <Modal
@@ -636,12 +636,12 @@ export function TemplateGalleryModal({
           ) : (
             <ul className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1">
               {items.map((tpl) => (
-                <li key={tpl.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+                <li key={tpl.id} className="rounded-xl border border-[var(--border)] panel-inset p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-[var(--fg)]">{tpl.title}</span>
-                        <span className="rounded bg-[var(--surface-strong)] px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
+                        <span className="rounded panel-inset-strong px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)]">
                           {kindLabel(t, tpl.kind)}
                         </span>
                         {tpl.mine ? (
@@ -756,7 +756,7 @@ export function TemplateGalleryModal({
         title={preview?.meta.title ?? ""}
         width={720}
       >
-        <pre className="max-h-[60vh] overflow-auto rounded-lg bg-[var(--surface-strong)] p-3 text-xs">{preview?.json}</pre>
+        <pre className="max-h-[60vh] overflow-auto rounded-lg panel-inset-strong p-3 text-xs">{preview?.json}</pre>
       </Modal>
 
       <ConfirmDialog
@@ -1054,7 +1054,7 @@ export function ShareTemplateModal({
             <summary className="cursor-pointer text-xs font-medium text-[var(--fg-muted)]">
               {t("pages.templates.previewJson", { defaultValue: "What will be published (JSON)" })}
             </summary>
-            <pre className="mt-2 max-h-64 overflow-auto rounded bg-[var(--surface-strong)] p-2 text-[11px]">{contentText}</pre>
+            <pre className="mt-2 max-h-64 overflow-auto rounded panel-inset-strong p-2 text-[11px]">{contentText}</pre>
           </details>
           <label className="flex items-start gap-2 text-xs text-[var(--fg-muted)]">
             <input type="checkbox" className="mt-0.5" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />

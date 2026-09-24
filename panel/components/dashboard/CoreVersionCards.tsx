@@ -70,7 +70,7 @@ export function CoreVersionCards({
               className={`flex flex-col gap-1 rounded-xl border p-2.5 text-left transition focus-visible:outline focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-default ${
                 isCurrent
                   ? "border-emerald-500/50 bg-emerald-500/10"
-                  : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--accent)]"
+                  : "border-[var(--border)] panel-inset hover:border-[var(--accent)]"
               }`}
             >
               <span className="font-mono text-sm font-semibold text-[var(--fg)]">{v}</span>
