@@ -1691,7 +1691,12 @@ export function InboundsPage() {
           vlessFlow: "",
           port: web ? 40443 : 443,
           listen: web ? "" : "0.0.0.0",
-          remark: f.remark.trim() ? f.remark : web ? "Telemt WEB" : "Telemt MTProto",
+          remark:
+            f.remark.trim() && f.remark !== t("pages.inbounds.telemtDefaultRemark", { defaultValue: "Telemt MTProto" })
+              ? f.remark
+              : web
+                ? "Telemt WEB"
+                : t("pages.inbounds.telemtDefaultRemark", { defaultValue: "Telemt MTProto" }),
         }));
         return;
       }
@@ -1715,7 +1720,7 @@ export function InboundsPage() {
     },
     // applyStreamPresetForProtocol is recreated each render but only touches state setters
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [generateRealityX25519],
+    [generateRealityX25519, t],
   );
 
   const importSharedInbound = useCallback(
