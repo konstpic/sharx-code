@@ -34,6 +34,7 @@ import { formatSecond, sizeFormat, toFixed } from "@/lib/format";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p } from "@/lib/paths";
 import { usePanelAccentColor } from "@/lib/panelTheme";
+import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
 import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import {
   AlertBanner,
@@ -1758,38 +1759,16 @@ export function DashboardPage() {
             ? t("pages.index.xraySwitchClick")
             : t("pages.index.telemtSwitchClick")}
         </p>
-        <ul className="list-none space-y-1">
-          {(verTab === "xray" ? verListXray : verListTelemt).map((v) => {
-            // Release tags in this list are "vX.Y.Z" (e.g. from GitHub releases); the installed
-            // version recorded per node/host is the bare "X.Y.Z" — strip the prefix before
-            // comparing so the current release is actually recognized as current.
-            const installedVersion = verTab === "xray" ? installedXray?.version : installedTelemt?.version;
-            const isCurrent =
-              !!installedVersion && v.replace(/^v/i, "") === installedVersion.replace(/^v/i, "");
-            return (
-              <li key={v} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className={`text-left text-sm hover:underline ${
-                    isCurrent ? "font-semibold text-[var(--fg)]" : "font-medium text-[var(--accent)]"
-                  }`}
-                  onClick={() => {
-                    setPendingCore(verTab);
-                    setPendingVersion(v);
-                    setVerOpen(false);
-                  }}
-                >
-                  {v}
-                </button>
-                {isCurrent ? (
-                  <PillTag tone="green">
-                    {t("pages.index.currentVersionTag", { defaultValue: "Current" })}
-                  </PillTag>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+        <CoreVersionCards
+          key={verTab}
+          versions={verTab === "xray" ? verListXray : verListTelemt}
+          installed={verTab === "xray" ? installedXray?.version : installedTelemt?.version}
+          onPick={(v) => {
+            setPendingCore(verTab);
+            setPendingVersion(v);
+            setVerOpen(false);
+          }}
+        />
       </Modal>
 
       <Modal

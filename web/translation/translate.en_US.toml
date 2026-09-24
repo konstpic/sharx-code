@@ -242,6 +242,14 @@ saveLocalOnly = "Save locally only"
 sectionAbout = "Help for this section"
 
 [pages.index]
+
+versionSearch = "Search version"
+
+latestVersionTag = "Latest"
+
+versionNewer = "newer"
+
+versionOlder = "older"
 title = "Overview"
 cpu = "CPU"
 logicalProcessors = "Logical Processors"

@@ -242,6 +242,14 @@ saveLocalOnly = "Только сохранить локально"
 sectionAbout = "Справка по разделу"
 
 [pages.index]
+
+versionSearch = "Поиск версии"
+
+latestVersionTag = "Последняя"
+
+versionNewer = "новее"
+
+versionOlder = "старее"
 title = "Дашборд"
 cpu = "ЦП"
 logicalProcessors = "Логические процессоры"
