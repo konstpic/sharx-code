@@ -423,12 +423,24 @@ func (c *convCtx) verify(rep *ConversionReport, clients []convClient, host strin
 	return out
 }
 
-// randomLinkParam matches the parts of a share link the generator randomises on every request (Reality spiderX), which no
-// two renderings of the same subscription share. Everything else must match exactly.
-var randomLinkParam = regexp.MustCompile(`([?&])spx=[^&#\s]*`)
+// Reality links are randomised on every request: spiderX always, and server name and short id when the inbound lists several.
+// No two renderings of the same subscription agree on them, so they are masked on Reality lines. Everything else on those
+// lines (address, port, key, flow, type, fragment) and every other line must match exactly.
+var (
+	randomLinkParam  = regexp.MustCompile(`([?&])spx=[^&#\s]*`)
+	realityRandomKey = regexp.MustCompile(`([?&])(sni|sid|spx)=[^&#\s]*`)
+)
 
 func normalizeLines(lines []string) string {
-	return randomLinkParam.ReplaceAllString(strings.Join(lines, "\n"), "${1}spx=*")
+	all := strings.Split(strings.Join(lines, "\n"), "\n")
+	for i, l := range all {
+		if strings.Contains(l, "security=reality") {
+			all[i] = realityRandomKey.ReplaceAllString(l, "${1}${2}=*")
+		} else {
+			all[i] = randomLinkParam.ReplaceAllString(l, "${1}spx=*")
+		}
+	}
+	return strings.Join(all, "\n")
 }
 
 func errString(err error) string {
