@@ -342,9 +342,23 @@ func followBundles(tx *gorm.DB, inboundId, hostId int, kind string) error {
 				last = i
 			}
 		}
+		// If the bundle lists none of the inbound's placements (they are all hidden or disabled, e.g. a Host replaced them in
+		// the old scheme), a new one stays hidden too: adding a node must not undo that choice.
+		hidden := false
+		if kind == model.HostKindPlacement {
+			var total, visible int64
+			base := "inbound_id = ? AND kind = ? AND id IN (SELECT host_id FROM bundle_hosts WHERE bundle_id = ?"
+			if err := tx.Model(&model.Host{}).Where(base+")", inboundId, model.HostKindPlacement, bid).Count(&total).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&model.Host{}).Where(base+" AND hidden = FALSE) AND enable = TRUE", inboundId, model.HostKindPlacement, bid).Count(&visible).Error; err != nil {
+				return err
+			}
+			hidden = total > 0 && visible == 0
+		}
 		ordered := make([]model.BundleHost, 0, len(links)+1)
 		ordered = append(ordered, links[:last+1]...)
-		ordered = append(ordered, model.BundleHost{BundleId: bid, HostId: hostId})
+		ordered = append(ordered, model.BundleHost{BundleId: bid, HostId: hostId, Hidden: hidden})
 		ordered = append(ordered, links[last+1:]...)
 		for i := range ordered {
 			if ordered[i].Id == 0 {

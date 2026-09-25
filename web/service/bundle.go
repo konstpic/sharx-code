@@ -425,3 +425,49 @@ func (s *BundleService) RemoveClients(bundleId int, clientIds []int) ([]AccessDi
 	})
 	return diffs, err
 }
+
+// SubscriptionHosts returns, per inbound, the hosts that deliver it to the client in the subscription: the client's
+// enabled bundles in order, each bundle's hosts in order, without hidden or disabled hosts, each host once. The map only has
+// keys for inbounds the client's bundles cover; a covered inbound whose hosts are all hidden or disabled maps to an empty
+// slice (access without delivery).
+func (s *BundleService) SubscriptionHosts(clientId int) (map[int][]model.Host, error) {
+	db := database.GetDB()
+	bws, err := loadClientBundles(db, clientId)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int][]model.Host{}
+	seenHost := map[int]bool{}
+	for _, b := range bws {
+		if !b.bundle.Enable {
+			continue
+		}
+		for _, h := range b.hosts {
+			if h.inboundId <= 0 {
+				continue
+			}
+			if _, ok := out[h.inboundId]; !ok {
+				out[h.inboundId] = []model.Host{}
+			}
+			if h.hidden || seenHost[h.hostId] {
+				continue
+			}
+			var host model.Host
+			if err := db.First(&host, h.hostId).Error; err != nil {
+				continue
+			}
+			if !host.Enable {
+				continue
+			}
+			seenHost[h.hostId] = true
+			out[h.inboundId] = append(out[h.inboundId], host)
+		}
+	}
+	return out, nil
+}
+
+// BundlesActive reports whether the bundle scheme drives access and delivery.
+func (s *BundleService) BundlesActive() bool {
+	on, err := (&SettingService{}).GetBundlesEnabled()
+	return err == nil && on
+}

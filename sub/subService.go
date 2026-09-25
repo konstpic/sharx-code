@@ -34,8 +34,11 @@ type SubService struct {
 	nodeService     service.NodeService
 	hostService     service.HostService
 	balancerService service.BalancerService
-	clientService   service.ClientService
-	hwidService     service.ClientHWIDService
+	bundleService   service.BundleService
+	// forceBundles makes this instance use the bundle scheme even while the switch is off (conversion verification only).
+	forceBundles  bool
+	clientService service.ClientService
+	hwidService   service.ClientHWIDService
 }
 
 // NewSubService creates a new subscription service with the given configuration.
@@ -88,6 +91,7 @@ func (s *SubService) ClientShareLinks(client *model.ClientEntity, inboundIDs []i
 		if err != nil || inbound == nil {
 			continue
 		}
+		s.attachBundleHosts(client, []*model.Inbound{inbound})
 		prepared := s.prepareInboundForSubscription(inbound)
 		link := s.getLinkWithClient(prepared, client)
 		if link == "" && client != nil && strings.TrimSpace(client.Name) != "" {
@@ -402,7 +406,8 @@ func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) 
 			}
 			inbounds = append(inbounds, inb)
 		}
-		return inbounds, nil
+		s.attachBundleHosts(&client, inbounds)
+		return dropInboundsWithoutHosts(inbounds), nil
 	}
 
 	// Fallback to old architecture: search in Settings JSON (for backward compatibility)
@@ -684,6 +689,7 @@ func (s *SubService) TelemtTgProxyLinesForSubscription(subId string, host string
 		if !ok || model.NormalizeProtocol(inb.Protocol) != model.Telemt {
 			continue
 		}
+		s.attachBundleHosts(&client, []*model.Inbound{inb})
 		prepared := s.prepareInboundForSubscription(inb)
 		link := s.getLinkWithClient(prepared, &client)
 		for _, line := range strings.Split(link, "\n") {
@@ -821,6 +827,30 @@ type AddressPort struct {
 	// ApplyHostSubscriptionOverrides is true only for the endpoint row derived from the panel Host (CDN/front).
 	// Host TLS/stream overrides apply to those rows only; node-derived rows keep inbound stream settings.
 	ApplyHostSubscriptionOverrides bool
+	// OverrideHost, when set, carries the overrides for this row instead of the inbound-wide host (bundle scheme: every
+	// address host has its own overrides).
+	OverrideHost *model.Host
+	// Src says where the row came from. The bundle conversion uses it to map the old assembly onto hosts.
+	Src AddrSource
+}
+
+// AddrSource is the provenance of an AddressPort.
+type AddrSource struct {
+	Kind   string // placement | address | pool | local
+	NodeId int
+	PoolId int
+	HostId int
+}
+
+// overrideHostFor returns the host whose subscription overrides apply to this row, if any.
+func (ap AddressPort) overrideHostFor(inboundWide *model.Host) *model.Host {
+	if !ap.ApplyHostSubscriptionOverrides {
+		return nil
+	}
+	if ap.OverrideHost != nil {
+		return ap.OverrideHost
+	}
+	return inboundWide
 }
 
 // RemarkTplNode overrides remark template n/p slots for per-endpoint links.
@@ -840,6 +870,7 @@ func hostAddressPort(h *model.Host) AddressPort {
 	ap := AddressPort{
 		Address:                        h.Address,
 		ApplyHostSubscriptionOverrides: true,
+		Src:                            AddrSource{Kind: model.HostKindAddress, HostId: h.Id},
 	}
 	if h.Port > 0 {
 		ap.Port = h.Port
@@ -872,7 +903,7 @@ func (s *SubService) defaultAddressPorts(inbound *model.Inbound) []AddressPort {
 			}
 		}
 	}
-	return []AddressPort{{Address: defaultAddress, Port: 0}}
+	return []AddressPort{{Address: defaultAddress, Port: 0, Src: AddrSource{Kind: model.HostKindLocal}}}
 }
 
 func (s *SubService) buildNodeAddressPorts(inbound *model.Inbound) []AddressPort {
@@ -903,6 +934,7 @@ func (s *SubService) buildNodeAddressPorts(inbound *model.Inbound) []AddressPort
 			ServerDescription: row.Mapping.ServerDescription,
 			RemarkNodeName:    row.Node.Name,
 			RemarkDisplayHost: addr,
+			Src:               AddrSource{Kind: model.HostKindPlacement, NodeId: row.Node.Id},
 		})
 	}
 	return out
@@ -911,7 +943,7 @@ func (s *SubService) buildNodeAddressPorts(inbound *model.Inbound) []AddressPort
 // getAddressesForInbound returns addresses for subscription links.
 // Host mode replace uses only the host; prepend/append merge host with node-derived addresses.
 // When the second value is non-nil, it is the enabled Host mapped to this inbound (for subscription TLS/stream overrides).
-func (s *SubService) getAddressesForInbound(inbound *model.Inbound) ([]AddressPort, *model.Host) {
+func (s *SubService) legacyAddressesForInbound(inbound *model.Inbound) ([]AddressPort, *model.Host) {
 	nodeAddrs := s.buildNodeAddressPorts(inbound)
 	if len(nodeAddrs) == 0 {
 		nodeAddrs = s.defaultAddressPorts(inbound)
@@ -944,7 +976,20 @@ func (s *SubService) getAddressesForInbound(inbound *model.Inbound) ([]AddressPo
 	}
 
 	nodeAddrs = applyBalancerEntries(nodeAddrs, s.balancerService.SubscriptionEntries(inbound.Id, inbound.Port))
+	return nodeAddrs, subHost
+}
 
+// getAddressesForInbound returns the address rows for an inbound: from the client's bundle hosts when the bundle scheme is
+// active for this request, otherwise the legacy assembly. When the second value is non-nil it is the host whose TLS/stream
+// overrides apply inbound-wide (the first address host).
+func (s *SubService) getAddressesForInbound(inbound *model.Inbound) ([]AddressPort, *model.Host) {
+	var nodeAddrs []AddressPort
+	var subHost *model.Host
+	if inbound.SubHostsSet {
+		nodeAddrs, subHost = s.addressesFromBundleHosts(inbound)
+	} else {
+		nodeAddrs, subHost = s.legacyAddressesForInbound(inbound)
+	}
 	nonEmpty := make([]AddressPort, 0, len(nodeAddrs))
 	for _, ap := range nodeAddrs {
 		if strings.TrimSpace(ap.Address) != "" {
@@ -1111,8 +1156,8 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 	// Generate links for each node address
 	for _, addrPort := range nodeAddresses {
 		obj := shallowCopyAnyMap(baseObj)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToVmessBase(subHost, network, obj)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToVmessBase(h, network, obj)
 		}
 		obj["add"] = addrPort.Address
 		// Use port from Host if specified, otherwise use inbound.Port
@@ -1277,8 +1322,8 @@ func (s *SubService) genVmessLinkWithClient(inbound *model.Inbound, client *mode
 	// Generate links for each node address
 	for _, addrPort := range nodeAddresses {
 		obj := shallowCopyAnyMap(baseObj)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToVmessBase(subHost, network, obj)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToVmessBase(h, network, obj)
 		}
 		obj["add"] = addrPort.Address
 		// Use port from Host if specified, otherwise use inbound.Port
@@ -1566,8 +1611,8 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 		q := url.Query()
 
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 
 		for k, v := range rowParams {
@@ -1797,8 +1842,8 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		q := url.Query()
 
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 
 		for k, v := range rowParams {
@@ -2000,8 +2045,8 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 		q := url.Query()
 
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 
 		for k, v := range rowParams {
@@ -2218,8 +2263,8 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		q := url.Query()
 
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 
 		for k, v := range rowParams {
@@ -2477,8 +2522,8 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 		}
 		q := u.Query()
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 		for k, v := range rowParams {
 			q.Add(k, v)
@@ -2693,8 +2738,8 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 		}
 		q := u.Query()
 		rowParams := shallowCopyStringMap(baseParams)
-		if subHost != nil && addrPort.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToParams(subHost, sn, rowParams)
+		if h := addrPort.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToParams(h, sn, rowParams)
 		}
 		for k, v := range rowParams {
 			q.Add(k, v)
@@ -2848,8 +2893,8 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 		}
 
 		rowParams := shallowCopyStringMap(params)
-		if subHost != nil && ap.ApplyHostSubscriptionOverrides {
-			applyHostOverridesToHysteriaParams(subHost, rowParams)
+		if h := ap.overrideHostFor(subHost); h != nil {
+			applyHostOverridesToHysteriaParams(h, rowParams)
 		}
 
 		u := buildCredentialShareURL(protocol, auth, addr, linkPort)
@@ -3542,7 +3587,7 @@ func applyBalancerEntries(direct []AddressPort, entries []service.BalancerSubEnt
 		return direct
 	}
 	mk := func(e service.BalancerSubEntry) AddressPort {
-		return AddressPort{Address: e.Address, Port: e.Port, RemarkNodeName: e.Name, RemarkDisplayHost: e.Address}
+		return AddressPort{Address: e.Address, Port: e.Port, RemarkNodeName: e.Name, RemarkDisplayHost: e.Address, Src: AddrSource{Kind: model.HostKindPool, PoolId: e.PoolId}}
 	}
 	var replace, prepend, appendix []AddressPort
 	for _, e := range entries {

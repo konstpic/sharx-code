@@ -696,6 +696,7 @@ type BalancerSubEntry struct {
 	Port    int // 0 = the inbound's own port
 	Mode    string
 	Name    string
+	PoolId  int
 }
 
 // SubscriptionEntries lists the balancer entries for an inbound (enabled balancer, enabled pool, subscription on).
@@ -716,7 +717,7 @@ func (s *BalancerService) SubscriptionEntries(inboundId int, inboundPort int) []
 		if port == inboundPort {
 			port = 0
 		}
-		out = append(out, BalancerSubEntry{Address: b.Address, Port: port, Mode: model.NormalizeBalancerSubMode(p.SubMode), Name: b.Name})
+		out = append(out, BalancerSubEntry{Address: b.Address, Port: port, Mode: model.NormalizeBalancerSubMode(p.SubMode), Name: b.Name, PoolId: p.Id})
 	}
 	return out
 }

@@ -139,6 +139,10 @@ type Inbound struct {
 	NodeId         *int                     `json:"nodeId,omitempty" form:"-" gorm:"-"`       // Node ID (not stored in Inbound table, from mapping) - DEPRECATED: kept only for backward compatibility with old clients, use NodeIds instead
 	NodeIds        []int                    `json:"nodeIds,omitempty" form:"-" gorm:"-"`      // Node IDs array (not stored in Inbound table, from mapping) - use this for multi-node support
 	NodeBindings   []InboundNodeBindingView `json:"nodeBindings,omitempty" form:"-" gorm:"-"` // Subscription-facing node rows (panel only)
+	// Bundle scheme: the hosts delivering this inbound to the client of the current subscription request. Set per request
+	// on a copy (never stored). SubHostsSet distinguishes "bundle scheme, no visible host" from "legacy assembly".
+	SubHosts    []Host `json:"-" gorm:"-"`
+	SubHostsSet bool   `json:"-" gorm:"-"`
 }
 
 // OutboundTraffics tracks traffic statistics for Xray outbound connections.
