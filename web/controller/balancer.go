@@ -13,11 +13,14 @@ import (
 // BalancerController exposes balancer management under /panel/balancer.
 type BalancerController struct {
 	svc service.BalancerService
+	// nodes must be the same NodeService instance as NodeController's: it owns the SSH install task store that
+	// /panel/node/ssh-provision-status reads.
+	nodes *service.NodeService
 }
 
 // NewBalancerController registers the routes.
-func NewBalancerController(g *gin.RouterGroup) *BalancerController {
-	a := &BalancerController{}
+func NewBalancerController(g *gin.RouterGroup, nodes *service.NodeService) *BalancerController {
+	a := &BalancerController{nodes: nodes}
 	g.GET("/list", a.list)
 	g.POST("/add", a.add)
 	g.POST("/update/:id", a.update)
@@ -29,6 +32,7 @@ func NewBalancerController(g *gin.RouterGroup) *BalancerController {
 	g.POST("/apply/:id", a.apply)
 	g.POST("/refresh/:id", a.refresh)
 	g.GET("/metrics/:id", a.metrics)
+	g.POST("/ssh-install/:id", a.sshInstall)
 	return a
 }
 
@@ -185,6 +189,40 @@ func (a *BalancerController) apply(c *gin.Context) {
 		return
 	}
 	jsonObj(c, a.view(b), nil)
+}
+
+// sshInstall starts the automatic agent install. The host-key fingerprint must be confirmed first
+// (POST /panel/node/ssh-hostkey, same as for nodes); credentials are used once and never stored.
+func (a *BalancerController) sshInstall(c *gin.Context) {
+	id, ok := balancerID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Host                 string `json:"host"`
+		Port                 int    `json:"port"`
+		Username             string `json:"username"`
+		AuthMethod           string `json:"authMethod"`
+		Password             string `json:"password"`
+		PrivateKey           string `json:"privateKey"`
+		PrivateKeyPassphrase string `json:"privateKeyPassphrase"`
+		InstallDir           string `json:"installDir"`
+		HostKeyFingerprint   string `json:"hostKeyFingerprint"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "Invalid request", err)
+		return
+	}
+	taskID, err := a.svc.StartSSHInstall(a.nodes, id, service.NodeSSHProvisionRequest{
+		Host: body.Host, Port: body.Port, Username: body.Username, AuthMethod: body.AuthMethod,
+		Password: body.Password, PrivateKeyPem: body.PrivateKey, PrivateKeyPassphrase: body.PrivateKeyPassphrase,
+		InstallDir: body.InstallDir, HostKeyFingerprint: body.HostKeyFingerprint,
+	})
+	if err != nil {
+		jsonMsg(c, "Failed to start the install: "+err.Error(), err)
+		return
+	}
+	jsonObj(c, gin.H{"taskId": taskID}, nil)
 }
 
 func (a *BalancerController) metrics(c *gin.Context) {

@@ -1,7 +1,7 @@
 # Balancer (edge load balancer)
 
-Status: implemented (agent, panel service and UI). Install over SSH is not done yet: the agent is installed from a
-copy-paste compose file. See `balancer/README.md` for usage.
+Status: implemented (agent, panel service, UI, live traffic, install over SSH or from a compose file).
+See `balancer/README.md` for usage.
 
 ## Goal
 

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -621,6 +622,31 @@ func (s *BalancerService) Metrics(id int, sinceMs int64) (json.RawMessage, error
 		return nil, fmt.Errorf("agent returned %d (update the agent to get traffic history)", resp.StatusCode)
 	}
 	return raw, nil
+}
+
+// StartSSHInstall installs the balancer agent on the balancer's server over SSH (same runner, host-key pinning and progress
+// as node provisioning) and returns the task id to poll with NodeService.GetSSHProvisionTask.
+func (s *BalancerService) StartSSHInstall(nodeSvc *NodeService, id int, req NodeSSHProvisionRequest) (string, error) {
+	b, err := s.Get(id)
+	if err != nil {
+		return "", errors.New("balancer not found")
+	}
+	pairing := &PanelPairingService{}
+	secret, err := pairing.GetSecretKey()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(req.Host) == "" {
+		req.Host = b.Address
+	}
+	port := 8080
+	if u, err := url.Parse(b.ApiAddress); err == nil && u.Port() != "" {
+		if n, err := strconv.Atoi(u.Port()); err == nil && n > 0 {
+			port = n
+		}
+	}
+	req.Role, req.AgentPort, req.SecretKey, req.NodeId = BalancerRole, port, secret, 0
+	return nodeSvc.StartNodeSSHProvision(req)
 }
 
 // Reconcile refreshes every enabled balancer and re-applies the spec when the agent drifted from the panel

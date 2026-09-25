@@ -85,12 +85,44 @@ type NodeSSHProvisionRequest struct {
 	// HostKeyFingerprint is the SHA256 fingerprint ("SHA256:...") of the SSH host key the admin confirmed
 	// (see ProbeSSHHostKey). Required: the connection is refused when the server presents any other key.
 	HostKeyFingerprint string
+	// Role selects what gets installed: "" = a node worker, "balancer" = the balancer agent (see balancer/README.md).
+	Role string
+	// AgentPort is the balancer agent's API port (balancer role only).
+	AgentPort int
 }
 
 const nodeSSHProvisionDefaultInstallDir = "/opt/sharxnode"
 const nodeSSHProvisionDefaultWatchtowerPort = 8081
 
 const nodeProvisionDockerImage = "harbor.sharxconnect.app/sharx/sharxnode:latest"
+
+const balancerProvisionDockerImage = "harbor.sharxconnect.app/sharx/sharxbalancer:latest"
+const balancerProvisionDefaultInstallDir = "/opt/sharxbalancer"
+
+// BalancerRole is NodeSSHProvisionRequest.Role for installing the balancer agent.
+const BalancerRole = "balancer"
+
+// buildBalancerDockerComposeYaml mirrors panel/components/BalancersPage.tsx's buildBalancerComposeYaml.
+func buildBalancerDockerComposeYaml(secretKey string, agentPort int) string {
+	if agentPort <= 0 || agentPort > 65535 {
+		agentPort = 8080
+	}
+	return fmt.Sprintf(`services:
+  balancer:
+    image: %s
+    container_name: sharx-balancer
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - sharx-balancer-data:/app/data
+    environment:
+      SECRET_KEY: %s
+      SHARX_BALANCER_PORT: "%d"
+
+volumes:
+  sharx-balancer-data:
+`, balancerProvisionDockerImage, strconv.Quote(secretKey), agentPort)
+}
 
 // buildNodeDockerComposeYaml mirrors panel/components/NodesPage.tsx's buildNodeDockerComposeYaml
 // (same content, modulo Go/TS string interpolation) when watchtowerPort is the default 8081 — the
@@ -250,6 +282,9 @@ func (s *NodeService) StartNodeSSHProvision(req NodeSSHProvisionRequest) (string
 	installDir := strings.TrimSpace(req.InstallDir)
 	if installDir == "" {
 		installDir = nodeSSHProvisionDefaultInstallDir
+		if req.Role == BalancerRole {
+			installDir = balancerProvisionDefaultInstallDir
+		}
 	}
 	if req.WatchtowerPort <= 0 || req.WatchtowerPort > 65535 {
 		req.WatchtowerPort = nodeSSHProvisionDefaultWatchtowerPort
@@ -324,6 +359,9 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 	// --- write compose ---
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepWriteCompose, "running", "") })
 	compose := buildNodeDockerComposeYaml(req.SecretKey, req.WatchtowerPort)
+	if req.Role == BalancerRole {
+		compose = buildBalancerDockerComposeYaml(req.SecretKey, req.AgentPort)
+	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(compose))
 	writeCmd := fmt.Sprintf(
 		"mkdir -p %s && echo %s | base64 -d > %s/docker-compose.yml",
@@ -340,6 +378,10 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 	// --- compose up ---
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepComposeUp, "running", "") })
 	upCmd := fmt.Sprintf("cd %s && docker compose pull && docker compose up -d", shellQuote(req.InstallDir))
+	if req.Role == BalancerRole {
+		// A failed pull (offline registry, self-built image tagged locally) must not block starting an image that is already present.
+		upCmd = fmt.Sprintf("cd %s && (docker compose pull || true) && docker compose up -d", shellQuote(req.InstallDir))
+	}
 	out, err := sshRunCombined(client, 5*time.Minute, upCmd)
 	if err != nil {
 		fail(NodeProvisionStepComposeUp, fmt.Errorf("%v: %s", err, truncateForError(out)))

@@ -7,6 +7,7 @@ import { getJson, postJson } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { panel } from "@/lib/paths";
 import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
+import { BalancerSSHInstall } from "@/components/balancers/BalancerSSHInstall";
 import { BalancerTraffic } from "@/components/balancers/BalancerTraffic";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
@@ -142,6 +143,7 @@ export function BalancersPage() {
   const [install, setInstall] = useState<Balancer | null>(null);
   const [secret, setSecret] = useState("");
   const [trafficOpen, setTrafficOpen] = useState<Set<number>>(new Set());
+  const [installMode, setInstallMode] = useState<"manual" | "ssh">("ssh");
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -548,6 +550,31 @@ export function BalancersPage() {
         }
       >
         {install ? (
+          <div className="flex flex-col gap-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <RadioOptionCard
+                name="installmode"
+                heading={t("pages.balancers.installSsh", { defaultValue: "Automatically over SSH" })}
+                description={t("pages.balancers.installSshDesc", { defaultValue: "The panel connects to the server, installs Docker if needed and starts the agent." })}
+                checked={installMode === "ssh"}
+                onChange={() => setInstallMode("ssh")}
+              />
+              <RadioOptionCard
+                name="installmode"
+                heading={t("pages.balancers.installManual", { defaultValue: "Manually (docker-compose)" })}
+                description={t("pages.balancers.installManualDesc", { defaultValue: "Copy the file to the server and start it yourself." })}
+                checked={installMode === "manual"}
+                onChange={() => setInstallMode("manual")}
+              />
+            </div>
+            {installMode === "ssh" ? (
+              <BalancerSSHInstall
+                key={install.id}
+                balancerId={install.id}
+                defaultHost={install.address}
+                onInstalled={() => load(true)}
+              />
+            ) : (
           <div className="flex flex-col gap-3 text-sm text-[var(--fg-muted)]">
             <p>
               {t("pages.balancers.installText", {
@@ -576,6 +603,8 @@ export function BalancersPage() {
               </>
             ) : (
               <Spinner size={24} />
+            )}
+          </div>
             )}
           </div>
         ) : null}

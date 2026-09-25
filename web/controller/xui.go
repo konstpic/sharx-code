@@ -32,7 +32,7 @@ func (a *XUIController) initRouter(g *gin.RouterGroup) {
 	a.xraySettingController = NewXraySettingController(g)
 	a.nodeController = NewNodeController(g.Group("/node"))
 
-	NewBalancerController(g.Group("/balancer"))
+	NewBalancerController(g.Group("/balancer"), &a.nodeController.nodeService)
 	NewClientController(g.Group("/client"))
 	NewHostController(g.Group("/host"))
 	NewClientHWIDController(g.Group("/client"))

@@ -5704,3 +5704,5 @@ Edge load balancers (HAProxy / nginx) in front of nodes. See `balancer/README.md
 | POST | `/panel/balancer/pool/del/{id}` | | Remove a pool. |
 | POST | `/panel/balancer/apply/{id}` | | Push the configuration now. |
 | POST | `/panel/balancer/refresh/{id}` | | Poll the agent now. |
+| GET | `/panel/balancer/metrics/{id}?since=` | | Traffic history from the agent: cumulative counters sampled every 2 s (last hour). |
+| POST | `/panel/balancer/ssh-install/{id}` | `{host, port, username, authMethod, password/privateKey, hostKeyFingerprint}` | Install the agent over SSH. Confirm the fingerprint first with `POST /panel/node/ssh-hostkey`; poll `GET /panel/node/ssh-provision-status/{taskId}`. |
