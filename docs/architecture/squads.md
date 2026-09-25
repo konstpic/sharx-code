@@ -1,7 +1,13 @@
-# Squads: who gets which inbounds, and which hosts they see
+# Bundles: who gets which hosts (and through them which inbounds)
 
-Status: analysis and design. Nothing is implemented yet. The migration plan below is the part that must not go wrong:
-existing clients keep working, with the same access and the same subscription, without any manual step.
+Status: design, decisions taken. The entity is called a **bundle** (RU: пакет). "Squad" below refers to the Remnawave
+concept it is modelled on. The migration is automatic and must lose nothing: existing clients keep the same access and
+the same subscription.
+
+Decisions (from the operator): (1) every delivered entry becomes a stored **host** and delivery is fully host-based;
+(2) **no personal inbounds**: a client gets access only through bundles; (3) existing clients are converted
+**automatically on upgrade**. Sections 4 to 7 are written for these decisions. The safety net that makes an automatic
+conversion acceptable is the shadow-convert, verify, then switch design in section 5.
 
 ## 1. Why
 
@@ -16,9 +22,9 @@ with presentation. The proposal separates three things:
 
 ```
 placement   inbound on a node, or in a balancer pool          (infrastructure, exists)
-squad       a named set of inbounds = access, plus what it shows   (new)
-client      belongs to squads                                  (new link, replaces per-client lists)
-host        what the client is given: an address the app connects to
+host        one entry the client is given: address + port + link overrides, bound to one inbound
+bundle      an ordered set of hosts; access is derived from the hosts' inbounds
+client      belongs to bundles (replaces per-client inbound lists)
 ```
 
 ## 2. What Remnawave does (reference)
@@ -56,163 +62,165 @@ Consequences for the design:
    integration call would strip squad access.
 3. Row ids and Telemt secrets must survive. Delete and re-create would rotate secrets and break existing links.
 
-## 4. Proposed model
+## 4. Model
 
 ### 4.1 Entities
 
 ```
-squads               id, name, description, enable, sort_order, created_at, updated_at
-squad_inbounds       squad_id, inbound_id                            -- access
-squad_delivery       id, squad_id, kind, host_id, inbound_id, node_id, pool_id, hidden, sort_order   -- presentation
-client_squads        client_id, squad_id, created_at                 -- membership
-client_inbound_mappings   + direct BOOLEAN NOT NULL DEFAULT TRUE     -- personal access, see 4.2
+hosts (extended)     id, name, kind (address | placement | pool), inbound_id, node_id, pool_id,
+                     address, port, remark parts, link overrides (existing columns), enable,
+                     source (manual | placement | pool | legacy), customized, created_at
+bundles              id, name, description, enable, auto, follow_placements, sort_order, created_at
+bundle_hosts         bundle_id, host_id, sort_order, hidden
+client_bundles       client_id, bundle_id, sort_order
+client_inbound_mappings   unchanged table, now the materialised effective access (still read by everything)
 ```
 
-`squad_delivery.kind` is one of:
+* A host is bound to **exactly one inbound** (as in Remnawave). `kind = placement` mirrors an inbound on a node, `pool` an
+  inbound in a balancer pool, `address` is a free address (CDN, domain, IP). Existing many-inbound Hosts are split into one
+  host per inbound during conversion.
+* A `hidden` bundle host is not listed in the subscription but still grants access to its inbound.
+* `follow_placements` (default on): when a new placement or pool appears for an inbound that the bundle already covers,
+  a host is created for it and appended to the bundle. This keeps today's behaviour "add the inbound to a new node and every
+  client of it gets the new entry".
+* `auto = true` bundles are created by the API-compatibility layer (4.3) and shown separately.
 
-* `host`: a stored Host row (custom address, CDN, overrides);
-* `placement`: an inbound on one node (virtual: address, port, suffix come from `InboundNodeMapping`, nothing is copied);
-* `pool`: a balancer pool (virtual: comes from `balancer_pools`).
-
-Placements and pools are *references*, not copies. There is no sync job and no second source of truth for the published
-address or the balancer port. A delivery item must point at an inbound that is in `squad_inbounds` (enforced on save,
-optionally auto-added).
+Placement and pool hosts are kept in sync by an idempotent sync (on placement/pool changes, plus the balancer reconcile loop
+as a safety net): create missing, remove hosts whose placement is gone, refresh fields on hosts that are not `customized`.
+The moment an operator edits such a host, it becomes `customized` and the sync stops overwriting it.
 
 ### 4.2 Effective access
 
 ```
-effective(client) = personal access (client_inbound_mappings.direct = true)
-                  ∪ inbounds of every enabled squad the client belongs to
+effective(client) = ∪ inbound_id of every host in every enabled bundle of the client
 ```
 
-`client_inbound_mappings` stays the materialised result: one row per effective inbound. `direct` says whether the operator
-gave that inbound to the client personally. A row is deleted only when it is neither direct nor covered by any squad.
-Everything downstream keeps reading the same table.
+`client_inbound_mappings` stays the materialised result (one row per effective inbound), maintained by a diff that adds
+missing rows and removes uncovered ones, never deleting and re-creating rows (row ids and Telemt secrets survive). Access
+is at inbound level: the client is provisioned on all nodes of the inbound, exactly as today; which nodes are *shown* is
+delivery (hosts). `sort_order` of the mapping follows the bundle-derived inbound order so legacy readers stay consistent.
 
-Changes:
+### 4.3 API compatibility without personal access
 
-* client add/update with `inboundIds` now sets the **direct** set only, then recomputes. Old integrations keep working
-  unchanged: they manage personal access and no longer touch squad access. `inboundIds: null` still means "leave as is".
-* squad member added or removed, squad inbound added or removed, squad enabled or disabled: recompute the affected clients.
-* recompute is a *diff* (add missing rows, remove uncovered rows) and never reorders or recreates existing rows, so row ids
-  and Telemt secrets survive. It reuses the node-push code of the assign/unassign path.
+Old integrations call `client add|update` with `inboundIds`. It is kept working: the list is mapped to an **auto bundle**
+for that exact ordered set (found or created once, named `auto:<hash>`), and the client is put into it, replacing its
+previous auto bundle. Explicit bundle membership is managed through new fields/endpoints. `inboundIds: null` still means
+"leave as is". So no integration breaks, and the data model has only bundles.
 
-### 4.3 Delivery in the subscription
+### 4.4 Subscription
 
-Per inbound the client can use:
+For a client: its enabled bundles in order, each bundle's hosts in order, skipping `hidden`, disabled hosts, disabled
+inbounds and unsupported protocols, de-duplicated by host id (first occurrence wins). Each host produces one entry for its
+inbound using the same link builders as today. Order across inbounds is now the bundle order, not a per-client list.
 
-1. if any of the client's squads has delivery items for that inbound: show exactly those items, in squad order and item
-   order, dropping `hidden` ones (a hidden item still grants access, it just is not listed);
-2. otherwise: the current assembly (node entries, Host, balancer pools).
+### 4.5 Out of scope for now
 
-This is the compatibility keystone. A squad with no delivery items is a pure access group and the subscription of its
-members is **byte-identical** to today. Delivery can be adopted inbound by inbound, at the operator's pace.
+Groups stay labels. Per-bundle subscription templates (Remnawave external squads) are a follow-up on top of the existing
+subscription-page config and response rules.
 
-### 4.4 What squads deliberately do not do (yet)
+## 5. Automatic migration without loss
 
-* No per-node restriction inside an inbound: access is by inbound (as now, the client is provisioned on all nodes of it).
-  Node choice is a presentation matter, handled by delivery items.
-* Groups stay labels. An optional "default squad per group" is a later, separate step.
-* Remnawave's external squads (subscription templates per group) map to our existing subscription-page config and response
-  rules; a per-squad override of those is a follow-up, not part of this change.
+An automatic conversion is only acceptable if it cannot make things worse than not converting. So it never edits the live
+scheme in place. It builds the new scheme **beside** the old one, proves equality, and only then switches.
 
-## 5. Migration without loss
+```
+upgrade ──► M1 schema (additive) ──► M2 backup tables ──► M3 shadow conversion ──► M4 verify ──► M5 switch
+                                                                                     │ mismatch
+                                                                                     └──► stay on the old scheme, report
+```
 
-Principle: **additive schema, dark code, opt-in conversion, proven equality, instant rollback.**
+### M1 schema
+Additive only: new tables, new nullable columns on `hosts`. Nothing reads them yet. The panel behaves as before.
 
-### Phase M1: schema only
+### M2 backup
+`CREATE TABLE ... AS SELECT` copies with original ids: `client_inbound_mappings_pre_bundles`, `hosts_pre_bundles`,
+`host_inbound_mappings_pre_bundles`, `inbound_node_mappings_pre_bundles`. Skipped if they exist.
 
-Migration `00xx_squads.sql`: create the four tables, add `client_inbound_mappings.direct DEFAULT TRUE`. Every existing row
-becomes `direct = true`. Nothing reads the new tables yet. Behaviour is unchanged by construction: with no squads,
-`effective = direct = all existing rows`.
+### M3 shadow conversion (runs once, in the background after the panel is up, resumable)
 
-### Phase M2: code deploy, still dark
+1. **Hosts.** For each inbound node binding create a `placement` host (published address, port, suffix, description, include
+   flag). For each legacy Host and each inbound it maps, create an `address` host with the same overrides. For each balancer
+   pool create a `pool` host. Remark fields are copied so remarks come out identical.
+2. **Order per inbound.** Compute, per inbound, the exact entry list today's assembler produces (balancer prepend, Host
+   prepend, nodes, Host append, balancer append, with the replace rules). This fixes the host order per inbound.
+3. **Bundles.** Group clients by their **exact ordered inbound list** (mapping order). One bundle per distinct list. The
+   bundle's hosts are the concatenation, inbound by inbound, of the per-inbound lists from step 2. Clients are attached.
+   Typically a handful of bundles.
+4. **Effective access** is recomputed into a scratch structure, not into `client_inbound_mappings`.
 
-Recompute, the new delivery path and the new API ship behind the setting `squads_enabled` (default off) plus the natural
-guard "no squads exist". With zero squads every code path reduces to today's, which the golden tests prove (section 6).
+### M4 verification (blocks the switch)
 
-### Phase M3: conversion tool (never automatic)
+| Check | Rule |
+|---|---|
+| Access | for every client the effective inbound set equals its current mapping set |
+| Subscription | for every client the bundle-path output is byte-identical to the current path |
+| Rows | count, ids, `sort_order`, Telemt secret, ad tag of `client_inbound_mappings` unchanged |
+| Node configs | the client lists that would be pushed to each node are identical |
+| Coverage | every client is in exactly one bundle; every host is used or intentionally unused |
 
-The operator opens **Squads → Create from existing clients**. The tool:
+Everything is compared in-process for **all** clients. One failure of any check aborts the switch: the panel keeps working on
+the old scheme, and the reason (client, inbound, diff) is stored and shown in the UI with a **Retry** button. A failed
+conversion is not retried on every start, only on a new version or on demand.
 
-1. groups clients by their exact inbound set; proposes one squad per distinct set (typically a handful), with member counts;
-2. lets the operator rename, merge or skip proposals;
-3. **dry run**: for every client shows `before` and `after` (effective inbound set, subscription entry list, node config
-   impact). Any difference is a blocker;
-4. **apply** in batches, resumable and idempotent: create squad, add inbounds, attach members, then set `direct = false`
-   *only on rows the squad now covers*, inside one transaction per batch, after re-checking that the effective set equals the
-   one recorded before. On any mismatch the batch rolls back and reports;
-5. writes a backup table `client_inbound_mappings_pre_squads` (all columns, original ids) before the first batch.
-
-Clients not converted keep `direct = true` and behave exactly as before. A mixed state (some converted, some not) is
-supported permanently, not just during the migration.
+### M5 switch
+One transaction sets `bundles_enabled = true`. From then on: subscription from bundles, access recomputed from bundles,
+client and host screens work on bundles. Client changes keep `client_inbound_mappings` current (still the read model for
+Xray, Telemt, WireGuard, traffic), so the old scheme still has valid *access* data.
 
 ### Rollback
+`bundles_enabled = false` (an admin button, and a script) returns to the old scheme: legacy tables were never modified, the
+pre-bundle backups are there, and access data in `client_inbound_mappings` is current. What is lost on rollback: edits to
+delivery made in bundle mode (host order, bundle membership). No client loses access. The legacy tables are kept for at
+least one release before any cleanup migration.
 
-* per batch: the transaction;
-* global: `UPDATE client_inbound_mappings SET direct = true` restores personal access for everyone; turn `squads_enabled`
-  off. Squad tables can stay unused. No data was deleted, so nothing has to be restored from backup.
+### What must not change (checked by M4 and by tests)
 
-### What must not change (invariants checked by tests and by the conversion tool)
-
-| Invariant | How it is verified |
-|---|---|
-| Same rows: count, ids, `sort_order`, `telemt_secret`, `telemt_ad_tag` | row-level comparison before and after |
-| Same access per client | set equality of effective inbounds |
-| Same node configs | per-node `configSha256` (the panel already computes it) equal before and after conversion |
-| Same subscription | golden output of every client's subscription equal before and after |
-| Same credentials | client UUID, password, flow untouched (flow is recomputed from the same set) |
-| Same counters | traffic, HWID, limits live on the client and are not touched |
+Row identity of `client_inbound_mappings`; client UUID, password, flow; traffic, HWID, limits; the per-node client lists;
+the subscription text of every client.
 
 ## 6. Test plan
 
-1. **Unit**: effective-access diff (add, remove, direct plus squad overlap, disabled squad, client disabled/expired);
-   delivery selection per inbound with and without squad hosts; `inboundIds` semantics (null, empty, list).
-2. **Golden subscription**: snapshot the subscription output of every client on a seeded database, run the conversion,
-   compare byte for byte.
-3. **Config equality**: node config hash before and after conversion.
-4. **Rehearsal on a production copy**: restore a dump, run M1 to M3 end to end, run all invariants. Nothing is applied to
-   production before this passes, and production conversion is then done in small batches with the dry-run report saved.
-5. **End to end on the test panel** with a real connecting client: add squad, add member, connect, remove member, connection
-   refused; delivery item shows in the subscription and connects through a node and through a balancer pool.
-6. **Fan-out**: squad with many members changes an inbound: measure the number of node pushes (must be one per node, not
-   one per client).
+1. **Unit**: effective access from bundles (overlap, disabled bundle, disabled host, hidden host), diff (add/remove without
+   recreating rows), auto-bundle mapping for `inboundIds`, `follow_placements`, dedupe and order.
+2. **Golden**: seed a database with clients of many shapes (several inbounds, custom order, Telemt, WireGuard, hysteria,
+   Hosts in all three modes, balancer pools, disabled nodes, hidden nodes); convert; compare every subscription byte for
+   byte and every node client list.
+3. **Database integration tests** against a real PostgreSQL (env `SHARX_TEST_DB`, skipped otherwise), including the M1 SQL
+   migration on a copy of the previous schema.
+4. **Rehearsal on a production copy**: restore a dump, run the upgrade end to end, read the M4 report. Production is only
+   upgraded after a clean rehearsal.
+5. **End to end on the test panel** with a real connecting client: convert, connect before and after, add a client to a
+   bundle, remove it (refused), add a node placement (new host appears in bundles that follow), pool host through a balancer.
+6. **Fan-out**: a bundle with many members changes: node pushes are batched per node.
+7. **Fault injection**: fail the conversion midway and after M4; the panel must stay on the old scheme and keep serving
+   subscriptions.
 
 ## 7. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Editing a squad removes access from thousands at once | confirm dialog with the number of affected clients; changes are queued and pushed per node in one batch; "disable squad" is reversible |
-| Old integrations send `inboundIds` and strip squad access | `inboundIds` now edits only personal access (4.2), covered by a test |
-| Row recreation rotates Telemt secrets or WireGuard data | recompute never deletes-and-recreates; only diff |
-| Subscription order changes | conversion dry run compares the entry list, order included; mixed mode keeps current order for non-delivery inbounds |
-| Deleting an inbound, node or balancer pool leaves dangling squad items | foreign keys with cascade; delivery items to a removed placement disappear; UI warns before delete |
-| Large recompute blocks the panel | run in a background job with progress; per-client transactions |
-| Operators confused by two ways to give access | UI shows both ("personal" chip and squad chips) and a "convert" hint |
+| Automatic conversion changes what clients see | M4 byte-for-byte check on all clients before the switch; switch is one flag |
+| Conversion is slow on a large base | background, resumable, batched; the panel serves the old scheme meanwhile |
+| Data anomaly stops conversion forever | reported with the exact client/inbound; retry on demand; old scheme keeps working |
+| Editing a bundle removes access from thousands at once | confirm with the affected count; pushes batched per node; a bundle can be disabled reversibly |
+| Old integrations send `inboundIds` | auto-bundle mapping (4.3), covered by tests |
+| Row recreation rotates Telemt secrets | recompute is a diff, never delete-and-create |
+| Two truths for a published address (mapping vs host) | placement hosts are synced from placements until an operator customizes them; the mapping stays the deployment fact |
+| Dangling hosts after deleting an inbound, node or pool | sync removes hosts of vanished placements; foreign keys cascade |
 
 ## 8. UI
 
-* **Squads** page: list with member counts; editor with three tabs: inbounds (access), delivery (ordered items: hosts,
-  placements, pools, with hide toggles and drag-and-drop), members (search, bulk add by group, remove).
-* **Clients**: squad chips, a multi-select in the client form, bulk "add to squad", filter by squad. "Inbounds" field is
-  labelled as personal access.
-* **Inbounds** and **Hosts** pages: show which squads use them.
-* **Squads → Create from existing clients**: the conversion tool with dry run report.
+* **Bundles** page: list with member counts; editor: hosts (ordered, drag and drop, hide toggle), members (search, add by
+  group), options (enable, follow placements). A banner shows conversion state and the verification report.
+* **Hosts** page: one flat list (address, placement, pool hosts) with the inbound, node or pool, and the bundles that use it.
+* **Clients**: bundle chips and multi-select; bulk add to bundle; filter by bundle. The inbound field goes away.
+* **Inbounds** and **Nodes/Balancers** pages: show the hosts that mirror them.
 
 ## 9. Phases
 
-1. M1 + backend model + recompute + tests (no UI).
-2. Delivery selection in the subscription + golden tests.
-3. Squads UI + client integration.
-4. Conversion tool + rehearsal on a production copy.
-5. Test panel end-to-end, then production rollout in batches.
-
-## 10. Decisions needed
-
-1. **Delivery model.** Recommended: virtual references (hosts, placements, pools) with per-inbound fallback to the current
-   assembly (4.3). Alternative: every entry becomes a stored Host row (more explicit, but needs a sync job and a big data
-   migration).
-2. **Personal access.** Recommended: keep it (4.2), so old integrations and one-off cases keep working. Alternative:
-   squads only, which forces every client into a squad and breaks the current API.
-3. **Conversion.** Recommended: operator-driven tool with dry run (M3). Alternative: automatic at upgrade (fewer steps,
-   but no chance to review and no per-client rollback).
+1. Schema (M1), models, bundle service (CRUD), effective access diff, unit tests.
+2. Host generalisation, placement and pool sync.
+3. Subscription assembly from hosts, golden tests against the old path.
+4. Conversion M2 to M5 with the verification report, database integration tests.
+5. API compatibility layer, client integration, then the UI.
+6. Rehearsal, test panel end to end, release.
