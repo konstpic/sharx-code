@@ -5706,3 +5706,29 @@ Edge load balancers (HAProxy / nginx) in front of nodes. See `balancer/README.md
 | POST | `/panel/balancer/refresh/{id}` | | Poll the agent now. |
 | GET | `/panel/balancer/metrics/{id}?since=` | | Traffic history from the agent: cumulative counters sampled every 2 s (last hour). |
 | POST | `/panel/balancer/ssh-install/{id}` | `{host, port, username, authMethod, password/privateKey, hostKeyFingerprint}` | Install the agent over SSH. Confirm the fingerprint first with `POST /panel/node/ssh-hostkey`; poll `GET /panel/node/ssh-provision-status/{taskId}`. |
+
+## Bundles
+
+Bundles are ordered sets of hosts; a client's access is derived from the hosts' inbounds. See `docs/architecture/bundles.md`.
+Once the bundle scheme is active, `inboundIds` on `POST /panel/client/add|update` sets the client's personal (auto) bundle; what
+its named bundles grant stays theirs.
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/panel/bundle/list` | | Bundles with hosts and client counts. |
+| GET | `/panel/bundle/get/{id}` | | One bundle. |
+| POST | `/panel/bundle/add` | `{name, description, enable, followPlacements, hostRefs:[{hostId, hidden}]}` | Create. |
+| POST | `/panel/bundle/update/{id}` | same (`hostRefs` omitted = keep) | Update; members' access is recomputed and pushed to nodes. |
+| POST | `/panel/bundle/del/{id}` | | Delete. |
+| POST | `/panel/bundle/members/add` / `remove` | `{bundleId, clientIds}` | Membership. |
+| GET | `/panel/bundle/members/{id}` | | Clients in a bundle. |
+| POST | `/panel/bundle/client/{clientId}/set` | `{bundleIds}` | Replace a client's bundles. |
+| GET | `/panel/bundle/client/{clientId}` | | A client's bundle ids. |
+| GET | `/panel/bundle/hosts` | | Bundle-scheme hosts (address, node, balancer, panel). |
+| POST | `/panel/bundle/hosts/add` | `{inboundId, name, address, port, enable, subscription* overrides}` | Add an address host. |
+| POST | `/panel/bundle/hosts/update/{id}` | same | Edit; managed hosts become "edited". |
+| POST | `/panel/bundle/hosts/reset/{id}` | | Make a managed host follow its node/pool again. |
+| POST | `/panel/bundle/hosts/del/{id}` | | Delete an address host. |
+| GET | `/panel/bundle/state` | | `{enabled, report}`: active flag and the last conversion report. |
+| POST | `/panel/bundle/convert` | | Run the verified conversion now. |
+| POST | `/panel/bundle/rollback` | | Return to the previous scheme. |

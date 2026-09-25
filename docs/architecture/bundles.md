@@ -1,6 +1,7 @@
 # Bundles: who gets which hosts (and through them which inbounds)
 
-Status: design, decisions taken. The entity is called a **bundle** (RU: пакет). "Squad" below refers to the Remnawave
+Status: implemented and verified on the test panel (automatic conversion, subscription from hosts, bundle API and UI).
+Decisions taken. The entity is called a **bundle** (RU: пакет). "Squad" below refers to the Remnawave
 concept it is modelled on. The migration is automatic and must lose nothing: existing clients keep the same access and
 the same subscription.
 
@@ -224,3 +225,20 @@ the subscription text of every client.
 4. Conversion M2 to M5 with the verification report, database integration tests.
 5. API compatibility layer, client integration, then the UI.
 6. Rehearsal, test panel end to end, release.
+
+## 11. Implementation notes (as built)
+
+* **Where things live.** `web/service/bundle.go` (bundles, access, auto bundles), `bundle_hosts.go` (host CRUD),
+  `host_sync.go` (managed hosts), `sub/bundle_entries.go` (subscription from hosts), `sub/bundle_convert.go` (conversion and
+  verification), `web/controller/bundle.go` (API), `panel/components/BundlesPage.tsx`, `BundleHostsPage.tsx`.
+* **`hidden` is delivery only, `enable` is delivery only.** Access is derived from **every** host in an enabled bundle,
+  whatever its flags. To remove access, take the host out of the bundle.
+* **Managed host `enable`** mirrors the placement's "include in subscription" flag and the pool's "show in subscription" flag.
+* **Verification masks per-request random link parameters** (Reality `sni`, `sid`, `spx`): no two renderings of the same
+  subscription agree on them, in the old scheme too. Everything else must be identical. This was found on real data, where
+  the first verification run correctly refused to switch.
+* **Subscription assembly.** `getAddressesForInbound` uses the client's bundle hosts when the request has them attached
+  (`Inbound.SubHosts`), else the old assembly. Each generator applies host overrides per row (`AddressPort.OverrideHost`).
+* **Rollback** is `POST /panel/bundle/rollback` or the button on the Bundles page.
+* **Not done yet:** a bulk "add clients to bundle" action on the Clients page (single-client and bundle-side membership work),
+  bundle-level subscription templates, group-to-bundle defaults.
