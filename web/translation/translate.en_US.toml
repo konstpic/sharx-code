@@ -2861,6 +2861,7 @@ deleteRow = "Delete row"
 jsonValuePlaceholder = "JSON value…"
 
 [menu]
+bundles = "Bundles"
 balancers = "Balancers"
 theme = "Theme"
 dark = "Dark"
@@ -3574,3 +3575,13 @@ online = "Online"
 offline = "Offline"
 error = "Error"
 unknown = "Unknown"
+
+[pages.bundles]
+title = "Bundles"
+add = "Create bundle"
+editTitle = "Edit bundle"
+helpTitle = "Bundles"
+helpP1 = "A bundle is an ordered set of hosts. A client in a bundle gets those hosts in the subscription and access to their inbounds. Access is derived from the hosts: clients no longer have separate inbound lists."
+helpP2 = "Hosts are node hosts (an inbound on a node), balancer hosts, panel hosts and address hosts (your own domain, CDN). Node and balancer hosts follow their nodes and pools by themselves."
+helpP3 = "A hidden host is not listed in the subscription but still gives access. New nodes and pools of a bundle's inbounds are added to it automatically when that option is on."
+

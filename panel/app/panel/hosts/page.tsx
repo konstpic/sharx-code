@@ -1,5 +1,5 @@
-import { HostsPage } from "@/components/HostsPage";
+import { HostsRoute } from "@/components/HostsRoute";
 
 export default function Page() {
-  return <HostsPage />;
+  return <HostsRoute />;
 }

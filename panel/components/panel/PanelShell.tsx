@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   Network,
+  Package,
   Server,
   Settings,
   User,
@@ -172,6 +173,12 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
         icon: <Building2 className="size-[18px] shrink-0 opacity-90" />,
         label: t("menu.groups"),
       },
+      {
+        key: p("panel/bundles"),
+        href: linkP("panel/bundles"),
+        icon: <Package className="size-[18px] shrink-0 opacity-90" />,
+        label: t("menu.bundles", { defaultValue: "Bundles" }),
+      },
       { kind: "settings" as const },
       { kind: "xray" as const },
       {
@@ -218,6 +225,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
       [p("panel/")]: LayoutDashboard,
       [p("panel/inbounds")]: User,
       [p("panel/groups")]: Building2,
+      [p("panel/bundles")]: Package,
       [p("panel/hosts")]: Server,
       [p("panel/api-docs")]: BookOpen,
       [p("logout/")]: LogOut,

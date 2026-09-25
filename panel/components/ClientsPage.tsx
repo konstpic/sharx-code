@@ -141,6 +141,8 @@ function SectionLabel({ icon: Icon, children }: { icon: LucideIcon; children: Re
   );
 }
 
+type BundleOption = { id: number; name: string; auto: boolean; clientCount: number };
+
 function InboundCapsuleToggle({
   selected,
   onToggle,
@@ -1445,6 +1447,10 @@ type ClientUnifiedCardProps = {
   fieldIdPrefix: string;
   form: ClientFormState;
   setForm: Dispatch<SetStateAction<ClientFormState>>;
+  bundleMode: boolean;
+  bundleOptions: BundleOption[];
+  bundleSel: Record<number, boolean>;
+  onToggleBundle: (id: number) => void;
   inboundIds: Record<number, boolean>;
   inboundSubscriptionOrder: number[];
   onToggleInboundId: (id: number) => void;
@@ -1473,6 +1479,10 @@ function ClientUnifiedCard({
   fieldIdPrefix,
   form,
   setForm,
+  bundleMode,
+  bundleOptions,
+  bundleSel,
+  onToggleBundle,
   inboundIds,
   inboundSubscriptionOrder,
   onToggleInboundId,
@@ -2152,7 +2162,58 @@ function ClientUnifiedCard({
               </div>
             </div>
 
+            {/* --- Bundles section (bundle scheme) --- */}
+            {bundleMode ? (
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                <SectionLabel icon={Layers}>
+                  {t("pages.clients.selectBundles", { defaultValue: "Bundles" })}
+                </SectionLabel>
+                {bundleOptions.filter((b) => !b.auto).length === 0 ? (
+                  <p className="text-xs text-[var(--fg-subtle)]">
+                    {t("pages.clients.noBundles", { defaultValue: "No bundles yet: create one on the Bundles page." })}
+                  </p>
+                ) : (
+                  <div className="max-h-52 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                    <div className="flex flex-wrap gap-2" role="group" aria-label={t("pages.clients.selectBundles", { defaultValue: "Bundles" })}>
+                      {bundleOptions
+                        .filter((b) => !b.auto)
+                        .map((b) => (
+                          <InboundCapsuleToggle
+                            key={b.id}
+                            selected={!!bundleSel[b.id]}
+                            onToggle={() => onToggleBundle(b.id)}
+                            label={b.name}
+                            sublabel={t("pages.clients.bundleMembers", { defaultValue: "{{n}} clients", n: b.clientCount })}
+                          />
+                        ))}
+                    </div>
+                  </div>
+                )}
+                <p className="mt-3 text-[11px] font-medium uppercase tracking-wider text-[var(--fg-subtle)]">
+                  {t("pages.clients.effectiveInbounds", { defaultValue: "Inbounds this client gets" })}
+                </p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {Object.keys(inboundIds).filter((k) => inboundIds[Number(k)]).length === 0 ? (
+                    <span className="text-xs text-[var(--fg-subtle)]">—</span>
+                  ) : (
+                    inboundSubscriptionOrder.map((iid) => {
+                      const ib = inbounds.find((x) => x.id === iid);
+                      return (
+                        <span key={iid} className="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--fg-muted)]">
+                          {ib?.remark?.trim() || `Inbound ${iid}`}
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                  {t("pages.clients.bundleAppliesAfterSave", { defaultValue: "The list updates after saving." })}
+                </p>
+              </div>
+            ) : null}
+
             {/* --- Inbounds section --- */}
+            {!bundleMode ? (
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <SectionLabel icon={Layers}>
                 {t("pages.clients.selectInbounds")}
@@ -2284,6 +2345,7 @@ function ClientUnifiedCard({
                 </p>
               ) : null}
             </div>
+            ) : null}
 
             {/* --- Group section --- */}
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
@@ -2423,6 +2485,25 @@ export function ClientsPage() {
   const [inboundIds, setInboundIds] = useState<Record<number, boolean>>({});
   const [inboundSubscriptionOrder, setInboundSubscriptionOrder] = useState<number[]>([]);
   const [telemtAdTags, setTelemtAdTags] = useState<Record<string, string>>({});
+  // Bundle scheme: a client's access comes from bundles, not from a per-client inbound list.
+  const [bundleMode, setBundleMode] = useState(false);
+  const [bundleOptions, setBundleOptions] = useState<BundleOption[]>([]);
+  const [bundleSel, setBundleSel] = useState<Record<number, boolean>>({});
+  const [autoBundleIds, setAutoBundleIds] = useState<number[]>([]);
+  const [clientBundleIds, setClientBundleIds] = useState<number[] | null>(null);
+  // The client's bundles split into ones the operator picks and auto ones (personal access from the old API) that are kept.
+  useEffect(() => {
+    if (clientBundleIds == null || !bundleMode) return;
+    const sel: Record<number, boolean> = {};
+    const autos: number[] = [];
+    for (const bid of clientBundleIds) {
+      const opt = bundleOptions.find((b) => b.id === bid);
+      if (opt && !opt.auto) sel[bid] = true;
+      else if (opt?.auto || !opt) autos.push(bid);
+    }
+    setBundleSel(sel);
+    setAutoBundleIds(autos);
+  }, [clientBundleIds, bundleOptions, bundleMode]);
 
   const [keysModalClientId, setKeysModalClientId] = useState<number | null>(null);
   const [keysLoading, setKeysLoading] = useState(false);
@@ -3364,10 +3445,17 @@ export function ClientsPage() {
   };
 
   const loadModalData = useCallback(async () => {
-    const [inR, gR] = await Promise.all([
+    const [inR, gR, stR] = await Promise.all([
       getJson<InboundOption[]>(panel("api/inbounds/list")),
       getJson<GroupOption[]>(panel("group/list")),
+      getJson<{ enabled?: boolean }>(panel("bundle/state")),
     ]);
+    const bundlesOn = !!(stR.success && stR.obj?.enabled);
+    setBundleMode(bundlesOn);
+    if (bundlesOn) {
+      const bR = await getJson<BundleOption[]>(panel("bundle/list"));
+      setBundleOptions(bR.success && Array.isArray(bR.obj) ? bR.obj : []);
+    }
     if (inR.success && Array.isArray(inR.obj)) {
       setInbounds(
         (inR.obj as InboundOption[]).map((x) => ({
@@ -3404,6 +3492,9 @@ export function ClientsPage() {
     setInboundIds({});
     setInboundSubscriptionOrder([]);
     setTelemtAdTags({});
+    setBundleSel({});
+    setAutoBundleIds([]);
+    setClientBundleIds(null);
     setEditingId(null);
     setFetchingClient(false);
   }, []);
@@ -3574,6 +3665,8 @@ export function ClientsPage() {
       setTelemtAdTags(
         c.telemtAdTags && typeof c.telemtAdTags === "object" ? { ...c.telemtAdTags } : {},
       );
+      const cb = await getJson<number[]>(panel(`bundle/client/${c.id}`));
+      setClientBundleIds(cb.success && Array.isArray(cb.obj) ? cb.obj : []);
     } catch {
       toast.error(t("pages.clients.addError"));
       closeSheet();
@@ -3712,12 +3805,12 @@ export function ClientsPage() {
       };
       if (isEdit) {
         body.groupId = groupIdNum;
-        body.inboundIds = selectedInboundIds;
+        if (!bundleMode) body.inboundIds = selectedInboundIds;
       } else {
         if (groupIdNum != null) {
           body.groupId = groupIdNum;
         }
-        if (selectedInboundIds.length > 0) {
+        if (!bundleMode && selectedInboundIds.length > 0) {
           body.inboundIds = selectedInboundIds;
         }
       }
@@ -3749,6 +3842,14 @@ export function ClientsPage() {
           }
         } else {
           toast.success(msg || (isEdit ? t("pages.clients.editSuccess", { defaultValue: "Client updated." }) : t("pages.clients.addSuccess")));
+        }
+        if (bundleMode) {
+          const cid = isEdit ? editingId : obj?.id;
+          if (cid) {
+            const ids = [...Object.keys(bundleSel).filter((k) => bundleSel[Number(k)]).map(Number), ...autoBundleIds];
+            const br = await postJson(panel(`bundle/client/${cid}/set`), { bundleIds: ids }, true);
+            if (!br.success) toast.error(br.msg || t("pages.clients.addError"));
+          }
         }
         if (!isEdit && obj?.id) {
           setSheetClientId(obj.id);
@@ -4486,6 +4587,10 @@ export function ClientsPage() {
             fieldIdPrefix={isEdit ? `edit-${editingId ?? "x"}` : "new"}
             form={form}
             setForm={setForm}
+            bundleMode={bundleMode}
+            bundleOptions={bundleOptions}
+            bundleSel={bundleSel}
+            onToggleBundle={(id: number) => setBundleSel((m) => ({ ...m, [id]: !m[id] }))}
             inboundIds={inboundIds}
             inboundSubscriptionOrder={inboundSubscriptionOrder}
             onToggleInboundId={toggleInboundSelection}
