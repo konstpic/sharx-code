@@ -580,12 +580,81 @@ type Host struct {
 	//   "tls"        — force security=tls (e.g. when a TLS terminator fronts Xray),
 	//   "none"       — force security=none (e.g. when Xray serves plain TCP).
 	SubscriptionSecurity string `json:"subscriptionSecurity" gorm:"column:subscription_security;default:''"`
-	CreatedAt            int64  `json:"createdAt" gorm:"autoCreateTime"` // Creation timestamp
-	UpdatedAt            int64  `json:"updatedAt" gorm:"autoUpdateTime"` // Last update timestamp
+
+	// Bundle scheme (docs/architecture/bundles.md). Kind "legacy" is a pre-bundle Host (many inbounds, apply mode);
+	// the other kinds are bound to exactly one inbound.
+	Kind              string `json:"kind" gorm:"column:kind;default:legacy"`             // legacy | address | placement | pool
+	InboundId         *int   `json:"inboundId,omitempty" gorm:"column:inbound_id"`       // the one inbound this host delivers
+	NodeId            *int   `json:"nodeId,omitempty" gorm:"column:node_id"`             // placement hosts
+	PoolId            *int   `json:"poolId,omitempty" gorm:"column:pool_id"`             // pool hosts
+	Source            string `json:"source" gorm:"column:source;default:manual"`         // manual | placement | pool | legacy
+	Customized        bool   `json:"customized" gorm:"column:customized"`                // edited by an operator: the sync stops overwriting it
+	RemarkSuffix      string `json:"remarkSuffix" gorm:"column:remark_suffix"`           // placement hosts: suffix added to the server name
+	ServerDescription string `json:"serverDescription" gorm:"column:server_description"` // placement hosts: server description
+	SortOrder         int    `json:"sortOrder" gorm:"column:sort_order"`                 // default position in lists
+	CreatedAt         int64  `json:"createdAt" gorm:"autoCreateTime"`                    // Creation timestamp
+	UpdatedAt         int64  `json:"updatedAt" gorm:"autoUpdateTime"`                    // Last update timestamp
 
 	// Relations (not stored in DB, loaded via joins)
 	InboundIds []int `json:"inboundIds,omitempty" form:"-" gorm:"-"` // Inbound IDs this host applies to
 }
+
+// Host kinds and sources.
+const (
+	HostKindLegacy    = "legacy"
+	HostKindAddress   = "address"
+	HostKindPlacement = "placement"
+	HostKindPool      = "pool"
+
+	HostSourceManual    = "manual"
+	HostSourcePlacement = "placement"
+	HostSourcePool      = "pool"
+	HostSourceLegacy    = "legacy"
+)
+
+// Bundle is an ordered set of hosts. A client in a bundle gets its hosts in the subscription and access to their inbounds.
+type Bundle struct {
+	Id               int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId           int    `json:"userId" gorm:"column:user_id"`
+	Name             string `json:"name" form:"name"`
+	Description      string `json:"description" form:"description"`
+	Enable           bool   `json:"enable" gorm:"column:enable"`
+	Auto             bool   `json:"auto" gorm:"column:auto"` // created by the API compatibility layer or the conversion
+	AutoKey          string `json:"autoKey,omitempty" gorm:"column:auto_key"`
+	FollowPlacements bool   `json:"followPlacements" gorm:"column:follow_placements"`
+	SortOrder        int    `json:"sortOrder" gorm:"column:sort_order"`
+	CreatedAt        int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt        int64  `json:"updatedAt" gorm:"column:updated_at"`
+
+	Hosts       []BundleHost `json:"hosts,omitempty" gorm:"-"`
+	ClientCount int          `json:"clientCount" gorm:"-"`
+}
+
+func (Bundle) TableName() string { return "bundles" }
+
+// BundleHost places a host in a bundle. Hidden hosts are not listed in the subscription but still grant access.
+type BundleHost struct {
+	Id        int  `json:"id" gorm:"primaryKey;autoIncrement"`
+	BundleId  int  `json:"bundleId" gorm:"column:bundle_id"`
+	HostId    int  `json:"hostId" gorm:"column:host_id"`
+	SortOrder int  `json:"sortOrder" gorm:"column:sort_order"`
+	Hidden    bool `json:"hidden" gorm:"column:hidden"`
+
+	Host *Host `json:"host,omitempty" gorm:"-"`
+}
+
+func (BundleHost) TableName() string { return "bundle_hosts" }
+
+// ClientBundle is a client's membership of a bundle.
+type ClientBundle struct {
+	Id        int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	ClientId  int   `json:"clientId" gorm:"column:client_id"`
+	BundleId  int   `json:"bundleId" gorm:"column:bundle_id"`
+	SortOrder int   `json:"sortOrder" gorm:"column:sort_order"`
+	CreatedAt int64 `json:"createdAt" gorm:"column:created_at"`
+}
+
+func (ClientBundle) TableName() string { return "client_bundles" }
 
 // HostInboundMapping maps hosts to inbounds (many-to-many relationship).
 type HostInboundMapping struct {

@@ -39,6 +39,9 @@ var defaultValueMap = map[string]string{
 	// value is only used as an initial/default template when there is no valid
 	// value in the database.
 	"xrayTemplateConfig":          defaultXrayTemplateConfig,
+	// Bundle scheme (docs/architecture/bundles.md): off until the automatic conversion has verified itself.
+	"bundlesEnabled":   "false",
+	"bundlesMigration": "",
 	"webListen":                   "",
 	"webDomain":                   "",
 	"webPort":                     "2053",
@@ -1294,6 +1297,18 @@ func (s *SettingService) GetLdapDefaultExpiryDays() (int, error) {
 func (s *SettingService) GetLdapDefaultLimitIP() (int, error) {
 	return s.getInt("ldapDefaultLimitIP")
 }
+
+// GetBundlesEnabled reports whether delivery and access are driven by bundles (after a verified conversion).
+func (s *SettingService) GetBundlesEnabled() (bool, error) { return s.getBool("bundlesEnabled") }
+
+// SetBundlesEnabled switches between the bundle scheme and the legacy scheme.
+func (s *SettingService) SetBundlesEnabled(v bool) error { return s.setBool("bundlesEnabled", v) }
+
+// GetBundlesMigration returns the stored conversion state (JSON, may be empty).
+func (s *SettingService) GetBundlesMigration() (string, error) { return s.getString("bundlesMigration") }
+
+// SetBundlesMigration stores the conversion state.
+func (s *SettingService) SetBundlesMigration(v string) error { return s.setString("bundlesMigration", v) }
 
 // GetMultiNodeMode returns whether multi-node mode is enabled.
 func (s *SettingService) GetMultiNodeMode() (bool, error) {
