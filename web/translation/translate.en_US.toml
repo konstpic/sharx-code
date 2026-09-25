@@ -252,6 +252,16 @@ saveLocalOnly = "Save locally only"
 sectionAbout = "Help for this section"
 
 [pages.index]
+welcomeTitle = "Welcome to SharX"
+welcomeText = "A short tour of how servers, hosts, bundles and clients fit together."
+welcomeHide = "Hide"
+welcomeShow = "Show the guide"
+welcomeStep1 = "Add nodes"
+welcomeStep2 = "Create inbounds"
+welcomeStep3 = "Check hosts"
+welcomeStep4 = "Make bundles"
+welcomeStep5 = "Add clients"
+helpTitle = "The panel in one minute"
 
 versionSearch = "Search version"
 
@@ -2704,6 +2714,10 @@ hostDeleteSuccess = "Host deleted successfully"
 subscriptionBindingsSaved = "Subscription endpoints saved successfully"
 
 [pages.groups]
+helpTitle = "Groups"
+helpP1 = "A group is a label that lets you act on many clients at once."
+helpP2 = "Set expiry, traffic, device limits and bundles for every client of a group in one save."
+helpP3 = "A client belongs to one group. Access itself comes from bundles."
 title = "Groups Management"
 addGroup = "Add Group"
 operate = "Actions"
@@ -3585,3 +3599,108 @@ helpP1 = "A bundle is an ordered set of hosts. A client in a bundle gets those h
 helpP2 = "Hosts are node hosts (an inbound on a node), balancer hosts, panel hosts and address hosts (your own domain, CDN). Node and balancer hosts follow their nodes and pools by themselves."
 helpP3 = "A hidden host is not listed in the subscription but still gives access. New nodes and pools of a bundle's inbounds are added to it automatically when that option is on."
 
+# BEGIN help-scenes
+[pages.help.scenes.common]
+client = "Client"
+node = "Node"
+nodeA = "Node A"
+nodeB = "Node B"
+nodeC = "Node C"
+balancer = "Balancer"
+bundle = "Bundle"
+host = "Host"
+hostA = "Host 1"
+hostB = "Host 2"
+hostC = "Host 3"
+inbound = "Inbound"
+panel = "Panel"
+app = "App"
+domain = "Own domain / CDN"
+xray = "Xray"
+chart = "Traffic graph"
+group = "Group"
+subscription = "Subscription"
+limits = "Limits"
+clientA = "Client 1"
+clientB = "Client 2"
+clientC = "Client 3"
+alert = "Alert"
+vless = "VLESS · 443"
+link = "Link"
+
+[pages.help.scenes.welcome]
+title = "How the panel works"
+cap1 = "Nodes are your servers. Each runs Xray with inbounds: a protocol and a port."
+cap2 = "A balancer is one entry point in front of several nodes. Optional."
+cap3 = "A host is what the client is given: the address and port of a node, a balancer or your own domain."
+cap4 = "A bundle is an ordered set of hosts. Access to inbounds comes from its hosts."
+cap5 = "A client is put in bundles and receives one subscription with all their hosts."
+cap6 = "The client connects. The balancer sends the traffic to a live node."
+cap7 = "A node went down: traffic moves to the other one, the client notices nothing."
+
+[pages.help.scenes.inbounds]
+title = "Inbounds"
+cap1 = "An inbound is a way to connect: protocol, port and transport settings."
+cap2 = "Assign it to one or more nodes: it will run on all of them."
+cap3 = "The panel pushes the configuration to the nodes and keeps it in sync."
+cap4 = "Clients that have access connect to any node of the inbound."
+
+[pages.help.scenes.nodes]
+title = "Nodes"
+cap1 = "Install the agent on a server: from the copy-paste compose file or over SSH."
+cap2 = "The panel pairs with the node with a shared secret. Every call is signed."
+cap3 = "Inbound settings and clients go to Xray on the node."
+cap4 = "The node reports its status and load, you see it on the page."
+cap5 = "If a node stops answering, the panel marks it and can notify you."
+
+[pages.help.scenes.balancers]
+title = "Balancers"
+cap1 = "Clients connect to the balancer instead of a node."
+cap2 = "It spreads connections over the nodes of the inbound."
+cap3 = "A node stops responding: it is skipped, the others take the load."
+cap4 = "The live graph shows speed and connections through the balancer."
+cap5 = "In the subscription you choose: balancer only, direct nodes only, or both."
+
+[pages.help.scenes.bundles]
+title = "Bundles"
+cap1 = "Hosts are the entries a client can be given."
+cap2 = "A bundle lists hosts in order. That order is the subscription order."
+cap3 = "Clients join the bundle and get its hosts and access to their inbounds."
+cap4 = "A hidden host is not listed in the subscription but still gives access."
+cap5 = "Remove a client from the bundle and access is taken away on the nodes."
+
+[pages.help.scenes.hosts]
+title = "Hosts"
+cap1 = "Every host belongs to exactly one inbound."
+cap2 = "Node hosts and balancer hosts follow their servers by themselves. Address hosts are yours."
+cap3 = "Bundles put the hosts into subscriptions, in order."
+cap4 = "A disabled host disappears from subscriptions; nothing else changes."
+
+[pages.help.scenes.clients]
+title = "Clients"
+cap1 = "Create a client and set limits: traffic, expiry, devices."
+cap2 = "Choose the bundles the client gets."
+cap3 = "The client gets one subscription link."
+cap4 = "The app imports it and shows all servers of the bundles."
+cap5 = "When a limit is reached, access stops until you extend it."
+
+[pages.help.scenes.groups]
+title = "Groups"
+cap1 = "A group is a label for many clients."
+cap2 = "Set expiry, limits or bundles for the whole group in one action."
+cap3 = "Every client of the group gets the change."
+
+[pages.help.scenes.player]
+play = "Play"
+pause = "Pause"
+replay = "Replay"
+step = "Step {{n}}"
+of = "of"
+
+# END help-scenes
+
+[pages.bundleHosts]
+helpTitle = "Hosts"
+helpP1 = "A host is one entry a client can be given: address, port and link settings for one inbound."
+helpP2 = "Node and balancer hosts are created and updated automatically. Add address hosts for your own domain or a CDN."
+helpP3 = "Which client gets which host is decided by bundles."

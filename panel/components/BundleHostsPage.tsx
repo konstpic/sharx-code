@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
-import { PageScaffold, PageHeader, Surface } from "@/components/panel";
+import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import { hostKindLabel, hostTarget, type BundleHostView } from "@/components/BundlesPage";
 import { Button, Collapsible, IconButton, Input, Modal, PillTag, Reveal, SelectNative, Spinner, Switch, useToast } from "@/components/ui";
 
@@ -170,10 +170,13 @@ export function BundleHostsPage() {
           defaultValue: "Every entry a client can be given. Node and balancer hosts follow their placement; address hosts are yours. Bundles decide who gets which.",
         })}
         actions={
-          <Button variant="secondary" className="!gap-2" onClick={() => setForm({ ...EMPTY, inboundId: inbounds[0]?.id ?? 0 })}>
-            <Plus size={16} />
-            {t("pages.bundleHosts.add", { defaultValue: "Add address host" })}
-          </Button>
+          <>
+            <Button variant="secondary" className="!gap-2" onClick={() => setForm({ ...EMPTY, inboundId: inbounds[0]?.id ?? 0 })}>
+              <Plus size={16} />
+              {t("pages.bundleHosts.add", { defaultValue: "Add address host" })}
+            </Button>
+            <SectionHelpModal scene="hosts" titleKey="pages.bundleHosts.helpTitle" paragraphKeys={["pages.bundleHosts.helpP1", "pages.bundleHosts.helpP2", "pages.bundleHosts.helpP3"]} />
+          </>
         }
       />
       <Reveal>

@@ -35,7 +35,8 @@ import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p } from "@/lib/paths";
 import { usePanelAccentColor } from "@/lib/panelTheme";
 import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
-import { PageScaffold, PageHeader, Surface } from "@/components/panel";
+import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
+import { WelcomeGuide } from "@/components/help/WelcomeGuide";
 import {
   AlertBanner,
   Button,
@@ -1137,12 +1138,16 @@ export function DashboardPage() {
         icon={LayoutDashboard}
         iconTone="accent"
         actions={
-          <Button type="button" variant="secondary" onClick={() => setCustomizeOpen(true)} className="!gap-2">
-            <LayoutGrid size={16} />
-            {t("pages.index.dashboardCustomize")}
-          </Button>
+          <>
+            <Button type="button" variant="secondary" onClick={() => setCustomizeOpen(true)} className="!gap-2">
+              <LayoutGrid size={16} />
+              {t("pages.index.dashboardCustomize")}
+            </Button>
+            <SectionHelpModal scene="welcome" titleKey="pages.index.helpTitle" paragraphKeys={["pages.index.welcomeText"]} />
+          </>
         }
       />
+      <WelcomeGuide />
 
       {spin && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg)]/40 backdrop-blur-sm">

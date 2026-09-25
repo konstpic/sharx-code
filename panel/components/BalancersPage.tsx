@@ -270,6 +270,7 @@ export function BalancersPage() {
               {t("pages.balancers.add", { defaultValue: "Add balancer" })}
             </Button>
             <SectionHelpModal
+              scene="balancers"
               titleKey="pages.balancers.helpTitle"
               paragraphKeys={["pages.balancers.helpP1", "pages.balancers.helpP2", "pages.balancers.helpP3"]}
             />

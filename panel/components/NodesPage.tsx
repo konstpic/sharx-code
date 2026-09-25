@@ -1436,6 +1436,7 @@ export function NodesPage() {
               {t("pages.nodes.addNode")}
             </Button>
             <SectionHelpModal
+              scene="nodes"
               titleKey="pages.nodes.helpModalTitle"
               paragraphKeys={[
                 "pages.nodes.helpModalP1",

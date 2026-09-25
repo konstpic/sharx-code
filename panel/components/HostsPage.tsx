@@ -808,6 +808,7 @@ export function HostsPage() {
               {t("pages.hosts.addHost")}
             </Button>
             <SectionHelpModal
+              scene="hosts"
               titleKey="pages.hosts.helpModalTitle"
               paragraphKeys={[
                 "pages.hosts.helpModalP1",

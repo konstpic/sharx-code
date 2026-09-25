@@ -3890,6 +3890,7 @@ export function ClientsPage() {
               {t("pages.clients.addClient")}
             </Button>
             <SectionHelpModal
+              scene="clients"
               titleKey="pages.clients.helpModalTitle"
               paragraphKeys={[
                 "pages.clients.helpModalP1",

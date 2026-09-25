@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson, type Msg } from "@/lib/api";
 import { panel } from "@/lib/paths";
-import { PageScaffold, PageHeader, Surface } from "@/components/panel";
+import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   Button,
   CheckboxField,
@@ -765,6 +765,7 @@ export function GroupsPage() {
               <Plus size={16} />
               {t("pages.groups.addGroup")}
             </Button>
+            <SectionHelpModal scene="groups" titleKey="pages.groups.helpTitle" paragraphKeys={["pages.groups.helpP1", "pages.groups.helpP2", "pages.groups.helpP3"]} />
           </>
         }
       />

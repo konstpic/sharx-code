@@ -250,7 +250,7 @@ export function BundlesPage() {
               <Plus size={16} />
               {t("pages.bundles.add", { defaultValue: "Create bundle" })}
             </Button>
-            <SectionHelpModal titleKey="pages.bundles.helpTitle" paragraphKeys={["pages.bundles.helpP1", "pages.bundles.helpP2", "pages.bundles.helpP3"]} />
+            <SectionHelpModal scene="bundles" titleKey="pages.bundles.helpTitle" paragraphKeys={["pages.bundles.helpP1", "pages.bundles.helpP2", "pages.bundles.helpP3"]} />
           </>
         }
       />

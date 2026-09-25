@@ -1979,6 +1979,7 @@ export function InboundsPage() {
               {t("pages.templates.gallery", { defaultValue: "Templates" })}
             </Button>
             <SectionHelpModal
+              scene="inbounds"
               titleKey="pages.inbounds.helpModalTitle"
               paragraphKeys={[
                 "pages.inbounds.helpModalP1",

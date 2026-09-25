@@ -3,6 +3,7 @@
 import { HelpCircle } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { HelpScene } from "@/components/help/HelpScene";
 import { IconButton, Modal } from "@/components/ui";
 
 type SectionHelpModalProps = {
@@ -12,6 +13,8 @@ type SectionHelpModalProps = {
   paragraphKeys: readonly string[];
   /** Tooltip / aria-label for the trigger (i18n key) */
   buttonLabelKey?: string;
+  /** Animated explainer shown above the text (see components/help/scenes.ts). */
+  scene?: string;
 };
 
 /**
@@ -21,6 +24,7 @@ export function SectionHelpModal({
   titleKey,
   paragraphKeys,
   buttonLabelKey = "pages.help.sectionAbout",
+  scene,
 }: SectionHelpModalProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -39,8 +43,9 @@ export function SectionHelpModal({
         open={open}
         onClose={() => setOpen(false)}
         title={t(titleKey)}
-        width={560}
+        width={scene ? 720 : 560}
       >
+        {scene && open ? <HelpScene sceneId={scene} className="mb-5" /> : null}
         <div className="flex flex-col gap-3.5 text-sm leading-relaxed text-[var(--fg-muted)]">
           {paragraphKeys.map((key) => (
             <p key={key}>{t(key)}</p>
