@@ -41,6 +41,9 @@ type LeftTab =
   | "json-templates"
   | "raw";
 
+import { isPristineDefault } from "@/lib/subLayout/wow";
+import { SubDesigner } from "./designer/SubDesigner";
+
 export function SubscriptionBuilder() {
   const { t } = useTranslation();
   const toast = useToast();
@@ -53,6 +56,7 @@ export function SubscriptionBuilder() {
   const [rawJson, setRawJson] = useState("");
   const [rawError, setRawError] = useState<string | null>(null);
   const [migratedNotice, setMigratedNotice] = useState(false);
+  const [designerOpen, setDesignerOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,8 +121,8 @@ export function SubscriptionBuilder() {
     setConfig(parsed.data);
   };
 
-  const save = async () => {
-    const payload = stringifyConfig(config);
+  const save = async (override?: SharxSubpageConfigV2): Promise<boolean> => {
+    const payload = stringifyConfig(override ?? config);
     setLoading(true);
     const r = await postJson(
       panel("setting/subscriptionPageConfig/save"),
@@ -133,10 +137,11 @@ export function SubscriptionBuilder() {
     if (r.success) {
       toast.success(r.msg || t("subBuilder.saveSuccess", { defaultValue: "Saved" }));
       setMigratedNotice(false);
-      void load();
-    } else {
-      toast.error(r.msg || t("pages.settings.toasts.modifySettings", { defaultValue: "Could not save." }));
+      if (!override) void load();
+      return true;
     }
+    toast.error(r.msg || t("pages.settings.toasts.modifySettings", { defaultValue: "Could not save." }));
+    return false;
   };
 
   const resetToDefault = () => {
@@ -146,6 +151,10 @@ export function SubscriptionBuilder() {
     setRawError(null);
   };
 
+  const layoutInUse = !!(config as { layout?: { enabled?: boolean } }).layout?.enabled || isPristineDefault(config);
+  useEffect(() => {
+    if (layoutInUse && activeTab === "blocks") setActiveTab("branding");
+  }, [layoutInUse, activeTab]);
   const tabs = useMemo(
     () => [
       {
@@ -153,12 +162,16 @@ export function SubscriptionBuilder() {
         label: t("subBuilder.tabs.branding", { defaultValue: "Branding" }),
         icon: Palette,
       },
-      {
-        id: "blocks" as LeftTab,
-        label: t("subBuilder.tabs.blocks", { defaultValue: "Blocks" }),
-        icon: Layers,
-        badge: config.blocks.length || undefined,
-      },
+      ...(layoutInUse
+        ? []
+        : [
+            {
+              id: "blocks" as LeftTab,
+              label: t("subBuilder.tabs.blocks", { defaultValue: "Blocks" }),
+              icon: Layers,
+              badge: config.blocks.length || undefined,
+            },
+          ]),
       {
         id: "response-rules" as LeftTab,
         label: t("subBuilder.tabs.responseRules", { defaultValue: "Response rules" }),
@@ -186,7 +199,7 @@ export function SubscriptionBuilder() {
         icon: Code2,
       },
     ],
-    [t, config.blocks.length, config.routing?.profiles?.length],
+    [t, config.blocks.length, config.routing?.profiles?.length, layoutInUse],
   );
 
   return (
@@ -217,6 +230,25 @@ export function SubscriptionBuilder() {
           })}
           onClose={() => setMigratedNotice(false)}
         />
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold">
+            {t("subBuilder.designer.cardTitle", { defaultValue: "Visual designer" })}
+            {layoutInUse ? (
+              <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-400">{t("subBuilder.designer.cardOn", { defaultValue: "in use" })}</span>
+            ) : null}
+          </div>
+          <p className="mb-1 text-xs text-[var(--fg-muted)]">{t("subBuilder.designer.appearanceMoved", { defaultValue: "Look and blocks (palette, colors, theme, elements) are set in the designer. This page keeps the content and the behavior of the subscription." })}</p>
+          <p className="text-xs text-[var(--fg-muted)]">{t("subBuilder.designer.cardText", { defaultValue: "Drag elements like in Figma: stacks, grids, free positioning, mobile overrides, template variables and custom code." })}</p>
+        </div>
+        <Button type="button" variant="primary" onClick={() => setDesignerOpen(true)}>
+          {t("subBuilder.designer.open", { defaultValue: "Open designer" })}
+        </Button>
+      </div>
+      {designerOpen ? (
+        <SubDesigner config={config} onChange={setConfig} onSave={(c) => save(c)} onClose={() => setDesignerOpen(false)} />
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

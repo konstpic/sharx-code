@@ -209,7 +209,42 @@ func publicSubscriptionGet(ss *service.SettingService) gin.HandlerFunc {
 			}
 		}
 
+		// Devices (HWID) and the account facts a page designer can show. The HWID string itself is never exposed.
+		hwidItems := []gin.H{}
+		activeDevices := 0
+		if hs, err := (&service.ClientHWIDService{}).GetHWIDsForClient(client.Id); err == nil {
+			for _, h := range hs {
+				if h == nil || h.Blocked {
+					continue
+				}
+				if h.IsActive {
+					activeDevices++
+				}
+				hwidItems = append(hwidItems, gin.H{
+					"os":          h.DeviceOS,
+					"model":       h.DeviceModel,
+					"osVersion":   h.OSVersion,
+					"firstSeenAt": h.FirstSeenAt,
+					"lastSeenAt":  h.LastSeenAt,
+					"active":      h.IsActive,
+				})
+			}
+		}
+		groupName := ""
+		if client.GroupId != nil {
+			var g model.ClientGroup
+			if err := database.GetDB().Select("name").First(&g, *client.GroupId).Error; err == nil {
+				groupName = g.Name
+			}
+		}
+
 		out := gin.H{
+			"devices": gin.H{
+				"enabled": client.HWIDEnabled,
+				"max":     client.MaxHWID,
+				"count":   activeDevices,
+				"items":   hwidItems,
+			},
 			"config":              cfgParsed,
 			"configUuid":          cfgRow.UUID,
 			"subscriptionUrl":     feedURL,
@@ -230,6 +265,12 @@ func publicSubscriptionGet(ss *service.SettingService) gin.HandlerFunc {
 				"isActive":                 isActive,
 				"userStatus":               userStatus,
 				"isOnline":                 vpnOnline,
+				"group":                    groupName,
+				"createdAt":                client.CreatedAt,
+				"lastOnline":               client.LastOnline,
+				"ipLimit":                  client.IPLimitEnabled,
+				"maxIPs":                   client.MaxIPs,
+				"resetCadence":             client.TrafficResetCadence,
 			},
 		}
 		// Expose encrypted deeplinks for AddToApp buttons (happ/v2raytun).

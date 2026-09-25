@@ -288,7 +288,7 @@ func (s *SettingService) GetDefaultJsonConfig() (any, error) {
 func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 	db := database.GetDB()
 	settings := make([]*model.Setting, 0)
-	err := db.Model(model.Setting{}).Not("key = ?", "xrayTemplateConfig").Find(&settings).Error
+	err := db.Model(model.Setting{}).Not("key IN ?", []string{"xrayTemplateConfig", designerLibraryKey}).Find(&settings).Error
 	if err != nil {
 		return nil, err
 	}

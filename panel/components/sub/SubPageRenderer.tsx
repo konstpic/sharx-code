@@ -1,11 +1,10 @@
 "use client";
 
-import { Copy, LifeBuoy, Link2, MessageSquare, Send } from "lucide-react";
+import { Copy } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Modal, useToast } from "@/components/ui";
-import { supported } from "@/lib/i18n";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { extractWireGuardConfBlock } from "@/lib/wireguardConf";
 import { isSharxV2Config, isSharxV1Config } from "@/lib/sharxSubpageConfig";
@@ -15,26 +14,14 @@ import type {
   SubpageBlock,
 } from "@/lib/sharxSubpageConfig";
 import shell from "./subscription-shell.module.css";
-import type {
-  PublicSubPayload,
-  SupportKind,
-} from "./types";
-import { parseLinkTitle, supportKindFromUrl } from "./types";
+import type { PublicSubPayload } from "./types";
+import { parseLinkTitle } from "./types";
 import { renderBlock, defaultBlocksForLegacy } from "./blocks";
-
-function SupportGlyph({ kind }: { kind: SupportKind }) {
-  const cn = "size-[1.125rem]";
-  switch (kind) {
-    case "telegram":
-      return <Send className={cn} />;
-    case "discord":
-      return <MessageSquare className={cn} />;
-    case "vk":
-      return <Link2 className={cn} />;
-    default:
-      return <LifeBuoy className={cn} />;
-  }
-}
+import { SubHeader } from "./SubHeader";
+import { LanguagePicker } from "./LanguagePicker";
+import { LayoutRenderer } from "./layout/LayoutRenderer";
+import { normalizeDoc } from "@/lib/subLayout/tree";
+import { defaultLayout, isPristineDefault } from "@/lib/subLayout/wow";
 
 type BrandingInfo = {
   title: string;
@@ -84,7 +71,7 @@ export function SubPageRenderer({
   interactive = true,
   className = "",
 }: SubPageRendererProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const toast = useToast();
   const [qrModal, setQrModal] = useState<{ url: string; title: string } | null>(null);
 
@@ -121,10 +108,6 @@ export function SubPageRenderer({
     [interactive, onCopy, toast, t],
   );
 
-  const supportKind = branding.supportUrl
-    ? supportKindFromUrl(branding.supportUrl)
-    : ("generic" as SupportKind);
-
   const blocks: SubpageBlock[] =
     cfg && "blocks" in cfg && Array.isArray(cfg.blocks) && cfg.blocks.length > 0
       ? (cfg.blocks as SubpageBlock[]).filter((b: SubpageBlock) => b.enabled !== false)
@@ -133,71 +116,77 @@ export function SubPageRenderer({
   const locales =
     cfg && "locales" in cfg && Array.isArray(cfg.locales) ? cfg.locales : [];
 
+  const layoutDoc = useMemo(() => {
+    const raw = cfg && "layout" in cfg ? (cfg as { layout?: unknown }).layout : undefined;
+    const d = raw ? normalizeDoc(raw) : null;
+    if (d) return d.enabled ? d : null;
+    return !cfg || isPristineDefault(cfg) ? defaultLayout(i18n.language?.slice(0, 2) || "en") : null;
+  }, [cfg, i18n.language]);
+
+  const modal = interactive ? (
+    <Modal open={qrModal != null} onClose={() => setQrModal(null)} title={qrModal?.title} width={320}>
+      {qrModal ? (
+        <div className={shell.qrModalInner}>
+          <div className={shell.qrBox}>
+            <QRCodeSVG
+              value={qrModal.url}
+              size={200}
+              level="M"
+              bgColor="#161b22"
+              fgColor="#22d3ee"
+              style={{ cursor: "pointer" }}
+              onClick={() => void copyText(qrModal.url, "subscription")}
+            />
+          </div>
+          <p className="text-center text-sm font-semibold text-[var(--sub-fg-strong,#fff)]">
+            {t("pages.publicSub.scanQrCode", { defaultValue: "Scan QR code in the app" })}
+          </p>
+          <p className="text-center text-xs text-[var(--sub-fg-muted,#8b949e)]">
+            {t("pages.publicSub.scanQrCodeDescription", { defaultValue: "Or copy the link below and paste it into your VPN client." })}
+          </p>
+          <Button type="button" variant="secondary" className={shell.actionBtn} style={{ width: "100%", cursor: "pointer" }} onClick={() => void copyText(qrModal.url, "subscription")}>
+            <Copy className={`size-4 ${shell.actionBtnIcon}`} />
+            {t("pages.publicSub.copyLink", { defaultValue: "Copy link" })}
+          </Button>
+        </div>
+      ) : null}
+    </Modal>
+  ) : null;
+
+  if (layoutDoc) {
+    return (
+      <>
+        <LayoutRenderer
+          doc={layoutDoc}
+          data={data}
+          config={cfg && "blocks" in cfg ? (cfg as SharxSubpageConfigV2) : null}
+          interactive={interactive}
+          fallbackTitle={fallbackTitle}
+          onCopy={(text) => void copyText(text, "link")}
+          onShowQr={(url, title) => setQrModal({ url: extractWireGuardConfBlock(url) ?? url, title })}
+        />
+        {modal}
+      </>
+    );
+  }
+
   return (
     <>
-      <header className={`${shell.headerBar} ${className}`}>
-        <div className={shell.headerInner}>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              {branding.logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={branding.logoUrl}
-                  alt=""
-                  className="h-9 w-9 shrink-0 object-contain"
-                  width={36}
-                  height={36}
-                />
-              ) : (
-                <div className={shell.logoFallback} aria-hidden>
-                  <Link2 className="size-5" />
-                </div>
-              )}
-              <div className="min-w-0">
-                <h1 className={branding.logoUrl ? shell.titleCyan : shell.titleWhite}>
-                  {branding.title}
-                </h1>
-                {branding.brandText ? (
-                  <p className={shell.brandTagline}>{branding.brandText}</p>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {data.subscriptionUrl && showGetLink ? (
-                <button
-                  type="button"
-                  className={shell.supportIconBtn}
-                  title={t("pages.publicSub.getLink", { defaultValue: "Get link" })}
-                  aria-label={t("pages.publicSub.getLink", { defaultValue: "Get link" })}
-                  onClick={() =>
-                    setQrModal({
-                      url: data.subscriptionUrl,
-                      title: t("pages.publicSub.getLink", { defaultValue: "Get link" }),
-                    })
-                  }
-                >
-                  <Link2 className="size-[1.125rem]" />
-                </button>
-              ) : null}
-              {branding.supportUrl ? (
-                <a
-                  href={branding.supportUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={shell.supportIconBtn}
-                  title={t("pages.publicSub.support", { defaultValue: "Support" })}
-                  aria-label={t("pages.publicSub.support", { defaultValue: "Support" })}
-                  onClick={(e) => {
-                    if (!interactive) e.preventDefault();
-                  }}
-                >
-                  <SupportGlyph kind={supportKind} />
-                </a>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </header>
+      <SubHeader
+        title={branding.title}
+        logoUrl={branding.logoUrl}
+        brandText={branding.brandText}
+        supportUrl={branding.supportUrl}
+        showGetLink={!!data.subscriptionUrl && showGetLink}
+        interactive={interactive}
+        className={className}
+        onGetLink={() =>
+          setQrModal({
+            url: data.subscriptionUrl,
+            title: t("pages.publicSub.getLink", { defaultValue: "Get link" }),
+          })
+        }
+      />
 
       <main className={`${shell.mainInner} ${shell.fadeIn}`}>
         <div className={shell.stackGap}>
@@ -234,84 +223,8 @@ export function SubPageRenderer({
         </div>
       </main>
 
-      {interactive ? (
-        <Modal
-          open={qrModal != null}
-          onClose={() => setQrModal(null)}
-          title={qrModal?.title}
-          width={320}
-        >
-          {qrModal ? (
-            <div className={shell.qrModalInner}>
-              <div className={shell.qrBox}>
-                <QRCodeSVG
-                  value={qrModal.url}
-                  size={200}
-                  level="M"
-                  bgColor="#161b22"
-                  fgColor="#22d3ee"
-                  style={{cursor: "pointer"}}
-                  onClick={() => void copyText(qrModal.url, "subscription")}
-                />
-              </div>
-              <p className="text-center text-sm font-semibold text-[var(--sub-fg-strong,#fff)]">
-                {t("pages.publicSub.scanQrCode", {
-                  defaultValue: "Scan QR code in the app",
-                })}
-              </p>
-              <p className="text-center text-xs text-[var(--sub-fg-muted,#8b949e)]">
-                {t("pages.publicSub.scanQrCodeDescription", {
-                  defaultValue:
-                    "Or copy the link below and paste it into your VPN client.",
-                })}
-              </p>
-              <Button
-                type="button"
-                variant="secondary"
-                className={shell.actionBtn}
-                style={{ width: "100%", cursor: "pointer" }}
-                onClick={() => void copyText(qrModal.url, "subscription")}
-              >
-                <Copy className={`size-4 ${shell.actionBtnIcon}`} />
-                {t("pages.publicSub.copyLink", { defaultValue: "Copy link" })}
-              </Button>
-            </div>
-          ) : null}
-        </Modal>
-      ) : null}
+      {modal}
     </>
-  );
-}
-
-/** Language picker shown at bottom of the page when multiple locales are configured. */
-function LanguagePicker({ locales }: { locales: string[] }) {
-  const { i18n } = useTranslation();
-  const currentLang = i18n.language?.slice(0, 2) ?? "en";
-
-  const LANG_LABELS: Record<string, string> = Object.fromEntries(
-    supported.map((s) => [s.code, s.label]),
-  );
-
-  return (
-    <div className="flex items-center justify-center gap-2">
-      {locales.map((locale) => {
-        const isActive = locale === currentLang;
-        return (
-          <button
-            key={locale}
-            type="button"
-            onClick={() => void i18n.changeLanguage(locale)}
-            className={`rounded-md px-2.5 py-1 text-[12px] font-medium transition ${
-              isActive
-                ? "bg-[var(--sub-accent-soft,rgba(34,211,238,0.14))] text-[var(--sub-accent,#22d3ee)]"
-                : "text-[var(--sub-fg-muted,#8b949e)] hover:text-[var(--sub-fg,#c9d1d9)]"
-            }`}
-          >
-            {LANG_LABELS[locale] ?? locale.toUpperCase()}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

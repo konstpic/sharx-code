@@ -2,12 +2,18 @@
 
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { THEME_PALETTES } from "@/lib/themePalettes.generated";
+import { THEME_PALETTES, type ThemePalette } from "@/lib/themePalettes.generated";
 import { SUB_PAGE_COLOR_PRESET_IDS, type SubPageColorPresetId } from "@/lib/subPageColorPreset";
+
+const EXTRA_PALETTES: Record<string, ThemePalette> = {
+  neon: { bg: "#07060f", "bg-elevated": "#100d22", "surface-strong": "rgba(28,22,66,.85)", border: "rgba(0,255,213,.1)", "border-strong": "rgba(0,255,213,.22)", fg: "#d9d6ff", "fg-muted": "#8d89c4", accent: "#00ffd5", "accent-ambient": "#ff2bd6" },
+  sunset: { bg: "#1b0f14", "bg-elevated": "#2a151b", "surface-strong": "rgba(255,110,80,.22)", border: "rgba(255,150,90,.1)", "border-strong": "rgba(255,150,90,.22)", fg: "#ffe9dc", "fg-muted": "#e0a992", accent: "#ff8a4c", "accent-ambient": "#ff4d8d" },
+};
+const palette = (id: string) => THEME_PALETTES[id] ?? EXTRA_PALETTES[id];
 
 /** A miniature customer-facing subscription page drawn with the preset's real colors. */
 function SubPagePreview({ id }: { id: SubPageColorPresetId }) {
-  const p = THEME_PALETTES[id];
+  const p = palette(id);
   if (!p) return null;
   const bar = (w: string, c: string, h = 3) => (
     <span className="block rounded-full" style={{ width: w, height: h, background: c }} />
@@ -69,7 +75,7 @@ export function SubPagePresetGallery({
     >
       {SUB_PAGE_COLOR_PRESET_IDS.map((id) => {
         const selected = id === value;
-        const p = THEME_PALETTES[id];
+        const p = palette(id);
         return (
           <button
             key={id}
@@ -91,7 +97,7 @@ export function SubPagePresetGallery({
                     <span key={i} className="size-3 rounded-full ring-1 ring-[var(--border)]" style={{ background: c }} />
                   ))}
                 </span>
-                <span className="truncate text-xs font-medium text-[var(--fg)]">{t(`pages.settings.panelThemePreset.${id}`)}</span>
+                <span className="truncate text-xs font-medium text-[var(--fg)]">{t(`pages.settings.panelThemePreset.${id}`, { defaultValue: id })}</span>
               </span>
               {selected ? <Check size={14} className="shrink-0 text-[var(--accent)]" aria-hidden /> : null}
             </span>

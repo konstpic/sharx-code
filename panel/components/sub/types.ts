@@ -11,6 +11,35 @@ export type PublicSubUser = {
   userStatus: string;
   /** True when the VPN session is in Xray's current online set (not the same as account ACTIVE). */
   isOnline?: boolean;
+  trafficUsedBytes?: string;
+  trafficLimitBytes?: string;
+  lifetimeTrafficUsed?: string;
+  lifetimeTrafficUsedBytes?: string;
+  group?: string;
+  /** Unix seconds. */
+  createdAt?: number;
+  /** Unix milliseconds; 0 = never seen. */
+  lastOnline?: number;
+  ipLimit?: boolean;
+  maxIPs?: number;
+  resetCadence?: string;
+};
+
+export type PublicSubDevice = {
+  os: string;
+  model: string;
+  osVersion: string;
+  /** Unix seconds. */
+  firstSeenAt: number;
+  lastSeenAt: number;
+  active: boolean;
+};
+
+export type PublicSubDevices = {
+  enabled: boolean;
+  max: number;
+  count: number;
+  items: PublicSubDevice[];
 };
 
 export type PublicSubPayload = {
@@ -27,6 +56,8 @@ export type PublicSubPayload = {
   happEncryptedUrl?: string;
   /** Optional deep-link URL for v2rayTun (v2raytun://crypt/...). */
   v2raytunEncryptedUrl?: string;
+  /** HWID devices of the client (the device id itself is never sent). */
+  devices?: PublicSubDevices;
   /**
    * Telemt MTProto share links (tg://proxy?... or tg://webproxy?...) for the HTML page only.
    * Not included in the raw VPN subscription feed (`links`).
@@ -134,5 +165,24 @@ export const MOCK_SUB_DATA: PublicSubPayload = {
     isActive: true,
     userStatus: "ACTIVE",
     isOnline: false,
+    trafficUsedBytes: String(Math.round(12.4 * 1024 ** 3)),
+    trafficLimitBytes: String(100 * 1024 ** 3),
+    lifetimeTrafficUsed: "86.1 GB",
+    lifetimeTrafficUsedBytes: String(Math.round(86.1 * 1024 ** 3)),
+    group: "Friends",
+    createdAt: Math.floor(Date.now() / 1000) - 120 * 86400,
+    lastOnline: Date.now() - 42 * 60 * 1000,
+    ipLimit: false,
+    maxIPs: 1,
+    resetCadence: "monthly",
+  },
+  devices: {
+    enabled: true,
+    max: 3,
+    count: 2,
+    items: [
+      { os: "iOS", model: "iPhone 15 Pro", osVersion: "18.2", firstSeenAt: Math.floor(Date.now() / 1000) - 60 * 86400, lastSeenAt: Math.floor(Date.now() / 1000) - 3600, active: true },
+      { os: "Windows", model: "Desktop PC", osVersion: "11", firstSeenAt: Math.floor(Date.now() / 1000) - 30 * 86400, lastSeenAt: Math.floor(Date.now() / 1000) - 5 * 86400, active: true },
+    ],
   },
 };

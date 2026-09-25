@@ -167,6 +167,31 @@ Additional routing rules added to JSON subscription (for sing-box, Xray JSON).
 
 Direct editing of subscription page configuration in JSON with syntax highlighting and schema validation.
 
+## Visual Designer (2.1.0)
+
+Starting with release 2.1.0 the subscription page can be built not only from classic blocks but also in the **visual designer**: you move elements with the mouse, nest them, show them conditionally, animate them and fill them with the data of a specific client. Full guide (in Russian): [Subscription page designer](../../subscription-designer.md).
+
+**Opening and publishing.** Settings → “Subscription” → “Visual designer” card → “Open designer”. Build the page (you can start from one of 21 templates with the **Templates** button), turn on the **Use on page** switch and press **Save**. While the switch is off, clients see the classic blocks and the layout is kept. You can return to the classic page by turning the switch off.
+
+**What is inside:**
+
+- **Layout** of frames (stack, grid, free positioning) and elements: text, button, image, badge, progress, QR, repeat, header, app buttons, scene, custom code.
+- **Canvas**: Phone / Tablet / Desktop frames, zoom, grid and snapping, drag and drop; drop an element on the left or right edge of another one to place them side by side.
+- **Inspector**: layout, size, appearance, text, visibility, Motion, Data & behavior, and a separate **mobile view** editing mode.
+- **Variables and templates**: `{{ user.username }}`, `{{ devices.count }}`, filters, `{{#if}}`, `{{#each}}`, your own `vars.*` and translations `tr.*` (13 languages: English and Russian live inside the layout, 11 more come from bundled dictionaries; English is the fallback).
+- **Catalog** of 108 ready-made elements (profile, traffic, devices, connect, guides, scenes, animations and more) with search, filters and previews.
+- **Styles tab**: 12 palettes (including Hello Kitty, Barbie, Neon, Sunset), Auto / Light / Dark mode, Animated or Plain background, decorations, custom colors.
+- **My library**: save your own elements and page templates on the server, shared by all administrators.
+- **Onboarding tour** (the **Tour** button in the toolbar): Quick start, Full tour and short guides.
+
+**What changed in the settings.** The Branding tab now holds content only (title, logo, brand text, support link, languages); palette, colors, theme and background are set in the designer, on the Styles tab. The Blocks tab is hidden while a layout is in use. The Colors / Font rows of the Branding table above describe the previous interface.
+
+**API.** The public response `GET /panel/api/public/subscription` gains a `devices` object (`enabled`, `max`, `count`, `items[]`; the HWID itself is never returned) and the fields `user.group`, `createdAt`, `lastOnline`, `ipLimit`, `maxIPs`, `resetCadence`. The layout is stored in the config as `layout`; appearance uses `colorPreset`, `theme`, `branding.background` and `branding.decorations`.
+
+**Security.** The template engine does not use `eval`, values are escaped in HTML and `javascript:` links are blocked. Custom code is cleaned by a sanitizer; scripts (opt-in only) run in an isolated `iframe` with no access to the page.
+
+> **Limitation: the designer has no mobile adaptation.** The editor is desktop-only: you cannot edit the page from a phone or tablet. The page it produces is responsive, though: you can preview it in the Phone frame on the canvas and set a separate look for narrow screens. Bundled animations respect `prefers-reduced-motion`.
+
 ## Public Page
 
 URL: `/panel/sub/?id=<subId>`

@@ -8,6 +8,7 @@ import {
   Layers,
   LayoutDashboard,
   Link2,
+  Palette,
   Package,
   Scale,
   Server,
@@ -262,4 +263,31 @@ const groups: Scene = {
   ],
 };
 
-export const SCENES: Record<string, Scene> = { welcome, inbounds, nodes, balancers, bundles, hosts, clients, groups };
+
+const SP = (id: string) => K("subpage", id);
+const subpage: Scene = {
+  id: "subpage",
+  titleKey: K("subpage", "title"),
+  actors: [
+    { ...a("designer", LayoutDashboard, 12, 30, "accent"), labelKey: SP("designer") },
+    { ...a("vars", KeyRound, 12, 74, "amber"), labelKey: SP("vars") },
+    a("client", User, 40, 52, "blue"),
+    { ...a("page", Globe, 66, 52, "green"), labelKey: SP("page") },
+    a("app", Smartphone, 90, 52, "blue"),
+  ],
+  links: [
+    ["designer", "page"],
+    ["vars", "page"],
+    ["client", "vars"],
+    ["page", "app"],
+  ],
+  steps: [
+    { captionKey: K("subpage", "cap1"), show: ["designer"], focus: ["designer"] },
+    { captionKey: K("subpage", "cap2"), show: ["designer", "vars"], focus: ["vars"], flows: [{ from: "vars", to: "designer", tone: "amber" }] },
+    { captionKey: K("subpage", "cap3"), show: ["designer", "vars", "client"], focus: ["client"], flows: [{ from: "client", to: "vars", tone: "blue" }] },
+    { captionKey: K("subpage", "cap4"), show: ["designer", "vars", "client", "page"], focus: ["page"], flows: [{ from: "designer", to: "page", tone: "green" }, { from: "vars", to: "page", tone: "green" }] },
+    { captionKey: K("subpage", "cap5"), show: ["designer", "vars", "client", "page", "app"], focus: ["app"], flows: [{ from: "page", to: "app", tone: "accent" }] },
+  ],
+};
+
+export const SCENES: Record<string, Scene> = { subpage, welcome, inbounds, nodes, balancers, bundles, hosts, clients, groups };

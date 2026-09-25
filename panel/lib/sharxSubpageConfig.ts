@@ -17,6 +17,10 @@ export const brandingSchema = z.object({
   brandText: z.string(),
   supportUrl: z.string(),
   /** Optional theme palette overrides (hex, e.g. "#22d3ee"). */
+  /** Page background: the palette's animated atmosphere (default) or a plain flat color. */
+  background: z.enum(["animated", "plain"]).optional(),
+  /** Extra decorations of the palette (floating bows, sparkles, grids). Default on. */
+  decorations: z.boolean().optional(),
   accentColor: z.string().optional(),
   accentAmbientColor: z.string().optional(),
   bgColor: z.string().optional(),
@@ -843,6 +847,11 @@ export const sharxSubpageConfigV2Schema = z.object({
   deepLinks: deepLinksSchema.optional(),
   showCustomRemarks: z.boolean().default(true),
   customRemarks: customRemarksSchema.optional(),
+  /**
+   * Page designer document (see lib/subLayout). Validated by its own normalizer, not by zod: it is a tree with ids.
+   * When present and enabled it replaces the classic block list on the public page.
+   */
+  layout: z.custom<Record<string, unknown>>((v) => v === undefined || (typeof v === "object" && v !== null && !Array.isArray(v))).optional(),
 });
 export type SharxSubpageConfigV2 = z.infer<typeof sharxSubpageConfigV2Schema>;
 

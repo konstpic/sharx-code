@@ -21,6 +21,8 @@ type SectionHelpModalProps = {
   sectionId?: string;
   /** Extra content under the paragraphs. */
   children?: ReactNode;
+  /** Extra class for the modal portal (e.g. to stack above a full-screen editor). */
+  portalClassName?: string;
 };
 
 /**
@@ -34,6 +36,7 @@ export function SectionHelpModal({
   scene,
   sectionId,
   children,
+  portalClassName,
 }: SectionHelpModalProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -64,6 +67,7 @@ export function SectionHelpModal({
         onClose={() => setOpen(false)}
         title={t(titleKey)}
         width={scene ? 720 : 560}
+        portalClassName={portalClassName}
       >
         {scene && open ? <HelpScene sceneId={scene} className="mb-5" /> : null}
         <div className="flex flex-col gap-3.5 text-sm leading-relaxed text-[var(--fg-muted)]">

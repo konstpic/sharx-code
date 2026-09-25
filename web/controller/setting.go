@@ -73,6 +73,8 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/subscriptionPageConfig/list", a.subscriptionPageConfigList)
 	g.POST("/subscriptionPageConfig/get", a.subscriptionPageConfigGet)
 	g.POST("/subscriptionPageConfig/save", a.subscriptionPageConfigSave)
+	g.POST("/designerLibrary/get", a.designerLibraryGet)
+	g.POST("/designerLibrary/save", a.designerLibrarySave)
 
 	a.registerTemplateHubRoutes(g)
 	g.POST("/sessions/list", a.listLoginSessions)

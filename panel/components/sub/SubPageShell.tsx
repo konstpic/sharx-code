@@ -62,6 +62,8 @@ export function SubPageShell({
       data-theme={dataTheme}
       data-color-preset={palette}
       data-has-custom-bg={hasCustomBg ? "true" : "false"}
+      data-bg={branding?.background === "plain" ? "plain" : "animated"}
+      data-decor={branding?.decorations === false ? "off" : "on"}
     >
       <div className={shell.animatedBg} aria-hidden />
       {reduce ? (
