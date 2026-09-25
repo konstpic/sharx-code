@@ -56,6 +56,7 @@ COPY telemt/ ./telemt/
 COPY amneziawg/ ./amneziawg/
 COPY sub/ ./sub/
 COPY node/ ./node/
+COPY balancer/ ./balancer/
 # Go API and services (.dockerignore omits web/panel/; static UI comes from panelui below).
 COPY web/ ./web/
 # Optional Telemt prebuilt binary (see scripts/download-telemt.sh); small layer, avoids compile in image build.
