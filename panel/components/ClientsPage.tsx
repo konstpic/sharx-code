@@ -35,6 +35,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import type { Dispatch, ReactNode, SetStateAction, TextareaHTMLAttributes } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BundlePicker } from "@/components/bundles/BundlePicker";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
@@ -2173,21 +2174,13 @@ function ClientUnifiedCard({
                     {t("pages.clients.noBundles", { defaultValue: "No bundles yet: create one on the Bundles page." })}
                   </p>
                 ) : (
-                  <div className="max-h-52 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <div className="flex flex-wrap gap-2" role="group" aria-label={t("pages.clients.selectBundles", { defaultValue: "Bundles" })}>
-                      {bundleOptions
-                        .filter((b) => !b.auto)
-                        .map((b) => (
-                          <InboundCapsuleToggle
-                            key={b.id}
-                            selected={!!bundleSel[b.id]}
-                            onToggle={() => onToggleBundle(b.id)}
-                            label={b.name}
-                            sublabel={t("pages.clients.bundleMembers", { defaultValue: "{{n}} clients", n: b.clientCount })}
-                          />
-                        ))}
-                    </div>
-                  </div>
+                  <BundlePicker
+                    label={t("pages.clients.selectBundles", { defaultValue: "Bundles" })}
+                    options={bundleOptions.filter((b) => !b.auto)}
+                    selected={bundleSel}
+                    onToggle={onToggleBundle}
+                    countLabel={(n) => t("pages.clients.bundleMembers", { defaultValue: "{{n}} clients", n })}
+                  />
                 )}
                 <p className="mt-3 text-[11px] font-medium uppercase tracking-wider text-[var(--fg-subtle)]">
                   {t("pages.clients.effectiveInbounds", { defaultValue: "Inbounds this client gets" })}

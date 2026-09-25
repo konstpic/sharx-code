@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/konstpic/sharx-code/v2/database/model"
@@ -48,6 +49,7 @@ func (a *ClientGroupController) initRouter(g *gin.RouterGroup) {
 	g.POST("/:id/bulk/enable", a.bulkEnable)
 	g.POST("/:id/bulk/setHwidLimit", a.bulkSetHwidLimit)
 	g.POST("/:id/bulk/assignInbounds", a.bulkAssignInbounds)
+	g.POST("/:id/bulk/assignBundles", a.bulkAssignBundles)
 	g.POST("/:id/bulk/setExpiry", a.bulkSetExpiry)
 	g.POST("/:id/bulk/setTrafficLimit", a.bulkSetTrafficLimit)
 	g.POST("/:id/bulk/setIPLimit", a.bulkSetIPLimit)
@@ -421,6 +423,12 @@ func (a *ClientGroupController) bulkAssignInbounds(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
+	if (&service.BundleService{}).BundlesActive() {
+		// A replace here would only touch the clients' personal auto bundle while bundles keep granting their inbounds: a
+		// silently wrong result. Access is managed through bundles.
+		jsonMsg(c, "Inbounds are managed through bundles: assign a bundle to the group instead", errors.New("bundles are active"))
+		return
+	}
 	user := session.GetLoginUser(c)
 	var req struct {
 		InboundIds []int  `json:"inboundIds" form:"inboundIds"`
@@ -462,6 +470,47 @@ func (a *ClientGroupController) bulkAssignInbounds(c *gin.Context) {
 	if needRestart {
 		a.xrayService.RestartOrSyncWorkersForInboundsAsync(req.InboundIds)
 	}
+}
+
+// bulkAssignBundles sets the bundles of every client in a group (mode "replace" or "add"). Personal auto bundles are kept.
+func (a *ClientGroupController) bulkAssignBundles(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		jsonMsg(c, "Invalid group ID", err)
+		return
+	}
+	var req struct {
+		BundleIds []int  `json:"bundleIds"`
+		Mode      string `json:"mode"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonMsg(c, "Invalid request data", err)
+		return
+	}
+	if req.Mode != "add" {
+		req.Mode = "replace"
+	}
+	user := session.GetLoginUser(c)
+	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
+	if err != nil {
+		jsonMsg(c, "Failed to get clients in group", err)
+		return
+	}
+	ids := make([]int, len(clients))
+	for i, cl := range clients {
+		ids[i] = cl.Id
+	}
+	diffs, err := (&service.BundleService{}).ApplyNamedBundles(ids, req.BundleIds, req.Mode)
+	if err != nil {
+		jsonMsg(c, "Failed to assign bundles", err)
+		return
+	}
+	go func() {
+		for _, d := range diffs {
+			a.clientService.PushClientAccessChange(d.ClientId, append(append([]int(nil), d.Added...), d.Removed...))
+		}
+	}()
+	jsonObj(c, gin.H{"changedClients": len(diffs)}, nil)
 }
 
 // bulkSetExpiry sets the expiry time for all clients in a group.
@@ -590,6 +639,10 @@ type effectiveGroupSettings struct {
 	// InboundIdsConsistent is true when every client in the group has the same
 	// ordered inbound assignment set. When false, InboundIds is nil/empty.
 	InboundIdsConsistent bool `json:"inboundIdsConsistent"`
+	// BundleIds are the named bundles every client in the group shares (bundle scheme); BundleIdsConsistent is false when
+	// clients have different sets.
+	BundleIds           []int `json:"bundleIds,omitempty"`
+	BundleIdsConsistent bool  `json:"bundleIdsConsistent"`
 }
 
 // getEffectiveSettings returns the values currently shared by every client in
@@ -660,6 +713,15 @@ func (a *ClientGroupController) getEffectiveSettings(c *gin.Context) {
 	resp.InboundIdsConsistent = inboundsSame
 	if inboundsSame {
 		resp.InboundIds = append([]int{}, first.InboundIds...)
+	}
+	if (&service.BundleService{}).BundlesActive() {
+		ids := make([]int, len(clients))
+		for i, cl := range clients {
+			ids[i] = cl.Id
+		}
+		if b, same, err := (&service.BundleService{}).CommonNamedBundles(ids); err == nil {
+			resp.BundleIds, resp.BundleIdsConsistent = b, same
+		}
 	}
 	jsonObj(c, resp, nil)
 }

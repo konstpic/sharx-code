@@ -490,7 +490,7 @@ func AutoConvertOnStartup() {
 	}
 	if raw, _ := settings.GetBundlesMigration(); raw != "" {
 		var prev ConversionReport
-		if json.Unmarshal([]byte(raw), &prev) == nil && prev.Version == currentVersion() && (prev.Status == "failed" || prev.Status == "rolledBack") {
+		if json.Unmarshal([]byte(raw), &prev) == nil && prev.Version == currentVersion() && prev.Status == "failed" {
 			return
 		}
 	}
@@ -498,19 +498,6 @@ func AutoConvertOnStartup() {
 	if _, err := ConvertToBundles(ConvertOptions{Host: "conversion.local"}); err != nil {
 		logger.Warningf("bundles: automatic conversion did not switch: %v", err)
 	}
-}
-
-// RollbackBundles returns to the pre-bundle scheme. Legacy tables were never modified, so this only flips the switch; what is
-// lost is delivery edits made in bundle mode. Access data is current in client_inbound_mappings.
-func RollbackBundles() error {
-	settings := service.SettingService{}
-	if err := settings.SetBundlesEnabled(false); err != nil {
-		return err
-	}
-	rep := &ConversionReport{Status: "rolledBack", FinishedAt: time.Now().Unix(), Version: currentVersion()}
-	saveConversionReport(rep)
-	logger.Warningf("bundles: switched back to the legacy scheme")
-	return nil
 }
 
 func currentVersion() string { return config.GetVersion() }

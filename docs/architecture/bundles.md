@@ -239,6 +239,6 @@ the subscription text of every client.
   the first verification run correctly refused to switch.
 * **Subscription assembly.** `getAddressesForInbound` uses the client's bundle hosts when the request has them attached
   (`Inbound.SubHosts`), else the old assembly. Each generator applies host overrides per row (`AddressPort.OverrideHost`).
-* **Rollback** is `POST /panel/bundle/rollback` or the button on the Bundles page.
+* **No rollback in the product.** The old scheme is never modified and the pre-bundle backup tables stay in the database, so an operator can restore by hand, but the panel offers no switch back.
 * **Not done yet:** a bulk "add clients to bundle" action on the Clients page (single-client and bundle-side membership work),
   bundle-level subscription templates, group-to-bundle defaults.

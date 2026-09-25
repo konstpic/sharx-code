@@ -105,7 +105,6 @@ export function BundlesPage() {
   const [hostPick, setHostPick] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Bundle | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmRollback, setConfirmRollback] = useState(false);
 
   const load = useCallback(async () => {
     const [s, b, h] = await Promise.all([
@@ -225,15 +224,6 @@ export function BundlesPage() {
     await load();
   };
 
-  const rollback = async () => {
-    setBusy(true);
-    const r = await postJson(panel("bundle/rollback"), {}, true);
-    setBusy(false);
-    setConfirmRollback(false);
-    if (!r.success) toast.error(r.msg || t("fail"));
-    await load();
-  };
-
   const available = useMemo(() => {
     if (!draft) return [];
     const used = new Set(draft.refs.map((r) => r.hostId));
@@ -279,9 +269,7 @@ export function BundlesPage() {
                     title={
                       report?.status === "failed"
                         ? t("pages.bundles.convertFailed", { defaultValue: "The conversion did not switch: the previous scheme stays active." })
-                        : report?.status === "rolledBack"
-                          ? t("pages.bundles.rolledBack", { defaultValue: "The panel is on the previous scheme (switched back manually)." })
-                          : t("pages.bundles.notConverted", { defaultValue: "Bundles are not active yet. The panel converts automatically after an upgrade." })
+                        : t("pages.bundles.notConverted", { defaultValue: "Bundles are not active yet. The panel converts automatically after an upgrade." })
                     }
                     description={report?.error}
                   />
@@ -315,9 +303,6 @@ export function BundlesPage() {
                       })
                     : t("pages.bundles.active", { defaultValue: "Bundles are active." })}
                 </span>
-                <Button variant="ghost" className="!px-2 !py-1 text-xs" onClick={() => setConfirmRollback(true)}>
-                  {t("pages.bundles.rollback", { defaultValue: "Return to the previous scheme" })}
-                </Button>
               </div>
             ) : null}
 
@@ -561,28 +546,6 @@ export function BundlesPage() {
         <p className="mt-2 font-mono text-xs text-[var(--fg)]">{deleteTarget?.name}</p>
       </Modal>
 
-      <Modal
-        open={confirmRollback}
-        onClose={() => setConfirmRollback(false)}
-        title={t("pages.bundles.rollbackTitle", { defaultValue: "Return to the previous scheme?" })}
-        width={480}
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setConfirmRollback(false)}>
-              {t("cancel")}
-            </Button>
-            <Button variant="danger" loading={busy} onClick={() => void rollback()}>
-              {t("confirm")}
-            </Button>
-          </div>
-        }
-      >
-        <p className="text-sm text-[var(--fg-muted)]">
-          {t("pages.bundles.rollbackText", {
-            defaultValue: "Subscriptions are built the old way again. Clients keep their access. Changes made to bundles and hosts since the switch stop applying to subscriptions.",
-          })}
-        </p>
-      </Modal>
     </PageScaffold>
   );
 }

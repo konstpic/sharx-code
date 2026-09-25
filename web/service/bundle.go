@@ -619,3 +619,83 @@ func dedupeRefs(in []BundleHostRef) []BundleHostRef {
 	}
 	return out
 }
+
+// namedBundleIDs returns the ids of a client's non-auto bundles (membership order).
+func namedBundleIDs(tx *gorm.DB, clientId int) ([]int, error) {
+	var ids []int
+	err := tx.Raw(`SELECT cb.bundle_id FROM client_bundles cb JOIN bundles b ON b.id = cb.bundle_id
+		WHERE cb.client_id = ? AND b.auto = FALSE ORDER BY cb.sort_order, cb.id`, clientId).Scan(&ids).Error
+	return ids, err
+}
+
+// ApplyNamedBundles sets the named (operator-chosen) bundles of many clients at once, for the group screen. mode "replace"
+// makes bundleIds the clients' exact named set; "add" adds them. Personal auto bundles are always kept. Returns the access
+// changes so the caller can push them to the nodes.
+func (s *BundleService) ApplyNamedBundles(clientIds, bundleIds []int, mode string) ([]AccessDiff, error) {
+	db := database.GetDB()
+	var diffs []AccessDiff
+	for _, cid := range clientIds {
+		var final []int
+		err := db.Transaction(func(tx *gorm.DB) error {
+			named, err := namedBundleIDs(tx, cid)
+			if err != nil {
+				return err
+			}
+			var autos []int
+			if err := tx.Raw(`SELECT cb.bundle_id FROM client_bundles cb JOIN bundles b ON b.id = cb.bundle_id
+				WHERE cb.client_id = ? AND b.auto = TRUE ORDER BY cb.sort_order, cb.id`, cid).Scan(&autos).Error; err != nil {
+				return err
+			}
+			want := append([]int(nil), bundleIds...)
+			if mode == "add" {
+				seen := map[int]bool{}
+				want = nil
+				for _, id := range append(append([]int(nil), named...), bundleIds...) {
+					if !seen[id] {
+						seen[id] = true
+						want = append(want, id)
+					}
+				}
+			}
+			final = append(want, autos...)
+			return nil
+		})
+		if err != nil {
+			return diffs, err
+		}
+		d, err := s.SetClientBundles(cid, final)
+		if err != nil {
+			return diffs, err
+		}
+		if d.Changed() {
+			diffs = append(diffs, d)
+		}
+	}
+	return diffs, nil
+}
+
+// CommonNamedBundles returns the named bundle ids shared by every listed client and whether all clients have the same set.
+func (s *BundleService) CommonNamedBundles(clientIds []int) ([]int, bool, error) {
+	db := database.GetDB()
+	var first []int
+	for i, cid := range clientIds {
+		ids, err := namedBundleIDs(db, cid)
+		if err != nil {
+			return nil, false, err
+		}
+		sort.Ints(ids)
+		if i == 0 {
+			first = ids
+			continue
+		}
+		if len(ids) != len(first) {
+			return nil, false, nil
+		}
+		for j := range ids {
+			if ids[j] != first[j] {
+				return nil, false, nil
+			}
+		}
+	}
+	return first, true, nil
+}

@@ -5731,4 +5731,3 @@ its named bundles grant stays theirs.
 | POST | `/panel/bundle/hosts/del/{id}` | | Delete an address host. |
 | GET | `/panel/bundle/state` | | `{enabled, report}`: active flag and the last conversion report. |
 | POST | `/panel/bundle/convert` | | Run the verified conversion now. |
-| POST | `/panel/bundle/rollback` | | Return to the previous scheme. |

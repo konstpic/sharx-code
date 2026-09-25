@@ -26,9 +26,9 @@ import (
 )
 
 func registerClientShareLinksBuilder() {
-	controller.SetBundleConversionHooks(func() (any, error) {
+	controller.SetBundleConversionHook(func() (any, error) {
 		return sub.ConvertToBundles(sub.ConvertOptions{Host: "conversion.local"})
-	}, sub.RollbackBundles)
+	})
 	controller.SetClientShareLinksBuilder(func(client *model.ClientEntity, host string) []model.ClientInboundShareLink {
 		s := sub.NewPanelSubService(host)
 		return s.ClientShareLinks(client, client.InboundIds)

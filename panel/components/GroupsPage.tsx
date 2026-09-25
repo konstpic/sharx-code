@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
+import { BundlePicker } from "@/components/bundles/BundlePicker";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson, type Msg } from "@/lib/api";
@@ -177,6 +178,8 @@ type EffectiveSettings = {
   maxIPs?: number;
   inboundIds?: number[];
   inboundIdsConsistent: boolean;
+  bundleIds?: number[];
+  bundleIdsConsistent?: boolean;
 };
 
 /** Convert an epoch ms timestamp to the `YYYY-MM-DDTHH:mm` form expected by `<input type="datetime-local">`. */
@@ -273,6 +276,10 @@ export function GroupsPage() {
   const [inboundIds, setInboundIds] = useState<Record<number, boolean>>({});
   const [inboundOrder, setInboundOrder] = useState<number[]>([]);
   const [inboundsTouched, setInboundsTouched] = useState(false);
+  const [bundleMode, setBundleMode] = useState(false);
+  const [bundleOptions, setBundleOptions] = useState<{ id: number; name: string; auto: boolean; clientCount: number }[]>([]);
+  const [bundleSel, setBundleSel] = useState<Record<number, boolean>>({});
+  const [bundlesTouched, setBundlesTouched] = useState(false);
 
   const [effective, setEffective] = useState<EffectiveSettings | null>(null);
   const [effectiveLoading, setEffectiveLoading] = useState(false);
@@ -298,6 +305,13 @@ export function GroupsPage() {
   }, []);
 
   const loadInbounds = useCallback(async () => {
+    const st = await getJson<{ enabled?: boolean }>(panel("bundle/state"));
+    const on = !!(st.success && st.obj?.enabled);
+    setBundleMode(on);
+    if (on) {
+      const b = await getJson<{ id: number; name: string; auto: boolean; clientCount: number }[]>(panel("bundle/list"));
+      setBundleOptions(b.success && Array.isArray(b.obj) ? b.obj.filter((x) => !x.auto) : []);
+    }
     const r = await getJson<InboundOption[]>(panel("api/inbounds/list"));
     if (r.success && Array.isArray(r.obj)) {
       setInbounds(
@@ -335,6 +349,8 @@ export function GroupsPage() {
     setInboundIds({});
     setInboundOrder([]);
     setInboundsTouched(false);
+    setBundleSel({});
+    setBundlesTouched(false);
     setEffective(null);
     setBulkGroup(r);
   };
@@ -361,6 +377,11 @@ export function GroupsPage() {
         enabled: eff.ipLimitEnabled,
         maxIPs: Math.max(0, eff.maxIPs),
       });
+    }
+    if (eff.bundleIdsConsistent && Array.isArray(eff.bundleIds)) {
+      const bm: Record<number, boolean> = {};
+      for (const id of eff.bundleIds) bm[id] = true;
+      setBundleSel(bm);
     }
     if (eff.inboundIdsConsistent && Array.isArray(eff.inboundIds)) {
       const ids = eff.inboundIds;
@@ -658,7 +679,14 @@ export function GroupsPage() {
           t("pages.clients.ipLimitTitle", { defaultValue: "IP limit" }),
         );
       }
-      if (inboundsTouched && bulkGroup.clientCount > 0) {
+      if (bundleMode && bundlesTouched && bulkGroup.clientCount > 0) {
+        await callBulk(
+          `group/${id}/bulk/assignBundles`,
+          { bundleIds: Object.keys(bundleSel).filter((k) => bundleSel[Number(k)]).map(Number), mode: "replace" },
+          t("pages.groups.assignBundles", { defaultValue: "Bundles" }),
+        );
+      }
+      if (!bundleMode && inboundsTouched && bulkGroup.clientCount > 0) {
         const ordered = inboundOrder.filter((iid) => inboundIds[iid]);
         await callBulk(
           `group/${id}/bulk/assignInbounds`,
@@ -685,6 +713,7 @@ export function GroupsPage() {
           description: form.description.trim(),
         });
       }
+      setBundlesTouched(false);
       setExpiryTouched(false);
       setTrafficTouched(false);
       setHwidTouched(false);
@@ -709,7 +738,8 @@ export function GroupsPage() {
       trafficTouched ||
       hwidTouched ||
       ipTouched ||
-      inboundsTouched
+      inboundsTouched ||
+      bundlesTouched
     );
   }, [
     bulkGroup,
@@ -720,6 +750,7 @@ export function GroupsPage() {
     hwidTouched,
     ipTouched,
     inboundsTouched,
+    bundlesTouched,
   ]);
 
   return (
@@ -1081,6 +1112,33 @@ export function GroupsPage() {
                     />
                   </div>
 
+                  {/* Bundles (bundle scheme) */}
+                  {bundleMode ? (
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
+                      <SectionLabel icon={Layers}>{t("pages.groups.assignBundles", { defaultValue: "Bundles" })}</SectionLabel>
+                      {bundleOptions.length === 0 ? (
+                        <p className="text-xs text-[var(--fg-subtle)]">{t("pages.clients.noBundles", { defaultValue: "No bundles yet: create one on the Bundles page." })}</p>
+                      ) : (
+                        <BundlePicker
+                          label={t("pages.groups.assignBundles", { defaultValue: "Bundles" })}
+                          options={bundleOptions}
+                          selected={bundleSel}
+                          onToggle={(id) => {
+                            setBundlesTouched(true);
+                            setBundleSel((m) => ({ ...m, [id]: !m[id] }));
+                          }}
+                          countLabel={(n) => t("pages.clients.bundleMembers", { defaultValue: "{{n}} clients", n })}
+                        />
+                      )}
+                      <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                        {t("pages.groups.assignBundlesHint", { defaultValue: "Saving sets these bundles for every client of the group. Clients' personal access from the API is kept." })}
+                      </p>
+                      <ConsistencyHint loading={effectiveLoading} clientCount={bulkGroup.clientCount} consistent={effective?.bundleIdsConsistent === true} t={t} />
+                    </div>
+                  ) : null}
+
+                  {!bundleMode ? (
+                  <>
                   {/* Inbounds */}
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
                     <SectionLabel icon={Layers}>
@@ -1163,6 +1221,9 @@ export function GroupsPage() {
                       t={t}
                     />
                   </div>
+
+                  </>
+                  ) : null}
 
                   {/* HWID */}
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">

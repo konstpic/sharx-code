@@ -16,18 +16,12 @@ import (
 type BundleController struct {
 	svc     service.BundleService
 	clients service.ClientService
-	// convert and rollback are provided by main (the conversion needs the subscription assembler, which lives in package sub).
 }
 
-var (
-	bundleConvertHook  func() (any, error)
-	bundleRollbackHook func() error
-)
+var bundleConvertHook func() (any, error)
 
-// SetBundleConversionHooks wires the conversion and rollback implementations.
-func SetBundleConversionHooks(convert func() (any, error), rollback func() error) {
-	bundleConvertHook, bundleRollbackHook = convert, rollback
-}
+// SetBundleConversionHook wires the conversion implementation (it needs the subscription assembler in package sub).
+func SetBundleConversionHook(convert func() (any, error)) { bundleConvertHook = convert }
 
 // NewBundleController registers the routes.
 func NewBundleController(g *gin.RouterGroup) *BundleController {
@@ -49,7 +43,6 @@ func NewBundleController(g *gin.RouterGroup) *BundleController {
 	g.POST("/hosts/reset/:id", a.resetHost)
 	g.GET("/state", a.state)
 	g.POST("/convert", a.convert)
-	g.POST("/rollback", a.rollback)
 	return a
 }
 
@@ -335,16 +328,4 @@ func (a *BundleController) convert(c *gin.Context) {
 		return
 	}
 	jsonObj(c, rep, nil)
-}
-
-func (a *BundleController) rollback(c *gin.Context) {
-	if bundleRollbackHook == nil {
-		jsonMsg(c, "Rollback is not available", errors.New("not wired"))
-		return
-	}
-	if err := bundleRollbackHook(); err != nil {
-		jsonMsg(c, "Rollback failed", err)
-		return
-	}
-	jsonMsg(c, "Switched back to the previous scheme", nil)
 }
