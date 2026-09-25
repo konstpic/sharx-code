@@ -583,7 +583,7 @@ type Host struct {
 
 	// Bundle scheme (docs/architecture/bundles.md). Kind "legacy" is a pre-bundle Host (many inbounds, apply mode);
 	// the other kinds are bound to exactly one inbound.
-	Kind              string `json:"kind" gorm:"column:kind;default:legacy"`             // legacy | address | placement | pool
+	Kind              string `json:"kind" gorm:"column:kind;default:legacy"`             // legacy | address | placement | pool | local
 	InboundId         *int   `json:"inboundId,omitempty" gorm:"column:inbound_id"`       // the one inbound this host delivers
 	NodeId            *int   `json:"nodeId,omitempty" gorm:"column:node_id"`             // placement hosts
 	PoolId            *int   `json:"poolId,omitempty" gorm:"column:pool_id"`             // pool hosts
@@ -605,6 +605,7 @@ const (
 	HostKindAddress   = "address"
 	HostKindPlacement = "placement"
 	HostKindPool      = "pool"
+	HostKindLocal     = "local" // inbound served by the panel itself: the address is resolved per request
 
 	HostSourceManual    = "manual"
 	HostSourcePlacement = "placement"

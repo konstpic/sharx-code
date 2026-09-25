@@ -5,8 +5,10 @@
 -- Hosts become the unit of delivery. Existing rows keep kind = 'legacy' and stay exactly as they were.
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'legacy';
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS inbound_id INTEGER NULL REFERENCES inbounds(id) ON DELETE CASCADE;
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS node_id INTEGER NULL REFERENCES nodes(id) ON DELETE CASCADE;
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS pool_id INTEGER NULL REFERENCES balancer_pools(id) ON DELETE CASCADE;
+-- No cascade on node and pool: deleting a node must not silently take clients' access with it. The host sync removes
+-- orphaned managed hosts and keeps access (see web/service/host_sync.go).
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS node_id INTEGER NULL REFERENCES nodes(id) ON DELETE SET NULL;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS pool_id INTEGER NULL REFERENCES balancer_pools(id) ON DELETE SET NULL;
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'manual';
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS customized BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS remark_suffix TEXT NOT NULL DEFAULT '';
@@ -16,6 +18,8 @@ CREATE INDEX IF NOT EXISTS idx_hosts_inbound ON hosts(inbound_id);
 -- One managed host per placement / pool.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hosts_placement ON hosts(inbound_id, node_id) WHERE kind = 'placement';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hosts_pool ON hosts(pool_id) WHERE kind = 'pool';
+-- One 'local' host per inbound: the inbound served by the panel itself (address resolved per request).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_hosts_local ON hosts(inbound_id) WHERE kind = 'local';
 
 CREATE TABLE IF NOT EXISTS bundles (
     id SERIAL PRIMARY KEY,
