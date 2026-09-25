@@ -232,3 +232,72 @@ func TestAutoBundleUsesExistingHostsOrManagedOnes(t *testing.T) {
 		t.Fatalf("an inbound with no hosts anywhere gets the panel's local host: %+v", local)
 	}
 }
+
+func TestBundleHostLifecycle(t *testing.T) {
+	db := testdb.New(t)
+	if err := (&SettingService{}).SetMultiNodeMode(true); err != nil {
+		t.Fatal(err)
+	}
+	svc := &BundleService{}
+	in := seedInbound(t, db, 7001, model.VLESS)
+	n := seedNode(t, db, "DE-1", "http://10.1.1.1:8080")
+	db.Create(&model.InboundNodeMapping{InboundId: in.Id, NodeId: n.Id, IncludeInSubscription: true})
+	if _, _, _, err := (&HostSyncService{}).SyncAll(); err != nil {
+		t.Fatal(err)
+	}
+	var place model.Host
+	db.Where("kind = ?", model.HostKindPlacement).First(&place)
+	b, _ := svc.Create(1, &model.Bundle{Name: "b", Enable: true, FollowPlacements: true}, []BundleHostRef{{HostId: place.Id}})
+	cl := seedClient(t, db, "cl")
+	if _, err := svc.AddClients(b.Id, []int{cl.Id}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A new address host is appended to bundles that follow.
+	h, err := svc.CreateAddressHost(1, in.Id, HostInput{Name: "cdn", Address: "cdn.example.com", Port: 443, Enable: true, SubscriptionSNI: "cdn.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hostIDsInBundle(t, db, b.Id); !reflect.DeepEqual(got, []int{place.Id, h.Id}) {
+		t.Fatalf("bundle: %v", got)
+	}
+	if _, err := svc.CreateAddressHost(1, in.Id, HostInput{Name: "x"}); err == nil {
+		t.Fatal("an address is required")
+	}
+
+	// Editing a managed host makes it customized: the sync leaves it alone. Reset gives it back.
+	if _, err := svc.UpdateBundleHost(place.Id, HostInput{Name: "DE-1", Address: "custom.example.com", Enable: true}); err != nil {
+		t.Fatal(err)
+	}
+	(&HostSyncService{}).SyncAll()
+	db.First(&place, place.Id)
+	if place.Address != "custom.example.com" || !place.Customized {
+		t.Fatalf("customized host must keep the operator's address: %+v", place)
+	}
+	if err := svc.ResetBundleHost(place.Id); err != nil {
+		t.Fatal(err)
+	}
+	(&HostSyncService{}).SyncAll()
+	db.First(&place, place.Id)
+	if place.Address != "10.1.1.1" || place.Customized {
+		t.Fatalf("reset must restore the placement's address: %+v", place)
+	}
+
+	// Managed hosts cannot be deleted by hand; an address host can, without losing access.
+	if err := svc.DeleteBundleHost(place.Id); err == nil {
+		t.Fatal("managed hosts must not be deletable")
+	}
+	if err := svc.DeleteBundleHost(h.Id); err != nil {
+		t.Fatal(err)
+	}
+	if got := hostIDsInBundle(t, db, b.Id); !reflect.DeepEqual(got, []int{place.Id}) {
+		t.Fatalf("after delete: %v", got)
+	}
+	views, err := svc.ListBundleHosts()
+	if err != nil || len(views) != 1 || views[0].NodeName != "DE-1" || len(views[0].BundleIds) != 1 || views[0].InboundRemark == "" {
+		t.Fatalf("views: %+v %v", views, err)
+	}
+	if got, _ := svc.EffectiveInbounds(cl.Id); !reflect.DeepEqual(got, []int{in.Id}) {
+		t.Fatalf("access must stay: %v", got)
+	}
+}
