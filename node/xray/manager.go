@@ -3,7 +3,6 @@ package xray
 
 import (
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -691,11 +690,39 @@ func (m *Manager) ConntrackDropAvailable() bool {
 // GetLogs returns XRAY access logs from the log file.
 // Returns raw log lines as strings.
 func (m *Manager) GetLogs(count int, filter string) ([]string, error) {
+	// Only the path is resolved under the lock. Reading the file must not hold it: the log can be huge and growing, and
+	// every status, stats and apply-config call of the node waits on this lock (a slow read made the node look dead).
+	pathToAccessLog, err := m.accessLogPath()
+	if err != nil {
+		return nil, err
+	}
+	if pathToAccessLog == "none" || pathToAccessLog == "" {
+		return []string{}, nil // No logs configured
+	}
+	if count <= 0 {
+		count = 100
+	}
+
+	lines, err := tailLogLines(pathToAccessLog, count, filter)
+	if errors.Is(err, errLogNotFile) {
+		return []string{}, nil // e.g. access = /dev/stderr: the log goes to the container output, there is no file to show
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to open log file: %w", err)
+		}
+		return nil, fmt.Errorf("failed to read log file: %w", err)
+	}
+	return lines, nil
+}
+
+// accessLogPath returns the access log path of the running core (ErrXrayNotReady when it is not running).
+func (m *Manager) accessLogPath() (string, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	if m.process == nil || !m.process.IsRunning() {
-		return nil, ErrXrayNotReady
+		return "", ErrXrayNotReady
 	}
 
 	// Get access log path from current config
@@ -714,46 +741,10 @@ func (m *Manager) GetLogs(count int, filter string) ([]string, error) {
 		var err error
 		pathToAccessLog, err = xray.GetAccessLogPath()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get access log path: %w", err)
+			return "", fmt.Errorf("failed to get access log path: %w", err)
 		}
 	}
-
-	if pathToAccessLog == "none" || pathToAccessLog == "" {
-		return []string{}, nil // No logs configured
-	}
-
-	file, err := os.Open(pathToAccessLog)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.Contains(line, "api -> api") {
-			continue // Skip empty lines and API calls
-		}
-
-		if filter != "" && !strings.Contains(line, filter) {
-			continue // Apply filter if provided
-		}
-
-		lines = append(lines, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read log file: %w", err)
-	}
-
-	// Return last 'count' lines
-	if len(lines) > count {
-		lines = lines[len(lines)-count:]
-	}
-
-	return lines, nil
+	return pathToAccessLog, nil
 }
 
 // GetProcess returns the Xray process (for internal use by API server).
