@@ -170,6 +170,17 @@ UDP protocol with high throughput. Supports salamander obfuscation.
 
 VPN via WireGuard inside Xray. UDP transport, no TCP/WebSocket.
 
+Per-client traffic counters need **Xray 26.6.27 or newer** (older cores count only the whole inbound; the panel then attributes it to the client only when the inbound has exactly one client). The images ship a suitable core; update Xray on nodes you manage yourself.
+
+**Private destinations.** Since Xray 26.6 the `freedom` outbound blocks connections from `vless`, `vmess`, `trojan`, `shadowsocks`, `hysteria` and `wireguard` inbounds to private, loopback and LAN addresses (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.0/8`, ...). This protects the node's own network; clients of a WireGuard VPN that must reach a LAN behind the node need an explicit allow. Turn on **Allow clients to reach private networks** (Xray configuration or a core profile → General). It opens `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` and `fc00::/7` and keeps loopback and `169.254.0.0/16` blocked. Two things are changed together: a routing rule that sends those ranges to `direct` is placed before the rule that blackholes `geoip:private` (the default template has it), and the `direct` outbound gets an allow rule. The outbound rule alone would change nothing, because routing blocks private addresses first. The outbound part written by hand:
+
+```json
+{ "tag": "direct", "protocol": "freedom",
+  "settings": { "finalRules": [ { "action": "allow", "ip": ["192.168.0.0/16"] } ] } }
+```
+
+Allow only the ranges that are really needed.
+
 ### AmneziaWG
 
 Modified WireGuard (Amnezia sidecar). Configuration is delivered as `.conf` for AmneziaVPN.

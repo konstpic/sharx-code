@@ -37,7 +37,8 @@ func parseInboundNodeBindingsPayload(jsonData map[string]interface{}) ([]service
 		return nil, false
 	}
 	var out []service.InboundNodeBindingInput
-	if err := json.Unmarshal(b, &out); err != nil || len(out) == 0 {
+	// An explicit empty list is valid: it unassigns the inbound from every node.
+	if err := json.Unmarshal(b, &out); err != nil {
 		return nil, false
 	}
 	return out, true
@@ -100,7 +101,7 @@ func applySidecarPanelForms(in *model.Inbound, wg *service.WireGuardInboundReque
 		return err
 	}
 	normalizeSidecarInboundFields(in)
-	return nil
+	return service.ValidateTelemtInbound(in)
 }
 
 // normalizeSidecarInboundFields clears Xray-only transport fields for Telemt / AmneziaWG inbounds.
@@ -485,7 +486,7 @@ func (a *InboundController) addInbound(c *gin.Context) {
 						nodeIdFromJSON = &num
 					}
 				}
-				if nb, ok := parseInboundNodeBindingsPayload(jsonData); ok {
+				if nb, ok := parseInboundNodeBindingsPayload(jsonData); ok && (len(nb) > 0 || !(hasNodeIdsInJSON || hasNodeIdInJSON)) {
 					nodeBindingsFromJSON = nb
 					hasNodeBindingsInJSON = true
 				}
@@ -744,7 +745,7 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 						nodeIdFromJSON = &num
 					}
 				}
-				if nb, ok := parseInboundNodeBindingsPayload(jsonData); ok {
+				if nb, ok := parseInboundNodeBindingsPayload(jsonData); ok && (len(nb) > 0 || !(hasNodeIdsInJSON || hasNodeIdInJSON)) {
 					nodeBindingsFromJSON = nb
 					hasNodeBindingsInJSON = true
 				}

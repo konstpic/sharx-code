@@ -4,6 +4,7 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -83,6 +84,53 @@ func onlineClientNameSet(inboundSvc service.InboundService) map[string]struct{} 
 	return m
 }
 
+// intsFromJSON reads an integer array (or a single number; null = empty) from a decoded JSON value.
+func intsFromJSON(v interface{}) []int {
+	out := []int{}
+	switch t := v.(type) {
+	case []interface{}:
+		for _, x := range t {
+			if n, ok := x.(float64); ok {
+				out = append(out, int(n))
+			}
+		}
+	case float64:
+		out = append(out, int(t))
+	}
+	return out
+}
+
+// applyClientBundles sets the client's named bundles and pushes the access change to the cores and nodes.
+func (a *ClientController) applyClientBundles(clientId int, ids []int) error {
+	diff, err := (&service.BundleService{}).SetClientNamedBundles(clientId, ids)
+	if err != nil {
+		return err
+	}
+	if diff.Changed() {
+		go a.clientService.PushClientAccessChange(diff.ClientId, append(append([]int(nil), diff.Added...), diff.Removed...))
+	}
+	return nil
+}
+
+// fillBundleIds adds the named bundle ids to client cards when the bundle scheme is active.
+func fillBundleIds(cards ...*model.ClientCardView) {
+	bs := &service.BundleService{}
+	if !bs.BundlesActive() {
+		return
+	}
+	byClient, err := bs.NamedBundleIdsByClient()
+	if err != nil {
+		logger.Warningf("client cards: failed to load bundles: %v", err)
+		return
+	}
+	for _, card := range cards {
+		card.BundleIds = byClient[card.Id]
+		if card.BundleIds == nil {
+			card.BundleIds = []int{}
+		}
+	}
+}
+
 // getClients retrieves the list of all clients for the current user.
 func (a *ClientController) getClients(c *gin.Context) {
 	user := session.GetLoginUser(c)
@@ -109,6 +157,7 @@ func (a *ClientController) getClients(c *gin.Context) {
 		}
 		cards = append(cards, card)
 	}
+	fillBundleIds(cards...)
 	jsonObj(c, cards, nil)
 }
 
@@ -141,6 +190,7 @@ func (a *ClientController) getClient(c *gin.Context) {
 			card.IsOnline = true
 		}
 	}
+	fillBundleIds(card)
 	jsonObj(c, card, nil)
 }
 
@@ -218,6 +268,8 @@ func (a *ClientController) addClient(c *gin.Context) {
 	var hasInboundIdsInJSON bool
 	var groupIdFromJSON *int
 	var hasGroupIdInJSON bool
+	var bundleIdsFromJSON []int
+	var hasBundleIdsInJSON bool
 
 	if c.ContentType() == "application/json" {
 		// Read raw body to extract inboundIds and groupId
@@ -243,6 +295,10 @@ func (a *ClientController) addClient(c *gin.Context) {
 					} else if num, ok := inboundIdsVal.(int); ok {
 						inboundIdsFromJSON = append(inboundIdsFromJSON, num)
 					}
+				}
+				if v, ok := jsonData["bundleIds"]; ok {
+					hasBundleIdsInJSON = true
+					bundleIdsFromJSON = intsFromJSON(v)
 				}
 				// Check for groupId
 				if groupIdVal, ok := jsonData["groupId"]; ok {
@@ -308,11 +364,21 @@ func (a *ClientController) addClient(c *gin.Context) {
 		}
 	}
 
+	if hasBundleIdsInJSON && len(bundleIdsFromJSON) > 0 && !(&service.BundleService{}).BundlesActive() {
+		jsonMsg(c, "bundleIds requires the bundle scheme", errors.New("bundles are not active"))
+		return
+	}
 	needRestart, err := a.clientService.AddClient(user.Id, client)
 	if err != nil {
 		logger.Errorf("Failed to add client: %v", err)
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
+	}
+	if hasBundleIdsInJSON && len(bundleIdsFromJSON) > 0 {
+		if err := a.applyClientBundles(client.Id, bundleIdsFromJSON); err != nil {
+			jsonMsg(c, "Client created, but its bundles were not applied", err)
+			return
+		}
 	}
 
 	jsonMsgObj(c, I18nWeb(c, "pages.clients.toasts.clientCreateSuccess"), client, nil)
@@ -351,6 +417,8 @@ func (a *ClientController) updateClient(c *gin.Context) {
 	// Extract inboundIds from JSON or form data
 	var inboundIdsFromJSON []int = nil // nil means not provided, empty array means remove all
 	var hasInboundIdsInJSON bool
+	var bundleIdsFromJSON []int
+	var hasBundleIdsInJSON bool
 
 	if c.ContentType() == "application/json" {
 		// Read raw body to extract inboundIds
@@ -359,6 +427,10 @@ func (a *ClientController) updateClient(c *gin.Context) {
 			// Parse JSON to extract inboundIds
 			var jsonData map[string]interface{}
 			if err := json.Unmarshal(bodyBytes, &jsonData); err == nil {
+				if v, ok := jsonData["bundleIds"]; ok {
+					hasBundleIdsInJSON = true
+					bundleIdsFromJSON = intsFromJSON(v)
+				}
 				// Check for inboundIds array
 				if inboundIdsVal, ok := jsonData["inboundIds"]; ok {
 					hasInboundIdsInJSON = true
@@ -684,11 +756,21 @@ func (a *ClientController) updateClient(c *gin.Context) {
 
 	client.Id = id
 	logger.Debugf("UpdateClient: client.InboundIds = %v", client.InboundIds)
+	if hasBundleIdsInJSON && !(&service.BundleService{}).BundlesActive() {
+		jsonMsg(c, "bundleIds requires the bundle scheme", errors.New("bundles are not active"))
+		return
+	}
 	needRestart, err := a.clientService.UpdateClient(user.Id, client)
 	if err != nil {
 		logger.Errorf("Failed to update client: %v", err)
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
+	}
+	if hasBundleIdsInJSON {
+		if err := a.applyClientBundles(id, bundleIdsFromJSON); err != nil {
+			jsonMsg(c, "Client updated, but its bundles were not applied", err)
+			return
+		}
 	}
 
 	jsonMsgObj(c, I18nWeb(c, "pages.clients.toasts.clientUpdateSuccess"), client, nil)

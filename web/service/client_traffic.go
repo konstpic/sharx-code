@@ -125,6 +125,28 @@ func MergePanelClientLiveSpeedInto(c *model.ClientEntity) {
 // AddClientTraffic updates client traffic statistics and returns clients that need to be disabled.
 // This method handles traffic tracking for clients in the new architecture (ClientEntity).
 // After updating client traffic, it synchronizes inbound traffic as the sum of all its clients' traffic.
+// saveClientTrafficFields writes back only the columns the traffic accounting changes. It must not save whole rows: the
+// clients were loaded at the start of the tick, and a full save would overwrite anything an admin changed since (HWID
+// and IP limits, expiry, comment, group ...) with the stale copy. status is written only when statusBefore says this
+// tick changed it (nil = never).
+func saveClientTrafficFields(tx *gorm.DB, clients []*model.ClientEntity, statusBefore map[int]string) error {
+	for _, c := range clients {
+		if c == nil || c.Id == 0 {
+			continue
+		}
+		upd := map[string]any{"up": c.Up, "down": c.Down, "all_time": c.AllTime, "last_online": c.LastOnline}
+		if statusBefore != nil {
+			if before, ok := statusBefore[c.Id]; !ok || before != c.Status {
+				upd["status"] = c.Status
+			}
+		}
+		if err := tx.Model(&model.ClientEntity{}).Where("id = ?", c.Id).Updates(upd).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic, _ *InboundService) (map[string]string, map[int]bool, error) {
 	clientsToDisable := make(map[string]string) // map[email]tag
 	affectedInboundIds := make(map[int]bool)    // Track affected inbounds for traffic sync
@@ -298,6 +320,11 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 	speedFrom := liveSpeedTracker.startTick(speedNow)
 
 	// Update traffic for each client
+	// Statuses as loaded: only a status this tick changed may be written back (see saveClientTrafficFields).
+	statusBefore := make(map[int]string, len(clientEntities))
+	for _, c := range clientEntities {
+		statusBefore[c.Id] = c.Status
+	}
 	for _, client := range clientEntities {
 		email := strings.ToLower(client.Name)
 		trafficData, ok := emailTrafficMap[email]
@@ -454,7 +481,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 			time.Sleep(delay)
 		}
 
-		err = tx.Save(clientEntities).Error
+		err = saveClientTrafficFields(tx, clientEntities, statusBefore)
 		if err == nil {
 			break
 		}
@@ -768,7 +795,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 		setPanelOnlineClients(onlineList)
 	}
 	setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
-	return tx.Save(clients).Error
+	return saveClientTrafficFields(tx, clients, nil)
 }
 
 // syncInboundTrafficFromClients synchronizes inbound traffic as the sum of all its clients' traffic.

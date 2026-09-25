@@ -36,7 +36,6 @@ import { linkP, panel, p } from "@/lib/paths";
 import { usePanelAccentColor } from "@/lib/panelTheme";
 import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
-import { WelcomeGuide } from "@/components/help/WelcomeGuide";
 import {
   AlertBanner,
   Button,
@@ -1143,11 +1142,10 @@ export function DashboardPage() {
               <LayoutGrid size={16} />
               {t("pages.index.dashboardCustomize")}
             </Button>
-            <SectionHelpModal scene="welcome" titleKey="pages.index.helpTitle" paragraphKeys={["pages.index.welcomeText"]} />
+            <SectionHelpModal scene="welcome" titleKey="pages.index.welcomeTitle" paragraphKeys={["pages.index.welcomeText"]} />
           </>
         }
       />
-      <WelcomeGuide />
 
       {spin && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg)]/40 backdrop-blur-sm">

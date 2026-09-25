@@ -301,3 +301,47 @@ func TestBundleHostLifecycle(t *testing.T) {
 		t.Fatalf("access must stay: %v", got)
 	}
 }
+
+func TestSetClientNamedBundlesKeepsPersonalAccess(t *testing.T) {
+	db := testdb.New(t)
+	svc := &BundleService{}
+	a := seedInbound(t, db, 5101, model.VLESS)
+	b := seedInbound(t, db, 5102, model.VLESS)
+	ha := seedHost(t, db, "a", "a.example.com", a.Id)
+	c1 := seedClient(t, db, "c1")
+
+	// Personal access to B through inboundIds (auto bundle).
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		_, e := svc.SetClientAutoBundle(tx, c1.Id, []int{b.Id})
+		return e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	named, err := svc.Create(1, &model.Bundle{Name: "named", Enable: true}, []BundleHostRef{{HostId: ha.Id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Setting only the named bundle must not drop the personal access to B.
+	if _, err := svc.SetClientNamedBundles(c1.Id, []int{named.Id}); err != nil {
+		t.Fatal(err)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c1.Id)); !reflect.DeepEqual(got, []int{a.Id, b.Id}) && !reflect.DeepEqual(got, []int{b.Id, a.Id}) {
+		t.Fatalf("access after set: %v", got)
+	}
+	ids, err := svc.NamedBundleIdsByClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ids[c1.Id], []int{named.Id}) {
+		t.Fatalf("named ids must not list the auto bundle: %v", ids[c1.Id])
+	}
+
+	// An empty list clears the named bundles and keeps the personal ones.
+	if _, err := svc.SetClientNamedBundles(c1.Id, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c1.Id)); !reflect.DeepEqual(got, []int{b.Id}) {
+		t.Fatalf("access after clear: %v", got)
+	}
+}

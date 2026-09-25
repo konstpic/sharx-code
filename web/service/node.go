@@ -2709,10 +2709,9 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 }
 
 // UnassignInboundFromNode removes the assignment of an inbound from its node.
+// The inbound is also taken off the nodes that carried it, so nothing keeps listening there.
 func (s *NodeService) UnassignInboundFromNode(inboundId int) error {
-	defer TriggerHostSync()
-	db := database.GetDB()
-	return db.Where("inbound_id = ?", inboundId).Delete(&model.InboundNodeMapping{}).Error
+	return s.AssignInboundToNodesWithBindings(inboundId, nil)
 }
 
 // GetNodesForOutbound retrieves all nodes assigned to a specific outbound.

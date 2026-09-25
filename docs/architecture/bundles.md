@@ -168,11 +168,10 @@ One transaction sets `bundles_enabled = true`. From then on: subscription from b
 client and host screens work on bundles. Client changes keep `client_inbound_mappings` current (still the read model for
 Xray, Telemt, WireGuard, traffic), so the old scheme still has valid *access* data.
 
-### Rollback
-`bundles_enabled = false` (an admin button, and a script) returns to the old scheme: legacy tables were never modified, the
-pre-bundle backups are there, and access data in `client_inbound_mappings` is current. What is lost on rollback: edits to
-delivery made in bundle mode (host order, bundle membership). No client loses access. The legacy tables are kept for at
-least one release before any cleanup migration.
+### No rollback
+The product has no switch back (decision: hard path). The legacy tables are never modified and the `*_pre_bundles` backups
+stay in the database, so an operator can restore by hand. A failed verification leaves the legacy scheme in place and removes
+the shadow data.
 
 ### What must not change (checked by M4 and by tests)
 

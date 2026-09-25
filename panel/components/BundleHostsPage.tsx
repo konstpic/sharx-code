@@ -19,7 +19,9 @@ type Form = {
   address: string;
   port: string;
   enable: boolean;
+  remark: string;
   remarkSuffix: string;
+  serverDescription: string;
   subscriptionSni: string;
   subscriptionHttpHost: string;
   subscriptionPath: string;
@@ -35,7 +37,9 @@ const EMPTY: Form = {
   address: "",
   port: "",
   enable: true,
+  remark: "",
   remarkSuffix: "",
+  serverDescription: "",
   subscriptionSni: "",
   subscriptionHttpHost: "",
   subscriptionPath: "",
@@ -54,7 +58,9 @@ function toBody(f: Form) {
     address: f.address,
     port: Number.parseInt(f.port, 10) || 0,
     enable: f.enable,
+    remark: f.remark,
     remarkSuffix: f.remarkSuffix,
+    serverDescription: f.serverDescription,
     subscriptionSni: f.subscriptionSni,
     subscriptionHttpHost: f.subscriptionHttpHost,
     subscriptionPath: f.subscriptionPath,
@@ -76,7 +82,9 @@ function fromHost(h: FullHost): Form {
     address: h.address,
     port: h.port > 0 ? String(h.port) : "",
     enable: h.enable,
+    remark: s("remark"),
     remarkSuffix: s("remarkSuffix"),
+    serverDescription: s("serverDescription"),
     subscriptionSni: s("subscriptionSni"),
     subscriptionHttpHost: s("subscriptionHttpHost"),
     subscriptionPath: s("subscriptionPath"),
@@ -271,7 +279,7 @@ export function BundleHostsPage() {
                 </SelectNative>
               </label>
             ) : null}
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_100px]">
+            <div className="grid items-start gap-3 sm:grid-cols-[1fr_1fr_100px]">
               <label className="block text-xs">
                 <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundleHosts.name", { defaultValue: "Name" })}</span>
                 <Input value={form.name} onChange={(e) => set({ name: e.target.value })} />
@@ -285,7 +293,24 @@ export function BundleHostsPage() {
                 <Input inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.replace(/\D/g, "") })} placeholder="0" />
               </label>
             </div>
-            <p className="text-xs text-[var(--fg-subtle)]">{t("pages.bundleHosts.portHint", { defaultValue: "Port 0 or empty: the inbound's own port." })}</p>
+            <p className="-mt-1 text-[11px] leading-snug text-[var(--fg-subtle)]">{t("pages.bundleHosts.portHint", { defaultValue: "Port 0 or empty: the inbound's own port." })}</p>
+            <div className="grid items-start gap-3 sm:grid-cols-2">
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundleHosts.remarkSuffix", { defaultValue: "Name suffix" })}</span>
+                <Input value={form.remarkSuffix} onChange={(e) => set({ remarkSuffix: e.target.value })} />
+                <span className="mt-1 block text-[11px] leading-snug text-[var(--fg-subtle)]">{t("pages.bundleHosts.remarkSuffixHint", { defaultValue: "Added to the server name in the subscription." })}</span>
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundleHosts.serverDescription", { defaultValue: "Server description" })}</span>
+                <Input value={form.serverDescription} maxLength={30} onChange={(e) => set({ serverDescription: e.target.value })} />
+                <span className="mt-1 block text-[11px] leading-snug text-[var(--fg-subtle)]">{t("pages.bundleHosts.serverDescriptionHint", { defaultValue: "Up to 30 characters; shown by INCY and Happ." })}</span>
+              </label>
+            </div>
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundleHosts.remark", { defaultValue: "Note" })}</span>
+              <Input value={form.remark} onChange={(e) => set({ remark: e.target.value })} />
+              <span className="mt-1 block text-[11px] leading-snug text-[var(--fg-subtle)]">{t("pages.bundleHosts.remarkHint", { defaultValue: "Visible only in the panel." })}</span>
+            </label>
             <button type="button" className="text-left text-xs font-medium text-[var(--accent)]" onClick={() => setShowOverrides((v) => !v)}>
               {showOverrides ? "▾ " : "▸ "}
               {t("pages.bundleHosts.overrides", { defaultValue: "Subscription link overrides (TLS / transport)" })}

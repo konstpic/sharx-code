@@ -33,6 +33,8 @@ Complete API reference for the SharX panel. This documentation covers all endpoi
 - [20. Public Panel API](#20-public-panel-api)
 - [21. DB Inspector](#21-db-inspector)
 - [22. Prometheus Metrics](#22-prometheus-metrics)
+- [23. Balancers](#23-balancers)
+- [24. Bundles and bundle hosts](#24-bundles-and-bundle-hosts)
 
 ---
 
@@ -44,6 +46,7 @@ Complete API reference for the SharX panel. This documentation covers all endpoi
 - Some endpoints are hardcoded with localhost in examples; adapt `HOST`/`PORT`/`WEBBASEPATH` for your environment.
 - Expected success responses are typically `200 OK` unless otherwise documented.
 - All authenticated endpoints require a valid session cookie obtained from `/login`.
+- **Bundle scheme:** client access and the subscription are defined by *bundles of hosts* (see [24. Bundles](#24-bundles-and-bundle-hosts)). `inboundIds` on the client endpoints keeps working through a personal auto bundle, so existing integrations are not affected.
 
 ---
 
@@ -458,6 +461,9 @@ Create a new inbound.
 | `streamSettings` | string | Yes | JSON string with stream settings |
 | `sniffing` | string | No | JSON string with sniffing settings |
 | `nodeIds` | array | No | Node IDs to assign (multi-node mode) |
+| `nodeBindings` | array | No | Same as `nodeIds` with per-node subscription overrides: `[{nodeId, publishedAddress, publishedPort, includeInSubscription, subscriptionRemarkSuffix, serverDescription}]`. Takes precedence over `nodeIds`. |
+
+On `update`, **an explicit empty list** (`"nodeIds": []` or `"nodeBindings": []`) removes the inbound from every node: the assignment is deleted and the inbound is taken off the nodes that carried it. Omit both fields to leave the assignment unchanged. (An empty `nodeBindings` together with `nodeIds` is ignored in favour of `nodeIds`.)
 
 **Example Request (VLESS + Reality):**
 
@@ -3476,6 +3482,7 @@ curl -X GET "http://localhost:2053/panel/client/list" \
       "createdAt": 1703980800,
       "updatedAt": 1704067200,
       "inboundIds": [1, 2],
+      "bundleIds": [3],
       "up": 123456789,
       "down": 987654321,
       "allTime": 1111111110,
@@ -3504,6 +3511,8 @@ curl -X GET "http://localhost:2053/panel/client/list" \
   ]
 }
 ```
+
+**`bundleIds`** (list and get) are the client's named bundles in order; the client's personal auto bundle (from `inboundIds`) is not listed. It is `[]` when the bundle scheme is off. `inbounds` is the client's effective access: everything granted by its bundles plus its personal inbounds.
 
 ---
 
@@ -3552,7 +3561,8 @@ Create a new client entity.
 | `maxHwid` | integer | No | Max HWID devices (0 = unlimited) |
 | `ipLimitEnabled` | boolean | No | Enable concurrent unique source IP limit (default: false) |
 | `maxIPs` | integer | No | Max concurrent unique source IPs when `ipLimitEnabled=true` (default: 1) |
-| `inboundIds` | array | No | Array of inbound IDs to assign |
+| `inboundIds` | array | No | Array of inbound IDs to assign. With the bundle scheme active this sets the client's personal (auto) bundle; access from named bundles is kept. `null` = leave as is. Use `/panel/bundle/client/{id}/set` for named bundles. |
+| `bundleIds` | array | No | Named bundle IDs of the client (bundle scheme only; error `bundles are not active` otherwise). On `update` the list **replaces** the client's named bundles (`[]` removes them all); omit the field to leave them as is. The personal auto bundle from `inboundIds` is never touched. |
 | `groupId` | integer | No | Group ID to assign client to (null to remove from group) |
 | `announce` | string | No | Custom announcement text for this client (max 200 chars, supports base64). Overrides subscription header announce setting if provided. |
 
@@ -3598,6 +3608,7 @@ curl -X POST "http://localhost:2053/panel/client/update/1" \
     "totalGB": 100,
     "enable": true,
     "inboundIds": [1, 2, 3],
+    "bundleIds": [3, 4],
     "groupId": 1,
     "announce": "Custom announcement for this client"
   }'
@@ -4536,7 +4547,7 @@ curl -X POST "http://localhost:2053/panel/group/1/bulk/setHwidLimit" \
 
 Resolved settings shared by all clients in the group. Fields omitted when values differ across clients (“mixed” state in UI).
 
-**Response (`obj`):** `{ "clientCount", "inboundIdsConsistent", "expiryTime?", "totalGB?", "hwidEnabled?", "maxHwid?", "ipLimitEnabled?", "maxIPs?", "inboundIds?" }`.
+**Response (`obj`):** `{ "clientCount", "inboundIdsConsistent", "expiryTime?", "totalGB?", "hwidEnabled?", "maxHwid?", "ipLimitEnabled?", "maxIPs?", "inboundIds?", "bundleIds?", "bundleIdsConsistent" }`. With the bundle scheme active, `bundleIds` are the named bundles shared by every client in the group and `bundleIdsConsistent` is `false` when they differ.
 
 ---
 
@@ -4544,12 +4555,29 @@ Resolved settings shared by all clients in the group. Fields omitted when values
 
 Assign inbounds to every client in the group.
 
+> **Rejected while bundles are active** (`success: false`, "Inbounds are managed through bundles"): it would only change the clients' personal bundles while named bundles keep granting their inbounds. Use [`bulk/assignBundles`](#post-panelgroupidbulkassignbundles) instead.
+
 **Request Body (JSON):**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `inboundIds` | integer[] | Yes | Inbound IDs |
 | `mode` | string | No | `replace` (default) or `add` |
+
+---
+
+### POST `/panel/group/{id}/bulk/assignBundles`
+
+Set the named bundles of every client in the group (bundle scheme). Personal auto bundles are kept.
+
+**Request Body (JSON):**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bundleIds` | integer[] | Yes | Bundle IDs |
+| `mode` | string | No | `replace` (default) or `add` |
+
+**Response (`obj`):** `{ "changedClients": 12 }`. Access changes are pushed to nodes in the background.
 
 ---
 
@@ -4805,6 +4833,8 @@ Admin block/unblock a HWID device row (sets `blocked_at` without deleting the re
 Base path: `/panel/host`
 
 Hosts are used to override node addresses when generating subscription links (multi-node / CDN scenarios). Optional **`subscription*`** fields further override TLS and transport parameters in generated client URIs **only for rows whose address comes from this host** (the CDN/host line). Rows built from node addresses (when using `prepend` / `append`) keep the inbound’s TLS and transport parameters unless you change the inbound itself. When external proxies are configured, those rows use the same host overrides if this host is mapped to the inbound.
+
+> **Bundle scheme.** Once bundles are active, hosts are bound to exactly one inbound and grouped into bundles; use [`/panel/bundle/hosts`](#24-bundles-and-bundle-hosts) to manage them. The endpoints below work on **legacy** hosts (many inbounds, apply mode) that existed before the conversion; new integrations should use the bundle API.
 
 ### GET `/panel/host/list`
 
@@ -5066,6 +5096,8 @@ Request body matches the pull response: **`config`** (Xray) plus optional **`tel
 The subscription server runs on a separate port (default: 2096) and provides subscription links for proxy clients.
 
 Subscriptions may include **`tg://proxy?...`** lines for Telemt inbounds; secrets come from **`client_inbound_mappings.telemt_secret`**. Inbound `settings` use a nested **`telemt`** object ([shape](#telemt-inbound-settings-shape-json)).
+
+**XHTTP in share links.** For `xhttp` inbounds, `vless://`, `trojan://` and `ss://` links carry the client-relevant `xhttpSettings` in the `extra` query parameter (JSON): `xPaddingBytes`; with `xPaddingObfsMode` also `xPaddingKey`, `xPaddingHeader`, `xPaddingPlacement`, `xPaddingMethod`; and, when set on the inbound, `uplinkHTTPMethod`, `sessionPlacement`, `sessionKey`, `seqPlacement`, `seqKey`, `uplinkDataPlacement`, `uplinkDataKey`, `uplinkChunkSize`. Empty fields are omitted. VMess links carry the same fields in the base64 JSON.
 
 ### GET `/{subPath}/{subId}`
 
@@ -5417,6 +5449,134 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
 
 ---
 
+## 23. Balancers
+
+Base path: `/panel/balancer`
+
+Edge load balancers (HAProxy or nginx) in front of nodes. A balancer has an agent (`balancer/`, see `balancer/README.md`) that the panel configures and polls. A **pool** publishes one inbound on the balancer's address and spreads connections over the nodes that carry that inbound. Pools feed the bundle scheme: every pool with `subEnabled` produces a `pool` host (see [24. Bundles](#24-bundles-and-bundle-hosts)).
+
+Balancers appear in the panel under **Nodes** and are not part of the bundle screens; only the hosts they generate are.
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/panel/balancer/list` | | Balancers with pools, members and the last agent status (`live`). |
+| POST | `/panel/balancer/add` | `{name, address, apiAddress?, engine, remark?}` | Create. `engine`: `haproxy` or `nginx`. |
+| POST | `/panel/balancer/update/{id}` | same | Update (pushes the configuration). |
+| POST | `/panel/balancer/del/{id}` | | Delete (pools cascade). |
+| POST | `/panel/balancer/enable/{id}` | `{enable}` | Turn on or off. |
+| POST | `/panel/balancer/reorder` | `{ids:[...]}` | Manual order. |
+| POST | `/panel/balancer/pool/save` | see below | Create or update a pool. |
+| POST | `/panel/balancer/pool/del/{id}` | | Remove a pool. |
+| POST | `/panel/balancer/apply/{id}` | | Push the configuration now. |
+| POST | `/panel/balancer/refresh/{id}` | | Poll the agent now. |
+| GET | `/panel/balancer/metrics/{id}?since=` | | Traffic history from the agent: cumulative counters sampled every 2 s (last hour). |
+| POST | `/panel/balancer/ssh-install/{id}` | `{host, port, username, authMethod, password/privateKey, hostKeyFingerprint}` | Install the agent over SSH. Confirm the fingerprint first with `POST /panel/node/ssh-hostkey`; poll `GET /panel/node/ssh-provision-status/{taskId}`. |
+
+**Pool body (`pool/save`):**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | integer | Omit to create. |
+| `balancerId` | integer | Owning balancer. |
+| `inboundId` | integer | Inbound the pool publishes. |
+| `listenPort` | integer | Public port; `0` = the inbound's port. |
+| `algorithm` | string | Balancing algorithm: `roundrobin`, `leastconn` or `source`. |
+| `healthCheck` | boolean | Health-check the members. |
+| `proxyProtocol` | boolean | Send PROXY protocol to the members. |
+| `subEnabled` | boolean | Produce a subscription host for the pool. |
+| `subMode` | string | `replace`, `prepend` (default) or `append`. Applies to the legacy scheme; in the bundle scheme the pool host is placed by the bundles. |
+| `autoMembers` | boolean | Track nodes that carry the inbound. |
+| `enable` | boolean | |
+| `members` | array | `{nodeId, weight, backup, enable, addressOverride?, portOverride?}` |
+
+**Bundle scheme.** With `subEnabled` the pool gets one host of kind `pool` (address = balancer address, port = `listenPort` or the inbound port). It is managed automatically: it follows the pool and is added to bundles that follow placements; editing it in the panel marks it `customized`, and `POST /panel/bundle/hosts/reset/{id}` makes it follow the pool again.
+
+---
+
+## 24. Bundles and bundle hosts
+
+Base path: `/panel/bundle`
+
+### Concepts
+
+* **Host** — one entry of a client's subscription bound to **exactly one inbound**, with an address, a port and optional TLS overrides. Kinds:
+
+  | `kind` | What it is | Managed by |
+  |---|---|---|
+  | `placement` | The inbound on one node (`nodeId`). | Sync from the inbound's node placements. |
+  | `pool` | The inbound behind a balancer pool (`poolId`). | Sync from the balancer pool. |
+  | `local` | An inbound served by the panel itself; the address is resolved per request. | Sync. |
+  | `address` | Free address: a domain, CDN or alternative IP for an inbound. | You (`hosts/add`). |
+  | `legacy` | A pre-bundle host (many inbounds, apply mode). Kept for the old scheme; not shown by `/panel/bundle/hosts`. | — |
+
+  `source` records provenance (`manual`, `placement`, `pool`, `legacy`); `customized: true` means an operator edited a managed host and the sync no longer overwrites it.
+* **Bundle** — an ordered set of hosts. A client in a bundle receives those hosts in the subscription and gets **access to the inbounds** of those hosts. Per bundle host, `hidden: true` removes it from the subscription while access stays. `enable` on the bundle or host affects delivery only; access counts every host of an enabled bundle. `followPlacements: true` appends new managed hosts (a new node placement, a new pool) automatically.
+* **Access** is materialized into `client_inbound_mappings` (still the read model for Xray, Telemt, WireGuard and traffic). Any change to bundles, members or hosts recomputes it for the affected clients and pushes the diff to nodes in the background; the `changedClients` count in responses is the number of clients whose access changed.
+* **Auto bundles** (`auto: true`) are the compatibility layer: `inboundIds` on `POST /panel/client/add|update` still works and sets the client's personal auto bundle. Named bundles the client belongs to are unaffected. `inboundIds: null` leaves access as is.
+* **Conversion.** On upgrade an existing installation is converted automatically: backup tables (`*_pre_bundles`), shadow hosts and bundles, a per-client comparison of the rendered subscription (random Reality parameters `spx`, `sni`, `sid` are masked), and only then the scheme switches on. If verification fails, the shadow data is removed and the legacy scheme stays. There is **no switch back** in the product. See `docs/architecture/bundles.md`.
+
+While the bundle scheme is active, the subscription is built from the client's enabled bundles in order (each bundle's hosts in order, hidden and disabled hosts and disabled inbounds skipped, de-duplicated by host id).
+
+### Bundles
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/panel/bundle/list` | | Bundles with hosts (`hosts[].host`) and `clientCount`. |
+| GET | `/panel/bundle/get/{id}` | | One bundle. |
+| POST | `/panel/bundle/add` | `{name, description, enable, followPlacements, hostRefs:[{hostId, hidden}]}` | Create. `hostRefs` order is the host order. Returns the bundle. |
+| POST | `/panel/bundle/update/{id}` | same (`hostRefs` omitted = keep the hosts) | Update; members' access is recomputed and pushed. Returns `{changedClients}`. |
+| POST | `/panel/bundle/del/{id}` | | Delete; members lose what only this bundle granted. Returns `{changedClients}`. |
+| POST | `/panel/bundle/members/add` | `{bundleId, clientIds}` | Add clients to a bundle. Returns `{changedClients}`. |
+| POST | `/panel/bundle/members/remove` | `{bundleId, clientIds}` | Remove clients. Returns `{changedClients}`. |
+| GET | `/panel/bundle/members/{id}` | | Clients in a bundle: `[{id, name, subId, enable}]`. |
+| POST | `/panel/bundle/client/{clientId}/set` | `{bundleIds}` | Replace the client's **named** bundles (auto bundle ids in the list are ignored, the personal auto bundle from `inboundIds` is kept). Returns `{inboundIds}`, the resulting access order. Same effect as `bundleIds` on `client/update`. |
+| GET | `/panel/bundle/client/{clientId}` | | All of a client's bundle ids in order, **including** its personal auto bundle. For the named bundles only use `bundleIds` of `GET /panel/client/get/{id}`. |
+
+**Bundle object:**
+
+```json
+{
+  "id": 3, "userId": 1, "name": "Europe", "description": "", "enable": true,
+  "auto": false, "autoKey": "", "followPlacements": true, "sortOrder": 0,
+  "createdAt": 0, "updatedAt": 0, "clientCount": 12,
+  "hosts": [ { "id": 7, "bundleId": 3, "hostId": 21, "sortOrder": 0, "hidden": false, "host": { "id": 21, "kind": "placement", "name": "DE-1", "address": "de1.example.com", "port": 443, "inboundId": 5, "nodeId": 2 } } ]
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST "http://localhost:2053/panel/bundle/add" -H "Content-Type: application/json" -b cookies.txt \
+  -d '{"name":"Europe","enable":true,"followPlacements":false,"hostRefs":[{"hostId":21,"hidden":false},{"hostId":22,"hidden":true}]}'
+```
+
+### Bundle-scheme hosts
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/panel/bundle/hosts` | | Every host except `legacy`: the host plus `inboundRemark`, `nodeName`, `poolName`, `bundleIds`, `bundleNames`. |
+| POST | `/panel/bundle/hosts/add` | `{inboundId, name, address, port, remark, enable, remarkSuffix, serverDescription, subscriptionSni, subscriptionHttpHost, subscriptionPath, subscriptionAlpn, subscriptionFingerprint, subscriptionAllowInsecure, subscriptionSecurity}` | Add an `address` host bound to one inbound. `name` and `address` are required; `port: 0` uses the inbound port. It is appended to the bundles that follow placements and already cover the inbound. |
+| POST | `/panel/bundle/hosts/update/{id}` | same without `inboundId` | Edit. A managed host (`placement`, `pool`, `local`) becomes `customized`. |
+| POST | `/panel/bundle/hosts/reset/{id}` | | Make a managed host follow its node or pool again (clears `customized`). |
+| POST | `/panel/bundle/hosts/del/{id}` | | Delete an `address` host. Bundles that held it lose it; access derived only from it is recomputed. Managed hosts cannot be deleted (the call fails with "managed hosts follow their placement"): disable them with `hosts/update` (`enable: false`); they disappear with their node placement or pool. |
+
+Subscription overrides (`subscription*`) apply to the link built from this host: empty = inherit from the inbound's stream settings; `subscriptionSecurity`: `""` | `tls` | `none`; `subscriptionAllowInsecure`: `null` = inherit.
+
+### Conversion state
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/panel/bundle/state` | `{enabled, report}`: whether the bundle scheme is active and the last conversion report (`status` `converted` or `failed`, `clients`, `bundles`, `hosts`, `verified`, `mismatches[]`, `error`). |
+| POST | `/panel/bundle/convert` | Run the verified conversion now (used to retry after a failed run). Returns the report; on failure `success: false` with the report in `obj`. |
+
+### Related endpoints in other sections
+
+* Clients: `bundleIds` on `add`/`update`/`get`/`list` are the named bundles; `inboundIds` on add/update sets the personal auto bundle (see [10. Clients](#10-clients)).
+* Groups: `POST /panel/group/{id}/bulk/assignBundles`; `bulk/assignInbounds` is rejected while bundles are active (see [11. Client Groups](#11-client-groups)).
+* Legacy hosts (`/panel/host/*`): see [13. Hosts](#13-hosts).
+
+---
+
 ## Appendix: Data Models
 
 ### Inbound
@@ -5520,9 +5680,56 @@ When a secret `webBasePath` is configured, scrape URL becomes `{webBasePath}pane
   "protocol": "",
   "remark": "",
   "enable": true,
+  "kind": "address",
+  "inboundId": 5,
+  "nodeId": null,
+  "poolId": null,
+  "source": "manual",
+  "customized": true,
+  "remarkSuffix": "",
+  "serverDescription": "",
+  "subscriptionSni": "",
+  "subscriptionHttpHost": "",
+  "subscriptionPath": "",
+  "subscriptionAlpn": "",
+  "subscriptionFingerprint": "",
+  "subscriptionAllowInsecure": null,
+  "subscriptionSecurity": "",
+  "sortOrder": 0,
   "createdAt": 0,
   "updatedAt": 0,
   "inboundIds": []
+}
+```
+
+`kind`: `legacy` | `address` | `placement` | `pool` | `local`; `source`: `manual` | `placement` | `pool` | `legacy`. `inboundIds` is filled for legacy hosts only; other kinds use `inboundId`.
+
+### Bundle
+
+```json
+{
+  "id": 3, "userId": 1, "name": "string", "description": "", "enable": true,
+  "auto": false, "autoKey": "", "followPlacements": false, "sortOrder": 0,
+  "createdAt": 0, "updatedAt": 0, "clientCount": 0,
+  "hosts": [ { "id": 1, "bundleId": 3, "hostId": 21, "sortOrder": 0, "hidden": false, "host": { } } ]
+}
+```
+
+### Balancer
+
+```json
+{
+  "id": 1, "name": "string", "address": "lb.example.com", "apiAddress": "http://1.2.3.4:8080",
+  "remark": "", "engine": "haproxy", "enable": true,
+  "status": "online", "lastCheck": 0, "responseTime": 0, "agentVersion": "", "engineVersion": "",
+  "configHash": "", "appliedHash": "", "lastAppliedAt": 0, "lastError": "",
+  "sortOrder": 0, "createdAt": 0, "updatedAt": 0,
+  "pools": [ {
+    "id": 1, "balancerId": 1, "inboundId": 5, "listenPort": 443, "algorithm": "roundrobin",
+    "proxyProtocol": false, "healthCheck": true, "subEnabled": true, "subMode": "prepend",
+    "autoMembers": true, "enable": true, "transport": "tcp",
+    "members": [ { "id": 1, "poolId": 1, "nodeId": 2, "weight": 1, "backup": false, "enable": true, "addressOverride": "", "portOverride": 0 } ]
+  } ]
 }
 ```
 
@@ -5687,47 +5894,3 @@ Note: Telemt itself requires `[[web.vhosts]].public_addr` to be a literal addres
 ---
 
 *Documentation generated for SharX panel. For more information, see the project repository.*
-
-## Balancers
-
-Edge load balancers (HAProxy / nginx) in front of nodes. See `balancer/README.md`.
-
-| Method | Path | Body | Description |
-|---|---|---|---|
-| GET | `/panel/balancer/list` | | Balancers with pools, members and the last agent status (`live`). |
-| POST | `/panel/balancer/add` | `{name, address, apiAddress?, engine, remark?}` | Create. `engine`: `haproxy` or `nginx`. |
-| POST | `/panel/balancer/update/{id}` | same | Update (pushes the configuration). |
-| POST | `/panel/balancer/del/{id}` | | Delete (pools cascade). |
-| POST | `/panel/balancer/enable/{id}` | `{enable}` | Turn on or off. |
-| POST | `/panel/balancer/reorder` | `{ids:[...]}` | Manual order. |
-| POST | `/panel/balancer/pool/save` | `{id?, balancerId, inboundId, listenPort, algorithm, healthCheck, proxyProtocol, subEnabled, subMode, autoMembers, enable, members:[{nodeId, weight, backup, enable}]}` | Create or update a pool. `subMode`: `replace`, `prepend`, `append`. |
-| POST | `/panel/balancer/pool/del/{id}` | | Remove a pool. |
-| POST | `/panel/balancer/apply/{id}` | | Push the configuration now. |
-| POST | `/panel/balancer/refresh/{id}` | | Poll the agent now. |
-| GET | `/panel/balancer/metrics/{id}?since=` | | Traffic history from the agent: cumulative counters sampled every 2 s (last hour). |
-| POST | `/panel/balancer/ssh-install/{id}` | `{host, port, username, authMethod, password/privateKey, hostKeyFingerprint}` | Install the agent over SSH. Confirm the fingerprint first with `POST /panel/node/ssh-hostkey`; poll `GET /panel/node/ssh-provision-status/{taskId}`. |
-
-## Bundles
-
-Bundles are ordered sets of hosts; a client's access is derived from the hosts' inbounds. See `docs/architecture/bundles.md`.
-Once the bundle scheme is active, `inboundIds` on `POST /panel/client/add|update` sets the client's personal (auto) bundle; what
-its named bundles grant stays theirs.
-
-| Method | Path | Body | Description |
-|---|---|---|---|
-| GET | `/panel/bundle/list` | | Bundles with hosts and client counts. |
-| GET | `/panel/bundle/get/{id}` | | One bundle. |
-| POST | `/panel/bundle/add` | `{name, description, enable, followPlacements, hostRefs:[{hostId, hidden}]}` | Create. |
-| POST | `/panel/bundle/update/{id}` | same (`hostRefs` omitted = keep) | Update; members' access is recomputed and pushed to nodes. |
-| POST | `/panel/bundle/del/{id}` | | Delete. |
-| POST | `/panel/bundle/members/add` / `remove` | `{bundleId, clientIds}` | Membership. |
-| GET | `/panel/bundle/members/{id}` | | Clients in a bundle. |
-| POST | `/panel/bundle/client/{clientId}/set` | `{bundleIds}` | Replace a client's bundles. |
-| GET | `/panel/bundle/client/{clientId}` | | A client's bundle ids. |
-| GET | `/panel/bundle/hosts` | | Bundle-scheme hosts (address, node, balancer, panel). |
-| POST | `/panel/bundle/hosts/add` | `{inboundId, name, address, port, enable, subscription* overrides}` | Add an address host. |
-| POST | `/panel/bundle/hosts/update/{id}` | same | Edit; managed hosts become "edited". |
-| POST | `/panel/bundle/hosts/reset/{id}` | | Make a managed host follow its node/pool again. |
-| POST | `/panel/bundle/hosts/del/{id}` | | Delete an address host. |
-| GET | `/panel/bundle/state` | | `{enabled, report}`: active flag and the last conversion report. |
-| POST | `/panel/bundle/convert` | | Run the verified conversion now. |

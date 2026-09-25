@@ -86,6 +86,16 @@ export function SimpleCoreForm({
           <Field label={t("pages.xray.RoutingStrategy")}>
             <Chips value={v.domainStrategy} options={DOMAIN_STRATEGIES} onPick={(ds) => onPatch({ domainStrategy: ds })} />
           </Field>
+          <ToggleRow
+            label={tr("qsAllowLan", "Allow clients to reach private networks")}
+            hint={tr(
+              "qsAllowLanHint",
+              "By default clients cannot reach private addresses through the core. Turn on to open 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and fc00::/7 (for example a VPN into a LAN behind the node). It adds a routing rule before the rule that blocks private addresses and lets the direct outbound connect there. Loopback and 169.254.0.0/16 stay blocked. Applies to every client inbound; the node's own private network becomes reachable too.",
+            )}
+            checked={v.allowPrivateNetworks}
+            disabled={!v.allowPrivateNetworksAvailable}
+            onChange={(on) => onPatch({ allowPrivateNetworks: on })}
+          />
         </Group>
 
         <Group title={t("pages.xray.simpleApiSectionTitle", { defaultValue: "API (gRPC)" })} hint={t("pages.xray.simpleApiSectionHint", { defaultValue: "Handler / Logger / Stats must match the API inbound tag used for the panel." })}>

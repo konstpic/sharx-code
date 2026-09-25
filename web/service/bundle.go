@@ -628,6 +628,44 @@ func namedBundleIDs(tx *gorm.DB, clientId int) ([]int, error) {
 	return ids, err
 }
 
+// SetClientNamedBundles makes bundleIds the client's exact set of named (operator-chosen) bundles. The client's personal
+// auto bundle (from inboundIds) is kept and any auto bundle id in the input is ignored, so an API caller cannot drop the
+// access it set through inboundIds by mistake.
+func (s *BundleService) SetClientNamedBundles(clientId int, bundleIds []int) (AccessDiff, error) {
+	db := database.GetDB()
+	var autos []int
+	if err := db.Raw(`SELECT cb.bundle_id FROM client_bundles cb JOIN bundles b ON b.id = cb.bundle_id
+		WHERE cb.client_id = ? AND b.auto = TRUE ORDER BY cb.sort_order, cb.id`, clientId).Scan(&autos).Error; err != nil {
+		return AccessDiff{}, err
+	}
+	isAuto := map[int]bool{}
+	for _, id := range autos {
+		isAuto[id] = true
+	}
+	final := make([]int, 0, len(bundleIds)+len(autos))
+	for _, id := range bundleIds {
+		if !isAuto[id] {
+			final = append(final, id)
+		}
+	}
+	return s.SetClientBundles(clientId, append(final, autos...))
+}
+
+// NamedBundleIdsByClient returns each client's named bundle ids in order (auto bundles are not listed).
+func (s *BundleService) NamedBundleIdsByClient() (map[int][]int, error) {
+	var rows []struct {
+		ClientId int
+		BundleId int
+	}
+	err := database.GetDB().Raw(`SELECT cb.client_id AS client_id, cb.bundle_id AS bundle_id FROM client_bundles cb
+		JOIN bundles b ON b.id = cb.bundle_id WHERE b.auto = FALSE ORDER BY cb.client_id, cb.sort_order, cb.id`).Scan(&rows).Error
+	out := map[int][]int{}
+	for _, r := range rows {
+		out[r.ClientId] = append(out[r.ClientId], r.BundleId)
+	}
+	return out, err
+}
+
 // ApplyNamedBundles sets the named (operator-chosen) bundles of many clients at once, for the group screen. mode "replace"
 // makes bundleIds the clients' exact named set; "add" adds them. Personal auto bundles are always kept. Returns the access
 // changes so the caller can push them to the nodes.

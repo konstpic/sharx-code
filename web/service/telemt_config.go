@@ -685,6 +685,19 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	return b.String(), nil
 }
 
+// ValidateTelemtInbound rejects an enabled Telemt inbound whose WEB mode has no public domain: its config and link cannot
+// be built without one, so saving it would only move the error to the first config view.
+func ValidateTelemtInbound(in *model.Inbound) error {
+	if in == nil || !in.Enable || model.NormalizeProtocol(in.Protocol) != model.Telemt {
+		return nil
+	}
+	cfg := parseTelemtSettings(in.Settings)
+	if cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled && strings.TrimSpace(cfg.Web.VhostHost) == "" {
+		return fmt.Errorf("telemt web mode: the public domain (vhostHost) is required")
+	}
+	return nil
+}
+
 // appendTelemtWebListenerAndSection renders the private WEB [[server.listeners]] entry plus
 // the [web] / [[web.vhosts]] tree for Telemt's HTTPS/WebSocket transport. The listener binds to
 // a private address (loopback by default); the operator's own NGINX/HAProxy must terminate TLS

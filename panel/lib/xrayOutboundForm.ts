@@ -218,3 +218,33 @@ export function moveRow(rows: OutboundFormRow[], from: number, to: number): Outb
   next.splice(to, 0, r);
   return next;
 }
+
+/**
+ * Freedom blocks private destinations for client inbounds by default (Xray 26.6+). This allow rule opens only the LAN
+ * ranges. Loopback (127/8) and link-local (169.254/16, cloud metadata) stay blocked on purpose: through them a client
+ * could reach the node's own services, including the Xray API.
+ */
+export const FREEDOM_LAN_ALLOW_IPS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"];
+
+function isLanAllowRule(rule: unknown): boolean {
+  if (typeof rule !== "object" || rule === null) return false;
+  const r = rule as Record<string, unknown>;
+  if (String(r.action ?? "").toLowerCase() !== "allow" || !Array.isArray(r.ip)) return false;
+  const ips = new Set((r.ip as unknown[]).map((v) => String(v)));
+  return ips.size === FREEDOM_LAN_ALLOW_IPS.length && FREEDOM_LAN_ALLOW_IPS.every((v) => ips.has(v));
+}
+
+/** Whether the freedom outbound settings carry the panel's "allow private networks" rule. */
+export function freedomAllowsLan(settings: Record<string, unknown>): boolean {
+  return Array.isArray(settings.finalRules) && settings.finalRules.some(isLanAllowRule);
+}
+
+/** Adds or removes the "allow private networks" rule; other finalRules are kept. */
+export function withFreedomLanAllowed(settings: Record<string, unknown>, on: boolean): Record<string, unknown> {
+  const others = (Array.isArray(settings.finalRules) ? settings.finalRules : []).filter((r) => !isLanAllowRule(r));
+  const rules = on ? [...others, { action: "allow", ip: [...FREEDOM_LAN_ALLOW_IPS] }] : others;
+  const next: Record<string, unknown> = { ...settings };
+  if (rules.length > 0) next.finalRules = rules;
+  else delete next.finalRules;
+  return next;
+}

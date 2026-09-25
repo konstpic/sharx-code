@@ -1372,10 +1372,33 @@ func applyXhttpPaddingParams(xhttp map[string]any, params map[string]string) {
 			}
 		}
 	}
+	applyXhttpTransportExtras(xhttp, extra)
 	if len(extra) > 0 {
 		if b, err := json.Marshal(extra); err == nil {
 			params["extra"] = string(b)
 		}
+	}
+}
+
+// xhttpStringExtras are xhttpSettings fields the client needs as well as the server (Xray "extra"). Empty = default.
+var xhttpStringExtras = []string{
+	"uplinkHTTPMethod",
+	"sessionPlacement", "sessionKey",
+	"seqPlacement", "seqKey",
+	"uplinkDataPlacement", "uplinkDataKey",
+}
+
+// applyXhttpTransportExtras copies the non-padding client-relevant xhttp fields (uplink method, session/seq/data
+// placement and keys, uplink chunk size) into dst. Unset fields are skipped, so links of inbounds that do not use them
+// stay byte-for-byte the same.
+func applyXhttpTransportExtras(xhttp map[string]any, dst map[string]any) {
+	for _, field := range xhttpStringExtras {
+		if v, ok := xhttp[field].(string); ok && strings.TrimSpace(v) != "" {
+			dst[field] = strings.TrimSpace(v)
+		}
+	}
+	if n, ok := xhttp["uplinkChunkSize"].(float64); ok && n > 0 {
+		dst["uplinkChunkSize"] = int(n)
 	}
 }
 
@@ -1395,6 +1418,7 @@ func applyXhttpPaddingToVmessObj(xhttp map[string]any, obj map[string]any) {
 			}
 		}
 	}
+	applyXhttpTransportExtras(xhttp, obj)
 }
 
 // genVlessLinkWithClient generates VLESS link using ClientEntity data (new architecture)

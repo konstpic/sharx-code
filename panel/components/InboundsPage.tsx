@@ -1087,6 +1087,14 @@ export function InboundsPage() {
     if (tagValidation) {
       return { ok: false, message: tagValidation };
     }
+    if (form.protocol === "telemt" && form.enable && form.telemtForm.webEnabled && !form.telemtForm.webVhostHost.trim()) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtWebVhostRequired", {
+          defaultValue: "WEB mode needs a public domain (its DNS must already point at this server). Fill it in or turn WEB mode off.",
+        }),
+      };
+    }
     const isSidecar =
       form.protocol === "telemt" || form.protocol === "amneziawg";
     let streamSettingsStr = isSidecar
@@ -1241,7 +1249,8 @@ export function InboundsPage() {
     if (form.protocol === "amneziawg") {
       body.amneziawg = buildAmneziaWgInboundApiPayload(form.amneziawgForm);
     }
-    if (bindingsPayload.length > 0) {
+    // When editing, an empty list is meaningful: the last node was unchecked and the inbound must leave it.
+    if (bindingsPayload.length > 0 || (editId != null && nodes.length > 0)) {
       body.nodeBindings = bindingsPayload;
     }
     return { ok: true, body };
@@ -1250,6 +1259,7 @@ export function InboundsPage() {
     editId,
     form,
     nodeBindings,
+    nodes.length,
     preserveTraffic,
     useCoreConfigDraftOnSubmit,
     t,
@@ -6783,10 +6793,12 @@ export function InboundsPage() {
                               {t("pages.inbounds.telemtWebVhostHost", {
                                 defaultValue: "Public domain (DNS must already point here)",
                               })}
+                              <span className="ml-0.5 text-rose-400">*</span>
                             </label>
                             <Input
                               id="in-tm-web-host"
-                              className="font-mono text-xs"
+                              className={`font-mono text-xs${form.telemtForm.webVhostHost.trim() ? "" : " border-rose-400/60"}`}
+                              required
                               placeholder="proxy.example.com"
                               value={form.telemtForm.webVhostHost}
                               onChange={(e) =>

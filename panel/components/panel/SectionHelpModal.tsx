@@ -1,9 +1,11 @@
 "use client";
 
 import { HelpCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { HelpScene } from "@/components/help/HelpScene";
+import { WelcomeSteps } from "@/components/help/WelcomeSteps";
+import { helpSeen, markHelpSeen } from "@/lib/helpSeen";
 import { IconButton, Modal } from "@/components/ui";
 
 type SectionHelpModalProps = {
@@ -15,19 +17,37 @@ type SectionHelpModalProps = {
   buttonLabelKey?: string;
   /** Animated explainer shown above the text (see components/help/scenes.ts). */
   scene?: string;
+  /** Section id for the "shown once per release" memory; defaults to the scene. Without either, the modal never opens by itself. */
+  sectionId?: string;
+  /** Extra content under the paragraphs. */
+  children?: ReactNode;
 };
 
 /**
- * Question-mark control that opens a read-only help modal for the current page/section.
+ * Question-mark control that opens a read-only help modal for the current page/section. After a big release
+ * (see HELP_REVISION) it also opens once by itself on the first visit of each section.
  */
 export function SectionHelpModal({
   titleKey,
   paragraphKeys,
   buttonLabelKey = "pages.help.sectionAbout",
   scene,
+  sectionId,
+  children,
 }: SectionHelpModalProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const id = sectionId ?? scene;
+
+  useEffect(() => {
+    if (!id || helpSeen(id)) return;
+    // Let the page render first; remembered as soon as it is shown, so a reload does not repeat it.
+    const timer = window.setTimeout(() => {
+      markHelpSeen(id);
+      setOpen(true);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [id]);
 
   return (
     <>
@@ -51,6 +71,8 @@ export function SectionHelpModal({
             <p key={key}>{t(key)}</p>
           ))}
         </div>
+        {scene === "welcome" ? <WelcomeSteps onNavigate={() => setOpen(false)} /> : null}
+        {children}
       </Modal>
     </>
   );

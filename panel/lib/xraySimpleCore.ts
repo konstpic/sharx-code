@@ -1,3 +1,5 @@
+import { lanAccessAllowed, lanAccessAvailable, withLanAccess } from "./xrayLanAccess";
+
 /**
  * Read/patch a small subset of Xray template JSON for a beginner-friendly UI.
  */
@@ -29,6 +31,10 @@ export type XraySimpleCore = {
   policySystemStatsInboundDownlink: boolean;
   policySystemStatsOutboundUplink: boolean;
   policySystemStatsOutboundDownlink: boolean;
+  /** Clients may reach private (LAN) addresses through the `direct` outbound. */
+  allowPrivateNetworks: boolean;
+  /** The template has a `direct` freedom outbound, so the option can be applied. */
+  allowPrivateNetworksAvailable: boolean;
 };
 
 const DEFAULT_LOG = {
@@ -76,6 +82,8 @@ function defaultSimpleCoreBase(): XraySimpleCore {
     apiHandlerService: true,
     apiLoggerService: true,
     apiStatsService: true,
+    allowPrivateNetworks: false,
+    allowPrivateNetworksAvailable: false,
     ...DEFAULT_POLICY,
   };
 }
@@ -175,6 +183,8 @@ export function extractSimpleCore(templateStr: string): XraySimpleCore {
     apiHandlerService,
     apiLoggerService,
     apiStatsService,
+    allowPrivateNetworks: lanAccessAllowed(root),
+    allowPrivateNetworksAvailable: lanAccessAvailable(root),
     ...pol,
   };
 }
@@ -296,6 +306,10 @@ export function patchSimpleCore(templateStr: string, next: Partial<XraySimpleCor
     sys.statsOutboundUplink = sOuU;
     sys.statsOutboundDownlink = sOuD;
     root.policy = policy;
+  }
+
+  if (next.allowPrivateNetworks !== undefined) {
+    return JSON.stringify(withLanAccess(root, next.allowPrivateNetworks), null, 2);
   }
 
   return JSON.stringify(root, null, 2);

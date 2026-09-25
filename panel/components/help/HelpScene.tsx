@@ -23,13 +23,13 @@ function Actor({ actor, visible, focus, down, label, sub }: { actor: SceneActor;
   return (
     <motion.div
       className="pointer-events-none absolute z-10 flex w-24 flex-col items-center gap-1 text-center"
-      style={{ left: `${actor.x}%`, top: `${actor.y}%`, x: "-50%", y: "-50%" }}
+      style={{ left: `${actor.x}%`, top: `${actor.y}%`, x: "-50%", y: -22, transformOrigin: "50% 22px" }}
       initial={false}
       animate={{ opacity: visible ? (down ? 0.6 : 1) : 0, scale: visible ? (focus ? 1.08 : 1) : 0.6 }}
       transition={{ type: "spring", stiffness: 260, damping: 22 }}
     >
       <motion.span
-        className="relative grid size-11 place-items-center rounded-2xl border bg-[color-mix(in_oklab,var(--surface)_88%,transparent)] backdrop-blur-sm"
+        className="relative grid size-11 place-items-center rounded-2xl border bg-[color-mix(in_oklab,var(--surface)_96%,var(--bg))]"
         style={{ borderColor: `color-mix(in oklab, ${color} 55%, transparent)`, color }}
         animate={{ boxShadow: focus ? `0 0 0 3px color-mix(in oklab, ${color} 22%, transparent), 0 0 24px color-mix(in oklab, ${color} 45%, transparent)` : "0 0 0 0 transparent" }}
         transition={{ duration: 0.4 }}

@@ -311,10 +311,12 @@ type ClientInboundShareLink struct {
 // ClientCardView is the unified API model for client list and detail in the panel.
 type ClientCardView struct {
 	ClientEntity
-	ActiveHwidCount     int                      `json:"activeHwidCount"`
-	Inbounds            []ClientCardInboundBrief `json:"inbounds"`
-	SubscriptionURL     string                   `json:"subscriptionUrl,omitempty"`
-	SubscriptionJsonURL string                   `json:"subscriptionJsonUrl,omitempty"`
+	ActiveHwidCount int                      `json:"activeHwidCount"`
+	Inbounds        []ClientCardInboundBrief `json:"inbounds"`
+	// BundleIds are the client's named bundles (bundle scheme); personal auto bundles are not listed. Empty when the scheme is off.
+	BundleIds           []int  `json:"bundleIds"`
+	SubscriptionURL     string `json:"subscriptionUrl,omitempty"`
+	SubscriptionJsonURL string `json:"subscriptionJsonUrl,omitempty"`
 	// SubscriptionPageURL is the first-party HTML subscription page (/panel/sub/) when configured; omit if same as SubscriptionURL.
 	SubscriptionPageURL string `json:"subscriptionPageUrl,omitempty"`
 	// IsOnline is true when this client's email is in the current Xray online set (local + multi-node sync).

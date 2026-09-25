@@ -215,7 +215,7 @@ func (a *BundleController) setClientBundles(c *gin.Context) {
 		jsonMsg(c, "Invalid request", err)
 		return
 	}
-	d, err := a.svc.SetClientBundles(id, body.BundleIds)
+	d, err := a.svc.SetClientNamedBundles(id, body.BundleIds)
 	if err != nil {
 		jsonMsg(c, "Failed to set bundles", err)
 		return

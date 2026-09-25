@@ -1662,7 +1662,10 @@ func (s *ClientService) DisableClientsByName(clientsToDisable map[string]string,
 				}
 			}
 		}
-		db.Save(clients)
+		for _, cl := range clients {
+			// Only the status is ours to write; a whole-row save would revert concurrent admin edits.
+			db.Model(&model.ClientEntity{}).Where("id = ?", cl.Id).Update("status", cl.Status)
+		}
 	}
 
 	// Update inbound settings to remove expired clients
