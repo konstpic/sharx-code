@@ -1,6 +1,6 @@
 # SharX balancer agent + HAProxy + nginx (stream). Build from the repo root:
 #   docker build -f balancer/Dockerfile -t sharxbalancer .
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 WORKDIR /build

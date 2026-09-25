@@ -17,7 +17,7 @@ RUN npm run build && cp -R out /webpanel
 # ========================================================
 # Stage: Builder
 # ========================================================
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 ARG BUILDKIT_INLINE_CACHE=1

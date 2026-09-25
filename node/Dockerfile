@@ -1,6 +1,6 @@
 # Telemt: ./scripts/download-telemt.sh → third_party/telemt-sharx/prebuilt/linux-*/telemt (or DockerInit fallback)
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /build
 ARG BUILDKIT_INLINE_CACHE=1
