@@ -5560,6 +5560,8 @@ curl -X POST "http://localhost:2053/panel/bundle/add" -H "Content-Type: applicat
 | POST | `/panel/bundle/hosts/reset/{id}` | | Make a managed host follow its node or pool again (clears `customized`). |
 | POST | `/panel/bundle/hosts/del/{id}` | | Delete an `address` host. Bundles that held it lose it; access derived only from it is recomputed. Managed hosts cannot be deleted (the call fails with "managed hosts follow their placement"): disable them with `hosts/update` (`enable: false`); they disappear with their node placement or pool. |
 
+`remarkSuffix` and `serverDescription` apply to the link of every host kind except `local` (the suffix is appended to the server name; the description goes into `#name?serverDescription=<base64>` for INCY and Happ, up to 30 characters; VMess links have no such fragment).
+
 Subscription overrides (`subscription*`) apply to the link built from this host: empty = inherit from the inbound's stream settings; `subscriptionSecurity`: `""` | `tls` | `none`; `subscriptionAllowInsecure`: `null` = inherit.
 
 ### Conversion state

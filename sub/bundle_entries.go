@@ -27,7 +27,14 @@ func (s *SubService) addressPortFromHost(h *model.Host, inbound *model.Inbound) 
 		}
 		return ap, true
 	case model.HostKindPool:
-		ap := AddressPort{Address: h.Address, RemarkNodeName: h.Name, RemarkDisplayHost: h.Address, Src: AddrSource{Kind: model.HostKindPool}}
+		ap := AddressPort{
+			Address:           h.Address,
+			RemarkSuffix:      h.RemarkSuffix,
+			ServerDescription: h.ServerDescription,
+			RemarkNodeName:    h.Name,
+			RemarkDisplayHost: h.Address,
+			Src:               AddrSource{Kind: model.HostKindPool},
+		}
 		if h.Port > 0 {
 			ap.Port = h.Port
 		}
@@ -43,6 +50,9 @@ func (s *SubService) addressPortFromHost(h *model.Host, inbound *model.Inbound) 
 	default: // address hosts (custom domain, CDN, converted pre-bundle Hosts)
 		ap := hostAddressPort(h)
 		ap.OverrideHost = h
+		// The host form offers both fields; they are empty on converted hosts, so converted subscriptions do not change.
+		ap.RemarkSuffix = h.RemarkSuffix
+		ap.ServerDescription = h.ServerDescription
 		return ap, true
 	}
 }
