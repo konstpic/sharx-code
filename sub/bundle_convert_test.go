@@ -115,7 +115,7 @@ func captureSubs(w *world, active bool) map[string]string {
 	out := map[string]string{}
 	for name, c := range w.clients {
 		lines, last, tr, err := s.GetSubs(c.SubID, testHost, nil)
-		out[name] = fmt.Sprintf("%s|%d|%+v|%v", strings.Join(lines, "\n"), last, tr, err)
+		out[name] = fmt.Sprintf("%s|%d|%+v|%v", normalizeLines(lines), last, tr, err)
 	}
 	return out
 }

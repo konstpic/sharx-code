@@ -3,6 +3,7 @@ package sub
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -412,14 +413,22 @@ func (c *convCtx) verify(rep *ConversionReport, clients []convClient, host strin
 			out = append(out, ConversionMismatch{Client: name, Check: "subscription", Detail: fmt.Sprintf("error differs: %q vs %q", errString(oldErr), errString(newErr))})
 			continue
 		}
-		if strings.Join(oldLines, "\n") != strings.Join(newLines, "\n") || oldLast != newLast || oldTr != newTr {
-			out = append(out, ConversionMismatch{Client: name, Check: "subscription", Detail: firstDifference(oldLines, newLines)})
+		if normalizeLines(oldLines) != normalizeLines(newLines) || oldLast != newLast || oldTr != newTr {
+			out = append(out, ConversionMismatch{Client: name, Check: "subscription", Detail: firstDifference(strings.Split(normalizeLines(oldLines), "\n"), strings.Split(normalizeLines(newLines), "\n"))})
 			continue
 		}
 		rep.Verified++
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Client < out[j].Client })
 	return out
+}
+
+// randomLinkParam matches the parts of a share link the generator randomises on every request (Reality spiderX), which no
+// two renderings of the same subscription share. Everything else must match exactly.
+var randomLinkParam = regexp.MustCompile(`([?&])spx=[^&#\s]*`)
+
+func normalizeLines(lines []string) string {
+	return randomLinkParam.ReplaceAllString(strings.Join(lines, "\n"), "${1}spx=*")
 }
 
 func errString(err error) string {
