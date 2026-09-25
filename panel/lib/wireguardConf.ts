@@ -57,9 +57,11 @@ export function extractWireGuardConfBlock(text: string): string | null {
 
 /** Join split subscription lines and extract a wg-quick block (GetSubs splits WG panel text by `\n`). */
 export function reconstructWireGuardConfFromLinks(links: string[]): string | null {
+  // A single link only counts when it is a whole conf. A lone "[Interface]" line (the text was split by "\n") also
+  // matches the block extractor but carries no keys, so it must not win over the joined text.
   for (const link of links) {
     const conf = wgQuickConfFromPanelText(link);
-    if (conf) return conf;
+    if (conf && /PrivateKey\s*=/i.test(conf)) return conf;
   }
   if (!links.length) return null;
   return wgQuickConfFromPanelText(links.join("\n"));
