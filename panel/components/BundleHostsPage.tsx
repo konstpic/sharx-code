@@ -166,7 +166,7 @@ export function BundleHostsPage() {
         title={t("menu.hosts")}
         icon={Server}
         iconTone="accent"
-        description={t("pages.bundleHosts.description", {
+        description={t("pages.bundleHosts.subtitle", {
           defaultValue: "Every entry a client can be given. Node and balancer hosts follow their placement; address hosts are yours. Bundles decide who gets which.",
         })}
         actions={

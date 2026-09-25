@@ -401,7 +401,7 @@ export function BundlesPage() {
               </label>
             </div>
             <label className="block text-xs">
-              <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundles.description", { defaultValue: "Description" })}</span>
+              <span className="mb-1 block font-medium text-[var(--fg-muted)]">{t("pages.bundles.descriptionField", { defaultValue: "Description" })}</span>
               <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
             </label>
             <Tabs
