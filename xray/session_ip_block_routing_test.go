@@ -34,7 +34,7 @@ func TestBuildSessionIPBlockRouterConfig_roundTripTypedMessage(t *testing.T) {
 	if rule.GetTag() != "blocked" {
 		t.Fatalf("outbound tag: %q", rule.GetTag())
 	}
-	if len(rule.GetSourceGeoip()) == 0 || len(rule.GetSourceGeoip()[0].GetCidr()) == 0 {
-		t.Fatal("expected source geoip cidr")
+	if len(rule.GetSourceIp()) == 0 || rule.GetSourceIp()[0].GetCustom().GetCidr() == nil {
+		t.Fatal("expected a source ip rule with a cidr")
 	}
 }

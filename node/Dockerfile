@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /build/node-service ./node/main.go
 
-# Same Xray + geo files as the panel image (DockerInit.sh, v26.6.1).
+# Same Xray + geo files as the panel image (DockerInit.sh, v26.9.9).
 # Run with WORKDIR / so the script’s mkdir -p build/bin creates /build/bin (matches panel layout under /app).
 COPY DockerInit.sh /docker-init.sh
 WORKDIR /

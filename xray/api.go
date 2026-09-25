@@ -169,6 +169,7 @@ func (x *XrayAPI) AddUser(Protocol string, inboundTag string, user map[string]an
 		password, _ := user["password"].(string)
 		email, _ := user["email"].(string)
 		var ssCipherType shadowsocks.CipherType
+		ssClassic := true
 		switch cipher {
 		case "aes-128-gcm":
 			ssCipherType = shadowsocks.CipherType_AES_128_GCM
@@ -179,10 +180,11 @@ func (x *XrayAPI) AddUser(Protocol string, inboundTag string, user map[string]an
 		case "xchacha20-poly1305", "xchacha20-ietf-poly1305":
 			ssCipherType = shadowsocks.CipherType_XCHACHA20_POLY1305
 		default:
-			ssCipherType = shadowsocks.CipherType_NONE
+			// Not a classic cipher: the account is a Shadowsocks-2022 key.
+			ssClassic = false
 		}
 
-		if ssCipherType != shadowsocks.CipherType_NONE {
+		if ssClassic {
 			account = serial.ToTypedMessage(&shadowsocks.Account{
 				Password:   password,
 				CipherType: ssCipherType,

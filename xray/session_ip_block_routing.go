@@ -5,14 +5,14 @@ import (
 	"strings"
 
 	routerpb "github.com/xtls/xray-core/app/router"
+	"github.com/xtls/xray-core/common/geodata"
 	"github.com/xtls/xray-core/common/serial"
-	"github.com/xtls/xray-core/infra/conf"
 )
 
 const sessionIPBlockOutboundTag = "blocked"
 
 // BuildSessionIPBlockRouterConfig builds router.Config for RoutingService.AddRule (one session-IP block).
-// Uses infra/conf ToCidrList so GeoIP/CIDR encoding matches JSON routing rules in the panel config.
+// Uses geodata.ParseIPRules so the CIDR encoding matches JSON routing rules in the panel config.
 func BuildSessionIPBlockRouterConfig(ruleTag, email, cidr string) (*routerpb.Config, error) {
 	ruleTag = strings.TrimSpace(ruleTag)
 	email = strings.TrimSpace(email)
@@ -20,15 +20,15 @@ func BuildSessionIPBlockRouterConfig(ruleTag, email, cidr string) (*routerpb.Con
 	if ruleTag == "" || email == "" || cidr == "" {
 		return nil, fmt.Errorf("ruleTag, email, and cidr are required")
 	}
-	sourceGeoip, err := conf.ToCidrList(conf.StringList{cidr})
+	sourceIP, err := geodata.ParseIPRules([]string{cidr})
 	if err != nil {
 		return nil, err
 	}
 	rule := &routerpb.RoutingRule{
-		RuleTag:     ruleTag,
-		UserEmail:   []string{email},
-		SourceGeoip: sourceGeoip,
-		TargetTag:   &routerpb.RoutingRule_Tag{Tag: sessionIPBlockOutboundTag},
+		RuleTag:   ruleTag,
+		UserEmail: []string{email},
+		SourceIp:  sourceIP,
+		TargetTag: &routerpb.RoutingRule_Tag{Tag: sessionIPBlockOutboundTag},
 	}
 	return &routerpb.Config{Rule: []*routerpb.RoutingRule{rule}}, nil
 }
