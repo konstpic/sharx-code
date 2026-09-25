@@ -3538,6 +3538,15 @@ subListen = "The IP address the subscription service binds to. Leave blank to li
 subProviderId = "A unique identifier sent to client apps to identify this provider. Required for apps that support the Provider ID protocol (e.g. Happ, V2RayTun) to receive updates from multiple providers."
 
 [pages.balancers]
+traffic = "Traffic"
+collecting = "Collecting samples…"
+toClients = "To clients"
+fromClients = "From clients"
+connections = "Connections"
+connShort = "conn."
+peak = "Peak"
+approx = "estimate"
+approxHint = "nginx has no per-port counters: half of the server's network traffic is shown."
 helpTitle = "Balancers"
 helpP1 = "A balancer is a separate server running HAProxy or nginx. Clients connect to its address and it forwards the connection to one of the nodes serving the same inbound. The traffic is not decrypted, so Reality, TLS and the other protocols work unchanged."
 helpP2 = "Add a balancer, install the agent on the server (docker compose from the install window), then put the inbounds you need behind it. Nodes come from the inbound's assigned nodes; a failed node is dropped from rotation automatically."

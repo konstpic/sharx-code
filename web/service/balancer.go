@@ -601,6 +601,28 @@ func (s *BalancerService) Apply(id int) error {
 	return nil
 }
 
+// Metrics returns the agent's sampled traffic history newer than sinceMs, as the agent sent it. The panel stores
+// nothing: history lives in the agent (one hour), which keeps the panel database free of high-frequency writes.
+func (s *BalancerService) Metrics(id int, sinceMs int64) (json.RawMessage, error) {
+	b, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.agentRequest(b, http.MethodGet, fmt.Sprintf("/api/v1/metrics?since=%d", sinceMs), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("agent returned %d (update the agent to get traffic history)", resp.StatusCode)
+	}
+	return raw, nil
+}
+
 // Reconcile refreshes every enabled balancer and re-applies the spec when the agent drifted from the panel
 // (node or inbound changed, agent restarted without state). Failed applies of the same spec are retried at most every 30 s.
 func (s *BalancerService) Reconcile() {

@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/sharx-balancer ./balancer
 
 FROM alpine:3.22
-RUN apk --no-cache add ca-certificates tzdata haproxy nginx nginx-mod-stream && \
+RUN apk --no-cache add ca-certificates tzdata haproxy nginx nginx-mod-stream iproute2-ss && \
     mkdir -p /app/data /var/run && rm -f /etc/nginx/http.d/default.conf
 WORKDIR /app
 COPY --from=builder /out/sharx-balancer /app/sharx-balancer

@@ -1,12 +1,13 @@
 "use client";
 
-import { Copy, Pencil, Plus, RefreshCw, Scale, Send, Terminal, Trash2 } from "lucide-react";
+import { Activity, Copy, Pencil, Plus, RefreshCw, Scale, Send, Terminal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { panel } from "@/lib/paths";
 import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
+import { BalancerTraffic } from "@/components/balancers/BalancerTraffic";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   AlertBanner,
@@ -140,6 +141,7 @@ export function BalancersPage() {
   const [poolDelete, setPoolDelete] = useState<Pool | null>(null);
   const [install, setInstall] = useState<Balancer | null>(null);
   const [secret, setSecret] = useState("");
+  const [trafficOpen, setTrafficOpen] = useState<Set<number>>(new Set());
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -337,6 +339,19 @@ export function BalancersPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
+                      <IconButton
+                        label={t("pages.balancers.traffic", { defaultValue: "Traffic" })}
+                        onClick={() =>
+                          setTrafficOpen((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(b.id)) n.delete(b.id);
+                            else n.add(b.id);
+                            return n;
+                          })
+                        }
+                      >
+                        <Activity size={16} className={trafficOpen.has(b.id) ? "text-[var(--accent)]" : ""} />
+                      </IconButton>
                       <IconButton label={t("pages.balancers.install", { defaultValue: "Install on the server" })} onClick={() => void openInstall(b)}>
                         <Terminal size={16} />
                       </IconButton>
@@ -359,6 +374,13 @@ export function BalancersPage() {
                     <div className="mt-3">
                       <AlertBanner type="error" title={b.lastError} />
                     </div>
+                  ) : null}
+
+                  {trafficOpen.has(b.id) && b.status === "online" ? (
+                    <BalancerTraffic
+                      balancerId={b.id}
+                      pools={(b.pools ?? []).map((p) => ({ id: p.id, label: p.inboundRemark || `#${p.inboundId}`, port: p.listenPort || p.inboundPort || 0 }))}
+                    />
                   ) : null}
 
                   <div className="mt-4 flex flex-col gap-2">

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/konstpic/sharx-code/v2/balancer/engine"
@@ -37,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "role": "balancer"})
 	})
 	mux.HandleFunc("GET /api/v1/status", s.auth(s.status))
+	mux.HandleFunc("GET /api/v1/metrics", s.auth(s.metrics))
 	mux.HandleFunc("POST /api/v1/apply", s.auth(s.apply))
 	return mux
 }
@@ -68,6 +71,20 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		"agentVersion":   config.GetVersion(),
 		"engineVersions": engineVersions(),
 		"status":         s.eng.Status(),
+	})
+}
+
+// metrics returns the sampled history newer than ?since= (unix ms). Counters are cumulative.
+func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
+	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	samples := s.eng.Metrics(since)
+	if len(samples) > 900 {
+		samples = samples[len(samples)-900:]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"intervalMs": engine.SampleInterval.Milliseconds(),
+		"now":        time.Now().UnixMilli(),
+		"samples":    samples,
 	})
 }
 

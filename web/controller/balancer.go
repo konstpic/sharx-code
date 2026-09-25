@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
 
@@ -27,6 +28,7 @@ func NewBalancerController(g *gin.RouterGroup) *BalancerController {
 	g.POST("/pool/del/:id", a.delPool)
 	g.POST("/apply/:id", a.apply)
 	g.POST("/refresh/:id", a.refresh)
+	g.GET("/metrics/:id", a.metrics)
 	return a
 }
 
@@ -183,6 +185,20 @@ func (a *BalancerController) apply(c *gin.Context) {
 		return
 	}
 	jsonObj(c, a.view(b), nil)
+}
+
+func (a *BalancerController) metrics(c *gin.Context) {
+	id, ok := balancerID(c)
+	if !ok {
+		return
+	}
+	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
+	raw, err := a.svc.Metrics(id, since)
+	if err != nil {
+		jsonMsg(c, "Failed to load traffic", err)
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "msg": "", "obj": json.RawMessage(raw)})
 }
 
 func (a *BalancerController) refresh(c *gin.Context) {

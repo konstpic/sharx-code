@@ -34,11 +34,15 @@ type Manager struct {
 	lastErr   string
 	appliedAt time.Time
 	version   map[string]string
+	metrics   metricsStore
+	socks     *sockTracker
 }
 
 // New creates a manager storing its state under dir.
 func New(dir string) *Manager {
-	return &Manager{dir: dir, version: map[string]string{}}
+	m := &Manager{dir: dir, version: map[string]string{}, socks: newSockTracker()}
+	go m.collectLoop()
+	return m
 }
 
 func haproxyBin() string { return envOr("HAPROXY_BIN", "haproxy") }
