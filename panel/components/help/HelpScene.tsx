@@ -1,9 +1,11 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Pause, Play, RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { X } from "lucide-react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useScenePlayer, ScenePlayerBar } from "@/components/help/player";
+import { WelcomeStory } from "@/components/help/WelcomeStory";
 import { SCENES, type Scene, type SceneActor, type Tone } from "@/components/help/scenes";
 
 const TONE: Record<Tone, string> = {
@@ -14,7 +16,6 @@ const TONE: Record<Tone, string> = {
   blue: "#38bdf8",
 };
 
-const STEP_MS = 3800;
 
 function Actor({ actor, visible, focus, down, label, sub }: { actor: SceneActor; visible: boolean; focus: boolean; down: boolean; label: string; sub?: string }) {
   const Icon = actor.icon;
@@ -49,29 +50,19 @@ function Actor({ actor, visible, focus, down, label, sub }: { actor: SceneActor;
 /** An animated diagram that explains a section: steps with captions, moving packets and highlighted parts. */
 export function HelpScene({ sceneId, className = "", compact = false }: { sceneId: string; className?: string; compact?: boolean }) {
   const { t } = useTranslation();
-  const reduce = useReducedMotion();
   const scene: Scene | undefined = SCENES[sceneId];
-  const [step, setStep] = useState(0);
-  const [playing, setPlaying] = useState(true);
-
-  useEffect(() => {
-    if (!scene || !playing || reduce) return;
-    const id = window.setTimeout(() => setStep((s) => (s + 1) % scene.steps.length), STEP_MS);
-    return () => window.clearTimeout(id);
-  }, [scene, step, playing, reduce]);
-
-  useEffect(() => {
-    setStep(0);
-    setPlaying(true);
-  }, [sceneId]);
+  const player = useScenePlayer(scene?.steps.length ?? 1, sceneId);
+  const { step, reduce } = player;
 
   const byId = useMemo(() => new Map((scene?.actors ?? []).map((x) => [x.id, x])), [scene]);
-  const replay = useCallback(() => {
-    setStep(0);
-    setPlaying(true);
-  }, []);
-
   if (!scene) return null;
+  if (sceneId === "welcome") {
+    return (
+      <div className={className}>
+        <WelcomeStory player={player} captionKeys={scene.steps.map((x) => x.captionKey)} compact={compact} />
+      </div>
+    );
+  }
   const cur = scene.steps[Math.min(step, scene.steps.length - 1)];
   const shown = new Set(cur.show);
   const down = new Set(cur.down ?? []);
@@ -147,66 +138,7 @@ export function HelpScene({ sceneId, className = "", compact = false }: { sceneI
           : null}
       </div>
 
-      <div className={`mt-3 flex items-start gap-3 ${compact ? "min-h-[3.25rem]" : "min-h-[3.75rem]"}`}>
-        <div className="min-w-0 flex-1">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.p
-              key={step}
-              className="text-sm leading-snug text-[var(--fg)]"
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.25 }}
-            >
-              {t(cur.captionKey)}
-            </motion.p>
-          </AnimatePresence>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            className="grid size-8 place-items-center rounded-lg border border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
-            aria-label={playing ? t("pages.help.scenes.player.pause") : t("pages.help.scenes.player.play")}
-            onClick={() => setPlaying((p) => !p)}
-          >
-            {playing ? <Pause size={14} /> : <Play size={14} />}
-          </button>
-          <button
-            type="button"
-            className="grid size-8 place-items-center rounded-lg border border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"
-            aria-label={t("pages.help.scenes.player.replay")}
-            onClick={replay}
-          >
-            <RotateCcw size={14} />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-1 flex items-center gap-1.5" role="tablist">
-        {scene.steps.map((_, i) => (
-          <button
-            key={i}
-            type="button"
-            role="tab"
-            aria-selected={i === step}
-            aria-label={t("pages.help.scenes.player.step", { n: i + 1 })}
-            onClick={() => {
-              setStep(i);
-              setPlaying(false);
-            }}
-            className="h-1.5 flex-1 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--fg)_14%,transparent)]"
-          >
-            <motion.span
-              className="block h-full rounded-full bg-[var(--accent)]"
-              initial={i === step && playing && !reduce ? { width: "0%" } : false}
-              animate={{ width: i <= step ? "100%" : "0%", opacity: i <= step ? 1 : 0 }}
-              transition={{ duration: i === step && playing && !reduce ? STEP_MS / 1000 : 0.2, ease: "linear" }}
-              key={`${i}-${step === i ? step : "x"}-${playing}`}
-              style={{ originX: 0 }}
-            />
-          </button>
-        ))}
-      </div>
+      <ScenePlayerBar player={player} caption={t(cur.captionKey)} compact={compact} />
     </div>
   );
 }

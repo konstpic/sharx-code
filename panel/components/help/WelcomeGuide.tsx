@@ -71,7 +71,7 @@ export function WelcomeGuide() {
         </button>
       </div>
       {!collapsed ? (
-        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <HelpScene sceneId="welcome" />
           <ol className="flex flex-col gap-2 self-center">
             {STEPS.map((s, i) => (
