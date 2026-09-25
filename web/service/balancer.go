@@ -208,6 +208,7 @@ func (s *BalancerService) Add(b *model.Balancer) error {
 
 // Update changes the editable fields of a balancer.
 func (s *BalancerService) Update(in *model.Balancer) error {
+	defer TriggerHostSync()
 	var cur model.Balancer
 	db := database.GetDB()
 	if err := db.First(&cur, in.Id).Error; err != nil {
@@ -236,11 +237,13 @@ func (s *BalancerService) Update(in *model.Balancer) error {
 
 // SetEnabled turns a balancer on or off. A disabled balancer is not pushed to, and disappears from subscriptions.
 func (s *BalancerService) SetEnabled(id int, enable bool) error {
+	defer TriggerHostSync()
 	return database.GetDB().Model(&model.Balancer{}).Where("id = ?", id).Update("enable", enable).Error
 }
 
 // Delete removes a balancer (pools and members cascade).
 func (s *BalancerService) Delete(id int) error {
+	defer TriggerHostSync()
 	return database.GetDB().Delete(&model.Balancer{}, id).Error
 }
 
@@ -278,6 +281,7 @@ func normalizePoolAlgo(a string) string {
 
 // SavePool creates (Id == 0) or updates a pool and replaces its member overrides.
 func (s *BalancerService) SavePool(p *model.BalancerPool, members []model.BalancerPoolMember) (*model.BalancerPool, error) {
+	defer TriggerHostSync()
 	db := database.GetDB()
 	var bal model.Balancer
 	if err := db.First(&bal, p.BalancerId).Error; err != nil {
@@ -386,6 +390,7 @@ func (s *BalancerService) SavePool(p *model.BalancerPool, members []model.Balanc
 
 // DeletePool removes a pool.
 func (s *BalancerService) DeletePool(id int) error {
+	defer TriggerHostSync()
 	db := database.GetDB()
 	var p model.BalancerPool
 	if err := db.First(&p, id).Error; err != nil {

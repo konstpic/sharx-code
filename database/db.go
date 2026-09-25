@@ -187,6 +187,7 @@ func InitDB(dbConnectionString string) error {
 func CloseDB() error {
 	if db != nil {
 		sqlDB, err := db.DB()
+		db = nil // a closed handle must not be reused (tests open and close several databases)
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
@@ -470,4 +472,150 @@ func (s *BundleService) SubscriptionHosts(clientId int) (map[int][]model.Host, e
 func (s *BundleService) BundlesActive() bool {
 	on, err := (&SettingService{}).GetBundlesEnabled()
 	return err == nil && on
+}
+
+// ---------- API compatibility: inboundIds without personal access ----------
+
+// autoBundleKey names the auto bundle for an exact ordered inbound list.
+func autoBundleKey(ids []int) string {
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = fmt.Sprint(id)
+	}
+	sum := md5.Sum([]byte(strings.Join(parts, ",")))
+	return hex.EncodeToString(sum[:])
+}
+
+// defaultHostsForInbound picks the hosts a new bundle gets for an inbound: the hosts an existing (non-auto) bundle already
+// uses for it, else the managed hosts (nodes, pools), else the panel itself. This is what "give the client this inbound" means
+// when nobody has chosen hosts.
+func defaultHostsForInbound(tx *gorm.DB, inboundId int) ([]BundleHostRef, error) {
+	var bid int
+	_ = tx.Raw(`SELECT b.id FROM bundles b JOIN bundle_hosts bh ON bh.bundle_id = b.id JOIN hosts h ON h.id = bh.host_id
+		WHERE b.auto = FALSE AND h.inbound_id = ? ORDER BY b.id LIMIT 1`, inboundId).Scan(&bid).Error
+	if bid > 0 {
+		type row struct {
+			HostId int
+			Hidden bool
+		}
+		var rows []row
+		if err := tx.Raw(`SELECT bh.host_id AS host_id, bh.hidden AS hidden FROM bundle_hosts bh JOIN hosts h ON h.id = bh.host_id
+			WHERE bh.bundle_id = ? AND h.inbound_id = ? ORDER BY bh.sort_order, bh.id`, bid, inboundId).Scan(&rows).Error; err != nil {
+			return nil, err
+		}
+		out := make([]BundleHostRef, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, BundleHostRef{HostId: r.HostId, Hidden: r.Hidden})
+		}
+		return out, nil
+	}
+	var hosts []model.Host
+	if err := tx.Where("inbound_id = ? AND kind IN ?", inboundId, []string{model.HostKindPlacement, model.HostKindPool}).Order("kind ASC, id ASC").Find(&hosts).Error; err != nil {
+		return nil, err
+	}
+	out := make([]BundleHostRef, 0, len(hosts)+1)
+	for _, h := range hosts {
+		out = append(out, BundleHostRef{HostId: h.Id, Hidden: !h.Enable})
+	}
+	if len(out) == 0 {
+		local, err := ensureLocalHost(tx, inboundId)
+		if err != nil {
+			return nil, err
+		}
+		if !local.Enable {
+			if err := tx.Model(&model.Host{}).Where("id = ?", local.Id).Update("enable", true).Error; err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, BundleHostRef{HostId: local.Id})
+	}
+	return out, nil
+}
+
+// SetClientAutoBundle gives the client exactly `desired` as far as bundles allow: what the client's own (non-auto) bundles
+// already grant is left to them, and the rest goes into a shared auto bundle for that exact ordered list. This is the
+// meaning of `inboundIds` on the client API once personal inbound lists no longer exist. Access is recomputed; the diff is
+// returned so the caller can push it to the nodes.
+func (s *BundleService) SetClientAutoBundle(tx *gorm.DB, clientId int, desired []int) (AccessDiff, error) {
+	bws, err := loadClientBundles(tx, clientId)
+	if err != nil {
+		return AccessDiff{}, err
+	}
+	var named []bundleWithHosts
+	var keepIds []int
+	for _, b := range bws {
+		if !b.bundle.Auto {
+			named = append(named, b)
+			keepIds = append(keepIds, b.bundle.Id)
+		}
+	}
+	granted := map[int]bool{}
+	for _, id := range effectiveInboundOrder(named) {
+		granted[id] = true
+	}
+	var rest []int
+	seen := map[int]bool{}
+	for _, id := range desired {
+		if id > 0 && !granted[id] && !seen[id] {
+			seen[id] = true
+			rest = append(rest, id)
+		}
+	}
+	ids := append([]int(nil), keepIds...)
+	if len(rest) > 0 {
+		key := autoBundleKey(rest)
+		var b model.Bundle
+		err := tx.Where("auto_key = ?", key).First(&b).Error
+		if err == gorm.ErrRecordNotFound {
+			var refs []BundleHostRef
+			for _, in := range rest {
+				hs, herr := defaultHostsForInbound(tx, in)
+				if herr != nil {
+					return AccessDiff{}, herr
+				}
+				refs = append(refs, hs...)
+			}
+			now := time.Now().Unix()
+			b = model.Bundle{UserId: 1, Name: "auto", Description: "Created from the client API (inboundIds)", Enable: true, Auto: true, AutoKey: key, FollowPlacements: true, SortOrder: 1000, CreatedAt: now, UpdatedAt: now}
+			if err := tx.Create(&b).Error; err != nil {
+				return AccessDiff{}, err
+			}
+			if err := writeBundleHosts(tx, b.Id, dedupeRefs(refs)); err != nil {
+				return AccessDiff{}, err
+			}
+		} else if err != nil {
+			return AccessDiff{}, err
+		}
+		ids = append(ids, b.Id)
+	}
+	if err := tx.Where("client_id = ?", clientId).Delete(&model.ClientBundle{}).Error; err != nil {
+		return AccessDiff{}, err
+	}
+	now := time.Now().Unix()
+	for i, id := range ids {
+		if err := tx.Create(&model.ClientBundle{ClientId: clientId, BundleId: id, SortOrder: i * 10, CreatedAt: now}).Error; err != nil {
+			return AccessDiff{}, err
+		}
+	}
+	diff, err := s.RecomputeClientAccess(tx, clientId)
+	if err != nil {
+		return diff, err
+	}
+	// Garbage-collect auto bundles nobody uses any more.
+	if err := tx.Exec(`DELETE FROM bundles WHERE auto = TRUE AND id NOT IN (SELECT DISTINCT bundle_id FROM client_bundles)`).Error; err != nil {
+		return diff, err
+	}
+	return diff, nil
+}
+
+func dedupeRefs(in []BundleHostRef) []BundleHostRef {
+	seen := map[int]bool{}
+	out := make([]BundleHostRef, 0, len(in))
+	for _, r := range in {
+		if !seen[r.HostId] {
+			seen[r.HostId] = true
+			out = append(out, r)
+		}
+	}
+	return out
 }

@@ -3,9 +3,11 @@ package service
 import (
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
+	"github.com/konstpic/sharx-code/v2/logger"
 	"gorm.io/gorm"
 )
 
@@ -374,4 +376,41 @@ func followBundles(tx *gorm.DB, inboundId, hostId int, kind string) error {
 		}
 	}
 	return nil
+}
+
+var (
+	hostSyncMu      sync.Mutex
+	hostSyncRunning bool
+	hostSyncAgain   bool
+)
+
+// TriggerHostSync reconciles the managed hosts in the background once the bundle scheme is active. Calls that arrive while a
+// run is in progress are folded into one follow-up run, so a burst of edits costs two syncs at most.
+func TriggerHostSync() {
+	if !(&BundleService{}).BundlesActive() {
+		return
+	}
+	hostSyncMu.Lock()
+	if hostSyncRunning {
+		hostSyncAgain = true
+		hostSyncMu.Unlock()
+		return
+	}
+	hostSyncRunning = true
+	hostSyncMu.Unlock()
+	go func() {
+		for {
+			if _, _, _, err := (&HostSyncService{}).SyncAll(); err != nil {
+				logger.Warningf("host sync: %v", err)
+			}
+			hostSyncMu.Lock()
+			if !hostSyncAgain {
+				hostSyncRunning = false
+				hostSyncMu.Unlock()
+				return
+			}
+			hostSyncAgain = false
+			hostSyncMu.Unlock()
+		}
+	}()
 }

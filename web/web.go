@@ -276,6 +276,8 @@ func (s *Server) startTask() {
 
 	// Check client HWIDs from log file every 1 second for real-time updates
 	s.cron.AddFunc("@every 15s", func() { (&service.BalancerService{}).Reconcile() })
+	// Safety net for the managed hosts (placements, pools): the edits that matter also trigger a sync directly.
+	s.cron.AddFunc("@every 30s", service.TriggerHostSync)
 	s.cron.AddJob("@every 1s", job.NewCheckClientHWIDJob())
 	s.cron.AddJob(job.IPLimitJobTickSchedule, job.NewCheckClientIPLimitJob())
 	s.cron.AddJob(job.GeofileAutoUpdateJobTickSchedule, job.NewGeofileAutoUpdateJob())

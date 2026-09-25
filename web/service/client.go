@@ -526,9 +526,18 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 
 	// Assign to inbounds if provided
 	if len(client.InboundIds) > 0 {
-		err = s.AssignClientToInbounds(tx, client.Id, client.InboundIds)
-		if err != nil {
-			return false, err
+		if (&BundleService{}).BundlesActive() {
+			var diff AccessDiff
+			diff, err = (&BundleService{}).SetClientAutoBundle(tx, client.Id, client.InboundIds)
+			if err != nil {
+				return false, err
+			}
+			client.InboundIds = diff.Order
+		} else {
+			err = s.AssignClientToInbounds(tx, client.Id, client.InboundIds)
+			if err != nil {
+				return false, err
+			}
 		}
 	}
 	if client.TelemtAdTags != nil {
@@ -837,7 +846,15 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		logger.Debugf("UpdateClient: updating inbound assignments for client %d, inboundIds=%v (len=%d)", client.Id, client.InboundIds, len(client.InboundIds))
 		// Sync by diff so Telemt (and other) mapping rows stay stable — same idea as WireGuard keys:
 		// do not delete+recreate everything (that regenerated telemt_secret on every save).
-		if err = s.SyncClientInboundAssignments(tx, client.Id, client.InboundIds); err != nil {
+		if (&BundleService{}).BundlesActive() {
+			// Bundle scheme: inboundIds is the client's personal (auto bundle) set; what named bundles grant stays theirs.
+			diff, derr := (&BundleService{}).SetClientAutoBundle(tx, client.Id, client.InboundIds)
+			if derr != nil {
+				logger.Errorf("UpdateClient: failed to apply inbounds through bundles for client %d: %v", client.Id, derr)
+				return false, derr
+			}
+			client.InboundIds = diff.Order
+		} else if err = s.SyncClientInboundAssignments(tx, client.Id, client.InboundIds); err != nil {
 			logger.Errorf("UpdateClient: failed to sync inbound mappings for client %d: %v", client.Id, err)
 			return false, err
 		}
@@ -929,9 +946,6 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	// We do this AFTER committing the client transaction to avoid nested transactions and database locks
 	// Run asynchronously to avoid blocking the HTTP response - changes will be applied immediately in background
 	go func() {
-		needXrayRestart := false
-		needSidecarSync := false
-		inboundService := InboundService{}
 		settingService := SettingService{}
 		multiMode, _ := settingService.GetMultiNodeMode()
 		xrayService := XrayService{}
@@ -985,137 +999,9 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		logger.Infof("UpdateClient: enableChanged=%v, needsReAdd=%v, multiMode=%v, xrayRunning=%v",
 			enableChanged, needsReAdd, multiMode, xrayService.IsXrayRunning())
 
-		// Single mode: keep config.json in sync (same idea as nodes: live core via API + persisted config).
-		// Touch every affected inbound so name changes and inbound reassignment update the file correctly.
-		if !multiMode {
-			if xrayService.IsXrayRunning() {
-				processConfig := xrayService.GetConfig()
-				if processConfig != nil {
-					clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
-					if err != nil {
-						logger.Warningf("UpdateClient: GetInboundIdsForClient: %v", err)
-					} else {
-						assignedSet := make(map[int]bool, len(clientInboundIds))
-						for _, inboundId := range clientInboundIds {
-							assignedSet[inboundId] = true
-						}
-						for inboundId := range affectedInboundIds {
-							inbound, err := inboundService.GetInbound(inboundId)
-							if err != nil {
-								continue
-							}
-							assigned := assignedSet[inboundId]
-							if !assigned || !finalClient.Enable {
-								if err := xray.UpdateConfigFileAfterUserRemoval(processConfig, inbound.Tag, existing.Name); err != nil {
-									logger.Warningf("UpdateClient: failed to remove client %s from config.json (inbound %s): %v", existing.Name, inbound.Tag, err)
-								} else {
-									logger.Infof("UpdateClient: removed client %s from config.json (inbound: %s)", existing.Name, inbound.Tag)
-								}
-								continue
-							}
-							if !strings.EqualFold(existing.Name, finalClient.Name) {
-								if err := xray.UpdateConfigFileAfterUserRemoval(processConfig, inbound.Tag, existing.Name); err != nil {
-									logger.Warningf("UpdateClient: failed to remove old name %s from config.json (inbound %s): %v", existing.Name, inbound.Tag, err)
-								}
-							}
-							clientData := make(map[string]interface{})
-							clientData["email"] = finalClient.Name
-							switch inbound.Protocol {
-							case model.Trojan, model.Mixed:
-								clientData["password"] = finalClient.Password
-								if inbound.Protocol == model.Mixed {
-									u := finalClient.Name
-									if i := strings.IndexByte(u, '@'); i > 0 {
-										u = u[:i]
-									}
-									if u == "" {
-										u = "user"
-									}
-									clientData["user"] = u
-									clientData["pass"] = finalClient.Password
-								}
-							case model.Hysteria, model.Hysteria2:
-								clientData["auth"] = finalClient.Password
-							case model.Shadowsocks:
-								if cipher := ShadowsocksCipherForAddUser(inbound.Settings); cipher != "" {
-									clientData["cipher"] = cipher
-								}
-								clientData["password"] = finalClient.Password
-							case model.VMESS, model.VLESS:
-								clientData["id"] = finalClient.UUID
-								if inbound.Protocol == model.VMESS && finalClient.Security != "" {
-									clientData["security"] = finalClient.Security
-								}
-								if inbound.Protocol == model.VLESS {
-									if f := VLESSEffectiveFlow(inbound.Settings, inbound.StreamSettings, inbound.Protocol); f != "" {
-										clientData["flow"] = f
-									}
-								}
-							}
-							if err := xray.UpdateConfigFileAfterUserAddition(processConfig, inbound.Tag, clientData); err != nil {
-								logger.Warningf("UpdateClient: failed to add client %s to config.json: %v", finalClient.Name, err)
-							} else {
-								logger.Infof("UpdateClient: added client %s to config.json (inbound: %s)", finalClient.Name, inbound.Tag)
-							}
-						}
-					}
-				}
-			}
-		}
+		s.syncSingleModeConfigJSON(multiMode, existing.Name, &finalClient, affectedInboundIds)
 
-		// Update Settings for affected inbounds (needed to keep DB in sync)
-		for inboundId := range affectedInboundIds {
-			inbound, err := inboundService.GetInbound(inboundId)
-			if err != nil {
-				logger.Warningf("Failed to get inbound %d for settings update: %v", inboundId, err)
-				continue
-			}
-
-			// Get all clients for this inbound (from ClientEntity)
-			clientEntities, err := s.GetClientsForInbound(inboundId)
-			if err != nil {
-				logger.Warningf("Failed to get clients for inbound %d: %v", inboundId, err)
-				continue
-			}
-
-			// Rebuild Settings from ClientEntity
-			newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
-			if err != nil {
-				logger.Warningf("Failed to build settings for inbound %d: %v", inboundId, err)
-				continue
-			}
-
-			logger.Debugf("UpdateClient: rebuilding settings for inbound %d (%s), clientCount=%d",
-				inboundId, inbound.Protocol, len(clientEntities))
-
-			// Update inbound Settings in DB (to keep database in sync)
-			// Use retry logic to handle database lock errors
-			inbound.Settings = newSettings
-			_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
-			if err != nil {
-				logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
-				// Continue with other inbounds
-			} else if inboundNeedRestart {
-				if model.IsSidecarProtocol(inbound.Protocol) {
-					needSidecarSync = true
-				} else {
-					needXrayRestart = true
-				}
-			}
-		}
-
-		if needSidecarSync {
-			logger.Debugf("UpdateClient: syncing sidecars only (Xray untouched)")
-			xrayService.SyncWorkerSidecarsAsync()
-		}
-		if needXrayRestart {
-			inboundIDs := make([]int, 0, len(affectedInboundIds))
-			for inboundID := range affectedInboundIds {
-				inboundIDs = append(inboundIDs, inboundID)
-			}
-			logger.Debugf("UpdateClient: syncing worker Xray for %d inbound(s) on assigned nodes only", len(inboundIDs))
-			xrayService.SyncWorkerXrayForInboundsAsync(inboundIDs)
-		}
+		s.rebuildInboundsAndSync(affectedInboundIds)
 	}()
 
 	// Load HWIDs for notification
@@ -1145,6 +1031,177 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	// We return false here because restart is handled asynchronously in goroutine above
 	// The controller will check needRestart from the goroutine result
 	return false, nil
+}
+
+// syncSingleModeConfigJSON keeps the local core's persisted config in step with a client change in single-node mode (same
+// idea as nodes: live core via API plus the persisted config). Touches every affected inbound so name changes and inbound
+// reassignment update the file correctly. A no-op in multi-node mode.
+func (s *ClientService) syncSingleModeConfigJSON(multiMode bool, oldName string, finalClient *model.ClientEntity, affectedInboundIds map[int]bool) {
+	inboundService := InboundService{}
+	xrayService := XrayService{}
+	client := finalClient
+	existing := struct{ Name string }{Name: oldName}
+	// Single mode: keep config.json in sync (same idea as nodes: live core via API + persisted config).
+	// Touch every affected inbound so name changes and inbound reassignment update the file correctly.
+	if !multiMode {
+		if xrayService.IsXrayRunning() {
+			processConfig := xrayService.GetConfig()
+			if processConfig != nil {
+				clientInboundIds, err := s.GetInboundIdsForClient(client.Id)
+				if err != nil {
+					logger.Warningf("UpdateClient: GetInboundIdsForClient: %v", err)
+				} else {
+					assignedSet := make(map[int]bool, len(clientInboundIds))
+					for _, inboundId := range clientInboundIds {
+						assignedSet[inboundId] = true
+					}
+					for inboundId := range affectedInboundIds {
+						inbound, err := inboundService.GetInbound(inboundId)
+						if err != nil {
+							continue
+						}
+						assigned := assignedSet[inboundId]
+						if !assigned || !finalClient.Enable {
+							if err := xray.UpdateConfigFileAfterUserRemoval(processConfig, inbound.Tag, existing.Name); err != nil {
+								logger.Warningf("UpdateClient: failed to remove client %s from config.json (inbound %s): %v", existing.Name, inbound.Tag, err)
+							} else {
+								logger.Infof("UpdateClient: removed client %s from config.json (inbound: %s)", existing.Name, inbound.Tag)
+							}
+							continue
+						}
+						if !strings.EqualFold(existing.Name, finalClient.Name) {
+							if err := xray.UpdateConfigFileAfterUserRemoval(processConfig, inbound.Tag, existing.Name); err != nil {
+								logger.Warningf("UpdateClient: failed to remove old name %s from config.json (inbound %s): %v", existing.Name, inbound.Tag, err)
+							}
+						}
+						clientData := make(map[string]interface{})
+						clientData["email"] = finalClient.Name
+						switch inbound.Protocol {
+						case model.Trojan, model.Mixed:
+							clientData["password"] = finalClient.Password
+							if inbound.Protocol == model.Mixed {
+								u := finalClient.Name
+								if i := strings.IndexByte(u, '@'); i > 0 {
+									u = u[:i]
+								}
+								if u == "" {
+									u = "user"
+								}
+								clientData["user"] = u
+								clientData["pass"] = finalClient.Password
+							}
+						case model.Hysteria, model.Hysteria2:
+							clientData["auth"] = finalClient.Password
+						case model.Shadowsocks:
+							if cipher := ShadowsocksCipherForAddUser(inbound.Settings); cipher != "" {
+								clientData["cipher"] = cipher
+							}
+							clientData["password"] = finalClient.Password
+						case model.VMESS, model.VLESS:
+							clientData["id"] = finalClient.UUID
+							if inbound.Protocol == model.VMESS && finalClient.Security != "" {
+								clientData["security"] = finalClient.Security
+							}
+							if inbound.Protocol == model.VLESS {
+								if f := VLESSEffectiveFlow(inbound.Settings, inbound.StreamSettings, inbound.Protocol); f != "" {
+									clientData["flow"] = f
+								}
+							}
+						}
+						if err := xray.UpdateConfigFileAfterUserAddition(processConfig, inbound.Tag, clientData); err != nil {
+							logger.Warningf("UpdateClient: failed to add client %s to config.json: %v", finalClient.Name, err)
+						} else {
+							logger.Infof("UpdateClient: added client %s to config.json (inbound: %s)", finalClient.Name, inbound.Tag)
+						}
+					}
+				}
+			}
+		}
+	}
+
+}
+
+// rebuildInboundsAndSync rebuilds the client list in the settings of every affected inbound from the client table and pushes
+// the result to the core, sidecars and worker nodes. It is the tail of a client change and is shared with bundle-driven
+// access changes.
+func (s *ClientService) rebuildInboundsAndSync(affectedInboundIds map[int]bool) {
+	needXrayRestart := false
+	needSidecarSync := false
+	inboundService := InboundService{}
+	xrayService := XrayService{}
+	// Update Settings for affected inbounds (needed to keep DB in sync)
+	for inboundId := range affectedInboundIds {
+		inbound, err := inboundService.GetInbound(inboundId)
+		if err != nil {
+			logger.Warningf("Failed to get inbound %d for settings update: %v", inboundId, err)
+			continue
+		}
+
+		// Get all clients for this inbound (from ClientEntity)
+		clientEntities, err := s.GetClientsForInbound(inboundId)
+		if err != nil {
+			logger.Warningf("Failed to get clients for inbound %d: %v", inboundId, err)
+			continue
+		}
+
+		// Rebuild Settings from ClientEntity
+		newSettings, err := inboundService.BuildSettingsFromClientEntities(inbound, clientEntities)
+		if err != nil {
+			logger.Warningf("Failed to build settings for inbound %d: %v", inboundId, err)
+			continue
+		}
+
+		logger.Debugf("UpdateClient: rebuilding settings for inbound %d (%s), clientCount=%d",
+			inboundId, inbound.Protocol, len(clientEntities))
+
+		// Update inbound Settings in DB (to keep database in sync)
+		// Use retry logic to handle database lock errors
+		inbound.Settings = newSettings
+		_, inboundNeedRestart, err := inboundService.updateInboundWithRetry(inbound)
+		if err != nil {
+			logger.Warningf("Failed to update inbound %d settings: %v", inboundId, err)
+			// Continue with other inbounds
+		} else if inboundNeedRestart {
+			if model.IsSidecarProtocol(inbound.Protocol) {
+				needSidecarSync = true
+			} else {
+				needXrayRestart = true
+			}
+		}
+	}
+
+	if needSidecarSync {
+		logger.Debugf("UpdateClient: syncing sidecars only (Xray untouched)")
+		xrayService.SyncWorkerSidecarsAsync()
+	}
+	if needXrayRestart {
+		inboundIDs := make([]int, 0, len(affectedInboundIds))
+		for inboundID := range affectedInboundIds {
+			inboundIDs = append(inboundIDs, inboundID)
+		}
+		logger.Debugf("UpdateClient: syncing worker Xray for %d inbound(s) on assigned nodes only", len(inboundIDs))
+		xrayService.SyncWorkerXrayForInboundsAsync(inboundIDs)
+	}
+}
+
+// PushClientAccessChange applies an access change (inbounds added to or removed from a client) to the running cores and
+// nodes, the same way a client update does. Used after bundle changes.
+func (s *ClientService) PushClientAccessChange(clientId int, changedInboundIds []int) {
+	if len(changedInboundIds) == 0 {
+		return
+	}
+	var c model.ClientEntity
+	if err := database.GetDB().First(&c, clientId).Error; err != nil {
+		logger.Warningf("PushClientAccessChange: client %d: %v", clientId, err)
+		return
+	}
+	affected := make(map[int]bool, len(changedInboundIds))
+	for _, id := range changedInboundIds {
+		affected[id] = true
+	}
+	multiMode, _ := (&SettingService{}).GetMultiNodeMode()
+	s.syncSingleModeConfigJSON(multiMode, c.Name, &c, affected)
+	s.rebuildInboundsAndSync(affected)
 }
 
 // DeleteClient deletes a client by ID.

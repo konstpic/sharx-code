@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/database/testdb"
 )
@@ -121,5 +123,112 @@ func TestBundleRejectsLegacyAndDuplicateHosts(t *testing.T) {
 	}
 	if _, err := svc.Create(1, &model.Bundle{Name: " ", Enable: true}, nil); err == nil {
 		t.Error("an empty name must be rejected")
+	}
+}
+
+func TestSetClientAutoBundle(t *testing.T) {
+	db := testdb.New(t)
+	svc := &BundleService{}
+	a := seedInbound(t, db, 5001, model.VLESS)
+	b := seedInbound(t, db, 5002, model.VLESS)
+	c := seedInbound(t, db, 5003, model.VLESS)
+	ha := seedHost(t, db, "a", "a.example.com", a.Id)
+	c1, c2, c3 := seedClient(t, db, "c1"), seedClient(t, db, "c2"), seedClient(t, db, "c3")
+
+	run := func(client *model.ClientEntity, ids []int) AccessDiff {
+		t.Helper()
+		var d AccessDiff
+		err := db.Transaction(func(tx *gorm.DB) error {
+			var e error
+			d, e = svc.SetClientAutoBundle(tx, client.Id, ids)
+			return e
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	autoCount := func() int64 {
+		var n int64
+		db.Model(&model.Bundle{}).Where("auto = TRUE").Count(&n)
+		return n
+	}
+
+	// Two clients with the same ordered list share one auto bundle; another list gets another.
+	run(c1, []int{a.Id, b.Id})
+	run(c2, []int{a.Id, b.Id})
+	run(c3, []int{b.Id, c.Id})
+	if n := autoCount(); n != 2 {
+		t.Fatalf("auto bundles: %d, want 2", n)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c1.Id)); !reflect.DeepEqual(got, []int{a.Id, b.Id}) {
+		t.Fatalf("c1: %v", got)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c3.Id)); !reflect.DeepEqual(got, []int{b.Id, c.Id}) {
+		t.Fatalf("c3: %v", got)
+	}
+
+	// A named bundle that already grants A: the API list still ends up as [A, B]; only B is personal.
+	named, err := svc.Create(1, &model.Bundle{Name: "named", Enable: true, FollowPlacements: true}, []BundleHostRef{{HostId: ha.Id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddClients(named.Id, []int{c1.Id}); err != nil {
+		t.Fatal(err)
+	}
+	d := run(c1, []int{a.Id, b.Id})
+	if !reflect.DeepEqual(d.Order, []int{a.Id, b.Id}) {
+		t.Fatalf("order: %v", d.Order)
+	}
+	// Dropping A from the list cannot take it from the named bundle.
+	d = run(c1, []int{b.Id})
+	if !reflect.DeepEqual(d.Order, []int{a.Id, b.Id}) {
+		t.Fatalf("named bundle access must stay: %v", d.Order)
+	}
+
+	// An empty list removes the personal part; unused auto bundles are removed.
+	run(c1, nil)
+	run(c2, nil)
+	run(c3, nil)
+	if n := autoCount(); n != 0 {
+		t.Fatalf("unused auto bundles must be garbage-collected, %d left", n)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c2.Id)); len(got) != 0 {
+		t.Fatalf("c2: %v", got)
+	}
+	if got := mappingInbounds(mappingRows(t, db, c1.Id)); !reflect.DeepEqual(got, []int{a.Id}) {
+		t.Fatalf("c1 keeps what the named bundle grants: %v", got)
+	}
+}
+
+func TestAutoBundleUsesExistingHostsOrManagedOnes(t *testing.T) {
+	db := testdb.New(t)
+	svc := &BundleService{}
+	in := seedInbound(t, db, 6001, model.VLESS)
+	only := seedInbound(t, db, 6002, model.VLESS)
+	cdn := seedHost(t, db, "cdn", "cdn.example.com", in.Id)
+	if _, err := svc.Create(1, &model.Bundle{Name: "named", Enable: true}, []BundleHostRef{{HostId: cdn.Id}}); err != nil {
+		t.Fatal(err)
+	}
+	cl := seedClient(t, db, "x")
+	err := db.Transaction(func(tx *gorm.DB) error {
+		_, e := svc.SetClientAutoBundle(tx, cl.Id, []int{in.Id, only.Id})
+		return e
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auto model.Bundle
+	if err := db.Where("auto = TRUE").First(&auto).Error; err != nil {
+		t.Fatal(err)
+	}
+	ids := hostIDsInBundle(t, db, auto.Id)
+	if len(ids) != 2 || ids[0] != cdn.Id {
+		t.Fatalf("hosts: %v (the first inbound reuses the named bundle's host)", ids)
+	}
+	var local model.Host
+	db.First(&local, ids[1])
+	if local.Kind != model.HostKindLocal || !local.Enable || *local.InboundId != only.Id {
+		t.Fatalf("an inbound with no hosts anywhere gets the panel's local host: %+v", local)
 	}
 }

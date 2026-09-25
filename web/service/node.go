@@ -269,6 +269,7 @@ func authDebugPrefix(_ *model.Node) string {
 // UpdateNode updates an existing node.
 // Only updates fields that are provided (non-empty for strings, non-zero for integers).
 func (s *NodeService) UpdateNode(node *model.Node) error {
+	defer TriggerHostSync()
 	db := database.GetDB()
 
 	// Get existing node to preserve fields that are not being updated
@@ -339,6 +340,7 @@ func (s *NodeService) UpdateNode(node *model.Node) error {
 // DeleteNode deletes a node by ID.
 // This will cascade delete all InboundNodeMapping entries for this node.
 func (s *NodeService) DeleteNode(id int) error {
+	defer TriggerHostSync()
 	db := database.GetDB()
 
 	// Delete all node mappings for this node (cascade delete)
@@ -2511,6 +2513,7 @@ func (s *NodeService) AssignInboundToNode(inboundId, nodeId int) error {
 
 // AssignInboundToNodes assigns an inbound to multiple nodes (subscription defaults; preserves prior overrides when fields are omitted).
 func (s *NodeService) AssignInboundToNodes(inboundId int, nodeIds []int) error {
+	defer TriggerHostSync()
 	bindings := make([]InboundNodeBindingInput, 0, len(nodeIds))
 	for _, id := range nodeIds {
 		if id <= 0 {
@@ -2523,6 +2526,7 @@ func (s *NodeService) AssignInboundToNodes(inboundId int, nodeIds []int) error {
 
 // AssignInboundToNodesWithBindings replaces inbound↔node mappings including subscription overrides.
 func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings []InboundNodeBindingInput) error {
+	defer TriggerHostSync()
 	bindings = dedupeInboundBindingNodes(bindings)
 	db := database.GetDB()
 
@@ -2706,6 +2710,7 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 
 // UnassignInboundFromNode removes the assignment of an inbound from its node.
 func (s *NodeService) UnassignInboundFromNode(inboundId int) error {
+	defer TriggerHostSync()
 	db := database.GetDB()
 	return db.Where("inbound_id = ?", inboundId).Delete(&model.InboundNodeMapping{}).Error
 }

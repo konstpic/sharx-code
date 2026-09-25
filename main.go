@@ -133,6 +133,9 @@ func runWebServer() {
 		return
 	}
 
+	// One-time, verified conversion to the bundle scheme (see docs/architecture/bundles.md). Background, never blocks startup.
+	go sub.AutoConvertOnStartup()
+
 	sigCh := make(chan os.Signal, 1)
 	// Trap shutdown signals
 	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM)

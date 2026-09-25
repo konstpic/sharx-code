@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
@@ -57,7 +58,7 @@ type convCtx struct {
 // ConvertToBundles converts the panel to the bundle scheme. It is safe to call on a live panel: nothing the panel reads
 // changes until the final switch, and the switch happens only when every client's subscription and access came out identical.
 func ConvertToBundles(opts ConvertOptions) (*ConversionReport, error) {
-	rep := &ConversionReport{StartedAt: time.Now().Unix()}
+	rep := &ConversionReport{StartedAt: time.Now().Unix(), Version: currentVersion()}
 	settings := service.SettingService{}
 	if on, _ := settings.GetBundlesEnabled(); on {
 		return nil, fmt.Errorf("the bundle scheme is already active")
@@ -457,3 +458,38 @@ func (c *convCtx) cleanup() {
 		_ = c.db.Delete(&model.Host{}, id).Error
 	}
 }
+
+// AutoConvertOnStartup runs the conversion once after an upgrade, in the background, after the panel is serving. It never
+// blocks startup and never retries a failed conversion of the same version by itself: the operator can retry from the panel.
+func AutoConvertOnStartup() {
+	time.Sleep(20 * time.Second)
+	settings := service.SettingService{}
+	if on, _ := settings.GetBundlesEnabled(); on {
+		return
+	}
+	if raw, _ := settings.GetBundlesMigration(); raw != "" {
+		var prev ConversionReport
+		if json.Unmarshal([]byte(raw), &prev) == nil && prev.Version == currentVersion() && (prev.Status == "failed" || prev.Status == "rolledBack") {
+			return
+		}
+	}
+	logger.Infof("bundles: starting the automatic conversion to the bundle scheme")
+	if _, err := ConvertToBundles(ConvertOptions{Host: "conversion.local"}); err != nil {
+		logger.Warningf("bundles: automatic conversion did not switch: %v", err)
+	}
+}
+
+// RollbackBundles returns to the pre-bundle scheme. Legacy tables were never modified, so this only flips the switch; what is
+// lost is delivery edits made in bundle mode. Access data is current in client_inbound_mappings.
+func RollbackBundles() error {
+	settings := service.SettingService{}
+	if err := settings.SetBundlesEnabled(false); err != nil {
+		return err
+	}
+	rep := &ConversionReport{Status: "rolledBack", FinishedAt: time.Now().Unix(), Version: currentVersion()}
+	saveConversionReport(rep)
+	logger.Warningf("bundles: switched back to the legacy scheme")
+	return nil
+}
+
+func currentVersion() string { return config.GetVersion() }
