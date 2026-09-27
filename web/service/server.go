@@ -1101,6 +1101,12 @@ func (s *ServerService) UpdateTelemt(version string) error {
 		return err
 	}
 
+	// Persist the admin's chosen version so a later image update can be reconciled back to it
+	// at startup; see ReconcilePinnedCoreVersions.
+	if err := ss.SetTelemtPinnedVersion(strings.TrimSpace(strings.TrimPrefix(version, "v"))); err != nil {
+		logger.Warningf("Failed to persist pinned Telemt version: %v", err)
+	}
+
 	if wasRunning {
 		return ApplyLocalTelemtStandalone(&s.xrayService)
 	}
@@ -1254,15 +1260,11 @@ func (s *ServerService) UpdateXray(version string) error {
 		return err
 	}
 
-	// 5. Save version info to data folder
-	dataFolderPath := config.GetDataFolderPath()
-	if err := os.MkdirAll(dataFolderPath, 0755); err != nil {
-		logger.Warningf("Failed to create data folder: %v", err)
-	} else {
-		versionInfoPath := filepath.Join(dataFolderPath, "xray-version.txt")
-		if err := os.WriteFile(versionInfoPath, []byte(version), 0644); err != nil {
-			logger.Warningf("Failed to save version info: %v", err)
-		}
+	// 5. Persist the admin's chosen version so a later image update (which resets /app/bin to
+	// whatever the new image bundles) can be reconciled back to it at startup; see
+	// ReconcilePinnedCoreVersions. Mirrors NodeService.SetNodeXrayPinnedVersion for nodes.
+	if err := (&SettingService{}).SetXrayPinnedVersion(version); err != nil {
+		logger.Warningf("Failed to persist pinned Xray version: %v", err)
 	}
 
 	// 6. Restart xray only if it was running before (in multi-node mode, xray may not be running)
@@ -1276,6 +1278,38 @@ func (s *ServerService) UpdateXray(version string) error {
 	}
 
 	return nil
+}
+
+// ReconcilePinnedCoreVersions re-installs the admin's pinned Xray/Telemt version (see
+// SettingService.GetXrayPinnedVersion) if the binary currently on disk doesn't match — e.g. right
+// after a Docker image update replaced /app/bin with whatever the new image bundles. Mirrors what
+// NodeService does for remote nodes (see node.go), but for the standalone panel's own local core.
+// Standalone only: multi-node core versions are managed per node, not here. Meant to be called
+// once at panel startup, in a goroutine so a slow/failed reinstall never blocks it.
+func (s *ServerService) ReconcilePinnedCoreVersions() {
+	ss := SettingService{}
+	if multi, err := ss.GetMultiNodeMode(); err == nil && multi {
+		return
+	}
+	norm := func(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+
+	if pinned, err := ss.GetXrayPinnedVersion(); err == nil && pinned != "" {
+		if current := xray.GetInstalledVersion(); current != "" && norm(current) != norm(pinned) {
+			logger.Warningf("Xray pinned to %s but the installed binary reports %s; reinstalling the pinned version", pinned, current)
+			if err := s.UpdateXray(pinned); err != nil {
+				logger.Warningf("Failed to re-assert pinned Xray version %s: %v", pinned, err)
+			}
+		}
+	}
+
+	if pinned, err := ss.GetTelemtPinnedVersion(); err == nil && pinned != "" {
+		if current := telemtinstall.ReadVersion(""); current != "" && norm(current) != norm(pinned) {
+			logger.Warningf("Telemt pinned to %s but the installed binary reports %s; reinstalling the pinned version", pinned, current)
+			if err := s.UpdateTelemt(pinned); err != nil {
+				logger.Warningf("Failed to re-assert pinned Telemt version %s: %v", pinned, err)
+			}
+		}
+	}
 }
 
 func (s *ServerService) GetLogs(count string, level string) []string {
@@ -1646,13 +1680,38 @@ func (s *ServerService) exportDbViaGORM() ([]byte, error) {
 		TableName string `gorm:"column:tablename"`
 	}
 	err := db.Raw(`
-		SELECT tablename 
-		FROM pg_tables 
-		WHERE schemaname = 'public' 
+		SELECT tablename
+		FROM pg_tables
+		WHERE schemaname = 'public'
 		ORDER BY tablename
 	`).Scan(&tables).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get table list: %v", err)
+	}
+
+	// Recreate every sequence owned by a table in this schema before any CREATE TABLE below,
+	// since a serial column's DEFAULT (dumped verbatim from information_schema, e.g.
+	// "nextval('balancer_pools_id_seq'::regclass)") would otherwise fail to resolve.
+	var sequences []struct {
+		Name   string `gorm:"column:name"`
+		Table  string `gorm:"column:table_name"`
+		Column string `gorm:"column:column_name"`
+	}
+	if err := db.Raw(`
+		SELECT s.relname AS name, t.relname AS table_name, a.attname AS column_name
+		FROM pg_class s
+		JOIN pg_depend d ON d.objid = s.oid AND d.deptype = 'a'
+		JOIN pg_class t ON d.refobjid = t.oid
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+		WHERE s.relkind = 'S' AND t.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+	`).Scan(&sequences).Error; err != nil {
+		logger.Warningf("Failed to list sequences for GORM-based export: %v", err)
+	}
+	for _, sq := range sequences {
+		dump.WriteString(fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s;\n", sq.Name))
+	}
+	if len(sequences) > 0 {
+		dump.WriteString("\n")
 	}
 
 	// Export each table
@@ -1877,6 +1936,44 @@ func (s *ServerService) exportDbViaGORM() ([]byte, error) {
 				dump.WriteString("\n")
 			}
 		}
+	}
+
+	// Restore sequence ownership/position, then primary key, unique and foreign key constraints,
+	// now that every table and row exists. Constraints are deliberately restored last: primary/
+	// unique keys need the final data to validate against, and foreign keys need the referenced
+	// table's primary/unique key to already be in place. Without this pass the dump above is only
+	// columns and rows -- no constraint a later migration's ALTER TABLE ... REFERENCES can find,
+	// and no protection against duplicate/orphaned rows once restored.
+	// Note: plain (non-constraint) indexes such as idx_hosts_inbound are not recreated here; that
+	// only costs read performance, not correctness, and pg_dump remains the complete path.
+	for _, sq := range sequences {
+		dump.WriteString(fmt.Sprintf("ALTER SEQUENCE %s OWNED BY %s.%s;\n", sq.Name, sq.Table, sq.Column))
+		dump.WriteString(fmt.Sprintf(
+			"SELECT setval('%s', COALESCE((SELECT MAX(%s) FROM %s), 1), COALESCE((SELECT MAX(%s) FROM %s), 0) > 0);\n",
+			sq.Name, sq.Column, sq.Table, sq.Column, sq.Table,
+		))
+	}
+	if len(sequences) > 0 {
+		dump.WriteString("\n")
+	}
+
+	var constraints []struct {
+		Table string `gorm:"column:table_name"`
+		Name  string `gorm:"column:conname"`
+		Def   string `gorm:"column:definition"`
+	}
+	if err := db.Raw(`
+		SELECT t.relname AS table_name, c.conname, pg_get_constraintdef(c.oid, true) AS definition
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid = c.conrelid
+		WHERE c.connamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+		  AND c.contype IN ('p', 'u', 'f')
+		ORDER BY CASE c.contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 ELSE 2 END, t.relname, c.conname
+	`).Scan(&constraints).Error; err != nil {
+		logger.Warningf("Failed to list constraints for GORM-based export: %v", err)
+	}
+	for _, c := range constraints {
+		dump.WriteString(fmt.Sprintf("ALTER TABLE ONLY %s ADD CONSTRAINT %s %s;\n", c.Table, c.Name, c.Def))
 	}
 
 	return []byte(dump.String()), nil

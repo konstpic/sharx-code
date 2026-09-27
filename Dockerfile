@@ -92,7 +92,12 @@ RUN ARCH="" && case "${TARGETARCH}" in amd64) ARCH=linux-amd64 ;; arm64) ARCH=li
 # ========================================================
 # Stage: Final Image of SharX
 # ========================================================
-FROM alpine
+# Alpine version pinned (not `latest`) so its postgresql16-client package stays in lockstep with
+# docker-compose.yml's `postgres:16-alpine`. pg_dump refuses to dump from a server whose major
+# version it doesn't recognize; on mismatch GetDb() silently falls back to a lossy GORM-based
+# export (no primary keys/FKs/sequences — see exportDbViaGORM in web/service/server.go), which
+# corrupts the schema on the next restore. Bump both together when moving to a new Postgres major.
+FROM alpine:3.20
 ENV TZ=Asia/Tehran
 WORKDIR /app
 
@@ -101,7 +106,7 @@ RUN apk add --no-cache --update \
   tzdata \
   fail2ban \
   bash \
-  postgresql-client \
+  postgresql16-client \
   conntrack-tools
 
 COPY --from=builder /app/build/ /app/

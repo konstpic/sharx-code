@@ -83,7 +83,7 @@ function MultiInspector({ doc, sel, commit, d, onDelete, onDuplicate, onSaveToLi
           }}>
             {d("act.groupShort", "Group")}
           </SmallBtn>
-          {onSaveToLibrary ? <SmallBtn title={d("lib.saveTip", "Save to library (⇧⌘S)")} onClick={onSaveToLibrary}><BookmarkPlus size={14} /></SmallBtn> : null}
+          {onSaveToLibrary ? <SmallBtn title={d("lib.saveTip", "Save to library (Ctrl/⌘⇧S)")} onClick={onSaveToLibrary}><BookmarkPlus size={14} /></SmallBtn> : null}
           <SmallBtn title={d("act.duplicate", "Duplicate")} onClick={onDuplicate}><Copy size={14} /></SmallBtn>
           <SmallBtn title={d("act.delete", "Delete")} onClick={onDelete}><Trash2 size={14} /></SmallBtn>
         </div>
@@ -142,7 +142,7 @@ function NodeInspector({ doc, node, ctx, lang, bp, setBp, commit, d, onDelete, o
           <SmallBtn title={node.locked ? d("act.unlock", "Unlock") : d("act.lock", "Lock")} active={!!node.locked} onClick={() => commit(updateNode(doc, id, { locked: node.locked ? undefined : true }))}>
             {node.locked ? <Lock size={14} /> : <Unlock size={14} />}
           </SmallBtn>
-          {onSaveToLibrary ? <SmallBtn title={d("lib.saveTip", "Save to library (⇧⌘S)")} disabled={isRoot} onClick={onSaveToLibrary}><BookmarkPlus size={14} /></SmallBtn> : null}
+          {onSaveToLibrary ? <SmallBtn title={d("lib.saveTip", "Save to library (Ctrl/⌘⇧S)")} disabled={isRoot} onClick={onSaveToLibrary}><BookmarkPlus size={14} /></SmallBtn> : null}
           <SmallBtn title={d("act.duplicate", "Duplicate")} disabled={isRoot} onClick={onDuplicate}><Copy size={14} /></SmallBtn>
           <SmallBtn title={d("act.delete", "Delete")} disabled={isRoot} onClick={onDelete}><Trash2 size={14} /></SmallBtn>
           <div className="ml-auto w-[112px]" data-tour="inspector-mobile-switch">

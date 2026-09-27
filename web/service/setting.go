@@ -18,9 +18,9 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/common"
-	"github.com/konstpic/sharx-code/v2/util/secretpath"
 	"github.com/konstpic/sharx-code/v2/util/random"
 	"github.com/konstpic/sharx-code/v2/util/reflect_util"
+	"github.com/konstpic/sharx-code/v2/util/secretpath"
 	"github.com/konstpic/sharx-code/v2/web/entity"
 	"github.com/konstpic/sharx-code/v2/xray"
 
@@ -38,10 +38,10 @@ var defaultValueMap = map[string]string{
 	// is always the "xrayTemplateConfig" record in the settings table; this
 	// value is only used as an initial/default template when there is no valid
 	// value in the database.
-	"xrayTemplateConfig":          defaultXrayTemplateConfig,
+	"xrayTemplateConfig": defaultXrayTemplateConfig,
 	// Bundle scheme (docs/architecture/bundles.md): off until the automatic conversion has verified itself.
-	"bundlesEnabled":   "false",
-	"bundlesMigration": "",
+	"bundlesEnabled":              "false",
+	"bundlesMigration":            "",
 	"webListen":                   "",
 	"webDomain":                   "",
 	"webPort":                     "2053",
@@ -125,6 +125,9 @@ var defaultValueMap = map[string]string{
 	"ldapDefaultLimitIP":    "0",
 	// Multi-node mode
 	"multiNodeMode": "false", // "true" for multi-mode, "false" for single-mode
+	// Standalone-panel core versions the admin explicitly pinned (see GetXrayPinnedVersion).
+	"xrayPinnedVersion":   "",
+	"telemtPinnedVersion": "",
 	// Dashboard public IPv6 detection
 	"enableIPv6":                         "false",
 	"nodeStatsCollectionIntervalSec":     "3",
@@ -143,7 +146,7 @@ var defaultValueMap = map[string]string{
 	"grafanaVictoriaMetricsUrl": "",
 	"grafanaEnable":             "false",
 	// Panel log level (overrides XUI_LOG_LEVEL env var)
-	"panelLogLevel": "info", // Valid values: "debug", "info", "notice", "warning", "error"
+	"panelLogLevel":       "info", // Valid values: "debug", "info", "notice", "warning", "error"
 	"logRotateMaxSizeMB":  "50",
 	"logRotateMaxAgeDays": "14",
 	"logRotateMaxBackups": "5",
@@ -1305,10 +1308,14 @@ func (s *SettingService) GetBundlesEnabled() (bool, error) { return s.getBool("b
 func (s *SettingService) SetBundlesEnabled(v bool) error { return s.setBool("bundlesEnabled", v) }
 
 // GetBundlesMigration returns the stored conversion state (JSON, may be empty).
-func (s *SettingService) GetBundlesMigration() (string, error) { return s.getString("bundlesMigration") }
+func (s *SettingService) GetBundlesMigration() (string, error) {
+	return s.getString("bundlesMigration")
+}
 
 // SetBundlesMigration stores the conversion state.
-func (s *SettingService) SetBundlesMigration(v string) error { return s.setString("bundlesMigration", v) }
+func (s *SettingService) SetBundlesMigration(v string) error {
+	return s.setString("bundlesMigration", v)
+}
 
 // GetMultiNodeMode returns whether multi-node mode is enabled.
 func (s *SettingService) GetMultiNodeMode() (bool, error) {
@@ -1318,6 +1325,29 @@ func (s *SettingService) GetMultiNodeMode() (bool, error) {
 // SetMultiNodeMode sets the multi-node mode setting.
 func (s *SettingService) SetMultiNodeMode(enabled bool) error {
 	return s.setBool("multiNodeMode", enabled)
+}
+
+// GetXrayPinnedVersion returns the Xray version an admin explicitly installed on the standalone
+// panel host, so it can be re-asserted if a later image update leaves a different one installed.
+// Empty means follow whatever the image bundles (no automatic override). Mirrors
+// Node.XrayPinnedVersion for standalone (non-multi-node) installs.
+func (s *SettingService) GetXrayPinnedVersion() (string, error) {
+	return s.getString("xrayPinnedVersion")
+}
+
+// SetXrayPinnedVersion records the Xray version installed via UpdateXray; see GetXrayPinnedVersion.
+func (s *SettingService) SetXrayPinnedVersion(version string) error {
+	return s.setString("xrayPinnedVersion", version)
+}
+
+// GetTelemtPinnedVersion is the Telemt equivalent of GetXrayPinnedVersion.
+func (s *SettingService) GetTelemtPinnedVersion() (string, error) {
+	return s.getString("telemtPinnedVersion")
+}
+
+// SetTelemtPinnedVersion records the Telemt version installed via UpdateTelemt; see GetTelemtPinnedVersion.
+func (s *SettingService) SetTelemtPinnedVersion(version string) error {
+	return s.setString("telemtPinnedVersion", version)
 }
 
 // GetEnableIPv6 returns whether public IPv6 detection is enabled for dashboard status.

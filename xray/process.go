@@ -223,18 +223,29 @@ func (p *process) refreshAPIPort() {
 
 // refreshVersion updates the version string by running the Xray binary with -version.
 func (p *process) refreshVersion() {
+	if v := GetInstalledVersion(); v != "" {
+		p.version = v
+	} else {
+		p.version = "Unknown"
+	}
+}
+
+// GetInstalledVersion reports the version of the on-disk Xray binary by running it with
+// -version, independent of whether an xray process is currently running. Returns "" if the
+// binary is missing or doesn't run. Used to detect drift between the binary an admin pinned
+// (see SettingService.GetXrayPinnedVersion) and whatever ended up on disk, e.g. after an image
+// update replaced it with the bundled default.
+func GetInstalledVersion() string {
 	cmd := exec.Command(GetBinaryPath(), "-version")
 	data, err := cmd.Output()
 	if err != nil {
-		p.version = "Unknown"
-	} else {
-		datas := bytes.Split(data, []byte(" "))
-		if len(datas) <= 1 {
-			p.version = "Unknown"
-		} else {
-			p.version = string(datas[1])
-		}
+		return ""
 	}
+	datas := bytes.Split(data, []byte(" "))
+	if len(datas) <= 1 {
+		return ""
+	}
+	return string(datas[1])
 }
 
 // Start launches the Xray process with the current configuration.

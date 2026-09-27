@@ -424,8 +424,8 @@ export function SubDesigner({ config: config0, onClose, onSave, onChange }: Prop
           <div className="hidden text-sm font-semibold sm:block">{d("title", "Subscription page designer")}</div>
           <div className="mx-1 h-5 w-px bg-[var(--border)]" />
           <div data-tour="undo-redo" className="flex items-center gap-2">
-            <SmallBtn title={d("undo", "Undo (⌘Z)")} onClick={ds.undo} disabled={!ds.canUndo}><Undo2 size={15} /></SmallBtn>
-            <SmallBtn title={d("redo", "Redo (⇧⌘Z)")} onClick={ds.redo} disabled={!ds.canRedo}><Redo2 size={15} /></SmallBtn>
+            <SmallBtn title={d("undo", "Undo (Ctrl/⌘Z)")} onClick={ds.undo} disabled={!ds.canUndo}><Undo2 size={15} /></SmallBtn>
+            <SmallBtn title={d("redo", "Redo (Ctrl/⌘⇧Z)")} onClick={ds.redo} disabled={!ds.canRedo}><Redo2 size={15} /></SmallBtn>
           </div>
           <div className="mx-1 h-5 w-px bg-[var(--border)]" />
           <GridControls grid={grid} onChange={setGrid} d={d} />

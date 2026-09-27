@@ -115,6 +115,11 @@ func runWebServer() {
 		// Don't fail startup - Xray will attempt to generate config when it starts.
 	}
 
+	// Re-assert any admin-pinned Xray/Telemt version against the standalone panel's own local
+	// core, in case an image update since the last run left a different one on disk. Backgrounded:
+	// a reinstall can be slow (or fail outright if offline), and must never block startup.
+	go (&service.ServerService{}).ReconcilePinnedCoreVersions()
+
 	var server *web.Server
 	server = web.NewServer()
 	registerClientShareLinksBuilder()
