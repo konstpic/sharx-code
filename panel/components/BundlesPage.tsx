@@ -224,6 +224,22 @@ export function BundlesPage() {
     await load();
   };
 
+  const unusedAutoCount = useMemo(() => bundles.filter((b) => b.auto && b.clientCount === 0).length, [bundles]);
+
+  const cleanupUnusedAuto = async () => {
+    setBusy(true);
+    const r = await postJson<{ deleted: number }>(panel("bundle/cleanup-unused-auto"), {}, true);
+    setBusy(false);
+    if (!r.success) {
+      toast.error(r.msg || t("fail"));
+      return;
+    }
+    toast.success(
+      t("pages.bundles.cleanedUpAuto", { defaultValue: "Removed {{n}} unused auto bundle(s)", n: r.obj?.deleted ?? 0 }),
+    );
+    await load();
+  };
+
   const available = useMemo(() => {
     if (!draft) return [];
     const used = new Set(draft.refs.map((r) => r.hostId));
@@ -246,6 +262,12 @@ export function BundlesPage() {
         iconTone="accent"
         actions={
           <>
+            {unusedAutoCount > 0 ? (
+              <Button variant="secondary" className="!gap-2" onClick={() => void cleanupUnusedAuto()} disabled={busy}>
+                <Trash2 size={16} />
+                {t("pages.bundles.cleanupUnusedAuto", { defaultValue: "Remove unused auto bundles ({{n}})", n: unusedAutoCount })}
+              </Button>
+            ) : null}
             <Button variant="secondary" className="!gap-2" onClick={() => void openEditor()} disabled={!state?.enabled}>
               <Plus size={16} />
               {t("pages.bundles.add", { defaultValue: "Create bundle" })}

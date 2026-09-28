@@ -4,11 +4,13 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // HostSyncService keeps the managed hosts (placement, pool, local) in step with the deployment facts they mirror: inbound
@@ -79,6 +81,10 @@ func (s *HostSyncService) syncPlacements(tx *gorm.DB, multi bool) (created, upda
 			byKey[[2]int{*h.InboundId, *h.NodeId}] = h
 		}
 	}
+	suppressed, err := loadPlacementSuppressions(tx)
+	if err != nil {
+		return
+	}
 	keep := map[int]bool{}
 	if multi {
 		for _, r := range rows {
@@ -109,6 +115,9 @@ func (s *HostSyncService) syncPlacements(tx *gorm.DB, multi bool) (created, upda
 					}
 					updated++
 				}
+				continue
+			}
+			if suppressed[[2]int{inb, node}] {
 				continue
 			}
 			nh := &model.Host{
@@ -161,6 +170,10 @@ func (s *HostSyncService) syncPools(tx *gorm.DB) (created, updated, removed int,
 			byPool[*existing[i].PoolId] = &existing[i]
 		}
 	}
+	suppressedPools, err := loadPoolSuppressions(tx)
+	if err != nil {
+		return
+	}
 	keep := map[int]bool{}
 	for _, r := range rows {
 		port := r.ListenPort
@@ -181,6 +194,9 @@ func (s *HostSyncService) syncPools(tx *gorm.DB) (created, updated, removed int,
 				}
 				updated++
 			}
+			continue
+		}
+		if suppressedPools[r.PoolId] {
 			continue
 		}
 		inb, pool := r.InboundId, r.PoolId
@@ -413,4 +429,57 @@ func TriggerHostSync() {
 			hostSyncMu.Unlock()
 		}
 	}()
+}
+
+// loadPlacementSuppressions returns the (inbound, node) pairs an operator explicitly removed the host for.
+func loadPlacementSuppressions(tx *gorm.DB) (map[[2]int]bool, error) {
+	var rows []model.HostSyncSuppression
+	if err := tx.Where("kind = ?", model.HostKindPlacement).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[[2]int]bool, len(rows))
+	for _, r := range rows {
+		if r.InboundId != nil && r.NodeId != nil {
+			out[[2]int{*r.InboundId, *r.NodeId}] = true
+		}
+	}
+	return out, nil
+}
+
+// loadPoolSuppressions returns the pool ids an operator explicitly removed the host for.
+func loadPoolSuppressions(tx *gorm.DB) (map[int]bool, error) {
+	var rows []model.HostSyncSuppression
+	if err := tx.Where("kind = ?", model.HostKindPool).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]bool, len(rows))
+	for _, r := range rows {
+		if r.PoolId != nil {
+			out[*r.PoolId] = true
+		}
+	}
+	return out, nil
+}
+
+// SuppressAndForget records that a deleted auto-managed host must not be recreated, then deletes it. Safe to call
+// for a non-auto-managed host too: it just skips writing a suppression row.
+func SuppressHostRecreation(tx *gorm.DB, h *model.Host) error {
+	switch h.Kind {
+	case model.HostKindPlacement:
+		if h.InboundId == nil || h.NodeId == nil {
+			return nil
+		}
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.HostSyncSuppression{
+			Kind: model.HostKindPlacement, InboundId: h.InboundId, NodeId: h.NodeId, CreatedAt: time.Now().Unix(),
+		}).Error
+	case model.HostKindPool:
+		if h.PoolId == nil {
+			return nil
+		}
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.HostSyncSuppression{
+			Kind: model.HostKindPool, PoolId: h.PoolId, CreatedAt: time.Now().Unix(),
+		}).Error
+	default:
+		return nil
+	}
 }

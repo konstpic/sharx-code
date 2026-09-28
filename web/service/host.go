@@ -259,6 +259,12 @@ func (s *HostService) DeleteHost(userId int, id int) error {
 		}
 	}()
 
+	// A placement/pool host mirrors a node/balancer-pool binding that still exists; without a
+	// tombstone, the next host sync (every 30s, or on any mutation) would just recreate it.
+	if err = SuppressHostRecreation(tx, existing); err != nil {
+		return err
+	}
+
 	// Delete inbound mappings
 	err = tx.Where("host_id = ?", id).Delete(&model.HostInboundMapping{}).Error
 	if err != nil {

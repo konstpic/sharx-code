@@ -3595,6 +3595,8 @@ error = "Error"
 unknown = "Unknown"
 
 [pages.bundles]
+cleanupUnusedAuto = "Remove unused auto bundles ({{n}})"
+cleanedUpAuto = "Removed {{n}} unused auto bundle(s)"
 title = "Bundles"
 add = "Create bundle"
 editTitle = "Edit bundle"

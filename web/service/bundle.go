@@ -277,6 +277,31 @@ func (s *BundleService) recomputeMany(tx *gorm.DB, clientIds []int) ([]AccessDif
 	return out, nil
 }
 
+// DeleteUnusedAuto removes every auto-generated bundle (see the API-compatibility layer, section 4.3 of
+// docs/architecture/bundles.md) that no client currently belongs to. These accumulate one per distinct
+// inboundIds combination an old integration ever sent; once no client uses a given combination the bundle
+// is dead weight. Manual bundles and auto bundles with at least one member are left alone. Returns how many
+// were removed.
+func (s *BundleService) DeleteUnusedAuto() (int, error) {
+	db := database.GetDB()
+	var ids []int
+	err := db.Raw(`
+		SELECT b.id FROM bundles b
+		WHERE b.auto = true
+		  AND NOT EXISTS (SELECT 1 FROM client_bundles cb WHERE cb.bundle_id = b.id)
+	`).Scan(&ids).Error
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		// No members, so no access diffs to recompute or push.
+		if _, err := s.Delete(id); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
 // Delete removes a bundle; its members lose the access only it gave them.
 func (s *BundleService) Delete(id int) ([]AccessDiff, error) {
 	db := database.GetDB()

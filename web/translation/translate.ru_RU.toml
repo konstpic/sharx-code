@@ -3972,6 +3972,8 @@ error = "Ошибка"
 unknown = "Неизвестно"
 
 [pages.bundles]
+cleanupUnusedAuto = "Удалить неиспользуемые auto-пакеты ({{n}})"
+cleanedUpAuto = "Удалено неиспользуемых auto-пакетов: {{n}}"
 title = "Пакеты"
 add = "Создать пакет"
 editTitle = "Изменить пакет"

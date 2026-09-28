@@ -43,6 +43,7 @@ func NewBundleController(g *gin.RouterGroup) *BundleController {
 	g.POST("/hosts/reset/:id", a.resetHost)
 	g.GET("/state", a.state)
 	g.POST("/convert", a.convert)
+	g.POST("/cleanup-unused-auto", a.cleanupUnusedAuto)
 	return a
 }
 
@@ -131,6 +132,15 @@ func (a *BundleController) update(c *gin.Context) {
 	}
 	a.push(diffs)
 	jsonObj(c, gin.H{"changedClients": len(diffs)}, nil)
+}
+
+func (a *BundleController) cleanupUnusedAuto(c *gin.Context) {
+	n, err := a.svc.DeleteUnusedAuto()
+	if err != nil {
+		jsonMsg(c, "Failed to clean up unused auto bundles", err)
+		return
+	}
+	jsonObj(c, gin.H{"deleted": n}, nil)
 }
 
 func (a *BundleController) del(c *gin.Context) {

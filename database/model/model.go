@@ -619,6 +619,19 @@ const (
 	HostSourceLegacy    = "legacy"
 )
 
+// HostSyncSuppression records that an operator explicitly deleted an auto-managed host (placement or pool kind),
+// so host_sync.go must not recreate it on the next reconcile. See database/migrations/0061_host_sync_suppressions.sql.
+type HostSyncSuppression struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Kind      string `json:"kind"` // HostKindPlacement | HostKindPool
+	InboundId *int   `json:"inboundId,omitempty"`
+	NodeId    *int   `json:"nodeId,omitempty"`
+	PoolId    *int   `json:"poolId,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+func (HostSyncSuppression) TableName() string { return "host_sync_suppressions" }
+
 // Bundle is an ordered set of hosts. A client in a bundle gets its hosts in the subscription and access to their inbounds.
 type Bundle struct {
 	Id               int    `json:"id" gorm:"primaryKey;autoIncrement"`
