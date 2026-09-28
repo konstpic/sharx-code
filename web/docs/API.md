@@ -3543,7 +3543,7 @@ Create a new client entity.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `name` | string | Yes | Client name (unique per user, immutable after creation) |
+| `name` | string | Yes | Client name (unique per user, immutable after creation). Must not contain spaces or other whitespace: the request is rejected with the suggested form (whitespace replaced by `_`). Stored lowercase |
 | `uuid` | string | No | UUID for VMESS/VLESS (auto-generated if empty) |
 | `security` | string | No | Security method |
 | `password` | string | No | Password for Trojan/Shadowsocks |

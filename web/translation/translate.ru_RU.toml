@@ -2379,6 +2379,7 @@ desc = "Проверка доступности API ноды с панели (he
   invalidInboundId = "Неверный ID подключения"
 
 [pages.clients]
+nameNoSpacesHint = "Пробелы не допускаются: они заменяются на подчёркивание (_)."
 selectBundles = "Пакеты"
 noBundles = "Пакетов пока нет: создайте на странице «Пакеты»."
 bundleMembers = "клиентов: {{n}}"

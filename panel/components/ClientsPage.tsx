@@ -1725,7 +1725,7 @@ function ClientUnifiedCard({
                     id={id("client-name")}
                     type="text"
                     value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value.replace(/\s+/g, "_") }))}
                     autoComplete="off"
                     readOnly={isEdit}
                     aria-readonly={isEdit}
@@ -1737,7 +1737,13 @@ function ClientUnifiedCard({
                         defaultValue: "Client name cannot be changed after the client is created.",
                       })}
                     </p>
-                  ) : null}
+                  ) : (
+                    <p className="mt-1 text-xs text-[var(--fg-subtle)]">
+                      {t("pages.clients.nameNoSpacesHint", {
+                        defaultValue: "Spaces are not allowed: they are replaced with an underscore (_).",
+                      })}
+                    </p>
+                  )}
                 </div>
 
                 <div>

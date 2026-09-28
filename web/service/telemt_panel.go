@@ -56,6 +56,13 @@ func StopLocalTelemtWebStandalone() {
 // MergeLocalTelemtTrafficIntoXrayStats merges Telemt localhost API deltas into Xray-shaped stats (single-node panel).
 func MergeLocalTelemtTrafficIntoXrayStats(traffic *[]*xray.Traffic, clientTraffic *[]*xray.ClientTraffic) {
 	getPanelTelemt().MergeTelemtIntoNodeStats(traffic, clientTraffic, nil)
+	if clientTraffic != nil {
+		for _, ct := range *clientTraffic {
+			if ct != nil {
+				ct.Email = RemapTelemtUsername(ct.Email)
+			}
+		}
+	}
 }
 
 // StopLocalTelemtStandalone stops all Telemt sidecars and the WEB TLS front managed by the

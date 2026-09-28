@@ -1736,7 +1736,7 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 		}
 		na.fetch = "ok"
 		for _, nct := range fr.stats.ClientTraffic {
-			el := strings.ToLower(nct.Email)
+			el := strings.ToLower(RemapTelemtUsername(nct.Email))
 			if na.traffic[el] == nil {
 				na.traffic[el] = new(struct{ up, down int64 })
 			}
@@ -1745,7 +1745,7 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 		}
 		for _, em := range fr.stats.OnlineClients {
 			if em != "" {
-				na.online[strings.ToLower(em)] = true
+				na.online[strings.ToLower(RemapTelemtUsername(em))] = true
 			}
 		}
 		aggs[fr.node.Id] = na
@@ -2216,6 +2216,7 @@ func (s *NodeService) CollectNodeStats() error {
 		// Process client traffic: aggregate by email across all nodes
 		// API returns client traffic by email (sum of all inbounds on this node for that client)
 		for _, nct := range result.stats.ClientTraffic {
+			nct.Email = RemapTelemtUsername(nct.Email)
 			email := strings.ToLower(nct.Email)
 
 			// Initialize or update client traffic map
@@ -2248,7 +2249,7 @@ func (s *NodeService) CollectNodeStats() error {
 
 		// Collect online clients
 		for _, email := range result.stats.OnlineClients {
-			email = strings.TrimSpace(email)
+			email = strings.TrimSpace(RemapTelemtUsername(email))
 			if email == "" {
 				continue
 			}

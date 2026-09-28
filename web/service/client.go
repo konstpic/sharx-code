@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/konstpic/sharx-code/v2/database"
@@ -410,7 +411,22 @@ func normalizeClientTrafficResetCadence(client *model.ClientEntity) error {
 	return nil
 }
 
+// ClientNameHasWhitespace reports whether a client name contains any whitespace. Client names are
+// used as Xray/Telemt user keys, subscription identifiers and log keys, so they must be a single token.
+func ClientNameHasWhitespace(name string) bool {
+	return strings.IndexFunc(name, unicode.IsSpace) >= 0
+}
+
+// SuggestClientName returns the canonical form of a client name: trimmed, with every run of
+// whitespace replaced by a single underscore.
+func SuggestClientName(name string) string {
+	return strings.Join(strings.Fields(name), "_")
+}
+
 func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool, error) {
+	if ClientNameHasWhitespace(client.Name) {
+		return false, common.NewErrorf("Client name must not contain spaces; use an underscore instead: %q", SuggestClientName(client.Name))
+	}
 	if err := normalizeClientTrafficResetCadence(client); err != nil {
 		return false, err
 	}

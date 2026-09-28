@@ -2354,6 +2354,7 @@ mappingError = "Failed to get node mapping"
 invalidInboundId = "Invalid inbound ID"
 
 [pages.clients]
+nameNoSpacesHint = "Spaces are not allowed: they are replaced with an underscore (_)."
 title = "Clients Management"
 addClient = "Add Client"
 connectionStatus = "Status"
