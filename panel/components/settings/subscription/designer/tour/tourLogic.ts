@@ -61,10 +61,9 @@ export type TourStep = {
   keepModal?: boolean;
   /** Shows the "What next?" list. */
   next?: boolean;
-  /** Forces the card to the side of the target instead of the default top/bottom-first order.
-   *  Use when the step's task opens a popover directly below/above the target (e.g. a toolbar
-   *  dropdown), so the card doesn't land on top of the very control the user needs to reach. */
-  preferSide?: boolean;
+  /** Size of a popover the step's task opens below the target (e.g. a toolbar dropdown). The card is placed
+   *  beside the target and that popover, so it never lands on top of the control the user needs to reach. */
+  clearPopover?: { w: number; h: number };
   prepare?: (api: TourApi, snap: TourSnapshot) => void;
 };
 
@@ -158,10 +157,11 @@ export function shouldAutoStart(store: Store | null = ls()): boolean {
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /** Puts the card next to the target inside the viewport: right, left, bottom, top; else inside the target's lower part. */
-export function placeCard(target: Rect | null, card: { w: number; h: number }, vp: { w: number; h: number }, pad = 12, gap = 14, preferSide = false): { x: number; y: number } {
+export function placeCard(target: Rect | null, card: { w: number; h: number }, vp: { w: number; h: number }, pad = 12, gap = 14, clearPopover?: { w: number; h: number }): { x: number; y: number } {
   const clampX = (x: number) => Math.max(pad, Math.min(x, vp.w - card.w - pad));
   const clampY = (y: number) => Math.max(pad, Math.min(y, vp.h - card.h - pad));
   if (!target) return { x: clampX((vp.w - card.w) / 2), y: clampY((vp.h - card.h) / 2) };
+  if (clearPopover) target = { x: target.x, y: target.y, w: Math.max(target.w, clearPopover.w), h: target.h + clearPopover.h };
   const cx = target.x + target.w / 2;
   const cy = target.y + target.h / 2;
   const fits = (x: number, y: number) => x >= pad && y >= pad && x + card.w <= vp.w - pad && y + card.h <= vp.h - pad;
@@ -172,9 +172,8 @@ export function placeCard(target: Rect | null, card: { w: number; h: number }, v
     [cx - card.w / 2, target.y - card.h - gap],
   ];
   // Prefer bottom/top for wide, short targets (toolbar), sides for tall ones.
-  // preferSide overrides that: some steps' task opens a popover right below/above the
-  // target, so the card must go beside it instead of landing on top of that popover.
-  const order = preferSide ? [0, 1, 2, 3] : target.h <= 64 || target.w > target.h * 1.5 ? [2, 3, 0, 1] : [0, 1, 2, 3];
+  // With a popover to clear, the card goes beside the target-plus-popover area, never over it.
+  const order = clearPopover ? [0, 1, 2, 3] : target.h <= 64 || target.w > target.h * 1.5 ? [2, 3, 0, 1] : [0, 1, 2, 3];
   for (const i of order) {
     const [x, y] = cands[i];
     if (fits(x, y)) return { x, y };

@@ -92,6 +92,11 @@ describe("placeCard", () => {
     expect(p.y).toBeGreaterThan(40);
     expect(p.x + card.w).toBeLessThanOrEqual(vp.w - 12);
   });
+  it("keeps clear of a popover under the target", () => {
+    const btn = { x: 445, y: 8, w: 33, h: 32 };
+    const p = placeCard(btn, card, vp, 12, 14, { w: 232, h: 290 });
+    expect(p.x).toBeGreaterThanOrEqual(btn.x + 232);
+  });
   it("goes to the right of a left panel", () => {
     const p = placeCard({ x: 0, y: 48, w: 300, h: 700 }, card, vp);
     expect(p.x).toBeGreaterThanOrEqual(300);

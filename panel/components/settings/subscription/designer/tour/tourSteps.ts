@@ -145,7 +145,7 @@ export const TOUR_STEPS: TourStep[] = [
   S("canvas.select", { target: "canvas", icon: "MousePointerClick", task: "selection", prepare: (a) => a.select([]) }),
   S("canvas.drag", { target: "canvas", icon: "Move" }),
   S("canvas.side", { target: "canvas", icon: "Columns2" }),
-  S("canvas.grid", { target: "grid-button", icon: "Grid3x3", task: "grid", preferSide: true }),
+  S("canvas.grid", { target: "grid-button", icon: "Grid3x3", task: "grid", clearPopover: { w: 232, h: 290 } }),
   S("insp.main", { target: "inspector", icon: "SlidersHorizontal" }),
   S("insp.mobile", { target: "inspector-mobile-switch", fallback: "inspector", icon: "Smartphone" }),
   S("insp.motion", { target: "inspector-motion", fallback: "inspector", icon: "Wand2" }),

@@ -182,7 +182,7 @@ export function TourOverlay({ tour, d }: { tour: TourController; d: D }) {
     const place = () => {
       const c = cardRef.current;
       if (!c) return;
-      const p = placeCard(rect, { w: c.offsetWidth, h: c.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, 12, 14, phase === "run" && !!step?.preferSide);
+      const p = placeCard(rect, { w: c.offsetWidth, h: c.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, 12, 14, phase === "run" ? step?.clearPopover : undefined);
       setPos((prev) => (prev.x === p.x && prev.y === p.y ? prev : p));
     };
     place();
