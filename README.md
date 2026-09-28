@@ -21,6 +21,14 @@ This version brings a modern, Docker-first architecture, **multi-node** workers,
 
 Эта версия даёт современную Docker-сборку, **multi-node** worker-узлы, **визуальный конструктор страницы подписки**, **веб-сессии в зашифрованных cookie** и **опциональную наблюдаемость** (метрики в формате Prometheus, опционально Loki/VictoriaMetrics в настройках, JSON дашборда для Grafana).
 
+## Демо
+
+![Демонстрация панели](./assets/panel-demo.gif)
+
+Полная версия видео: [смотреть демо](./assets/panel-demo.mp4)
+
+<sub>Music: "Inspired" by Kevin MacLeod (incompetech.com), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).</sub>
+
 ## Quick Start / Быстрый старт
 
 ### 🚀 Install / Установка 
