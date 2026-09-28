@@ -141,6 +141,10 @@ func InitDB(dbConnectionString string) error {
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)  // Maximum connection lifetime
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // Maximum idle time before closing
 
+	// Step 2.5: a database restored from a dump made by the old GORM-based export has no primary
+	// keys at all, which makes every later migration that references a table's id fail.
+	repairMissingPrimaryKeys()
+
 	// Step 3: Run schema migrations
 	migrator := NewMigrator(db)
 	if err := migrator.Migrate(); err != nil {
@@ -181,6 +185,32 @@ func InitDB(dbConnectionString string) error {
 	}
 
 	return nil
+}
+
+// repairMissingPrimaryKeys adds a primary key on id to every public table that has an id column but no
+// primary key. Healthy databases are untouched. Failures (e.g. duplicate ids) are logged and skipped so
+// that startup is never blocked by the repair itself.
+func repairMissingPrimaryKeys() {
+	var tables []string
+	err := db.Raw(`
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind = 'r'
+		  AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'id' AND a.attnum > 0 AND NOT a.attisdropped)
+		  AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary)
+		ORDER BY c.relname`).Scan(&tables).Error
+	if err != nil {
+		appLogger.Warningf("DB repair: cannot list tables without a primary key: %v", err)
+		return
+	}
+	for _, t := range tables {
+		if err := db.Exec(fmt.Sprintf(`ALTER TABLE public.%q ADD PRIMARY KEY (id)`, t)).Error; err != nil {
+			appLogger.Warningf("DB repair: could not add primary key to %s: %v", t, err)
+			continue
+		}
+		appLogger.Warningf("DB repair: restored missing primary key on %s (database was restored from an incomplete dump)", t)
+	}
 }
 
 // CloseDB closes the database connection if it exists.
