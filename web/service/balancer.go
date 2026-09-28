@@ -268,6 +268,15 @@ func (s *BalancerService) Reorder(ids []int) error {
 	})
 }
 
+func normalizeWeightMode(m string) string {
+	switch m {
+	case "load", "ping":
+		return m
+	default:
+		return "manual"
+	}
+}
+
 func normalizePoolAlgo(a string) string {
 	switch strings.ToLower(strings.TrimSpace(a)) {
 	case spec.AlgoLeastConn:
@@ -296,6 +305,7 @@ func (s *BalancerService) SavePool(p *model.BalancerPool, members []model.Balanc
 		return nil, errors.New("this inbound uses UDP: switch the balancer engine to nginx")
 	}
 	p.Algorithm = normalizePoolAlgo(p.Algorithm)
+	p.WeightMode = normalizeWeightMode(p.WeightMode)
 	p.SubMode = model.NormalizeBalancerSubMode(p.SubMode)
 	if p.ListenPort < 0 || p.ListenPort > 65535 {
 		return nil, errors.New("invalid listen port")
@@ -340,7 +350,7 @@ func (s *BalancerService) SavePool(p *model.BalancerPool, members []model.Balanc
 			if err := tx.Model(&model.BalancerPool{}).Where("id = ? AND balancer_id = ?", p.Id, p.BalancerId).Updates(map[string]any{
 				"listen_port": p.ListenPort, "algorithm": p.Algorithm, "proxy_protocol": p.ProxyProtocol,
 				"health_check": p.HealthCheck, "sub_enabled": p.SubEnabled, "sub_mode": p.SubMode,
-				"auto_members": p.AutoMembers, "enable": p.Enable, "updated_at": now,
+				"auto_members": p.AutoMembers, "enable": p.Enable, "weight_mode": p.WeightMode, "updated_at": now,
 			}).Error; err != nil {
 				return err
 			}
@@ -482,6 +492,7 @@ type AgentStatus struct {
 			Up       *bool  `json:"up"`
 			Sessions int    `json:"sessions"`
 			Total    int64  `json:"total"`
+			RTTMs    *int64 `json:"rttMs,omitempty"`
 		} `json:"members"`
 	} `json:"pools"`
 }

@@ -390,6 +390,12 @@ type Node struct {
 	TrafficLimitGB  float64 `json:"trafficLimitGB" form:"trafficLimitGB" gorm:"column:traffic_limit_gb;default:0"`    // Traffic limit in GB (0 = unlimited)
 	TrafficResetDay int     `json:"trafficResetDay" form:"trafficResetDay" gorm:"column:traffic_reset_day;default:0"` // Day of month to reset counters (0 = off, 1-31)
 
+	// BandwidthMbps is the node's admin-declared uplink capacity, used only to turn the reported
+	// interface throughput (see /api/v1/status "hostNetBps" and NodeService's in-memory load
+	// cache) into a load percentage for balancer pools with weightMode "load". 0 = unknown: such
+	// a node is excluded from load-based weighting until an admin sets this.
+	BandwidthMbps int `json:"bandwidthMbps" form:"bandwidthMbps" gorm:"column:bandwidth_mbps;default:0"`
+
 	// Egress IP geolocation (map); optional, updated on node startup / push-geo.
 	GeoLat       *float64 `json:"geoLat,omitempty" gorm:"column:geo_lat"`
 	GeoLng       *float64 `json:"geoLng,omitempty" gorm:"column:geo_lng"`
@@ -623,7 +629,7 @@ const (
 // so host_sync.go must not recreate it on the next reconcile. See database/migrations/0061_host_sync_suppressions.sql.
 type HostSyncSuppression struct {
 	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Kind      string `json:"kind"` // HostKindPlacement | HostKindPool
+	Kind      string `json:"kind"` // HostKindPlacement | HostKindPool | HostKindLocal
 	InboundId *int   `json:"inboundId,omitempty"`
 	NodeId    *int   `json:"nodeId,omitempty"`
 	PoolId    *int   `json:"poolId,omitempty"`
@@ -819,10 +825,14 @@ type BalancerPool struct {
 	SubEnabled    bool   `json:"subEnabled" gorm:"column:sub_enabled"`
 	SubMode       string `json:"subMode" gorm:"column:sub_mode"`
 	AutoMembers   bool   `json:"autoMembers" gorm:"column:auto_members"`
-	Enable        bool   `json:"enable" gorm:"column:enable"`
-	SortOrder     int    `json:"sortOrder" gorm:"column:sort_order"`
-	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`
-	UpdatedAt     int64  `json:"updatedAt" gorm:"column:updated_at"`
+	// WeightMode: "manual" (admin sets each member's weight), "load" (weight follows the member
+	// node's reported uplink load vs its configured bandwidth), or "ping" (weight follows the
+	// balancer-to-node latency). See web/service/balancer_weight.go.
+	WeightMode string `json:"weightMode" gorm:"column:weight_mode;default:manual"`
+	Enable     bool   `json:"enable" gorm:"column:enable"`
+	SortOrder  int    `json:"sortOrder" gorm:"column:sort_order"`
+	CreatedAt  int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt  int64  `json:"updatedAt" gorm:"column:updated_at"`
 
 	// Read-only extras for the panel.
 	InboundRemark   string               `json:"inboundRemark,omitempty" gorm:"-"`

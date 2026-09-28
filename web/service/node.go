@@ -312,6 +312,11 @@ func (s *NodeService) UpdateNode(node *model.Node) error {
 		updates["traffic_reset_day"] = node.TrafficResetDay
 	}
 
+	// Update declared uplink bandwidth if provided (0 = unknown, excludes the node from load-based auto-weighting).
+	if node.BandwidthMbps >= 0 && node.BandwidthMbps != existingNode.BandwidthMbps {
+		updates["bandwidth_mbps"] = node.BandwidthMbps
+	}
+
 	// Update status, response_time, and last_check if provided (these are usually set by health checks, not user edits)
 	if node.Status != "" && node.Status != existingNode.Status {
 		updates["status"] = node.Status

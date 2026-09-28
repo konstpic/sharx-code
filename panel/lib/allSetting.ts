@@ -110,6 +110,8 @@ export type AllSetting = {
   /** Comma-separated app keys (see sub.UAClient.Key() on the backend), e.g. "incy". */
   subAppGateBlockedApps: string;
   subAppGateAllowedApps: string;
+  /** How often balancer pools with weightMode "load"/"ping" recompute member weights. */
+  balancerWeightIntervalSecs: number;
 };
 
 function toBool(v: unknown): boolean {
@@ -240,5 +242,6 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     subAppGateRequireKnownApp: toBool(raw.subAppGateRequireKnownApp),
     subAppGateBlockedApps: toStr(raw.subAppGateBlockedApps),
     subAppGateAllowedApps: toStr(raw.subAppGateAllowedApps),
+    balancerWeightIntervalSecs: toInt(raw.balancerWeightIntervalSecs, 30),
   };
 }

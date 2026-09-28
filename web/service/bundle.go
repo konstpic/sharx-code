@@ -547,12 +547,16 @@ func defaultHostsForInbound(tx *gorm.DB, inboundId int) ([]BundleHostRef, error)
 		if err != nil {
 			return nil, err
 		}
-		if !local.Enable {
-			if err := tx.Model(&model.Host{}).Where("id = ?", local.Id).Update("enable", true).Error; err != nil {
-				return nil, err
+		// local is nil when the operator explicitly deleted the panel fallback for this inbound
+		// (see host_sync.go ensureLocalHost): such a client legitimately gets no entry for it.
+		if local != nil {
+			if !local.Enable {
+				if err := tx.Model(&model.Host{}).Where("id = ?", local.Id).Update("enable", true).Error; err != nil {
+					return nil, err
+				}
 			}
+			out = append(out, BundleHostRef{HostId: local.Id})
 		}
-		out = append(out, BundleHostRef{HostId: local.Id})
 	}
 	return out, nil
 }

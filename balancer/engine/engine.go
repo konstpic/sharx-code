@@ -247,6 +247,10 @@ type MemberStatus struct {
 	Up       *bool  `json:"up"` // nil = unknown (UDP)
 	Sessions int    `json:"sessions"`
 	Total    int64  `json:"total"` // connections served since the engine started (HAProxy only)
+	// RTTMs is the TCP connect latency from this balancer to the member, in milliseconds; nil when
+	// not measured (UDP members, or the probe failed). Used by balancer pools with weightMode "ping"
+	// (see web/service/balancer_weight.go) to weight members by how close they are to this balancer.
+	RTTMs *int64 `json:"rttMs,omitempty"`
 }
 
 // PoolStatus is the health of one pool.
@@ -293,12 +297,24 @@ func (m *Manager) Status() Status {
 		}
 		for i, mem := range p.Members {
 			ms := MemberStatus{Host: mem.Host, Port: mem.Port}
+			var probedUp *bool
+			var probedRTT int64
+			if p.Proto == spec.ProtoTCP {
+				up, rtt := probeTCPTimed(mem.Host, mem.Port)
+				probedUp = &up
+				probedRTT = rtt
+			}
 			if hs, ok := stats[fmt.Sprintf("be_%d/s%d", p.ID, i)]; ok {
 				up := hs.Up
 				ms.Up, ms.Sessions, ms.Total = &up, hs.Sessions, hs.Total
-			} else if p.Proto == spec.ProtoTCP {
-				up := probeTCP(mem.Host, mem.Port)
-				ms.Up = &up
+			} else if probedUp != nil {
+				ms.Up = probedUp
+			}
+			// RTT comes from this balancer's own TCP-connect probe regardless of the health source
+			// above (HAProxy's stats say nothing about latency), used by balancer pools with
+			// weightMode "ping" (see web/service/balancer_weight.go).
+			if probedUp != nil && *probedUp {
+				ms.RTTMs = &probedRTT
 			}
 			ps.Members = append(ps.Members, ms)
 		}
@@ -308,10 +324,18 @@ func (m *Manager) Status() Status {
 }
 
 func probeTCP(host string, port int) bool {
+	up, _ := probeTCPTimed(host, port)
+	return up
+}
+
+// probeTCPTimed is probeTCP plus the connect latency in milliseconds (0 when the probe failed).
+func probeTCPTimed(host string, port int) (bool, int64) {
+	start := time.Now()
 	c, err := net.DialTimeout("tcp", net.JoinHostPort(host, fmt.Sprint(port)), 2*time.Second)
 	if err != nil {
-		return false
+		return false, 0
 	}
+	rtt := time.Since(start).Milliseconds()
 	_ = c.Close()
-	return true
+	return true, rtt
 }

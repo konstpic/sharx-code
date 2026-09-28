@@ -465,6 +465,9 @@ func (a *ServerController) pollWorkerHostMetricsIfDue() {
 			memPct := statusHostMemPercent(status)
 			diskPct := statusHostDiskPercent(status)
 			a.serverService.AppendWorkerResourceSample(node.Id, node.Name, ts, cpuV, memPct, diskPct)
+			if bps, ok := status["hostNetBps"].(float64); ok {
+				a.serverService.SetLatestNodeNetBps(node.Id, bps)
+			}
 		}
 	}()
 }

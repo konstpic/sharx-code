@@ -1101,6 +1101,36 @@ export function SettingsPage() {
             ) : null}
           </SettingsSection>
           <SettingsSection
+            title={t("pages.settings.sections.balancerWeight", { defaultValue: "Balancer auto-weight" })}
+            hint={t("pages.settings.sections.balancerWeightDesc", {
+              defaultValue: "How often pools set to weight by load or ping recompute member weights.",
+            })}
+            icon={Gauge}
+            iconTone="info"
+          >
+            <Row
+              label={t("pages.settings.balancerWeightIntervalSecs", { defaultValue: "Recompute interval (sec)" })}
+              hint={t("pages.settings.balancerWeightIntervalSecsDesc", {
+                defaultValue: "Only applies to balancer pools set to \"Auto: by node load\" or \"Auto: by ping\".",
+              })}
+            >
+              <Input
+                type="number"
+                min={5}
+                max={3600}
+                className="max-w-[120px]"
+                value={form.balancerWeightIntervalSecs}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  patch(
+                    "balancerWeightIntervalSecs",
+                    Number.isFinite(v) ? Math.min(3600, Math.max(5, v)) : 30,
+                  );
+                }}
+              />
+            </Row>
+          </SettingsSection>
+          <SettingsSection
             title={t("pages.settings.sections.adminRestart")}
             hint={t("pages.settings.restartPanelDesc")}
             icon={Power}

@@ -164,14 +164,90 @@ func (s *BundleService) ResetBundleHost(id int) error {
 
 // DeleteBundleHost removes a free-address host. Managed hosts follow their placement and cannot be deleted by hand. A bundle
 // that would lose its last host for the inbound keeps the access through a hidden local host.
+// deletableHostKinds are the host kinds an operator may remove entirely from the Hosts page.
+// "local" (the panel's own fallback address for an inbound with no other delivery entry) is
+// deliberately excluded: it is structural, not something an operator adds or would want gone.
+var deletableHostKinds = map[string]bool{
+	model.HostKindAddress:   true,
+	model.HostKindLegacy:    true,
+	model.HostKindPlacement: true,
+	model.HostKindPool:      true,
+	model.HostKindLocal:     true,
+}
+
+// DeleteBundleHost removes a host entirely (not just from one bundle): it disappears from every
+// bundle that listed it, and clients keep their inbound access through whatever else the bundle
+// still contains. For a placement/pool host (mirrors a node/balancer-pool binding), the deletion
+// is remembered (see SuppressHostRecreation) so the next host sync does not recreate it — without
+// that, this used to be pointless: the host would reappear within 30s, which is why the panel used
+// to refuse to delete anything but a manually added "address" host at all.
 func (s *BundleService) DeleteBundleHost(id int) error {
 	db := database.GetDB()
 	var h model.Host
 	if err := db.First(&h, id).Error; err != nil {
 		return errors.New("host not found")
 	}
-	if h.Kind != model.HostKindAddress {
-		return errors.New("managed hosts follow their placement: disable the host instead")
+	if !deletableHostKinds[h.Kind] {
+		return errors.New("this host cannot be deleted: disable it instead")
 	}
-	return db.Transaction(func(tx *gorm.DB) error { return removeManagedHost(tx, &h) })
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := SuppressHostRecreation(tx, &h); err != nil {
+			return err
+		}
+		return removeManagedHost(tx, &h)
+	})
+}
+
+// ListSuppressedHosts returns every host deletion host_sync will not undo, with enough context to
+// show and reverse in the UI. RestoreSuppressedHost removes the suppression by id so the next host
+// sync recreates the host normally (a no-op if the underlying inbound/node/pool no longer exists).
+type SuppressedHostView struct {
+	Id            int    `json:"id"`
+	Kind          string `json:"kind"`
+	InboundId     int    `json:"inboundId,omitempty"`
+	InboundRemark string `json:"inboundRemark,omitempty"`
+	NodeName      string `json:"nodeName,omitempty"`
+	PoolBalancer  string `json:"poolBalancer,omitempty"`
+	CreatedAt     int64  `json:"createdAt"`
+}
+
+func (s *BundleService) ListSuppressedHosts() ([]SuppressedHostView, error) {
+	db := database.GetDB()
+	var rows []model.HostSyncSuppression
+	if err := db.Order("created_at DESC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]SuppressedHostView, 0, len(rows))
+	for _, r := range rows {
+		v := SuppressedHostView{Id: r.Id, Kind: r.Kind, CreatedAt: r.CreatedAt}
+		if r.InboundId != nil {
+			v.InboundId = *r.InboundId
+			var ib model.Inbound
+			if db.Select("remark").First(&ib, *r.InboundId).Error == nil {
+				v.InboundRemark = ib.Remark
+			}
+		}
+		if r.NodeId != nil {
+			var n model.Node
+			if db.Select("name").First(&n, *r.NodeId).Error == nil {
+				v.NodeName = n.Name
+			}
+		}
+		if r.PoolId != nil {
+			var name string
+			db.Raw(`SELECT b.name FROM balancer_pools p JOIN balancers b ON b.id = p.balancer_id WHERE p.id = ?`, *r.PoolId).Scan(&name)
+			v.PoolBalancer = name
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func (s *BundleService) RestoreSuppressedHost(id int) error {
+	db := database.GetDB()
+	if err := db.Delete(&model.HostSyncSuppression{}, id).Error; err != nil {
+		return err
+	}
+	TriggerHostSync()
+	return nil
 }

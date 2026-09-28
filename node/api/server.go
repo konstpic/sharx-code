@@ -22,14 +22,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/konstpic/sharx-code/v2/conndrop"
 	"github.com/konstpic/sharx-code/v2/config"
+	"github.com/konstpic/sharx-code/v2/conndrop"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
 	"github.com/konstpic/sharx-code/v2/node/geopush"
 	nodeLogs "github.com/konstpic/sharx-code/v2/node/logs"
-	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/node/xray"
@@ -49,14 +49,14 @@ func try(fn func()) {
 
 // Server provides REST API for managing the node.
 type Server struct {
-	port              int
-	xrayManager       *xray.Manager
-	telemtManager     *telemt.Manager
-	amneziawgManager  *amneziawg.Manager
-	telemtWebManager  *telemtweb.Manager
-	httpServer        *http.Server
-	certFile           string
-	keyFile            string
+	port             int
+	xrayManager      *xray.Manager
+	telemtManager    *telemt.Manager
+	amneziawgManager *amneziawg.Manager
+	telemtWebManager *telemtweb.Manager
+	httpServer       *http.Server
+	certFile         string
+	keyFile          string
 	// clientCAFile, if set with cert/key, enables mTLS (panel must present a cert signed by this CA).
 	clientCAFile string
 	// pairing, if set, enables JWT auth for API routes (plain HTTP).
@@ -95,6 +95,7 @@ func logXrayNotReadyThrottled(endpoint string) {
 
 // NewServer creates a new API server instance. Call SetPairing before Start (pairing-only).
 func NewServer(port int, xrayManager *xray.Manager, telemtManager *telemt.Manager, amneziawgManager *amneziawg.Manager, telemtWebManager *telemtweb.Manager) *Server {
+	netLoad.start()
 	return &Server{
 		port:             port,
 		xrayManager:      xrayManager,

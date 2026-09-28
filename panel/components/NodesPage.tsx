@@ -95,6 +95,7 @@ type NodeRow = {
   insecureTls?: boolean;
   trafficLimitGB?: number;
   trafficResetDay?: number;
+  bandwidthMbps?: number;
   inbounds?: InboundRef[];
   profiles?: ProfileRef[];
   xrayVersion?: string;
@@ -289,6 +290,7 @@ export function NodesPage() {
     insecureTls: false,
     trafficLimitGB: "0",
     trafficResetDay: "0",
+    bandwidthMbps: "0",
   });
 
   const [editOpen, setEditOpen] = useState(false);
@@ -308,6 +310,7 @@ export function NodesPage() {
     port: DEFAULT_NODE_PORT,
     trafficLimitGB: "0",
     trafficResetDay: "0",
+    bandwidthMbps: "0",
     enable: true,
     useTls: false,
     certPath: "",
@@ -428,6 +431,7 @@ export function NodesPage() {
       insecureTls: false,
       trafficLimitGB: "0",
       trafficResetDay: "0",
+      bandwidthMbps: "0",
     });
     setCreatedSecretKey(null);
     setProfileList([]);
@@ -521,6 +525,10 @@ export function NodesPage() {
     const trafficResetDay = Number(form.trafficResetDay);
     if (Number.isFinite(trafficResetDay) && trafficResetDay >= 0 && trafficResetDay <= 31) {
       body.trafficResetDay = Math.floor(trafficResetDay);
+    }
+    const bandwidthMbps = Number(form.bandwidthMbps);
+    if (Number.isFinite(bandwidthMbps) && bandwidthMbps >= 0) {
+      body.bandwidthMbps = Math.floor(bandwidthMbps);
     }
     return { name, address, body };
   }, [form]);
@@ -1162,6 +1170,7 @@ export function NodesPage() {
           : 0,
       ),
       trafficResetDay: String(row.trafficResetDay ?? 0),
+      bandwidthMbps: String(row.bandwidthMbps ?? 0),
       enable: row.enable !== false,
       useTls: Boolean(row.useTls),
       certPath: row.certPath ?? "",
@@ -1185,6 +1194,7 @@ export function NodesPage() {
             : 0,
         ),
         trafficResetDay: String(o.trafficResetDay ?? 0),
+        bandwidthMbps: String(o.bandwidthMbps ?? 0),
         enable: o.enable !== false,
         useTls: Boolean(o.useTls),
         certPath: o.certPath ?? "",
@@ -1238,6 +1248,11 @@ export function NodesPage() {
       Number.isFinite(trafficResetDay) && trafficResetDay >= 0 && trafficResetDay <= 31
         ? Math.floor(trafficResetDay)
         : 0;
+    const bandwidthMbpsNum = Number(editForm.bandwidthMbps);
+    const bandwidthMbps =
+      Number.isFinite(bandwidthMbpsNum) && bandwidthMbpsNum >= 0
+        ? Math.floor(bandwidthMbpsNum)
+        : 0;
 
     setEditSubmitting(true);
     try {
@@ -1251,6 +1266,7 @@ export function NodesPage() {
         insecureTls: editForm.insecureTls,
         trafficLimitGB: tl,
         trafficResetDay: resetDay,
+        bandwidthMbps,
       };
       const r = await postJson(panel(`node/update/${editId}`), body, true);
       if (r.success) {
@@ -1443,6 +1459,7 @@ export function NodesPage() {
                 "pages.nodes.helpModalP2",
                 "pages.nodes.helpModalP3",
                 "pages.nodes.helpModalP4",
+                "pages.nodes.helpModalP5",
               ]}
             />
           </>
@@ -2444,6 +2461,29 @@ export function NodesPage() {
                 })}
               </span>
             </label>
+            <label className="grid gap-1">
+              <span className="text-xs text-[var(--fg-muted)]">
+                {t("pages.nodes.bandwidthMbps", {
+                  defaultValue: "Uplink bandwidth (Mbps)",
+                })}
+              </span>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={form.bandwidthMbps}
+                onChange={(e) => {
+                  clearDraftFromFormEdit();
+                  setForm((f) => ({ ...f, bandwidthMbps: e.target.value }));
+                }}
+              />
+              <span className="text-[11px] text-[var(--fg-subtle)]">
+                {t("pages.nodes.bandwidthMbpsHint", {
+                  defaultValue:
+                    "0 = unknown. Used by balancer pools set to weight by load.",
+                })}
+              </span>
+            </label>
             <div className="border-t border-[var(--border)] pt-3">
               <p className="mb-2 text-xs font-medium text-[var(--fg-muted)]">
                 {t("pages.nodes.tlsSettings")}
@@ -2615,6 +2655,31 @@ export function NodesPage() {
             <span className="text-[11px] text-[var(--fg-subtle)]">
               {t("pages.nodes.trafficResetDayHint", {
                 defaultValue: "0 = off. 1–31 = reset node counters on that day each month.",
+              })}
+            </span>
+          </label>
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">
+              {t("pages.nodes.bandwidthMbps", {
+                defaultValue: "Uplink bandwidth (Mbps)",
+              })}
+            </span>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={editForm.bandwidthMbps}
+              onChange={(e) =>
+                setEditForm((f) => ({
+                  ...f,
+                  bandwidthMbps: e.target.value,
+                }))
+              }
+            />
+            <span className="text-[11px] text-[var(--fg-subtle)]">
+              {t("pages.nodes.bandwidthMbpsHint", {
+                defaultValue:
+                  "0 = unknown. Used by balancer pools set to weight by load.",
               })}
             </span>
           </label>

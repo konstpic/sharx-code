@@ -37,5 +37,8 @@ func hostMetricsForStatusJSON() map[string]interface{} {
 	} else {
 		out["hostDisk"] = map[string]interface{}{"current": uint64(0), "total": uint64(0)}
 	}
+	bps, iface := netLoad.snapshot()
+	out["hostNetBps"] = bps
+	out["hostNetIface"] = iface
 	return out
 }

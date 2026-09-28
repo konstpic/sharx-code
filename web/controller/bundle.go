@@ -44,6 +44,8 @@ func NewBundleController(g *gin.RouterGroup) *BundleController {
 	g.GET("/state", a.state)
 	g.POST("/convert", a.convert)
 	g.POST("/cleanup-unused-auto", a.cleanupUnusedAuto)
+	g.GET("/hosts/suppressed", a.suppressedHosts)
+	g.POST("/hosts/restore/:id", a.restoreSuppressedHost)
 	return a
 }
 
@@ -141,6 +143,27 @@ func (a *BundleController) cleanupUnusedAuto(c *gin.Context) {
 		return
 	}
 	jsonObj(c, gin.H{"deleted": n}, nil)
+}
+
+func (a *BundleController) suppressedHosts(c *gin.Context) {
+	rows, err := a.svc.ListSuppressedHosts()
+	if err != nil {
+		jsonMsg(c, "Failed to list removed hosts", err)
+		return
+	}
+	jsonObj(c, rows, nil)
+}
+
+func (a *BundleController) restoreSuppressedHost(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	if err := a.svc.RestoreSuppressedHost(id); err != nil {
+		jsonMsg(c, "Failed to restore host", err)
+		return
+	}
+	jsonMsg(c, "Host will be recreated on the next sync", nil)
 }
 
 func (a *BundleController) del(c *gin.Context) {

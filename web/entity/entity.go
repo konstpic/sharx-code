@@ -168,6 +168,10 @@ type AllSetting struct {
 	SubAppGateBlockedApps     string `json:"subAppGateBlockedApps" form:"subAppGateBlockedApps"`         // comma-separated app keys, e.g. "incy"
 	SubAppGateAllowedApps     string `json:"subAppGateAllowedApps" form:"subAppGateAllowedApps"`         // comma-separated allowlist; non-empty = only these apps
 	// JSON subscription routing rules
+
+	// How often balancer pools with weightMode "load" or "ping" recompute member weights from the
+	// latest samples (see web/service/balancer_weight.go). Seconds; 0/unset = default (30s).
+	BalancerWeightIntervalSecs int `json:"balancerWeightIntervalSecs" form:"balancerWeightIntervalSecs"`
 }
 
 // CheckValid validates all settings in the AllSetting struct, checking IP addresses, ports, SSL certificates, and other configuration values.

@@ -32,6 +32,7 @@ const BALANCER_DOCKER_IMAGE = "harbor.sharxconnect.app/sharx/sharxbalancer:lates
 type Engine = "haproxy" | "nginx";
 type SubMode = "replace" | "prepend" | "append";
 type Algo = "roundrobin" | "leastconn" | "source";
+type WeightMode = "manual" | "load" | "ping";
 
 type Member = {
   id?: number;
@@ -52,6 +53,7 @@ type Pool = {
   inboundId: number;
   listenPort: number;
   algorithm: Algo;
+  weightMode: WeightMode;
   proxyProtocol: boolean;
   healthCheck: boolean;
   subEnabled: boolean;
@@ -272,7 +274,7 @@ export function BalancersPage() {
             <SectionHelpModal
               scene="balancers"
               titleKey="pages.balancers.helpTitle"
-              paragraphKeys={["pages.balancers.helpP1", "pages.balancers.helpP2", "pages.balancers.helpP3"]}
+              paragraphKeys={["pages.balancers.helpP1", "pages.balancers.helpP2", "pages.balancers.helpP3", "pages.balancers.helpP4"]}
             />
           </>
         }
@@ -454,7 +456,7 @@ export function BalancersPage() {
                         onClick={() =>
                           setPoolEdit({
                             balancer: b,
-                            pool: { balancerId: b.id, listenPort: 0, algorithm: "roundrobin", healthCheck: true, subEnabled: true, subMode: "prepend", autoMembers: true, enable: true, proxyProtocol: false },
+                            pool: { balancerId: b.id, listenPort: 0, algorithm: "roundrobin", weightMode: "manual", healthCheck: true, subEnabled: true, subMode: "prepend", autoMembers: true, enable: true, proxyProtocol: false },
                           })
                         }
                       >
@@ -705,6 +707,7 @@ function PoolModal({
   const [inboundId, setInboundId] = useState<number>(pool.inboundId ?? 0);
   const [listenPort, setListenPort] = useState<string>(pool.listenPort ? String(pool.listenPort) : "");
   const [algorithm, setAlgorithm] = useState<Algo>((pool.algorithm as Algo) ?? "roundrobin");
+  const [weightMode, setWeightMode] = useState<WeightMode>((pool.weightMode as WeightMode) ?? "manual");
   const [healthCheck, setHealthCheck] = useState(pool.healthCheck ?? true);
   const [proxyProtocol, setProxyProtocol] = useState(pool.proxyProtocol ?? false);
   const [enable, setEnable] = useState(pool.enable ?? true);
@@ -759,6 +762,7 @@ function PoolModal({
         inboundId,
         listenPort: port,
         algorithm,
+        weightMode,
         healthCheck,
         proxyProtocol: udp ? false : proxyProtocol,
         enable,
@@ -863,6 +867,23 @@ function PoolModal({
               <option value="leastconn">{t("pages.balancers.algoLeastConn", { defaultValue: "Least connections" })}</option>
               <option value="source">{t("pages.balancers.algoSource", { defaultValue: "By client IP (sticky)" })}</option>
             </SelectNative>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+              {t("pages.balancers.weightMode", { defaultValue: "Member weight" })}
+            </span>
+            <SelectNative value={weightMode} onChange={(e) => setWeightMode(e.target.value as WeightMode)}>
+              <option value="manual">{t("pages.balancers.weightModeManual", { defaultValue: "Manual (set below)" })}</option>
+              <option value="load">{t("pages.balancers.weightModeLoad", { defaultValue: "Auto: by node load" })}</option>
+              <option value="ping">{t("pages.balancers.weightModePing", { defaultValue: "Auto: by ping" })}</option>
+            </SelectNative>
+            {weightMode !== "manual" ? (
+              <span className="mt-1 block text-[11px] text-[var(--fg-subtle)]">
+                {t("pages.balancers.weightModeAutoHint", {
+                  defaultValue: "Weights below are recomputed automatically and any manual edits will be overwritten.",
+                })}
+              </span>
+            ) : null}
           </label>
         </div>
 

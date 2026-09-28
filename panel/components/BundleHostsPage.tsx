@@ -105,6 +105,7 @@ export function BundleHostsPage() {
   const [form, setForm] = useState<Form | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FullHost | null>(null);
+  const [suppressedKey, setSuppressedKey] = useState(0);
   const [showOverrides, setShowOverrides] = useState(false);
 
   const load = useCallback(async () => {
@@ -164,6 +165,7 @@ export function BundleHostsPage() {
     setDeleteTarget(null);
     if (!r.success) toast.error(r.msg || t("fail"));
     await load();
+    setSuppressedKey((k) => k + 1);
   };
 
   const set = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));
@@ -230,11 +232,9 @@ export function BundleHostsPage() {
                       <IconButton label={t("edit")} onClick={() => setForm(fromHost(h))}>
                         <Pencil size={14} />
                       </IconButton>
-                      {h.kind === "address" ? (
-                        <IconButton label={t("delete")} onClick={() => setDeleteTarget(h)}>
-                          <Trash2 size={14} />
-                        </IconButton>
-                      ) : null}
+                      <IconButton label={t("delete")} onClick={() => setDeleteTarget(h)}>
+                        <Trash2 size={14} />
+                      </IconButton>
                     </div>
                   </div>
                 ))}
@@ -375,8 +375,86 @@ export function BundleHostsPage() {
         }
       >
         <p className="text-sm text-[var(--fg-muted)]">{t("pages.bundleHosts.deleteText", { defaultValue: "It is removed from every bundle. Clients keep their access to the inbound." })}</p>
+        {deleteTarget && deleteTarget.kind !== "address" ? (
+          <p className="mt-2 text-sm text-[var(--fg-muted)]">
+            {t("pages.bundleHosts.deleteManagedHint", {
+              defaultValue: "This host is normally created automatically for its node or balancer pool. It will not come back on its own — restore it from \u201cRemoved automatic hosts\u201d below if you change your mind.",
+            })}
+          </p>
+        ) : null}
         <p className="mt-2 font-mono text-xs text-[var(--fg)]">{deleteTarget?.name}</p>
       </Modal>
+
+      <SuppressedHostsPanel refreshKey={suppressedKey} />
     </PageScaffold>
+  );
+}
+
+type SuppressedHost = {
+  id: number;
+  kind: string;
+  inboundId?: number;
+  inboundRemark?: string;
+  nodeName?: string;
+  poolBalancer?: string;
+  createdAt: number;
+};
+
+function SuppressedHostsPanel({ refreshKey }: { refreshKey: number }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<SuppressedHost[] | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    const r = await getJson<SuppressedHost[]>(panel("bundle/hosts/suppressed"));
+    if (r.success && Array.isArray(r.obj)) setRows(r.obj);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
+
+  const restore = async (id: number) => {
+    setBusyId(id);
+    const r = await postJson(panel(`bundle/hosts/restore/${id}`), {}, true);
+    setBusyId(null);
+    if (!r.success) {
+      toast.error(r.msg || t("fail"));
+      return;
+    }
+    toast.success(t("pages.bundleHosts.restored", { defaultValue: "Restored — it will reappear on the next sync" }));
+    await load();
+  };
+
+  if (!rows || rows.length === 0) return null;
+
+  return (
+    <Surface padding="none" className="mt-3 overflow-hidden">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>{t("pages.bundleHosts.removedAuto", { defaultValue: "Removed automatic hosts ({{n}})", n: rows.length })}</span>
+        <RotateCcw size={14} className={open ? "rotate-180" : undefined} />
+      </button>
+      {open ? (
+        <div className="border-t border-[var(--border)]">
+          {rows.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-0">
+              <PillTag tone="neutral">{r.kind}</PillTag>
+              <div className="min-w-0 flex-1 text-sm text-[var(--fg-muted)]">
+                {[r.inboundRemark || (r.inboundId ? `#${r.inboundId}` : undefined), r.nodeName, r.poolBalancer].filter(Boolean).join(" · ") || `#${r.id}`}
+              </div>
+              <Button variant="secondary" disabled={busyId === r.id} onClick={() => void restore(r.id)}>
+                {t("pages.bundleHosts.restore", { defaultValue: "Restore" })}
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Surface>
   );
 }

@@ -276,6 +276,8 @@ func (s *Server) startTask() {
 
 	// Check client HWIDs from log file every 1 second for real-time updates
 	s.cron.AddFunc("@every 15s", func() { (&service.BalancerService{}).Reconcile() })
+	// Auto-weight pools (load/ping): self-throttled to the admin-configured interval, see RecomputeAutoWeightsIfDue.
+	s.cron.AddFunc("@every 5s", func() { (&service.BalancerService{}).RecomputeAutoWeightsIfDue() })
 	// Safety net for the managed hosts (placements, pools): the edits that matter also trigger a sync directly.
 	s.cron.AddFunc("@every 30s", service.TriggerHostSync)
 	s.cron.AddJob("@every 1s", job.NewCheckClientHWIDJob())

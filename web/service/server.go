@@ -480,6 +480,39 @@ func (s *ServerService) AggregateWorkerDiskHistory(nodeID int, bucketSeconds int
 	return aggregateWorkerResourceField(tmp, bucketSeconds, maxPoints, "disk")
 }
 
+// nodeNetSample is the last observed interface throughput for a worker node (see hostNetBps in
+// GET /api/v1/status), used by balancer pools with weightMode "load" (web/service/balancer_weight.go).
+// Package-level (not a ServerService field) so it is shared by every ServerService value, including
+// ones created ad hoc outside the ServerController that does the polling.
+type nodeNetSample struct {
+	bps float64
+	at  int64
+}
+
+var (
+	workerNetMu sync.Mutex
+	workerNet   = map[int]nodeNetSample{}
+)
+
+// SetLatestNodeNetBps records the worker's last reported combined rx+tx bytes/sec (panel-polled).
+func (s *ServerService) SetLatestNodeNetBps(nodeID int, bps float64) {
+	workerNetMu.Lock()
+	defer workerNetMu.Unlock()
+	workerNet[nodeID] = nodeNetSample{bps: bps, at: time.Now().Unix()}
+}
+
+// LatestNodeNetBps returns the worker's last reported throughput; ok is false if never sampled or
+// stale (older than 2 minutes, e.g. the node stopped reporting).
+func (s *ServerService) LatestNodeNetBps(nodeID int) (bps float64, ok bool) {
+	workerNetMu.Lock()
+	defer workerNetMu.Unlock()
+	v, present := workerNet[nodeID]
+	if !present || time.Now().Unix()-v.at > 120 {
+		return 0, false
+	}
+	return v.bps, true
+}
+
 // AppendWorkerResourceSample records one host resource sample from a worker (panel-polled).
 func (s *ServerService) AppendWorkerResourceSample(nodeID int, name string, t time.Time, cpu, memPct, diskPct float64) {
 	const capacity = 9000

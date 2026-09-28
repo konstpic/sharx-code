@@ -257,7 +257,10 @@ func (s *HostSyncService) syncLocal(tx *gorm.DB, multi bool) (created, updated, 
 	return
 }
 
-// ensureLocalHost returns the inbound's local host, creating it when missing.
+// ensureLocalHost returns the inbound's local host, creating it when missing — unless an operator
+// explicitly deleted it (see host_sync_suppressions): the fallback is then left absent, meaning a
+// client's subscription goes empty for that inbound rather than falling back to the panel's own
+// address. Restoring the suppression (BundleService.RestoreSuppressedHost) undoes that.
 func ensureLocalHost(tx *gorm.DB, inboundId int) (*model.Host, error) {
 	var h model.Host
 	err := tx.Where("kind = ? AND inbound_id = ?", model.HostKindLocal, inboundId).First(&h).Error
@@ -266,6 +269,14 @@ func ensureLocalHost(tx *gorm.DB, inboundId int) (*model.Host, error) {
 	}
 	if err != gorm.ErrRecordNotFound {
 		return nil, err
+	}
+	var suppressed int64
+	if err := tx.Model(&model.HostSyncSuppression{}).Where("kind = ? AND inbound_id = ?", model.HostKindLocal, inboundId).
+		Count(&suppressed).Error; err != nil {
+		return nil, err
+	}
+	if suppressed > 0 {
+		return nil, nil
 	}
 	id := inboundId
 	nh := &model.Host{
@@ -299,6 +310,11 @@ func removeManagedHost(tx *gorm.DB, h *model.Host) error {
 			local, err := ensureLocalHost(tx, *h.InboundId)
 			if err != nil {
 				return err
+			}
+			if local == nil {
+				// The panel fallback was explicitly deleted for this inbound: leave the bundle
+				// with no entry for it rather than recreating the fallback the operator removed.
+				continue
 			}
 			var have int64
 			if err := tx.Model(&model.BundleHost{}).Where("bundle_id = ? AND host_id = ?", l.BundleId, local.Id).Count(&have).Error; err != nil {
@@ -465,6 +481,13 @@ func loadPoolSuppressions(tx *gorm.DB) (map[int]bool, error) {
 // for a non-auto-managed host too: it just skips writing a suppression row.
 func SuppressHostRecreation(tx *gorm.DB, h *model.Host) error {
 	switch h.Kind {
+	case model.HostKindLocal:
+		if h.InboundId == nil {
+			return nil
+		}
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&model.HostSyncSuppression{
+			Kind: model.HostKindLocal, InboundId: h.InboundId, CreatedAt: time.Now().Unix(),
+		}).Error
 	case model.HostKindPlacement:
 		if h.InboundId == nil || h.NodeId == nil {
 			return nil

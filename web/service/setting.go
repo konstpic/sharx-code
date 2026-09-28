@@ -828,6 +828,23 @@ func (s *SettingService) GetTgLang() (string, error) {
 	return s.getString("tgLang")
 }
 
+// GetBalancerWeightIntervalSecs is how often auto-weight pools (weightMode load/ping) recompute
+// member weights from the latest load/ping samples. Seeded to 30 by migration 0062.
+func (s *SettingService) GetBalancerWeightIntervalSecs() (int, error) {
+	v, err := s.getInt("balancerWeightIntervalSecs")
+	if err != nil || v <= 0 {
+		return 30, nil
+	}
+	return v, nil
+}
+
+func (s *SettingService) SetBalancerWeightIntervalSecs(value int) error {
+	if value < 5 {
+		value = 5
+	}
+	return s.setInt("balancerWeightIntervalSecs", value)
+}
+
 func (s *SettingService) GetTwoFactorEnable() (bool, error) {
 	return s.getBool("twoFactorEnable")
 }

@@ -19,9 +19,9 @@ After enabling:
 - Xray **does not start** on the panel server;
 - configurations are **sent** to worker nodes;
 - inbounds **must be assigned** to nodes;
-- subscriptions use **node addresses** (or hosts).
+- subscriptions are built from **hosts**: every node with an inbound gets a "Node" host (before 2.0 node addresses were added when the subscription was assembled).
 
-The sidebar **Nodes** section appears with subsections: Management, Statistics, Geography.
+The sidebar **Nodes** section appears with subsections: Node management, Statistics, Geography, **Balancers** (see [Balancers](./14-balancers.md)).
 
 ## Adding a Node
 
@@ -106,6 +106,10 @@ Optionally assign an **Xray core config profile** for this node:
 - **Skip** — use default profile;
 - **Assign and close** — bind selected profile.
 
+## Installing a Node over SSH
+
+When installing a node or a [balancer](./14-balancers.md) over SSH the panel first reads the server's **SSH host key fingerprint** and asks you to confirm it ("Confirm the server's SSH host key" → **Fingerprint matches, connect**). Compare it with the output of `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server. Without a confirmed fingerprint the connection is rejected (before 2.0 any key was accepted). For the API: call `POST /panel/node/ssh-hostkey` first, then pass `hostKeyFingerprint` to `POST /panel/node/ssh-provision`.
+
 ## Manual Node Deployment
 
 Typical node `docker-compose.yml` contains:
@@ -170,7 +174,9 @@ When creating or editing an **inbound**, on the **Nodes** step:
    - **Published port** — port in subscription;
    - **Remark suffix** — addition to server name in subscription.
 
-One inbound can be assigned to **multiple nodes** — the client subscription will have entries for each.
+One inbound can be assigned to **multiple nodes**. For each assignment the panel creates a "Node" host itself (edit address, port, suffix and description in **Hosts**); the client gets it in the subscription if the host is in one of the client's [bundles](./13-bundles.md). If the bundle has auto-add enabled, the host of a new node is appended to the bundle automatically.
+
+An empty node list when editing an inbound detaches the inbound from all nodes. When a node is deleted its hosts are removed, but clients keep their access.
 
 ## Statistics and Geography
 
@@ -182,6 +188,10 @@ One inbound can be assigned to **multiple nodes** — the client subscription wi
 ## Node Traffic Limit
 
 The **Traffic limit (GB)** field on a node limits total traffic through that node. Value `0` — unlimited.
+
+## Uplink Bandwidth (Load-Based Balancing)
+
+The **Uplink bandwidth (Mbps)** field tells the panel this node's real network capacity so a balancer pool with **Member weight → Auto: by node load** can weight it correctly (see [Balancers → Member weight](./14-balancers.md#member-weight-manual-auto-by-node-load-auto-by-ping)). Value `0` — unknown; the node still works normally and can still be used with manual weights or "Auto: by ping", it just always gets a low fallback weight under load mode instead of being weighted by real usage.
 
 ## Troubleshooting
 
@@ -201,13 +211,15 @@ The **Traffic limit (GB)** field on a node limits total traffic through that nod
 4. On node server: docker compose up -d --build
 5. In panel: Check → status online
 6. Inbounds → create inbound → Nodes step → select this node
-7. (Optional) Hosts → public domain for subscription
-8. Clients → create client → assign inbound
-9. Verify subscription in client application
+7. Hosts → check the node host; (optional) add an address host for your own domain
+8. Bundles → create a bundle with the needed hosts
+9. Clients → create client → pick the bundle
+10. Verify subscription in client application
 ```
 
 ## What's Next
 
 - [Hosts](./06-hosts.md) — public addresses and CDN for subscriptions
-- [Inbounds](./04-inbounds.md) — assign inbounds
+- [Inbounds](./04-inbounds.md) — assign inbounds to nodes
+- [Bundles](./13-bundles.md), [Balancers](./14-balancers.md)
 - [Clients](./07-clients.md)
