@@ -94,6 +94,10 @@ type NodeSSHProvisionRequest struct {
 const nodeSSHProvisionDefaultInstallDir = "/opt/sharxnode"
 const nodeSSHProvisionDefaultWatchtowerPort = 8081
 
+// balancerSSHProvisionDefaultWatchtowerPort is deliberately different from the node's default so a
+// balancer and a node installed on the same host don't fight over the same loopback port.
+const balancerSSHProvisionDefaultWatchtowerPort = 8082
+
 const nodeProvisionDockerImage = "harbor.sharxconnect.app/sharx/sharxnode:latest"
 
 const balancerProvisionDockerImage = "harbor.sharxconnect.app/sharx/sharxbalancer:latest"
@@ -103,25 +107,55 @@ const balancerProvisionDefaultInstallDir = "/opt/sharxbalancer"
 const BalancerRole = "balancer"
 
 // buildBalancerDockerComposeYaml mirrors panel/components/BalancersPage.tsx's buildBalancerComposeYaml.
-func buildBalancerDockerComposeYaml(secretKey string, agentPort int) string {
+func buildBalancerDockerComposeYaml(secretKey string, agentPort, watchtowerPort int) string {
 	if agentPort <= 0 || agentPort > 65535 {
 		agentPort = 8080
+	}
+	if watchtowerPort <= 0 || watchtowerPort > 65535 {
+		watchtowerPort = balancerSSHProvisionDefaultWatchtowerPort
 	}
 	return fmt.Sprintf(`services:
   balancer:
     image: %s
     container_name: sharx-balancer
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     network_mode: host
     volumes:
       - sharx-balancer-data:/app/data
     environment:
       SECRET_KEY: %s
       SHARX_BALANCER_PORT: "%d"
+      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:%d/v1/update
+      XUI_DOCKER_UPDATER_TOKEN: ${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
+
+  watchtower:
+    image: beatkind/watchtower:2.3.2
+    container_name: sharx_balancer_watchtower
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:%d:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --http-api-update
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: ${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    networks:
+      - sharx_balancer_net
+
+networks:
+  sharx_balancer_net:
+    driver: bridge
 
 volumes:
   sharx-balancer-data:
-`, balancerProvisionDockerImage, strconv.Quote(secretKey), agentPort)
+`, balancerProvisionDockerImage, strconv.Quote(secretKey), agentPort, watchtowerPort, watchtowerPort)
 }
 
 // buildNodeDockerComposeYaml mirrors panel/components/NodesPage.tsx's buildNodeDockerComposeYaml
@@ -288,6 +322,9 @@ func (s *NodeService) StartNodeSSHProvision(req NodeSSHProvisionRequest) (string
 	}
 	if req.WatchtowerPort <= 0 || req.WatchtowerPort > 65535 {
 		req.WatchtowerPort = nodeSSHProvisionDefaultWatchtowerPort
+		if req.Role == BalancerRole {
+			req.WatchtowerPort = balancerSSHProvisionDefaultWatchtowerPort
+		}
 	}
 	req.Host = host
 	req.Username = username
@@ -360,7 +397,7 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepWriteCompose, "running", "") })
 	compose := buildNodeDockerComposeYaml(req.SecretKey, req.WatchtowerPort)
 	if req.Role == BalancerRole {
-		compose = buildBalancerDockerComposeYaml(req.SecretKey, req.AgentPort)
+		compose = buildBalancerDockerComposeYaml(req.SecretKey, req.AgentPort, req.WatchtowerPort)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(compose))
 	writeCmd := fmt.Sprintf(

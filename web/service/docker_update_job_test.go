@@ -27,10 +27,20 @@ type fakeNode struct {
 	triggeredAt time.Time
 }
 
+type fakeBalancer struct {
+	id          int
+	name        string
+	oldV        string
+	newV        string
+	mode        string // same vocabulary as fakeNode.mode: "normal", "uptodate", "hardfail"
+	triggeredAt time.Time
+}
+
 type fakeEnv struct {
 	mu           sync.Mutex
 	now          time.Time
 	nodes        []*fakeNode
+	balancers    []*fakeBalancer
 	panelV       string
 	panelNewV    string
 	saved        string
@@ -63,6 +73,65 @@ func (e *fakeEnv) ListNodes() ([]*model.Node, error) {
 	return out, nil
 }
 func (e *fakeEnv) MultiNode() bool { return true }
+
+func (e *fakeEnv) balancer(id int) *fakeBalancer {
+	for _, b := range e.balancers {
+		if b.id == id {
+			return b
+		}
+	}
+	return nil
+}
+
+func (e *fakeEnv) ListBalancers() ([]*model.Balancer, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []*model.Balancer
+	for _, b := range e.balancers {
+		out = append(out, &model.Balancer{Id: b.id, Name: b.name, Enable: true, AgentVersion: b.oldV})
+	}
+	return out, nil
+}
+
+func (e *fakeEnv) TriggerBalancer(ctx context.Context, m *model.Balancer) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dead {
+		return errors.New("process killed")
+	}
+	fb := e.balancer(m.Id)
+	fb.triggeredAt = e.now
+	e.triggerOrder = append(e.triggerOrder, fb.name)
+	switch fb.mode {
+	case "hardfail":
+		return errors.New("updater: lookup watchtower: no such host")
+	case "uptodate":
+		return nil
+	default:
+		return &transientTriggerError{err: errors.New("EOF")}
+	}
+}
+
+func (e *fakeEnv) ProbeBalancer(ctx context.Context, m *model.Balancer) (dockerBalancerProbe, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.dead {
+		return dockerBalancerProbe{}, errors.New("process killed")
+	}
+	fb := e.balancer(m.Id)
+	if fb.triggeredAt.IsZero() || fb.mode != "normal" {
+		return dockerBalancerProbe{Online: true, Version: fb.oldV}, nil
+	}
+	dt := e.now.Sub(fb.triggeredAt)
+	switch {
+	case dt < 3*time.Second:
+		return dockerBalancerProbe{Online: true, Version: fb.oldV}, nil
+	case dt < 15*time.Second:
+		return dockerBalancerProbe{}, errors.New("connection refused")
+	default:
+		return dockerBalancerProbe{Online: true, Version: fb.newV}, nil
+	}
+}
 func (e *fakeEnv) IsColocated(n *model.Node) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -430,6 +499,60 @@ func TestDockerUpdateJob_startWhileRunningReturnsSameJob(t *testing.T) {
 		t.Fatalf("a second Start during a run must not create a new job: %s vs %s", a.ID, b.ID)
 	}
 	waitJob(t, r)
+}
+
+func TestDockerUpdateJob_balancerUpdatesAlongsideNodes(t *testing.T) {
+	env := newFakeEnv(&fakeNode{id: 1, name: "node1", oldV: "1.7.22", newV: "1.7.25", mode: "normal"})
+	env.balancers = []*fakeBalancer{
+		{id: 1, name: "lb1", oldV: "2.1.9", newV: "2.2.0", mode: "normal"},
+	}
+	r := newDockerUpdateRunner(env, testTiming())
+	if _, err := r.Start(); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, r)
+
+	if len(j.Balancers) != 1 {
+		t.Fatalf("expected 1 balancer in the job, got %+v", j.Balancers)
+	}
+	lb := j.Balancers[0]
+	if lb.Status != DockerUpdateStepUpdated || lb.VersionAfter != "2.2.0" {
+		t.Fatalf("balancer = %+v", lb)
+	}
+	if j.State != DockerUpdateJobDone {
+		t.Fatalf("job = %+v", j)
+	}
+	found := false
+	for _, name := range env.triggerOrder {
+		if name == "lb1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("balancer was never triggered: %v", env.triggerOrder)
+	}
+}
+
+func TestDockerUpdateJob_balancerRejectionDoesNotFailNodes(t *testing.T) {
+	env := newFakeEnv(&fakeNode{id: 1, name: "node1", oldV: "1.7.22", newV: "1.7.25", mode: "normal"})
+	env.balancers = []*fakeBalancer{
+		{id: 1, name: "lb1", oldV: "2.1.9", newV: "", mode: "hardfail"},
+	}
+	r := newDockerUpdateRunner(env, testTiming())
+	if _, err := r.Start(); err != nil {
+		t.Fatal(err)
+	}
+	j := waitJob(t, r)
+
+	if j.Balancers[0].Status != DockerUpdateStepError {
+		t.Fatalf("balancer should have failed: %+v", j.Balancers[0])
+	}
+	if j.Nodes[0].Status != DockerUpdateStepUpdated {
+		t.Fatalf("a failed balancer must not affect nodes: %+v", j.Nodes[0])
+	}
+	if j.State != DockerUpdateJobFailed {
+		t.Fatalf("job must be marked failed overall: %+v", j)
+	}
 }
 
 func TestIsLocalHost(t *testing.T) {

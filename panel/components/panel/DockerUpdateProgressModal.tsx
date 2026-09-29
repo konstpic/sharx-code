@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Circle, CircleDashed, Loader2, RefreshCw, Server, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, CircleDashed, Loader2, RefreshCw, Scale, Server, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, LinearProgress, Modal } from "@/components/ui";
@@ -31,6 +31,16 @@ type JobNode = {
   message?: string;
 };
 
+type JobBalancer = {
+  id: number;
+  name: string;
+  enable: boolean;
+  status: StepStatus;
+  versionBefore: string;
+  versionAfter: string;
+  message?: string;
+};
+
 type Job = {
   id: string;
   state: "running" | "done" | "failed";
@@ -38,6 +48,7 @@ type Job = {
   multiNode: boolean;
   panel: { status: StepStatus; versionBefore: string; versionAfter: string; message?: string };
   nodes: JobNode[] | null;
+  balancers: JobBalancer[] | null;
 };
 
 type Props = { open: boolean; panelVersion?: string };
@@ -63,13 +74,15 @@ function StepIcon({ status }: { status: StepStatus | "reconnecting" }) {
 function progressOf(job: Job | null): number {
   if (!job) return 2;
   const nodes = (job.nodes ?? []).filter((n) => n.enable);
+  const balancers = (job.balancers ?? []).filter((b) => b.enable);
+  const targets = [...nodes, ...balancers];
   const weight = (s: StepStatus) =>
     s === "updated" || s === "uptodate" || s === "error" ? 1 : s === "restarting" ? 0.6 : s === "triggering" ? 0.25 : 0;
   const panelDone = job.panel.status === "updated" || job.panel.status === "uptodate" || job.panel.status === "error";
   const panelPart = panelDone ? 1 : job.panel.status === "triggering" ? 0.5 : 0;
-  if (nodes.length === 0) return Math.round((panelDone ? 1 : job.panel.status === "triggering" ? 0.6 : 0.1) * 100);
-  const nodesPart = nodes.reduce((a, n) => a + weight(n.status), 0) / nodes.length;
-  return Math.max(3, Math.min(100, Math.round((nodesPart * 0.8 + panelPart * 0.2) * 100)));
+  if (targets.length === 0) return Math.round((panelDone ? 1 : job.panel.status === "triggering" ? 0.6 : 0.1) * 100);
+  const targetsPart = targets.reduce((a, n) => a + weight(n.status), 0) / targets.length;
+  return Math.max(3, Math.min(100, Math.round((targetsPart * 0.8 + panelPart * 0.2) * 100)));
 }
 
 export function DockerUpdateProgressModal({ open, panelVersion }: Props) {
@@ -196,6 +209,7 @@ export function DockerUpdateProgressModal({ open, panelVersion }: Props) {
         : statusLabel(job?.panel.status ?? "pending");
 
   const nodes = job?.nodes ?? [];
+  const balancers = job?.balancers ?? [];
   const hasErrors = job?.state === "failed";
 
   return (
@@ -300,6 +314,40 @@ export function DockerUpdateProgressModal({ open, panelVersion }: Props) {
                 {t("menu.dockerUpdateNoNodes", { defaultValue: "No worker nodes configured" })}
               </p>
             )}
+          </div>
+        ) : null}
+
+        {balancers.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--fg-muted)]">
+              {t("menu.dockerUpdateBalancersLabel", { defaultValue: "Balancers" })}
+            </div>
+            <ul className="max-h-56 space-y-1.5 overflow-y-auto rounded-lg border border-[var(--border)] p-2">
+              {balancers.map((b) => (
+                <li key={b.id} className="flex items-start justify-between gap-3 rounded-md px-2 py-2 hover:bg-[var(--bg-muted)]/40">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <Scale className="size-3.5 shrink-0 text-[var(--fg-muted)]" aria-hidden />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm text-[var(--fg)]">{b.name}</div>
+                      {versionText(b.versionBefore, b.versionAfter) ? (
+                        <div className="truncate font-mono text-[11px] text-[var(--fg-subtle)]">{versionText(b.versionBefore, b.versionAfter)}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 flex-col items-end gap-0.5">
+                    <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--fg-muted)]">
+                      <StepIcon status={b.status} />
+                      <span className="max-w-[10rem] truncate">{statusLabel(b.status)}</span>
+                    </div>
+                    {b.message ? (
+                      <span className={`max-w-[14rem] truncate text-[10px] ${b.status === "error" ? "text-red-500" : "text-[var(--fg-subtle)]"}`} title={b.message}>
+                        {b.message}
+                      </span>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
       </div>

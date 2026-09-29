@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/balancer/spec"
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/node/auth"
+	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
 )
 
 const maxApplyBody = 2 << 20 // 2 MiB is far above any real spec
@@ -36,11 +38,13 @@ func New(authSecret string, eng *engine.Manager) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "role": "balancer"})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "role": "balancer", "agentVersion": config.GetVersion()})
 	})
 	mux.HandleFunc("GET /api/v1/status", s.auth(s.status))
 	mux.HandleFunc("GET /api/v1/metrics", s.auth(s.metrics))
 	mux.HandleFunc("POST /api/v1/apply", s.auth(s.apply))
+	mux.HandleFunc("GET /api/v1/docker-updater", s.auth(s.dockerUpdaterStatus))
+	mux.HandleFunc("POST /api/v1/docker-updater/trigger", s.auth(s.dockerUpdaterTrigger))
 	return mux
 }
 
@@ -108,6 +112,24 @@ func (s *Server) apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"hash": sp.Hash(), "applied": true})
+}
+
+func (s *Server) dockerUpdaterStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": dockerupdater.Configured()})
+}
+
+func (s *Server) dockerUpdaterTrigger(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 2*time.Minute {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 3*time.Minute)
+		defer cancel()
+	}
+	if err := dockerupdater.Trigger(ctx); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "Docker updater triggered"})
 }
 
 var errInternal = errors.New("internal")

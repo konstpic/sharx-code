@@ -52,6 +52,19 @@ type DockerUpdateJobNode struct {
 	SawOffline    bool   `json:"sawOffline"`
 }
 
+// DockerUpdateJobBalancer is one balancer agent in the update job.
+type DockerUpdateJobBalancer struct {
+	ID            int    `json:"id"`
+	Name          string `json:"name"`
+	Enable        bool   `json:"enable"`
+	Status        string `json:"status"`
+	VersionBefore string `json:"versionBefore"`
+	VersionAfter  string `json:"versionAfter"`
+	Message       string `json:"message,omitempty"`
+	TriggeredAt   int64  `json:"triggeredAt"`
+	SawOffline    bool   `json:"sawOffline"`
+}
+
 // DockerUpdateJobPanel is the panel's own step (always last).
 type DockerUpdateJobPanel struct {
 	Status        string `json:"status"`
@@ -63,15 +76,16 @@ type DockerUpdateJobPanel struct {
 
 // DockerUpdateJob is the persisted state of one update run.
 type DockerUpdateJob struct {
-	ID         string                `json:"id"`
-	State      string                `json:"state"`
-	Phase      string                `json:"phase"`
-	MultiNode  bool                  `json:"multiNode"`
-	StartedAt  int64                 `json:"startedAt"`
-	UpdatedAt  int64                 `json:"updatedAt"`
-	FinishedAt int64                 `json:"finishedAt"`
-	Panel      DockerUpdateJobPanel  `json:"panel"`
-	Nodes      []DockerUpdateJobNode `json:"nodes"`
+	ID         string                    `json:"id"`
+	State      string                    `json:"state"`
+	Phase      string                    `json:"phase"`
+	MultiNode  bool                      `json:"multiNode"`
+	StartedAt  int64                     `json:"startedAt"`
+	UpdatedAt  int64                     `json:"updatedAt"`
+	FinishedAt int64                     `json:"finishedAt"`
+	Panel      DockerUpdateJobPanel      `json:"panel"`
+	Nodes      []DockerUpdateJobNode     `json:"nodes"`
+	Balancers  []DockerUpdateJobBalancer `json:"balancers"`
 }
 
 func stepFinal(s string) bool {
@@ -87,6 +101,11 @@ type dockerNodeProbe struct {
 	Version string
 }
 
+type dockerBalancerProbe struct {
+	Online  bool
+	Version string
+}
+
 // dockerUpdateEnv is everything the job needs from the outside world, so the state machine can be
 // tested without Docker, HTTP or a database.
 type dockerUpdateEnv interface {
@@ -95,6 +114,9 @@ type dockerUpdateEnv interface {
 	IsColocated(n *model.Node) bool
 	TriggerNode(ctx context.Context, n *model.Node) error
 	ProbeNode(ctx context.Context, n *model.Node) (dockerNodeProbe, error)
+	ListBalancers() ([]*model.Balancer, error)
+	TriggerBalancer(ctx context.Context, b *model.Balancer) error
+	ProbeBalancer(ctx context.Context, b *model.Balancer) (dockerBalancerProbe, error)
 	PanelVersion() string
 	TriggerPanel(ctx context.Context) error
 	PrepWorkers() error
@@ -152,6 +174,7 @@ func cloneJob(j *DockerUpdateJob) *DockerUpdateJob {
 	}
 	c := *j
 	c.Nodes = append([]DockerUpdateJobNode(nil), j.Nodes...)
+	c.Balancers = append([]DockerUpdateJobBalancer(nil), j.Balancers...)
 	return &c
 }
 
@@ -169,6 +192,10 @@ func (r *dockerUpdateRunner) update(fn func(j *DockerUpdateJob)) {
 
 func (r *dockerUpdateRunner) updateNode(i int, fn func(n *DockerUpdateJobNode)) {
 	r.update(func(j *DockerUpdateJob) { fn(&j.Nodes[i]) })
+}
+
+func (r *dockerUpdateRunner) updateBalancer(i int, fn func(b *DockerUpdateJobBalancer)) {
+	r.update(func(j *DockerUpdateJob) { fn(&j.Balancers[i]) })
 }
 
 // Snapshot returns the current job (in memory, else the persisted one), or nil.
@@ -205,6 +232,13 @@ func (r *dockerUpdateRunner) Start() (*DockerUpdateJob, error) {
 		r.mu.Unlock()
 		return nil, err
 	}
+	balancers, err := r.env.ListBalancers()
+	if err != nil {
+		r.mu.Lock()
+		r.running = false
+		r.mu.Unlock()
+		return nil, err
+	}
 	now := r.env.Now().UnixMilli()
 	job := &DockerUpdateJob{
 		ID:        newJobID(),
@@ -228,6 +262,18 @@ func (r *dockerUpdateRunner) Start() (*DockerUpdateJob, error) {
 			}
 			job.Nodes = append(job.Nodes, jn)
 		}
+	}
+	// Balancers are not gated by MultiNode: they are a separate opt-in feature and their update
+	// path (agent's own Watchtower) does not depend on it.
+	for _, b := range balancers {
+		if b == nil {
+			continue
+		}
+		jb := DockerUpdateJobBalancer{ID: b.Id, Name: b.Name, Enable: b.Enable, VersionBefore: strings.TrimSpace(b.AgentVersion), Status: DockerUpdateStepPending}
+		if !b.Enable {
+			jb.Status = DockerUpdateStepSkipped
+		}
+		job.Balancers = append(job.Balancers, jb)
 	}
 
 	r.mu.Lock()
@@ -325,6 +371,31 @@ func (r *dockerUpdateRunner) run(ctx context.Context, resumed bool) {
 		r.flagStuckNodes()
 	}
 
+	// Balancers update independently of node/multi-node phases above: they run on their own hosts
+	// (not sharing the panel's Watchtower), so there is no ordering dependency with the panel step.
+	pendingBalancers := func() []int {
+		cur := r.Snapshot()
+		var idx []int
+		for i, b := range cur.Balancers {
+			if b.Enable && !stepFinal(b.Status) {
+				idx = append(idx, i)
+			}
+		}
+		return idx
+	}
+	if idx := pendingBalancers(); len(idx) > 0 {
+		r.update(func(j *DockerUpdateJob) { j.Phase = "balancers" })
+		var wg sync.WaitGroup
+		for _, i := range idx {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				r.updateOneBalancer(ctx, i, resumed)
+			}(i)
+		}
+		wg.Wait()
+	}
+
 	r.update(func(j *DockerUpdateJob) { j.Phase = "panel" })
 	r.updatePanel(ctx)
 
@@ -337,6 +408,11 @@ func (r *dockerUpdateRunner) run(ctx context.Context, resumed bool) {
 		}
 		for _, n := range j.Nodes {
 			if n.Status == DockerUpdateStepError {
+				j.State = DockerUpdateJobFailed
+			}
+		}
+		for _, b := range j.Balancers {
+			if b.Status == DockerUpdateStepError {
 				j.State = DockerUpdateJobFailed
 			}
 		}
@@ -468,6 +544,130 @@ func (r *dockerUpdateRunner) snapshotNode(i int) DockerUpdateJobNode {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.job.Nodes[i]
+}
+
+// updateOneBalancer is updateOneNode's counterpart for a balancer agent — same trigger/probe/settle
+// state machine, against the Balancers slice instead of Nodes.
+func (r *dockerUpdateRunner) updateOneBalancer(ctx context.Context, i int, resumed bool) {
+	balancerID := r.snapshotBalancer(i).ID
+	balancers, err := r.env.ListBalancers()
+	var b *model.Balancer
+	if err == nil {
+		for _, x := range balancers {
+			if x != nil && x.Id == balancerID {
+				b = x
+				break
+			}
+		}
+	}
+	if b == nil {
+		r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+			x.Status = DockerUpdateStepError
+			x.Message = "balancer not found"
+		})
+		return
+	}
+
+	cur := r.snapshotBalancer(i)
+	triggerDone := make(chan error, 1)
+	triggeredAt := r.env.Now()
+	var settleAt time.Time
+	if cur.TriggeredAt == 0 {
+		r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+			x.Status = DockerUpdateStepTriggering
+			x.TriggeredAt = triggeredAt.UnixMilli()
+		})
+		go func() {
+			tctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			defer cancel()
+			triggerDone <- r.env.TriggerBalancer(tctx, b)
+		}()
+	} else {
+		triggeredAt = time.UnixMilli(cur.TriggeredAt)
+		settleAt = r.env.Now().Add(r.timing.ResumeSettle)
+		triggerDone = nil
+	}
+
+	var triggerErr error
+	deadline := triggeredAt.Add(r.timing.NodeTimeout)
+	if resumed && deadline.Before(r.env.Now().Add(r.timing.ResumeSettle+r.timing.Settle)) {
+		deadline = r.env.Now().Add(r.timing.ResumeSettle + r.timing.Settle)
+	}
+
+	for {
+		if triggerDone != nil {
+			select {
+			case err := <-triggerDone:
+				triggerDone = nil
+				triggerErr = err
+				settleAt = r.env.Now().Add(r.timing.Settle)
+				var te *transientTriggerError
+				if err != nil && !errors.As(err, &te) {
+					r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+						x.Status = DockerUpdateStepError
+						x.Message = err.Error()
+					})
+					return
+				}
+			default:
+			}
+		}
+
+		probe, perr := r.env.ProbeBalancer(ctx, b)
+		if perr != nil || !probe.Online {
+			r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+				x.SawOffline = true
+				x.Status = DockerUpdateStepRestarting
+			})
+		} else {
+			snap := r.snapshotBalancer(i)
+			changed := probe.Version != "" && snap.VersionBefore != "" && probe.Version != snap.VersionBefore
+			if changed || (snap.SawOffline && probe.Version != "") {
+				msg := ""
+				if !changed {
+					msg = "restarted, version unchanged"
+				}
+				r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+					x.Status = DockerUpdateStepUpdated
+					x.VersionAfter = probe.Version
+					x.Message = msg
+				})
+				return
+			}
+			if !settleAt.IsZero() && !r.env.Now().Before(settleAt) {
+				r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+					x.Status = DockerUpdateStepUpToDate
+					x.VersionAfter = probe.Version
+				})
+				return
+			}
+		}
+
+		if !r.env.Now().Before(deadline) {
+			msg := "the balancer did not come back with a new version in time"
+			if triggerErr != nil {
+				msg = fmt.Sprintf("%s (updater: %v)", msg, triggerErr)
+			}
+			r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+				x.Status = DockerUpdateStepError
+				x.Message = msg
+			})
+			return
+		}
+		if err := r.env.Sleep(ctx, r.timing.Poll); err != nil {
+			r.updateBalancer(i, func(x *DockerUpdateJobBalancer) {
+				x.Status = DockerUpdateStepError
+				x.Message = err.Error()
+			})
+			return
+		}
+	}
+}
+
+func (r *dockerUpdateRunner) snapshotBalancer(i int) DockerUpdateJobBalancer {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.job.Balancers[i]
 }
 
 // flagStuckNodes turns "no change" into an error when the node is clearly behind its peers: the

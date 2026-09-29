@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -528,6 +529,56 @@ func (s *BalancerService) agentRequest(b *model.Balancer, method, path string, b
 		req.Header.Set("Content-Type", "application/json")
 	}
 	return balancerHTTP.Do(req)
+}
+
+// TriggerDockerUpdaterOnBalancer asks the balancer agent's Docker sidecar (Watchtower) to pull and
+// recreate the balancer container, mirroring NodeService.TriggerDockerUpdaterOnNode. The client
+// timeout is long because Watchtower's HTTP API blocks until the pull/recreate finishes.
+func (s *BalancerService) TriggerDockerUpdaterOnBalancer(ctx context.Context, b *model.Balancer) error {
+	tok, err := (&NodeService{}).bearerTokenForNode(&model.Node{})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.ApiAddress+"/api/v1/docker-updater/trigger", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	client := &http.Client{Timeout: 3*time.Minute + 15*time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return &transientTriggerError{err: err}
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+// TriggerDockerUpdaterOnAllBalancers invokes the docker updater on every enabled balancer. Returns
+// human-readable errors (empty if all succeeded).
+func (s *BalancerService) TriggerDockerUpdaterOnAllBalancers(ctx context.Context) []string {
+	balancers, err := s.List()
+	if err != nil {
+		return []string{fmt.Sprintf("list balancers: %v", err)}
+	}
+	var out []string
+	for _, b := range balancers {
+		if b == nil || !b.Enable {
+			continue
+		}
+		if err := s.TriggerDockerUpdaterOnBalancer(ctx, b); err != nil {
+			logger.Warningf("[Balancer: %s] docker-updater trigger: %v", b.Name, err)
+			out = append(out, fmt.Sprintf("%s: %v", b.Name, err))
+		}
+	}
+	return out
 }
 
 // Refresh polls the agent: reachability, versions and per-backend health.

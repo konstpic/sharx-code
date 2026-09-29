@@ -98,18 +98,47 @@ type InboundOption = {
   nodeBindings?: { nodeId: number; nodeName?: string }[];
 };
 
+const BALANCER_WATCHTOWER_PORT = 8082;
+
 function buildBalancerComposeYaml(secretKey: string, port: number) {
   return `services:
   balancer:
     image: ${BALANCER_DOCKER_IMAGE}
     container_name: sharx-balancer
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
     network_mode: host
     volumes:
       - sharx-balancer-data:/app/data
     environment:
       SECRET_KEY: ${JSON.stringify(secretKey)}
       SHARX_BALANCER_PORT: "${port}"
+      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:${BALANCER_WATCHTOWER_PORT}/v1/update
+      XUI_DOCKER_UPDATER_TOKEN: \${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
+
+  watchtower:
+    image: beatkind/watchtower:2.3.2
+    container_name: sharx_balancer_watchtower
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BALANCER_WATCHTOWER_PORT}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --http-api-update
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: \${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    networks:
+      - sharx_balancer_net
+
+networks:
+  sharx_balancer_net:
+    driver: bridge
 
 volumes:
   sharx-balancer-data:

@@ -323,13 +323,16 @@ func TestSSHHostKeyPinning(t *testing.T) {
 }
 
 func TestBuildBalancerComposeYaml(t *testing.T) {
-	y := buildBalancerDockerComposeYaml(`se"cret`, 18080)
-	for _, want := range []string{"image: " + balancerProvisionDockerImage, "network_mode: host", `SECRET_KEY: "se\"cret"`, `SHARX_BALANCER_PORT: "18080"`, "container_name: sharx-balancer"} {
+	y := buildBalancerDockerComposeYaml(`se"cret`, 18080, 0)
+	for _, want := range []string{
+		"image: " + balancerProvisionDockerImage, "network_mode: host", `SECRET_KEY: "se\"cret"`, `SHARX_BALANCER_PORT: "18080"`,
+		"container_name: sharx-balancer", "com.centurylinklabs.watchtower.enable", "sharx_balancer_watchtower",
+	} {
 		if !strings.Contains(y, want) {
 			t.Errorf("missing %q in:\n%s", want, y)
 		}
 	}
-	if strings.Contains(buildBalancerDockerComposeYaml("x", 0), `"0"`) {
+	if strings.Contains(buildBalancerDockerComposeYaml("x", 0, 0), `"0"`) {
 		t.Error("port 0 must fall back to 8080")
 	}
 }

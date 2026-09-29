@@ -80,7 +80,8 @@ func hostOfNode(n *model.Node) string {
 }
 
 type realDockerUpdateEnv struct {
-	nodes NodeService
+	nodes     NodeService
+	balancers BalancerService
 }
 
 func (e *realDockerUpdateEnv) ListNodes() ([]*model.Node, error) { return e.nodes.GetAllNodes() }
@@ -123,6 +124,35 @@ func (e *realDockerUpdateEnv) ProbeNode(ctx context.Context, n *model.Node) (doc
 	var h map[string]interface{}
 	_ = json.Unmarshal(body, &h)
 	return dockerNodeProbe{Online: true, Version: extractNodeWorkerVersion(h)}, nil
+}
+
+func (e *realDockerUpdateEnv) ListBalancers() ([]*model.Balancer, error) { return e.balancers.List() }
+
+func (e *realDockerUpdateEnv) TriggerBalancer(ctx context.Context, b *model.Balancer) error {
+	return e.balancers.TriggerDockerUpdaterOnBalancer(ctx, b)
+}
+
+// ProbeBalancer reads the balancer agent's unauthenticated /health: reachability and agent version.
+func (e *realDockerUpdateEnv) ProbeBalancer(ctx context.Context, b *model.Balancer) (dockerBalancerProbe, error) {
+	cctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, http.MethodGet, strings.TrimRight(b.ApiAddress, "/")+"/health", nil)
+	if err != nil {
+		return dockerBalancerProbe{}, err
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return dockerBalancerProbe{}, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode != http.StatusOK {
+		return dockerBalancerProbe{}, fmt.Errorf("health: HTTP %d", resp.StatusCode)
+	}
+	var h map[string]interface{}
+	_ = json.Unmarshal(body, &h)
+	version, _ := h["agentVersion"].(string)
+	return dockerBalancerProbe{Online: true, Version: strings.TrimSpace(version)}, nil
 }
 
 func (e *realDockerUpdateEnv) PanelVersion() string { return strings.TrimSpace(config.GetVersion()) }
