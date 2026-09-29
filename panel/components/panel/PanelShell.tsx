@@ -24,6 +24,7 @@ import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p, stripBasePath } from "@/lib/paths";
 import { SETTINGS_TAB_IDS, tSettingsTabLabel } from "@/lib/settingsTabs";
 import { getUiPref } from "@/lib/uiPrefs";
+import { NetTrace } from "@/components/panel/NetTrace";
 import { PanelHeaderAppMeta } from "@/components/panel/PanelHeaderAppMeta";
 import { PanelTelegramNavLink } from "@/components/panel/PanelTelegramNavLink";
 import { PanelDonateNavLink } from "@/components/panel/PanelDonateNavLink";
@@ -53,6 +54,19 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
   const [menuStyle] = useMenuStyle();
   const ws = usePanelWebSocket();
   const resyncAfterDisconnect = useRef(false);
+  const [netTraceOpen, setNetTraceOpen] = useState(false);
+  const brandClicksRef = useRef(0);
+  const brandClickResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onBrandClick = useCallback(() => {
+    brandClicksRef.current += 1;
+    if (brandClickResetRef.current) clearTimeout(brandClickResetRef.current);
+    if (brandClicksRef.current >= 10) {
+      brandClicksRef.current = 0;
+      setNetTraceOpen(true);
+      return;
+    }
+    brandClickResetRef.current = setTimeout(() => { brandClicksRef.current = 0; }, 2500);
+  }, []);
 
   const loadMulti = useCallback(async () => {
     const msg = await postJson<Record<string, unknown>>(panel("setting/all"));
@@ -325,7 +339,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
             >
               <Menu className="size-6 shrink-0" aria-hidden />
             </button>
-            <div className="panel-navbar-brand font-heading min-w-0">
+            <div className="panel-navbar-brand font-heading min-w-0 select-none" onClick={onBrandClick}>
               <span className="block truncate text-base font-bold tracking-[-0.5px] text-[var(--panel-chrome-fg)]">
                 SharX
               </span>
@@ -378,6 +392,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       {menuStyle === "dock" ? <MenuDock nodes={navNodes} /> : null}
+      <NetTrace open={netTraceOpen} onClose={() => setNetTraceOpen(false)} />
     </div>
   );
 }

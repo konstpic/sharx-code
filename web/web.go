@@ -145,7 +145,8 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		staticAsset :=
 			strings.HasPrefix(uri, basePath+"_next/") ||
 				strings.HasPrefix(uri, basePath+"locales/") ||
-				(secretpath.HidesBareRoot(basePath) && (strings.HasPrefix(uri, "/_next/") || strings.HasPrefix(uri, "/locales/")))
+				strings.HasPrefix(uri, basePath+"assets/") ||
+				(secretpath.HidesBareRoot(basePath) && (strings.HasPrefix(uri, "/_next/") || strings.HasPrefix(uri, "/locales/") || strings.HasPrefix(uri, "/assets/")))
 		if staticAsset {
 			c.Header("Cache-Control", "max-age=31536000, public, immutable")
 		} else if strings.HasPrefix(uri, basePath+"custom.min.css") {

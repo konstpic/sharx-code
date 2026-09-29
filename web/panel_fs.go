@@ -64,7 +64,7 @@ func rewritePanelAssetURLs(content, basePath string) string {
 	return content
 }
 
-// MountPanelStaticAssets registers Next export static trees (_next, locales, custom.min.css) on r.
+// MountPanelStaticAssets registers Next export static trees (_next, locales, assets, custom.min.css) on r.
 func MountPanelStaticAssets(r gin.IRoutes) {
 	if nxt, err := fs.Sub(panelFsys, "_next"); err == nil {
 		r.StaticFS("/_next", http.FS(nxt))
@@ -75,6 +75,11 @@ func MountPanelStaticAssets(r gin.IRoutes) {
 		r.StaticFS("/locales", http.FS(loc))
 	} else {
 		logger.Warning("panel: locales not found: ", err)
+	}
+	if ast, err := fs.Sub(panelFsys, "assets"); err == nil {
+		r.StaticFS("/assets", http.FS(ast))
+	} else {
+		logger.Warning("panel: assets not found: ", err)
 	}
 	r.GET("/custom.min.css", func(c *gin.Context) {
 		c.FileFromFS("custom.min.css", panelRootHTTP)
