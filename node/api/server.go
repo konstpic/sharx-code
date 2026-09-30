@@ -164,6 +164,7 @@ func (s *Server) Start() error {
 		api.GET("/status", s.status)
 		api.GET("/stats", s.stats)
 		api.GET("/user-online-sessions", s.userOnlineSessions)
+		api.GET("/telemt-dc-status", s.telemtDCStatus)
 		api.POST("/drop-connections", s.dropConnections)
 		api.POST("/drop-ips", s.dropIPs)
 		api.GET("/logs", s.getLogs)
@@ -725,6 +726,15 @@ func (s *Server) stats(c *gin.Context) {
 }
 
 // userOnlineSessions returns per-IP online data from Xray stats (user>>>email>>>online) plus Telemt MTProto IPs.
+// telemtDCStatus reports Telegram DC availability for every running Telemt instance on this node.
+func (s *Server) telemtDCStatus(c *gin.Context) {
+	instances := []telemt.InstanceDCStatus{}
+	if s.telemtManager != nil {
+		instances = s.telemtManager.CollectDCStatus()
+	}
+	c.JSON(http.StatusOK, gin.H{"instances": instances})
+}
+
 func (s *Server) userOnlineSessions(c *gin.Context) {
 	email := strings.TrimSpace(c.Query("email"))
 	if email == "" {

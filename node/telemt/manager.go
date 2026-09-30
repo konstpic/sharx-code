@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/nodecache"
@@ -85,6 +86,81 @@ func (m *Manager) LoadAndApplyCache() error {
 type procState struct {
 	cancel context.CancelFunc
 	hash   string
+	// done is closed once the supervising goroutine has fully finished (the process is gone and
+	// will not be restarted), so a replacement can wait for the listening ports to be released.
+	done chan struct{}
+}
+
+const (
+	// stopWaitTimeout bounds how long Apply waits for a replaced/removed process to exit.
+	stopWaitTimeout = 10 * time.Second
+	// maxQuickRestarts is how many times an instance that keeps dying right after start is retried.
+	maxQuickRestarts = 5
+	// stableRunSecs: a run at least this long resets the consecutive-failure counter.
+	stableRun = 60 * time.Second
+)
+
+// restartDelay is the pause before restart attempt n (1-based); a variable so tests can shorten it.
+var restartDelay = func(n int) time.Duration { return time.Duration(n) * 2 * time.Second }
+
+// stopProc cancels a process and waits (bounded) until it has really exited.
+func stopProc(tag string, st *procState) {
+	if st == nil {
+		return
+	}
+	if st.cancel != nil {
+		st.cancel()
+	}
+	if st.done == nil {
+		return
+	}
+	select {
+	case <-st.done:
+	case <-time.After(stopWaitTimeout):
+		logger.Warningf("Telemt: %s did not exit within %s", tag, stopWaitTimeout)
+	}
+}
+
+// superviseProc runs the process until ctx is cancelled. An unexpected exit (for instance a
+// port that was not yet free right after a config change) is retried with a growing delay, so an
+// instance is never left dead until the next config push.
+func superviseProc(ctx context.Context, tag, bin, cfgPath, dir string, first *exec.Cmd, done chan struct{}) {
+	defer close(done)
+	cmd := first
+	fails := 0
+	for {
+		started := time.Now()
+		err := cmd.Wait()
+		if ctx.Err() != nil {
+			return
+		}
+		if time.Since(started) >= stableRun {
+			fails = 0
+		}
+		fails++
+		logger.Warningf("Telemt exited: tag=%s err=%v (attempt %d/%d)", tag, err, fails, maxQuickRestarts)
+		if fails > maxQuickRestarts {
+			logger.Errorf("Telemt: giving up on %s after %d failed starts", tag, maxQuickRestarts)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(restartDelay(fails)):
+		}
+		next := exec.CommandContext(ctx, bin, cfgPath)
+		next.Dir = dir
+		next.Env = os.Environ()
+		next.Stdout = os.Stderr
+		next.Stderr = os.Stderr
+		if err := next.Start(); err != nil {
+			logger.Warningf("Telemt restart %s: %v", tag, err)
+			cmd = &exec.Cmd{} // Wait() on an unstarted command fails at once and counts as a failed attempt
+			continue
+		}
+		logger.Infof("Telemt restarted: tag=%s pid=%d", tag, next.Process.Pid)
+		cmd = next
+	}
 }
 
 // NewManager creates a Telemt manager.
@@ -169,9 +245,7 @@ func (m *Manager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for tag, st := range m.running {
-		if st != nil && st.cancel != nil {
-			st.cancel()
-		}
+		stopProc(tag, st)
 		delete(m.running, tag)
 	}
 }
@@ -182,9 +256,7 @@ func (m *Manager) Apply(payloads []Payload) error {
 	m.mu.Lock()
 	if len(payloads) == 0 {
 		for tag, st := range m.running {
-			if st != nil && st.cancel != nil {
-				st.cancel()
-			}
+			stopProc(tag, st)
 			delete(m.running, tag)
 		}
 		m.mu.Unlock()
@@ -213,9 +285,7 @@ func (m *Manager) Apply(payloads []Payload) error {
 	// Stop removed tags
 	for tag, st := range m.running {
 		if _, ok := want[tag]; !ok {
-			if st != nil && st.cancel != nil {
-				st.cancel()
-			}
+			stopProc(tag, st)
 			delete(m.running, tag)
 		}
 	}
@@ -227,8 +297,9 @@ func (m *Manager) Apply(payloads []Payload) error {
 		if cur, ok := m.running[tag]; ok && cur != nil && cur.hash == hhex {
 			continue
 		}
-		if cur, ok := m.running[tag]; ok && cur != nil && cur.cancel != nil {
-			cur.cancel()
+		if cur, ok := m.running[tag]; ok && cur != nil {
+			// Wait for the old process to release its ports before the new one binds them.
+			stopProc(tag, cur)
 			delete(m.running, tag)
 		}
 
@@ -252,14 +323,10 @@ func (m *Manager) Apply(payloads []Payload) error {
 			return fmt.Errorf("telemt start %s: %w", tag, err)
 		}
 		logger.Infof("Telemt started: tag=%s pid=%d", tag, cmd.Process.Pid)
-		go func(tag string, cmd *exec.Cmd, waitCtx context.Context) {
-			err := cmd.Wait()
-			if err != nil && waitCtx.Err() == nil {
-				logger.Warningf("Telemt exited: tag=%s err=%v", tag, err)
-			}
-		}(tag, cmd, ctx)
+		done := make(chan struct{})
+		go superviseProc(ctx, tag, bin, cfgPath, root, cmd, done)
 
-		m.running[tag] = &procState{cancel: cancel, hash: hhex}
+		m.running[tag] = &procState{cancel: cancel, hash: hhex, done: done}
 	}
 
 	m.commitReplaySnapshot(payloads)

@@ -74,6 +74,12 @@ func TestTelemtWebProxyLink(t *testing.T) {
 			}
 		})
 	}
+	// base_path form from the Telemt WEB_PROXY docs: server=host%2Fpath, secret=base64url(0x70||secret).
+	doc, _ := hex.DecodeString("000102030405060708090a0b0c0d0e0f")
+	got, _ := telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com","profileSecretMode":"plain"},"params":{"web.vhosts.base_path":"telegram/web"}}}`, doc)
+	if want := "tg://webproxy?server=proxy.example.com%2Ftelegram%2Fweb&secret=cAABAgMEBQYHCAkKCwwNDg8"; got != want {
+		t.Fatalf("base_path link: got %q want %q", got, want)
+	}
 	link, enabled := telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com"}}}`, nil)
 	if link != "" || !enabled {
 		t.Fatalf("invalid secret should not produce a link: (%q, %v)", link, enabled)

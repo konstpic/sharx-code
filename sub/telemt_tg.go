@@ -1,6 +1,7 @@
 package sub
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/url"
@@ -67,6 +68,7 @@ func telemtWebProxyLink(settingsJSON string, raw16 []byte) (string, bool) {
 				FrontPort         int    `json:"frontPort"`
 				ProfileSecretMode string `json:"profileSecretMode"`
 			} `json:"web"`
+			Params map[string]json.RawMessage `json:"params"`
 		} `json:"telemt"`
 	}
 	if err := json.Unmarshal([]byte(settingsJSON), &cfg); err != nil || !cfg.Telemt.Web.Enabled {
@@ -81,6 +83,22 @@ func telemtWebProxyLink(settingsJSON string, raw16 []byte) (string, bool) {
 	// Match the config generator: unknown/omitted profileSecretMode defaults to dd.
 	secure := strings.TrimSpace(web.ProfileSecretMode) != "plain"
 	secret := telemtTgProxySecretForLink(raw16, false, secure, "")
+	// A vhost base_path ([[web.vhosts]].base_path, set via the parameter catalog) moves the WEB
+	// endpoint under a prefix: the link carries "host/base_path" percent-encoded, and the secret
+	// becomes base64url(0x70 || client_secret) without padding (Telemt WEB_PROXY docs).
+	var basePath string
+	if raw, ok := cfg.Telemt.Params["web.vhosts.base_path"]; ok {
+		_ = json.Unmarshal(raw, &basePath)
+		basePath = strings.Trim(strings.TrimSpace(basePath), "/")
+	}
+	if basePath != "" {
+		clientSecret, err := hex.DecodeString(secret)
+		if err != nil {
+			return "", true
+		}
+		enc := base64.RawURLEncoding.EncodeToString(append([]byte{0x70}, clientSecret...))
+		return "tg://webproxy?server=" + url.QueryEscape(host+"/"+basePath) + "&secret=" + enc, true
+	}
 	return "tg://webproxy?server=" + url.QueryEscape(host) + "&secret=" + secret, true
 }
 

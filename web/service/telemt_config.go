@@ -9,6 +9,7 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
+	telemtinstall "github.com/konstpic/sharx-code/v2/telemt/install"
 )
 
 // TelemtNodePayload is pushed to worker nodes alongside Xray JSON.
@@ -104,6 +106,10 @@ type telemtSettingsJSON struct {
 		RateLimitDownBps *uint64 `json:"rateLimitDownBps"`
 	} `json:"access"`
 	Web *TelemtWebSettings `json:"web"`
+	// Params are extra config.toml keys ("section.key" -> value) from the parameter catalog
+	// (see telemt_params.go); Upstreams is the operator's [[upstreams]] list.
+	Params    map[string]json.RawMessage   `json:"params"`
+	Upstreams []map[string]json.RawMessage `json:"upstreams"`
 }
 
 // TelemtWebSettings configures Telemt's WEB transport (Telegram Desktop MTProxy carried over
@@ -682,7 +688,7 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 				telemtTomlUserKey(u.Username), *cfg.Access.RateLimitUpBps, *cfg.Access.RateLimitDownBps)
 		}
 	}
-	return b.String(), nil
+	return ApplyTelemtExtras(b.String(), cfg.Params, cfg.Upstreams)
 }
 
 // ValidateTelemtInbound rejects an enabled Telemt inbound whose WEB mode has no public domain: its config and link cannot
@@ -692,6 +698,18 @@ func ValidateTelemtInbound(in *model.Inbound) error {
 		return nil
 	}
 	cfg := parseTelemtSettings(in.Settings)
+	if err := ValidateTelemtParams(cfg.Params); err != nil {
+		return err
+	}
+	if err := ValidateTelemtUpstreams(cfg.Upstreams); err != nil {
+		return err
+	}
+	if err := validateTelemtParamVersions(in, cfg.Params); err != nil {
+		return err
+	}
+	if err := validateTelemtParamsWithBinary(cfg.Params, cfg.Upstreams); err != nil {
+		return err
+	}
 	if cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled && strings.TrimSpace(cfg.Web.VhostHost) == "" {
 		return fmt.Errorf("telemt web mode: the public domain (vhostHost) is required")
 	}
@@ -940,7 +958,15 @@ func BuildTelemtPayloadsForNode(node *model.Node, ibs []*model.Inbound) ([]Telem
 			}
 		}
 		workDir := fmt.Sprintf("/app/telemt/%s", ib.Tag)
-		tomlStr, err := BuildTelemtToml(ib, users, pubHost, pubPort, workDir)
+		ibForNode := ib
+		if cleaned, dropped := stripUnsupportedTelemtParams(ib.Settings, node.TelemtVersion); len(dropped) > 0 {
+			logger.Warningf("telemt inbound %d (%s) on node %s (Telemt %s): not sending parameters this build does not support: %s",
+				ib.Id, ib.Tag, node.Name, node.TelemtVersion, strings.Join(dropped, ", "))
+			cp := *ib
+			cp.Settings = cleaned
+			ibForNode = &cp
+		}
+		tomlStr, err := BuildTelemtToml(ibForNode, users, pubHost, pubPort, workDir)
 		if err != nil {
 			// Do not let one inbound's config error (e.g. a WEB-mode vhost whose domain
 			// doesn't resolve yet) block Xray/Telemt config push for every other inbound
@@ -1076,4 +1102,46 @@ func PreviewTelemtToml(inbound *model.Inbound) (string, error) {
 	}
 	workDir := filepath.Join(config.GetDataFolderPath(), "telemt", tag)
 	return BuildTelemtToml(inbound, users, "", 0, workDir)
+}
+
+// validateTelemtParamVersions refuses parameters that the Telemt build(s) this inbound runs on do
+// not support yet, e.g. web.vhosts.base_path on a node still running an older release. Versions
+// that cannot be determined are not treated as a problem.
+func validateTelemtParamVersions(in *model.Inbound, params map[string]json.RawMessage) error {
+	need := map[string]string{}
+	for id := range params {
+		if p, ok := telemtCatalogByID[id]; ok && p.Since != "" {
+			need[id] = p.Since
+		}
+	}
+	if len(need) == 0 {
+		return nil
+	}
+	type target struct{ name, version string }
+	var targets []target
+	multi, _ := (&SettingService{}).GetMultiNodeMode()
+	if multi {
+		if in.Id > 0 {
+			nodes, _ := (&NodeService{}).GetNodesForInbound(in.Id)
+			for _, n := range nodes {
+				if n != nil && n.Enable {
+					targets = append(targets, target{n.Name, n.TelemtVersion})
+				}
+			}
+		}
+	} else {
+		targets = append(targets, target{"panel", telemtinstall.ReadVersion("")})
+	}
+	for _, t := range targets {
+		if bad := telemtParamsNeedingVersion(params, t.version); len(bad) > 0 {
+			ids := make([]string, 0, len(bad))
+			for id, since := range bad {
+				ids = append(ids, id+" (Telemt >= "+since+")")
+			}
+			sort.Strings(ids)
+			return fmt.Errorf("telemt params: %s runs Telemt %s, which does not support: %s — update Telemt there first",
+				t.name, t.version, strings.Join(ids, ", "))
+		}
+	}
+	return nil
 }

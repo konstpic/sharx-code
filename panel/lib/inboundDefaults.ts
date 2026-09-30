@@ -273,6 +273,10 @@ export type TelemtFormState = {
   webDecoyDirectory: string;
   webDecoyIndex: string;
   webProfileSecretMode: "plain" | "dd";
+  /** Extra config.toml keys from Telemt's parameter catalog ("section.key" -> value). */
+  params: Record<string, unknown>;
+  /** Operator [[upstreams]] entries. */
+  upstreams: Record<string, unknown>[];
 };
 
 export function defaultTelemtForm(): TelemtFormState {
@@ -342,6 +346,8 @@ export function defaultTelemtForm(): TelemtFormState {
     webDecoyDirectory: "",
     webDecoyIndex: "index.html",
     webProfileSecretMode: "dd",
+    params: {},
+    upstreams: [],
   };
 }
 
@@ -375,6 +381,9 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
         ? (root.telemt as Record<string, unknown>)
         : root;
     if (typeof tm.useMiddleProxy === "boolean") base.useMiddleProxy = tm.useMiddleProxy;
+    // A stored inbound without the key runs with Middle-End ON (backend default), so the edit form
+    // must show it on; otherwise merely re-saving the form would silently switch ME off.
+    else if (tm !== root) base.useMiddleProxy = true;
     if (typeof tm.logLevel === "string" && tm.logLevel.trim()) {
       base.logLevel = tm.logLevel.trim();
     }
@@ -414,6 +423,14 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       }
       if (typeof c.maskHost === "string") base.censorshipMaskHost = c.maskHost.trim();
       base.censorshipMaskPort = parseTelemtOptionalIntField(c.maskPort);
+    }
+    if (tm.params && typeof tm.params === "object" && !Array.isArray(tm.params)) {
+      base.params = { ...(tm.params as Record<string, unknown>) };
+    }
+    if (Array.isArray(tm.upstreams)) {
+      base.upstreams = (tm.upstreams as unknown[]).filter(
+        (u): u is Record<string, unknown> => u != null && typeof u === "object" && !Array.isArray(u),
+      );
     }
     base.fastMode = parseTelemtTriBool(tm.fastMode);
     base.me2dcFallback = parseTelemtTriBool(tm.me2dcFallback);
@@ -565,6 +582,8 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
   };
   const tag = form.adTag.trim();
   if (tag) telemt.adTag = tag;
+  if (Object.keys(form.params).length > 0) telemt.params = form.params;
+  if (form.upstreams.length > 0) telemt.upstreams = form.upstreams;
   const unk = form.censorshipUnknownSniAction.trim();
   if (unk === "mask" || unk === "reject_handshake") {
     (telemt.censorship as Record<string, unknown>).unknownSniAction = unk;

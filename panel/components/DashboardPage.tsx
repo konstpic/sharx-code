@@ -1,5 +1,6 @@
 "use client";
 
+import { TelemtDcStatusCard } from "@/components/TelemtDcStatusCard";
 import {
   Activity,
   ArrowDown,
@@ -1473,6 +1474,10 @@ export function DashboardPage() {
           </Surface>
         </Reveal>
         )}
+
+        <Reveal className="mt-4">
+          <TelemtDcStatusCard />
+        </Reveal>
 
         {showUserAgent && (
         <Reveal className="mt-4">

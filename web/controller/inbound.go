@@ -165,6 +165,8 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	g.POST("/update/:id", a.updateInbound)
 	g.POST("/previewXray", a.previewInboundXray)
 	g.POST("/previewTelemt", a.previewInboundTelemt)
+	g.GET("/telemtParams", a.getTelemtParams)
+	g.GET("/telemtDcStatus", a.getTelemtDCStatus)
 	g.POST("/previewAmneziaWg", a.previewInboundAmneziaWg)
 	g.POST("/clientIps/:email", a.getClientIps)
 	g.POST("/clearClientIps/:email", a.clearClientIps)
@@ -227,6 +229,23 @@ func (a *InboundController) previewInboundXray(c *gin.Context) {
 		return
 	}
 	jsonObj(c, cfg, nil)
+}
+
+// getTelemtParams returns the catalog of every Telemt config.toml key (type, default, hot-reload,
+// description) that the inbound form can set through settings.telemt.params.
+func (a *InboundController) getTelemtParams(c *gin.Context) {
+	jsonObj(c, service.TelemtParamCatalog(), nil)
+}
+
+// getTelemtDCStatus returns Telegram datacenter availability as seen by every running Telemt
+// instance (panel-local or per worker node).
+func (a *InboundController) getTelemtDCStatus(c *gin.Context) {
+	out, err := service.CollectTelemtDCStatus()
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	jsonObj(c, out, nil)
 }
 
 // previewInboundTelemt returns the Telemt config.toml that would be written on the node or panel (standalone).

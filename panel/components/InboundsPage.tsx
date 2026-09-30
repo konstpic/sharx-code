@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
 import { DragHandle } from "@/components/ui/drag-handle";
+import { TelemtParamsEditor } from "@/components/inbounds/TelemtParamsEditor";
 import { InboundScenarioPicker, type InboundScenarioId } from "@/components/inbounds/InboundScenarioPicker";
 import { ShareTemplateModal, TemplateGalleryModal, type ImportMeta } from "@/components/templates/TemplateHub";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
@@ -6998,6 +6999,25 @@ export function InboundsPage() {
                         </div>
                       </>
                     ) : null}
+                  </div>
+                </details>
+                <details className="rounded-lg border border-[var(--border)] p-3">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] [&::-webkit-details-marker]:hidden">
+                    {t("pages.inbounds.telemtSectionAllParams", { defaultValue: "All Telemt parameters" })}
+                    {Object.keys(form.telemtForm.params).length + form.telemtForm.upstreams.length > 0
+                      ? ` (${Object.keys(form.telemtForm.params).length + form.telemtForm.upstreams.length})`
+                      : ""}
+                  </summary>
+                  <div className="mt-3">
+                    <TelemtParamsEditor
+                      params={form.telemtForm.params}
+                      onChange={(params) => setForm((f) => ({ ...f, telemtForm: { ...f.telemtForm, params } }))}
+                      upstreams={form.telemtForm.upstreams}
+                      onUpstreamsChange={(upstreams) =>
+                        setForm((f) => ({ ...f, telemtForm: { ...f.telemtForm, upstreams } }))
+                      }
+                      webEnabled={form.telemtForm.webEnabled}
+                    />
                   </div>
                 </details>
               </div>
