@@ -1,0 +1,192 @@
+{
+ "groups": [
+  {
+   "file": "groups-1.mp3",
+   "sec": 2.28
+  },
+  {
+   "file": "groups-2.mp3",
+   "sec": 3.49
+  },
+  {
+   "file": "groups-3.mp3",
+   "sec": 2.7
+  }
+ ],
+ "welcome": [
+  {
+   "file": "welcome-1.mp3",
+   "sec": 4.08
+  },
+  {
+   "file": "welcome-2.mp3",
+   "sec": 3.98
+  },
+  {
+   "file": "welcome-3.mp3",
+   "sec": 5.81
+  },
+  {
+   "file": "welcome-4.mp3",
+   "sec": 5.28
+  },
+  {
+   "file": "welcome-5.mp3",
+   "sec": 4.47
+  },
+  {
+   "file": "welcome-6.mp3",
+   "sec": 4.71
+  },
+  {
+   "file": "welcome-7.mp3",
+   "sec": 4.68
+  }
+ ],
+ "inbounds": [
+  {
+   "file": "inbounds-1.mp3",
+   "sec": 4.52
+  },
+  {
+   "file": "inbounds-2.mp3",
+   "sec": 3.91
+  },
+  {
+   "file": "inbounds-3.mp3",
+   "sec": 3.66
+  },
+  {
+   "file": "inbounds-4.mp3",
+   "sec": 3.34
+  }
+ ],
+ "nodes": [
+  {
+   "file": "nodes-1.mp3",
+   "sec": 6.13
+  },
+  {
+   "file": "nodes-2.mp3",
+   "sec": 4.57
+  },
+  {
+   "file": "nodes-3.mp3",
+   "sec": 2.92
+  },
+  {
+   "file": "nodes-4.mp3",
+   "sec": 4.43
+  },
+  {
+   "file": "nodes-5.mp3",
+   "sec": 4.48
+  }
+ ],
+ "balancers": [
+  {
+   "file": "balancers-1.mp3",
+   "sec": 3.8
+  },
+  {
+   "file": "balancers-2.mp3",
+   "sec": 3.51
+  },
+  {
+   "file": "balancers-3.mp3",
+   "sec": 4.74
+  },
+  {
+   "file": "balancers-4.mp3",
+   "sec": 2.87
+  },
+  {
+   "file": "balancers-5.mp3",
+   "sec": 5.96
+  }
+ ],
+ "bundles": [
+  {
+   "file": "bundles-1.mp3",
+   "sec": 3.22
+  },
+  {
+   "file": "bundles-2.mp3",
+   "sec": 4.58
+  },
+  {
+   "file": "bundles-3.mp3",
+   "sec": 3.86
+  },
+  {
+   "file": "bundles-4.mp3",
+   "sec": 4.11
+  },
+  {
+   "file": "bundles-5.mp3",
+   "sec": 3.87
+  }
+ ],
+ "hosts": [
+  {
+   "file": "hosts-1.mp3",
+   "sec": 2.94
+  },
+  {
+   "file": "hosts-2.mp3",
+   "sec": 4.12
+  },
+  {
+   "file": "hosts-3.mp3",
+   "sec": 2.76
+  },
+  {
+   "file": "hosts-4.mp3",
+   "sec": 2.57
+  }
+ ],
+ "clients": [
+  {
+   "file": "clients-1.mp3",
+   "sec": 4.63
+  },
+  {
+   "file": "clients-2.mp3",
+   "sec": 3.72
+  },
+  {
+   "file": "clients-3.mp3",
+   "sec": 3.52
+  },
+  {
+   "file": "clients-4.mp3",
+   "sec": 3.07
+  },
+  {
+   "file": "clients-5.mp3",
+   "sec": 4.09
+  }
+ ],
+ "subpage": [
+  {
+   "file": "subpage-1.mp3",
+   "sec": 5.74
+  },
+  {
+   "file": "subpage-2.mp3",
+   "sec": 5.69
+  },
+  {
+   "file": "subpage-3.mp3",
+   "sec": 3.66
+  },
+  {
+   "file": "subpage-4.mp3",
+   "sec": 4.12
+  },
+  {
+   "file": "subpage-5.mp3",
+   "sec": 3.4
+  }
+ ]
+}
