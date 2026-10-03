@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"net"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -91,8 +92,16 @@ func TestTruncateForError_truncatesLongOutput(t *testing.T) {
 	if len(got) > 505 {
 		t.Fatalf("expected truncated output, got length %d", len(got))
 	}
-	if !strings.HasSuffix(got, "…") {
-		t.Fatalf("expected truncation marker, got suffix %q", got[len(got)-10:])
+	if !strings.HasPrefix(got, "…") {
+		t.Fatalf("expected truncation marker, got prefix %q", got[:10])
+	}
+}
+
+// The actual failure of a long installer is at the end of its output, so that is what is kept.
+func TestTruncateForError_keepsTheTail(t *testing.T) {
+	out := strings.Repeat("progress...\n", 200) + "E: Unable to locate package curl"
+	if got := truncateForError(out); !strings.HasSuffix(got, "Unable to locate package curl") {
+		t.Fatalf("the end of the output must survive, got %q", got[len(got)-40:])
 	}
 }
 
@@ -230,8 +239,22 @@ func handleTestSSHConn(t *testing.T, nConn net.Conn, config *ssh.ServerConfig) {
 
 // runTestSSHCommand fakes just enough command handling to exercise our provisioning steps
 // without needing a real shell/Docker on the test machine.
+// testSSHUID / testSSHSudoOK let a test pretend to be root, a sudoer or a plain user.
+var (
+	testSSHUID    = "0"
+	testSSHSudoOK = true
+)
+
 func runTestSSHCommand(cmd string, w interface{ Write([]byte) (int, error) }) int {
 	switch {
+	case cmd == "id -u":
+		_, _ = w.Write([]byte(testSSHUID + "\n"))
+		return 0
+	case strings.Contains(cmd, "sudo -n true"):
+		if testSSHSudoOK {
+			return 0
+		}
+		return 1
 	case strings.Contains(cmd, "docker version"):
 		return 1 // simulate "docker not found" so install_docker path is exercised elsewhere
 	case strings.Contains(cmd, "exit 1"):
@@ -334,5 +357,88 @@ func TestBuildBalancerComposeYaml(t *testing.T) {
 	}
 	if strings.Contains(buildBalancerDockerComposeYaml("x", 0, 0), `"0"`) {
 		t.Error("port 0 must fall back to 8080")
+	}
+}
+
+func TestNodePortEnvLine(t *testing.T) {
+	for port, want := range map[int]string{0: "", -1: "", 8080: "", 70000: "", 8123: "      SHARX_NODE_PORT: \"8123\"\n"} {
+		if got := nodePortEnvLine(port); got != want {
+			t.Errorf("nodePortEnvLine(%d) = %q, want %q", port, got, want)
+		}
+	}
+}
+
+// A node registered under another port must get SHARX_NODE_PORT, otherwise the container listens on
+// 8080 and the panel never reaches it (the reported "port typed, env not added" bug).
+func TestBuildNodeDockerComposeYamlPort(t *testing.T) {
+	y := buildNodeDockerComposeYamlPort("sk", 0, 9443)
+	if !strings.Contains(y, `SHARX_NODE_PORT: "9443"`) {
+		t.Fatalf("custom node port missing from compose:\n%s", y)
+	}
+	if def := buildNodeDockerComposeYamlPort("sk", 0, 8080); strings.Contains(def, "SHARX_NODE_PORT") {
+		t.Fatal("the default port must not add the variable")
+	}
+	if buildNodeDockerComposeYaml("sk", 0) != buildNodeDockerComposeYamlPort("sk", 0, 0) {
+		t.Fatal("the legacy builder must stay identical to the portless one")
+	}
+	// The variable sits inside the node service's environment block, before the updater settings.
+	i, j := strings.Index(y, "SHARX_NODE_PORT"), strings.Index(y, "XUI_DOCKER_UPDATER_URL")
+	if i < 0 || j < i || !strings.Contains(y[:i], "environment:") {
+		t.Fatalf("SHARX_NODE_PORT is not in the environment block:\n%s", y)
+	}
+}
+
+func TestPrivWrappers(t *testing.T) {
+	if got := privShell("", "docker version"); got != "docker version" {
+		t.Errorf("root must run the snippet as is, got %q", got)
+	}
+	if got := privShell("sudo -n ", "mkdir -p '/opt/x' && echo hi"); got != "sudo -n sh -c 'mkdir -p '\\''/opt/x'\\'' && echo hi'" {
+		t.Errorf("sudo wrapping: %q", got)
+	}
+	cmd := privScript("sudo -n ", "echo hello")
+	if !strings.HasSuffix(cmd, "| sudo -n sh -s") || !strings.HasPrefix(cmd, "echo ") {
+		t.Errorf("script wrapper: %q", cmd)
+	}
+	out, err := exec.Command("sh", "-c", privScript("", "echo hello")).Output()
+	if err != nil || strings.TrimSpace(string(out)) != "hello" {
+		t.Errorf("privScript must round-trip a script through sh: %q %v", out, err)
+	}
+}
+
+// The Docker install script must at least be valid shell and cover the bare-server cases.
+func TestDockerInstallScript(t *testing.T) {
+	if out, err := exec.Command("sh", "-n", "-c", dockerInstallScript).CombinedOutput(); err != nil {
+		t.Fatalf("install script has a syntax error: %v: %s", err, out)
+	}
+	for _, want := range []string{"command -v curl", "wget", "apt-get", "dnf", "mktemp", "get.docker.com", "docker compose version", "set -e"} {
+		if !strings.Contains(dockerInstallScript, want) {
+			t.Errorf("install script lacks %q", want)
+		}
+	}
+	if strings.Contains(dockerInstallScript, "| sh") {
+		t.Error("never pipe the download into sh: a failed download would be reported as success")
+	}
+}
+
+func TestDetectSSHPrivilege(t *testing.T) {
+	addr := startTestSSHServer(t, "u", "p")
+	client, err := ssh.Dial("tcp", addr, &ssh.ClientConfig{User: "u", Auth: []ssh.AuthMethod{ssh.Password("p")}, HostKeyCallback: ssh.InsecureIgnoreHostKey()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	defer func(uid string, sudo bool) { testSSHUID, testSSHSudoOK = uid, sudo }(testSSHUID, testSSHSudoOK)
+
+	testSSHUID = "0"
+	if p, err := detectSSHPrivilege(client, "u"); err != nil || p != "" {
+		t.Errorf("root: prefix %q err %v", p, err)
+	}
+	testSSHUID, testSSHSudoOK = "1000", true
+	if p, err := detectSSHPrivilege(client, "u"); err != nil || p != "sudo -n " {
+		t.Errorf("sudoer: prefix %q err %v", p, err)
+	}
+	testSSHUID, testSSHSudoOK = "1000", false
+	if _, err := detectSSHPrivilege(client, "u"); err == nil || !strings.Contains(err.Error(), "not root") {
+		t.Errorf("a plain user must be refused with an explanation, got %v", err)
 	}
 }

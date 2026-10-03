@@ -113,6 +113,7 @@ func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
 		PrivateKeyPassphrase string `json:"privateKeyPassphrase"`
 		InstallDir           string `json:"installDir"`
 		WatchtowerPort       int    `json:"watchtowerPort"`
+		NodePort             int    `json:"nodePort"`
 		HostKeyFingerprint   string `json:"hostKeyFingerprint"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -138,6 +139,7 @@ func (a *NodeController) startNodeSSHProvision(c *gin.Context) {
 		SecretKey:            secret,
 		InstallDir:           body.InstallDir,
 		WatchtowerPort:       body.WatchtowerPort,
+		NodePort:             body.NodePort,
 		HostKeyFingerprint:   body.HostKeyFingerprint,
 	})
 	if err != nil {

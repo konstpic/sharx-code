@@ -140,7 +140,9 @@ type PendingRegistration = {
 };
 
 /** Host-network worker + Watchtower sidecar (127.0.0.1:8081) for in-panel image updates, same contract as the panel stack. */
-function buildNodeDockerComposeYaml(secretKey: string) {
+function buildNodeDockerComposeYaml(secretKey: string, nodePort?: number) {
+  // The node agent listens on 8080 unless SHARX_NODE_PORT says otherwise.
+  const portEnv = nodePort && nodePort !== 8080 && nodePort > 0 && nodePort <= 65535 ? `      SHARX_NODE_PORT: "${nodePort}"\n` : "";
   return `services:
   node:
     image: ${NODE_DOCKER_IMAGE}
@@ -159,7 +161,7 @@ function buildNodeDockerComposeYaml(secretKey: string) {
       - sharx-node-data:/app/data
     environment:
       SECRET_KEY: ${JSON.stringify(secretKey)}
-      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:8081/v1/update
+${portEnv}      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:8081/v1/update
       XUI_DOCKER_UPDATER_TOKEN: \${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
 
   watchtower:
@@ -741,6 +743,8 @@ export function NodesPage() {
           privateKeyPassphrase: sshAuthMethod === "key" ? sshPassphrase : undefined,
           installDir: sshInstallDir.trim() || undefined,
           watchtowerPort: parseInt(sshWatchtowerPort, 10) || undefined,
+          // The node must listen on the port the panel will register it under (SHARX_NODE_PORT).
+          nodePort: parseInt(form.port, 10) || undefined,
         };
         const startR = await postJson<{ taskId: string }>(panel("node/ssh-provision"), triggerBody, true);
         if (!startR.success || !startR.obj?.taskId) {
@@ -795,6 +799,7 @@ export function NodesPage() {
     getAddBody,
     t,
     form.host,
+    form.port,
     sshPort,
     sshUsername,
     sshAuthMethod,
@@ -947,7 +952,7 @@ export function NodesPage() {
   const copyDockerCompose = async () => {
     if (!createdSecretKey) return;
     try {
-      const yaml = buildNodeDockerComposeYaml(createdSecretKey);
+      const yaml = buildNodeDockerComposeYaml(createdSecretKey, parseInt(form.port, 10) || undefined);
       await copyTextToClipboard(yaml);
       toast.success(t("copied"));
     } catch {

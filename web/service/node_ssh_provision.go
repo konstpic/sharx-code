@@ -89,10 +89,16 @@ type NodeSSHProvisionRequest struct {
 	Role string
 	// AgentPort is the balancer agent's API port (balancer role only).
 	AgentPort int
+	// NodePort is the node agent's API port (node role only): written to the container as
+	// SHARX_NODE_PORT so the node listens where the panel will look for it. 0/8080 = the default.
+	NodePort int
 }
 
 const nodeSSHProvisionDefaultInstallDir = "/opt/sharxnode"
 const nodeSSHProvisionDefaultWatchtowerPort = 8081
+
+// nodeSSHProvisionDefaultNodePort is the node agent's built-in API port (node/defaults.APIListenPort).
+const nodeSSHProvisionDefaultNodePort = 8080
 
 // balancerSSHProvisionDefaultWatchtowerPort is deliberately different from the node's default so a
 // balancer and a node installed on the same host don't fight over the same loopback port.
@@ -165,6 +171,21 @@ volumes:
 // (observed live: an unrelated nginx on a shared box), which would otherwise fail docker-compose
 // up with a generic port-in-use error the admin has no way to work around from the wizard.
 func buildNodeDockerComposeYaml(secretKey string, watchtowerPort int) string {
+	return buildNodeDockerComposeYamlPort(secretKey, watchtowerPort, 0)
+}
+
+// nodePortEnvLine renders the SHARX_NODE_PORT variable for a non-default node API port ("" otherwise).
+func nodePortEnvLine(nodePort int) string {
+	if nodePort <= 0 || nodePort > 65535 || nodePort == nodeSSHProvisionDefaultNodePort {
+		return ""
+	}
+	return fmt.Sprintf("      SHARX_NODE_PORT: \"%d\"\n", nodePort)
+}
+
+// buildNodeDockerComposeYamlPort is buildNodeDockerComposeYaml plus the node's API port. The node
+// agent reads SHARX_NODE_PORT (node/main.go); without it the container always listens on 8080 and a
+// node registered under another port in the panel never becomes reachable.
+func buildNodeDockerComposeYamlPort(secretKey string, watchtowerPort, nodePort int) string {
 	if watchtowerPort <= 0 {
 		watchtowerPort = nodeSSHProvisionDefaultWatchtowerPort
 	}
@@ -186,7 +207,7 @@ func buildNodeDockerComposeYaml(secretKey string, watchtowerPort int) string {
       - sharx-node-data:/app/data
     environment:
       SECRET_KEY: %s
-      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:%d/v1/update
+%s      XUI_DOCKER_UPDATER_URL: http://127.0.0.1:%d/v1/update
       XUI_DOCKER_UPDATER_TOKEN: ${WATCHTOWER_HTTP_API_TOKEN:-local-dev-insecure-watchtower-token}
 
   watchtower:
@@ -217,7 +238,7 @@ volumes:
   sharx-node-logs:
   sharx-node-cert:
   sharx-node-data:
-`, nodeProvisionDockerImage, strconv.Quote(secretKey), watchtowerPort, watchtowerPort)
+`, nodeProvisionDockerImage, strconv.Quote(secretKey), nodePortEnvLine(nodePort), watchtowerPort, watchtowerPort)
 }
 
 // ---- task store (in-memory; mirrors ServerService's geofileTasks pattern) ----
@@ -367,9 +388,16 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 	defer client.Close()
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepConnect, "success", "") })
 
+	// --- privileges: root, or passwordless sudo; anything else cannot install Docker or write /opt ---
+	priv, err := detectSSHPrivilege(client, req.Username)
+	if err != nil {
+		fail(NodeProvisionStepCheckDocker, err)
+		return
+	}
+
 	// --- check docker ---
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepCheckDocker, "running", "") })
-	hasDocker, err := sshCommandOK(client, "docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1")
+	hasDocker, err := sshCommandOK(client, privShell(priv, "docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1"))
 	if err != nil {
 		fail(NodeProvisionStepCheckDocker, err)
 		return
@@ -384,8 +412,7 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 			t.setStep(NodeProvisionStepCheckDocker, "success", "Docker not found, installing")
 			t.setStep(NodeProvisionStepInstallDocker, "running", "")
 		})
-		out, err := sshRunCombined(client, 10*time.Minute,
-			"curl -fsSL https://get.docker.com | sh && systemctl enable --now docker")
+		out, err := sshRunCombined(client, 15*time.Minute, privScript(priv, dockerInstallScript))
 		if err != nil {
 			fail(NodeProvisionStepInstallDocker, fmt.Errorf("%v: %s", err, truncateForError(out)))
 			return
@@ -395,15 +422,15 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 
 	// --- write compose ---
 	s.updateSSHProvisionTask(taskID, func(t *NodeSSHProvisionTask) { t.setStep(NodeProvisionStepWriteCompose, "running", "") })
-	compose := buildNodeDockerComposeYaml(req.SecretKey, req.WatchtowerPort)
+	compose := buildNodeDockerComposeYamlPort(req.SecretKey, req.WatchtowerPort, req.NodePort)
 	if req.Role == BalancerRole {
 		compose = buildBalancerDockerComposeYaml(req.SecretKey, req.AgentPort, req.WatchtowerPort)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte(compose))
-	writeCmd := fmt.Sprintf(
+	writeCmd := privShell(priv, fmt.Sprintf(
 		"mkdir -p %s && echo %s | base64 -d > %s/docker-compose.yml",
 		shellQuote(req.InstallDir), encoded, shellQuote(req.InstallDir),
-	)
+	))
 	if out, err := sshRunCombined(client, 30*time.Second, writeCmd); err != nil {
 		fail(NodeProvisionStepWriteCompose, fmt.Errorf("%v: %s", err, truncateForError(out)))
 		return
@@ -419,7 +446,7 @@ func (s *NodeService) runNodeSSHProvision(taskID string, req NodeSSHProvisionReq
 		// A failed pull (offline registry, self-built image tagged locally) must not block starting an image that is already present.
 		upCmd = fmt.Sprintf("cd %s && (docker compose pull || true) && docker compose up -d", shellQuote(req.InstallDir))
 	}
-	out, err := sshRunCombined(client, 5*time.Minute, upCmd)
+	out, err := sshRunCombined(client, 5*time.Minute, privShell(priv, upCmd))
 	if err != nil {
 		fail(NodeProvisionStepComposeUp, fmt.Errorf("%v: %s", err, truncateForError(out)))
 		return
@@ -509,11 +536,13 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// truncateForError shortens remote command output for an error message. It keeps the END: for an
+// installer the actual failure is the last lines, the start is just progress noise.
 func truncateForError(s string) string {
 	s = strings.TrimSpace(s)
 	const max = 500
 	if len(s) > max {
-		return s[:max] + "…"
+		return "…" + s[len(s)-max:]
 	}
 	return s
 }
@@ -562,3 +591,64 @@ func ProbeSSHHostKey(host string, port int) (fingerprint, keyType string, err er
 	}
 	return "", "", dialErr
 }
+
+// detectSSHPrivilege decides how privileged commands run: "" for root, "sudo -n " for a user with
+// passwordless sudo. Any other user cannot install Docker or write the install dir, so fail early
+// with a message that says what to do instead of an empty/obscure error later.
+func detectSSHPrivilege(client *ssh.Client, username string) (string, error) {
+	out, err := sshRunCombined(client, 20*time.Second, "id -u")
+	if err != nil {
+		return "", fmt.Errorf("cannot determine the SSH user's privileges: %v: %s", err, truncateForError(out))
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if strings.TrimSpace(lines[len(lines)-1]) == "0" {
+		return "", nil
+	}
+	ok, err := sshCommandOK(client, "command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null")
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return "sudo -n ", nil
+	}
+	return "", fmt.Errorf("SSH user %q is not root and passwordless sudo is not available (sudo missing or asks for a password): connect as root, or install sudo and allow this user to use it without a password", username)
+}
+
+// privShell runs a shell snippet with the privilege prefix.
+func privShell(prefix, snippet string) string {
+	if prefix == "" {
+		return snippet
+	}
+	return prefix + "sh -c " + shellQuote(snippet)
+}
+
+// privScript runs a multi-line script with the privilege prefix, feeding it on stdin (no quoting issues).
+func privScript(prefix, script string) string {
+	return fmt.Sprintf("echo %s | base64 -d | %ssh -s", base64.StdEncoding.EncodeToString([]byte(script)), prefix)
+}
+
+// dockerInstallScript installs Docker + the compose plugin on a bare server. A fresh Debian/Ubuntu
+// has neither curl nor sudo, and `curl | sh` hides a failed download (the pipe reports sh's status),
+// so: make sure a downloader exists, download to a file, run it, then verify docker and compose.
+const dockerInstallScript = `set -e
+export DEBIAN_FRONTEND=noninteractive
+pm_install() {
+  if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq "$@"
+  elif command -v dnf >/dev/null 2>&1; then dnf install -y "$@"
+  elif command -v yum >/dev/null 2>&1; then yum install -y "$@"
+  elif command -v apk >/dev/null 2>&1; then apk add --no-cache "$@"
+  elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install "$@"
+  else echo "no supported package manager to install: $*" >&2; return 1; fi
+}
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+  pm_install curl ca-certificates
+fi
+tmp=$(mktemp)
+if command -v curl >/dev/null 2>&1; then curl -fsSL https://get.docker.com -o "$tmp"; else wget -qO "$tmp" https://get.docker.com; fi
+sh "$tmp"
+rm -f "$tmp"
+if command -v systemctl >/dev/null 2>&1; then systemctl enable --now docker; else service docker start; fi
+docker version >/dev/null 2>&1 || { echo "docker is installed but the daemon is not answering" >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || pm_install docker-compose-plugin
+docker compose version >/dev/null 2>&1 || { echo "docker compose plugin is missing after install" >&2; exit 1; }
+`
