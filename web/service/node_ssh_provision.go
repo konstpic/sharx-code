@@ -596,12 +596,14 @@ func ProbeSSHHostKey(host string, port int) (fingerprint, keyType string, err er
 // passwordless sudo. Any other user cannot install Docker or write the install dir, so fail early
 // with a message that says what to do instead of an empty/obscure error later.
 func detectSSHPrivilege(client *ssh.Client, username string) (string, error) {
-	out, err := sshRunCombined(client, 20*time.Second, "id -u")
+	// Decide by exit code, never by parsing output: a bare server may print locale warnings, a
+	// banner or a MOTD around the command's output (that misread root as "not root" in the field).
+	root, err := sshCommandOK(client, `[ "$(id -u 2>/dev/null)" = "0" ] || [ "$(whoami 2>/dev/null)" = "root" ]`)
 	if err != nil {
-		return "", fmt.Errorf("cannot determine the SSH user's privileges: %v: %s", err, truncateForError(out))
+		return "", fmt.Errorf("cannot determine the SSH user's privileges: %v", err)
 	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if strings.TrimSpace(lines[len(lines)-1]) == "0" {
+	// A login literally named root is uid 0 by convention, even where id/whoami are not in PATH.
+	if root || strings.EqualFold(strings.TrimSpace(username), "root") {
 		return "", nil
 	}
 	ok, err := sshCommandOK(client, "command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null")

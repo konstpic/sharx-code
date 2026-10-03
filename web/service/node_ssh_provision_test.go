@@ -247,9 +247,13 @@ var (
 
 func runTestSSHCommand(cmd string, w interface{ Write([]byte) (int, error) }) int {
 	switch {
-	case cmd == "id -u":
-		_, _ = w.Write([]byte(testSSHUID + "\n"))
-		return 0
+	case strings.Contains(cmd, `id -u`):
+		// The check is by exit code; the output is deliberately noisy like a real bare server's.
+		_, _ = w.Write([]byte("bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)\n"))
+		if testSSHUID == "0" {
+			return 0
+		}
+		return 1
 	case strings.Contains(cmd, "sudo -n true"):
 		if testSSHSudoOK {
 			return 0
@@ -432,6 +436,11 @@ func TestDetectSSHPrivilege(t *testing.T) {
 	testSSHUID = "0"
 	if p, err := detectSSHPrivilege(client, "u"); err != nil || p != "" {
 		t.Errorf("root: prefix %q err %v", p, err)
+	}
+	// A login named root is root even if the probe cannot prove it (regression: Debian 13, no sudo, no curl).
+	testSSHUID, testSSHSudoOK = "1000", false
+	if p, err := detectSSHPrivilege(client, "root"); err != nil || p != "" {
+		t.Errorf("user root must never be refused: prefix %q err %v", p, err)
 	}
 	testSSHUID, testSSHSudoOK = "1000", true
 	if p, err := detectSSHPrivilege(client, "u"); err != nil || p != "sudo -n " {
