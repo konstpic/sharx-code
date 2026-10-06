@@ -47,6 +47,7 @@ func New(dir string) *Manager {
 	go m.collectLoop()
 	go m.watchHealth()
 	go m.watchSystem()
+	go m.watchLogLevel()
 	logger.SetSource("balancer")
 	logger.SetMinEmitLevel(m.LogLevel())
 	return m

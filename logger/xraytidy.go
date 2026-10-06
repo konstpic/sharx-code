@@ -30,6 +30,11 @@ func TidyXrayMessage(msg string) (clean, connID string, drop bool) {
 	if m := xrayModuleRe.FindStringSubmatch(msg); m != nil {
 		connID, msg = m[1], m[2]
 	}
+	// load balancer / monitoring probes open a TCP connection and close it at once; xray logs one line per probe (every 3 s
+	// per balancer member) and nothing in it concerns a user
+	if strings.Contains(msg, "likely health check connection") {
+		return "", "", true
+	}
 	if strings.Contains(msg, "[api]") || strings.Contains(msg, "api -> api") ||
 		(strings.Contains(msg, "proxy/dokodemo") && strings.Contains(msg, "127.0.0.1")) {
 		return "", "", true

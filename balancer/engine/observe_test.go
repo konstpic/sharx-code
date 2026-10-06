@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
 )
@@ -99,5 +101,25 @@ func TestReloadNoiseIsNotAWarning(t *testing.T) {
 func TestConnID(t *testing.T) {
 	if got := connID("1.2.3.4:5555", "06/Oct/2026:19:57:48.025"); got != "1.2.3.4-5555@195748.025" {
 		t.Fatal(got)
+	}
+}
+
+func TestDebugLevelExpires(t *testing.T) {
+	m := &Manager{dir: t.TempDir()}
+	if m.LogLevel() != "info" {
+		t.Fatal("default must be info")
+	}
+	if err := m.SetLogLevel("debug"); err != nil || m.LogLevel() != "debug" {
+		t.Fatalf("debug on: %v %s", err, m.LogLevel())
+	}
+	old := time.Now().Add(-61 * time.Minute).Unix()
+	if err := os.WriteFile(m.dir+"/loglevel", []byte(fmt.Sprintf("debug %d", old)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if m.LogLevel() != "info" {
+		t.Fatal("debug must fall back to info after an hour")
+	}
+	if err := m.SetLogLevel("verbose"); err == nil {
+		t.Fatal("unknown level must be rejected")
 	}
 }

@@ -333,13 +333,26 @@ func (m *Manager) diag(sel map[string]int64) Diag {
 	}
 }
 
-// LogLevel is the journal verbosity: "info" (default) or "debug" (adds one line per closed connection).
+// debugTTL is how long DEBUG stays on after it is switched on. One line per closed connection is a lot on a busy
+// balancer, and a forgotten debug level would fill the log files; after an hour the agent falls back to info by itself.
+const debugTTL = time.Hour
+
+// LogLevel is the journal verbosity: "info" (default) or "debug" (adds one line per closed connection, expires after 1h).
 func (m *Manager) LogLevel() string {
 	b, err := os.ReadFile(m.dir + "/loglevel")
-	if err == nil && strings.TrimSpace(string(b)) == "debug" {
-		return "debug"
+	if err != nil {
+		return "info"
 	}
-	return "info"
+	f := strings.Fields(string(b))
+	if len(f) == 0 || f[0] != "debug" {
+		return "info"
+	}
+	if len(f) > 1 {
+		if at, err := strconv.ParseInt(f[1], 10, 64); err == nil && time.Since(time.Unix(at, 0)) > debugTTL {
+			return "info"
+		}
+	}
+	return "debug"
 }
 
 // SetLogLevel persists and applies the journal verbosity.
@@ -350,10 +363,20 @@ func (m *Manager) SetLogLevel(level string) error {
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(m.dir+"/loglevel", []byte(level), 0o600); err != nil {
+	if err := os.WriteFile(m.dir+"/loglevel", []byte(fmt.Sprintf("%s %d", level, time.Now().Unix())), 0o600); err != nil {
 		return err
 	}
 	logger.SetMinEmitLevel(level)
-	logConfig.Infof("journal level set to %s", level)
+	logConfig.Infof("journal level set to %s%s", level, map[bool]string{true: " (falls back to info after 1h)", false: ""}[level == "debug"])
 	return nil
+}
+
+// watchLogLevel applies the expiry of debug to the emit gate.
+func (m *Manager) watchLogLevel() {
+	for {
+		time.Sleep(time.Minute)
+		if cur := m.LogLevel(); cur == "info" {
+			logger.SetMinEmitLevel("info")
+		}
+	}
 }

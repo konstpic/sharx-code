@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,6 +64,9 @@ func (q EntityLogQuery) match(e websocket.UnifiedLogEntry) bool {
 		return false
 	}
 	if q.Until > 0 && e.Ts > q.Until {
+		return false
+	}
+	if len(q.Levels) == 0 && levelOrder(e.Level) < levelOrder(q.Level) {
 		return false
 	}
 	if len(q.Levels) > 0 {
@@ -166,33 +168,31 @@ func (s *ServerService) GetEntityLogs(entityType, entityID string, q EntityLogQu
 	entityType, entityID = strings.ToLower(strings.TrimSpace(entityType)), strings.TrimSpace(entityID)
 
 	var all []websocket.UnifiedLogEntry
-	lines := logger.GetLogsFromFile(0, q.Level)
-	if len(lines) == 0 {
-		lines = logger.GetLogs(0, q.Level) // no log file (e.g. Grafana/Loki mode): use the in-memory buffer
+	stored := logger.ReadEntries(q.Since) // the whole log file, plus rotated archives when the window reaches that far
+	if len(stored) == 0 {
+		stored = logger.GetEntries(0, "debug", nil) // no log file (e.g. Grafana/Loki mode): use the in-memory buffer
 	}
-	for _, line := range lines {
-		var e logger.Entry
-		if json.Unmarshal([]byte(line), &e) != nil {
-			continue
-		}
+	for _, e := range stored {
 		if !entryBelongsTo(e, entityType, entityID) {
 			continue
 		}
-		if u, ok := parseUnifiedLogLine(line); ok {
-			u.Message = logger.StripANSI(u.Message) // entries stored before capture stripped colours
-			if u.Component == "xray" || u.Source == "xray" {
-				// entries stored before the panel tidied xray lines on receipt
-				clean, id, drop := logger.TidyXrayMessage(u.Message)
-				if drop || clean == "" {
-					continue
-				}
-				u.Message = clean
-				if u.ConnID == "" {
-					u.ConnID = id
-				}
-			}
-			all = append(all, u)
+		u, ok := unifiedFromEntry(e)
+		if !ok {
+			continue
 		}
+		u.Message = logger.StripANSI(u.Message) // entries stored before capture stripped colours
+		if u.Component == "xray" || u.Source == "xray" {
+			// entries stored before the panel tidied xray lines on receipt
+			clean, id, drop := logger.TidyXrayMessage(u.Message)
+			if drop || clean == "" {
+				continue
+			}
+			u.Message = clean
+			if u.ConnID == "" {
+				u.ConnID = id
+			}
+		}
+		all = append(all, u)
 	}
 	res := EntityLogResult{}
 	if entityType == "balancer" {
@@ -262,5 +262,18 @@ func agentEntryToUnified(e logger.Entry) websocket.UnifiedLogEntry {
 	return websocket.UnifiedLogEntry{
 		Source: "balancer-agent", Level: strings.ToLower(e.Level), Channel: "service", Message: strings.TrimSpace(e.Msg), Ts: ts,
 		Component: e.Component, ConnID: e.ConnID,
+	}
+}
+
+func levelOrder(l string) int {
+	switch strings.ToLower(strings.TrimSpace(l)) {
+	case "error":
+		return 4
+	case "warn", "warning":
+		return 3
+	case "debug":
+		return 1
+	default:
+		return 2 // info, notice, unknown
 	}
 }

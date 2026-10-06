@@ -12,6 +12,7 @@ func TestTidyXrayMessage(t *testing.T) {
 		{"[518144434] app/dispatcher: taking detour [api] for [tcp:127.0.0.1:62789]", "", "", true},
 		{"2026/10/06 19:35:47 from 1.2.3.4:5555 accepted tcp:example.com:443 [vless-in -> direct] email: alice", "accepted tcp:example.com:443 from=1.2.3.4:5555 route=\"vless-in \u2192 direct\" email=alice", "", false},
 		{"[42] proxy/vless/inbound: firstLen = 5", "proxy/vless/inbound: firstLen = 5", "42", false},
+		{"proxy/socks: Connection closed immediately, likely health check connection", "", "", true},
 		{"Xray 26.9.9 started", "Xray 26.9.9 started", "", false},
 	}
 	for _, c := range cases {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -55,8 +54,8 @@ func LevelFromLine(line string) string {
 	}
 }
 
-// CaptureOutput makes cmd's stdout and stderr flow into the log as entries built from base, in addition to being
-// mirrored to the process's own stderr (so `docker logs` still shows everything). Call before cmd.Start(). The returned
+// CaptureOutput makes cmd's stdout and stderr flow into the log as entries built from base. They are not mirrored raw to
+// the process's stderr: the entry already reaches the console log, and a raw copy would double the container log. Call before cmd.Start(). The returned
 // func must be called after cmd.Wait() (or when Start failed): it flushes the last lines and stops the reader.
 func CaptureOutput(cmd *exec.Cmd, base Entry) (finish func()) {
 	return CaptureOutputFunc(cmd, base, nil)
@@ -69,7 +68,7 @@ func CaptureOutputFunc(cmd *exec.Cmd, base Entry, classify func(line string, e *
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		PipeLines(pr, os.Stderr, base, classify)
+		PipeLines(pr, nil, base, classify)
 	}()
 	var once sync.Once
 	return func() {

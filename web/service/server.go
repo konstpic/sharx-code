@@ -1383,6 +1383,11 @@ func parseUnifiedLogLine(line string) (websocket.UnifiedLogEntry, bool) {
 	if err := json.Unmarshal([]byte(line), &e); err != nil {
 		return websocket.UnifiedLogEntry{}, false
 	}
+	return unifiedFromEntry(e)
+}
+
+// unifiedFromEntry converts a stored entry to the shape the UI consumes.
+func unifiedFromEntry(e logger.Entry) (websocket.UnifiedLogEntry, bool) {
 	if strings.TrimSpace(e.Msg) == "" {
 		return websocket.UnifiedLogEntry{}, false
 	}
