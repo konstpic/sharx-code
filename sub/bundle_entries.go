@@ -18,6 +18,9 @@ func (s *SubService) addressPortFromHost(h *model.Host, inbound *model.Inbound) 
 			RemarkNodeName:    h.Name,
 			RemarkDisplayHost: h.Address,
 			Src:               AddrSource{Kind: model.HostKindPlacement},
+			// Host-level TLS/stream overrides (fp, sni, alpn...) must apply to node/pool hosts too.
+			ApplyHostSubscriptionOverrides: true,
+			OverrideHost:                   h,
 		}
 		if h.Port > 0 {
 			ap.Port = h.Port
@@ -34,6 +37,9 @@ func (s *SubService) addressPortFromHost(h *model.Host, inbound *model.Inbound) 
 			RemarkNodeName:    h.Name,
 			RemarkDisplayHost: h.Address,
 			Src:               AddrSource{Kind: model.HostKindPool},
+			// Host-level TLS/stream overrides (fp, sni, alpn...) must apply to node/pool hosts too.
+			ApplyHostSubscriptionOverrides: true,
+			OverrideHost:                   h,
 		}
 		if h.Port > 0 {
 			ap.Port = h.Port
