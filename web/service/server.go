@@ -1387,11 +1387,14 @@ func parseUnifiedLogLine(line string) (websocket.UnifiedLogEntry, bool) {
 		return websocket.UnifiedLogEntry{}, false
 	}
 
-	// Parse TS (logger uses "2006/01/02 15:04:05").
-	ts := time.Now().UnixMilli()
-	if raw := strings.TrimSpace(e.Ts); raw != "" {
-		if t0, err := time.ParseInLocation("2006/01/02 15:04:05", raw, time.Local); err == nil {
-			ts = t0.UnixMilli()
+	// Prefer the absolute timestamp: the "ts" string has no zone and a node in another timezone would be shifted.
+	ts := e.TsUnixMs
+	if ts == 0 {
+		ts = time.Now().UnixMilli()
+		if raw := strings.TrimSpace(e.Ts); raw != "" {
+			if t0, err := time.ParseInLocation("2006/01/02 15:04:05", raw, time.Local); err == nil {
+				ts = t0.UnixMilli()
+			}
 		}
 	}
 
@@ -1438,6 +1441,11 @@ func parseUnifiedLogLine(line string) (websocket.UnifiedLogEntry, bool) {
 		Ts:       ts,
 		NodeID:   strings.TrimSpace(e.NodeID),
 		NodeName: nodeName,
+
+		Component:  strings.TrimSpace(e.Component),
+		EntityType: strings.TrimSpace(e.EntityType),
+		EntityID:   strings.TrimSpace(e.EntityID),
+		ConnID:     strings.TrimSpace(e.ConnID),
 	}, true
 }
 

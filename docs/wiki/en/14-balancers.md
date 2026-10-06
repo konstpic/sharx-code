@@ -35,6 +35,8 @@ The section is in the menu **Nodes → Balancers** (`/panel/nodes/balancers/`) a
 
 A UDP inbound can only be put behind a balancer with the **nginx** engine — the panel checks this.
 
+**UDP pools are always sticky by client address.** UDP tunnels (WireGuard, AmneziaWG, Hysteria2/QUIC) keep per-client state, so every datagram of a client must reach the same node. For UDP pools the agent renders `listen <port> udp reuseport` and `hash $remote_addr consistent` whatever algorithm is selected (round robin and least connections would pick a node per session, and without `reuseport` one client flow was split over all nginx workers and several nodes). A reload or a weight change moves only a small share of clients.
+
 ## Adding and installing
 
 1. **Nodes → Balancers → Add balancer**: **Name**, **Public address (what clients connect to)**, **Engine**, optionally **Agent API address** (default `http://<public address>:8080`) and **Note**.
@@ -82,6 +84,24 @@ Both auto modes recompute on a shared timer, **Settings → General → Balancer
 Switching a pool to **Manual** stops the recompute for that pool; the last computed (or your own) weights stay until you change them.
 
 > Auto weighting only chooses *how much* traffic a healthy node gets — it does not replace health checks. A node that fails its health check is still dropped from rotation regardless of weight mode.
+
+## Logs and diagnostics
+
+**Balancers → balancer → Logs** (and **Nodes → node → Logs**) open the journal of that one entity, filterable by level, component and text. For a balancer the panel merges its own events (config pushes, agent reachability) with the agent's journal:
+
+| Component | What you see |
+|-----------|--------------|
+| `config` | Config pushed / applied / rejected, spec hash, pools and members with weights, reload requests, drift re-applies |
+| `engine` | HAProxy / nginx start, exit and restart, the engine's own notices and errors |
+| `health` | Backend up/down with `members_up=x/y`, failover (`action=failover` or `action=none`), nginx upstream failures |
+| `connection` | One line per closed connection or UDP session (client, backend, duration, bytes, termination result) with a connection id; recorded at **DEBUG** only, enable it in the Logs window while investigating |
+| `system` | Interface drops/errors and conntrack table above 80 % |
+
+Failed sessions (backend connect failure, abort, timeout) are always logged at WARN, and the counters are updated at any level. The card shows the counters: connections, errors, timeouts, backend failures, failovers, reloads, conntrack usage and NIC drops (`diag` in `GET /api/v1/status` of the agent). Agent endpoints: `GET /api/v1/logs`, `POST /api/v1/log-level`.
+
+For nodes, the output of AmneziaWG and Telemt processes is now captured into the journal (component `amneziawg` / `telemt`) next to `xray`, `health`, `config` and the panel's own actions on the node.
+
+Auto weights (`ping`/`load`) change a stored weight only when it moves by at least a quarter (and 2), so RTT jitter does not reload the engine every 30 seconds.
 
 ## Traffic graph
 

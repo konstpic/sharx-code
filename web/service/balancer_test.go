@@ -64,3 +64,27 @@ func TestBuildSpecFor(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWeightChangeSignificant(t *testing.T) {
+	cases := []struct {
+		old, now int
+		want     bool
+	}{{50, 50, false}, {50, 49, false}, {50, 47, false}, {50, 37, true}, {50, 100, true}, {1, 2, false}, {1, 3, true}, {10, 12, false}, {10, 13, true}}
+	for _, c := range cases {
+		if got := weightChangeSignificant(c.old, c.now); got != c.want {
+			t.Errorf("%d->%d: got %v want %v", c.old, c.now, got, c.want)
+		}
+	}
+}
+
+func TestRttWeightIsCoarse(t *testing.T) {
+	// jitter around one latency must not change the weight
+	for _, ms := range []int64{18, 20, 21, 25, 29} {
+		if rttWeight(ms) != 50 {
+			t.Errorf("%d ms -> %d, want 50", ms, rttWeight(ms))
+		}
+	}
+	if rttWeight(5) != 100 || rttWeight(300) != 3 || rttWeight(120) != 10 {
+		t.Error("bucket edges")
+	}
+}

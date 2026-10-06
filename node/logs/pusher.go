@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
+	nodeConfigPkg "github.com/konstpic/sharx-code/v2/node/config"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 )
 
@@ -112,6 +113,12 @@ type nodeConfigData struct {
 // getNodeConfig is a helper to get node config without circular dependency.
 // It reads the config file directly to avoid importing the config package.
 func getNodeConfig() *nodeConfigData {
+	// The node's own persisted config (data volume, loaded at startup) is the source of truth: it holds the panel-assigned
+	// nodeId. Reading only the legacy bin/config paths below missed it, so pushes carried no nodeId and a node without
+	// NODE_ADDRESS (address falls back to 127.0.0.1) could not be matched by the panel: its journal stayed empty.
+	if c := nodeConfigPkg.GetConfig(); c != nil && (c.PanelURL != "" || c.NodeAddress != "" || c.NodeId > 0) {
+		return &nodeConfigData{PanelURL: c.PanelURL, NodeAddress: c.NodeAddress, NodeId: c.NodeId}
+	}
 	configPaths := []string{"bin/node-config.json", "config/node-config.json", "./node-config.json", "/app/bin/node-config.json", "/app/config/node-config.json"}
 
 	for _, path := range configPaths {

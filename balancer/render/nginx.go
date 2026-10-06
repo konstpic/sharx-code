@@ -13,15 +13,21 @@ func nginx(s spec.Spec) string {
 	b.WriteString("load_module /usr/lib/nginx/modules/ngx_stream_module.so;\n")
 	b.WriteString("worker_processes auto;\nerror_log /dev/stderr warn;\npid /run/sharx-nginx.pid;\n")
 	b.WriteString("events { worker_connections 16384; }\n\nstream {\n")
+	// One line per closed TCP connection / UDP session; the agent parses it into the journal and the counters.
+	b.WriteString("    log_format sharx 'SHARX $remote_addr:$remote_port $protocol $status $bytes_received $bytes_sent $session_time \"$upstream_addr\" $upstream_connect_time';\n")
+	b.WriteString("    access_log /dev/stdout sharx;\n")
 	for _, p := range s.Pools {
 		fmt.Fprintf(&b, "    upstream up_%d {\n", p.ID)
 		// A shared zone makes round robin, least_conn and failure counters common to all workers.
 		fmt.Fprintf(&b, "        zone up_%d 128k;\n", p.ID)
-		switch p.Algorithm {
-		case spec.AlgoLeastConn:
-			b.WriteString("        least_conn;\n")
-		case spec.AlgoSource:
+		switch {
+		case p.Proto == spec.ProtoUDP, p.Algorithm == spec.AlgoSource:
+			// UDP tunnels (WireGuard, AmneziaWG, QUIC) are stateful: every datagram of a client must reach the same
+			// backend, also after a reload or when the idle session expired. Round robin / least_conn would pick a
+			// backend per new session, so UDP always uses a consistent hash on the client address.
 			b.WriteString("        hash $remote_addr consistent;\n")
+		case p.Algorithm == spec.AlgoLeastConn:
+			b.WriteString("        least_conn;\n")
 		}
 		for _, m := range p.Members {
 			line := fmt.Sprintf("        server %s weight=%d", backendAddr(m), weightOf(m))
@@ -36,10 +42,15 @@ func nginx(s spec.Spec) string {
 		b.WriteString("    }\n")
 		b.WriteString("    server {\n")
 		if p.Proto == spec.ProtoUDP {
-			fmt.Fprintf(&b, "        listen %d udp;\n", p.ListenPort)
+			// reuseport: the kernel pins one client 4-tuple to one worker. Without it all workers read the same socket,
+			// so one client flow is split into several upstream sessions (observed: 10 sessions on 2 backends).
+			fmt.Fprintf(&b, "        listen %d udp reuseport;\n", p.ListenPort)
 			b.WriteString("        proxy_timeout 10m;\n")
 		} else {
-			fmt.Fprintf(&b, "        listen %d;\n", p.ListenPort)
+			// so_keepalive: probe a silent client after 60s, every 15s, 4 misses, so a vanished client (no FIN/RST) is
+			// dropped in about two minutes instead of holding the session until proxy_timeout.
+			fmt.Fprintf(&b, "        listen %d so_keepalive=60s:15s:4;\n", p.ListenPort)
+			b.WriteString("        proxy_socket_keepalive on;\n")
 			b.WriteString("        proxy_timeout 1h;\n")
 			if p.ProxyProtocol {
 				b.WriteString("        proxy_protocol on;\n")

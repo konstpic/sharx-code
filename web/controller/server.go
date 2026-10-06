@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,6 +103,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/geofileAssets/delete/:id", a.deleteGeofileAsset)
 	g.POST("/logs/:count", a.getLogs)
 	g.GET("/logs/unified/:count", a.getUnifiedLogs)
+	g.GET("/logs/entity/:type/:id", a.getEntityLogs)
 	g.GET("/logs/stream", a.getLogsSSE)
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/importDB", a.importDB)
@@ -974,6 +976,81 @@ func (a *ServerController) getUnifiedLogs(c *gin.Context) {
 	}
 	logs := a.serverService.GetUnifiedLogs(count)
 	jsonObj(c, logs, nil)
+}
+
+// getEntityLogs returns the journal of one node or balancer, or of the panel itself (type "panel").
+// Query: count, level (minimum), levels (exact, comma separated), component (comma separated), q (terms; -term excludes),
+// since / until (unix ms). With download=1 it answers with an attachment in format txt, ndjson or csv.
+func (a *ServerController) getEntityLogs(c *gin.Context) {
+	entityType := strings.ToLower(c.Param("type"))
+	if entityType != "node" && entityType != "balancer" && entityType != "panel" {
+		jsonMsg(c, "Unknown entity type", fmt.Errorf("type must be node, balancer or panel"))
+		return
+	}
+	count, _ := strconv.Atoi(c.Query("count"))
+	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
+	until, _ := strconv.ParseInt(c.Query("until"), 10, 64)
+	var levels []string
+	for _, l := range strings.Split(c.Query("levels"), ",") {
+		if l = strings.TrimSpace(strings.ToLower(l)); l != "" {
+			levels = append(levels, l)
+		}
+	}
+	res := a.serverService.GetEntityLogs(entityType, c.Param("id"), service.EntityLogQuery{
+		Count: count, Level: c.Query("level"), Levels: levels, Component: c.Query("component"), Q: c.Query("q"), Since: since, Until: until,
+	})
+	if c.Query("download") == "" {
+		jsonObj(c, res, nil)
+		return
+	}
+	writeLogDownload(c, entityType+"-"+c.Param("id"), c.Query("format"), res.Entries)
+}
+
+// writeLogDownload streams entries (newest first in, oldest first out, like a log file) as txt, ndjson or csv.
+func writeLogDownload(c *gin.Context, name, format string, entries []websocket.UnifiedLogEntry) {
+	ts := time.Now().Format("20060102-150405")
+	var ext, mime string
+	switch format {
+	case "ndjson", "json":
+		ext, mime = "ndjson", "application/x-ndjson"
+	case "csv":
+		ext, mime = "csv", "text/csv; charset=utf-8"
+	default:
+		ext, mime = "log", "text/plain; charset=utf-8"
+	}
+	c.Header("Content-Type", mime)
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="sharx-%s-%s.%s"`, strings.NewReplacer("/", "_", " ", "_").Replace(name), ts, ext))
+	w := c.Writer
+	if ext == "csv" {
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"time", "level", "component", "source", "conn_id", "message"})
+		for i := len(entries) - 1; i >= 0; i-- {
+			e := entries[i]
+			_ = cw.Write([]string{time.UnixMilli(e.Ts).UTC().Format(time.RFC3339Nano), e.Level, e.Component, e.Source, e.ConnID, e.Message})
+		}
+		cw.Flush()
+		return
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if ext == "ndjson" {
+			b, _ := json.Marshal(e)
+			_, _ = w.Write(append(b, '\n'))
+			continue
+		}
+		line := fmt.Sprintf("%s %-5s [%s] %s", time.UnixMilli(e.Ts).UTC().Format("2006-01-02T15:04:05.000Z"), strings.ToUpper(e.Level), firstNonEmpty(e.Component, e.Source), e.Message)
+		if e.ConnID != "" {
+			line += " conn=" + e.ConnID
+		}
+		_, _ = w.Write([]byte(line + "\n"))
+	}
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // getXrayLogs retrieves Xray logs with filtering options for direct, blocked, and proxy traffic.

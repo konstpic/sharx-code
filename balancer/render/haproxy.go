@@ -21,6 +21,12 @@ func haproxy(s spec.Spec) string {
 	b.WriteString("    mode tcp\n    log global\n    option tcplog\n    option dontlognull\n")
 	b.WriteString("    timeout connect 5s\n    timeout client 1h\n    timeout server 1h\n    timeout check 3s\n")
 	b.WriteString("    default-server init-addr last,libc,none\n")
+	// A peer that vanished without FIN/RST (phone out of coverage, dead node, dropped route) must not hold a session
+	// for the whole 1h idle timeout, together with the backend socket behind it. Keepalive probes after 60s idle,
+	// every 15s, 4 misses: a dead peer is dropped in about two minutes on both legs.
+	b.WriteString("    option clitcpka\n    option srvtcpka\n")
+	b.WriteString("    clitcpka-idle 60s\n    clitcpka-intvl 15s\n    clitcpka-cnt 4\n")
+	b.WriteString("    srvtcpka-idle 60s\n    srvtcpka-intvl 15s\n    srvtcpka-cnt 4\n")
 	for _, p := range s.Pools {
 		if p.Proto != spec.ProtoTCP {
 			continue

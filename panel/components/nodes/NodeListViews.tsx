@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Power, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, FileText, Power, RefreshCw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { DragHandle } from "@/components/ui/drag-handle";
@@ -63,6 +63,7 @@ export type NodeListViewContext = {
   amneziawgStoppingId: number | null;
   amneziawgRestartingId: number | null;
   onMetrics: (r: NodeListRow) => void;
+  onLogs: (r: NodeListRow) => void;
   onDelete: (r: NodeListRow) => void;
 };
 
@@ -105,7 +106,7 @@ function NodeOperateButtons({
   ctx: NodeListViewContext;
   compact?: boolean;
 }) {
-  const { t, onMetrics, onDelete } = ctx;
+  const { t, onMetrics, onLogs, onDelete } = ctx;
   return (
     <div
       className={`flex items-center ${compact ? "gap-0.5" : "gap-1"}`}
@@ -121,6 +122,16 @@ function NodeOperateButtons({
         onClick={() => onMetrics(r)}
       >
         <Activity size={16} />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+        title={t("pages.logs.title", { defaultValue: "Logs" })}
+        aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
+        onClick={() => onLogs(r)}
+      >
+        <FileText size={16} />
       </Button>
       <Button
         type="button"

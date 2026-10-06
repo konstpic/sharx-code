@@ -13,8 +13,6 @@ import (
 	"time"
 
 	toml "github.com/pelletier/go-toml/v2"
-
-	"github.com/konstpic/sharx-code/v2/logger"
 )
 
 // DC availability states shown to operators.
@@ -299,7 +297,7 @@ func (m *Manager) CollectDCStatus() []InstanceDCStatus {
 			}
 			var doc telemtTomlRoot
 			if err := toml.Unmarshal(b, &doc); err != nil {
-				logger.Debugf("telemt dc status: %s: parse config: %v", tag, err)
+				lg.Debugf("telemt dc status: %s: parse config: %v", tag, err)
 				st.Reason = "unreachable"
 				res[i] = st
 				return

@@ -496,6 +496,14 @@ type AgentStatus struct {
 			RTTMs    *int64 `json:"rttMs,omitempty"`
 		} `json:"members"`
 	} `json:"pools"`
+	// Diag is the agent's production counters (connections, errors, timeouts, failovers, conntrack, interface drops),
+	// passed through to the UI as the agent sent it.
+	Diag json.RawMessage `json:"diag,omitempty"`
+}
+
+// balancerLog returns a journal logger bound to one balancer, so every event shows up in Balancers -> Logs.
+func balancerLog(b *model.Balancer, component string) *logger.Scoped {
+	return logger.WithComponent(component).ForEntity("balancer", strconv.Itoa(b.Id))
 }
 
 var (
@@ -594,8 +602,17 @@ func (s *BalancerService) Refresh(id int) (*AgentStatus, error) {
 	set := func(status string, fields map[string]any) {
 		fields["status"], fields["last_check"], fields["response_time"] = status, time.Now().Unix(), rt
 		db.Model(&model.Balancer{}).Where("id = ?", id).Updates(fields)
+		if b.Status != status {
+			// only transitions are journaled; a steady state would write a line every 15 s
+			if status == "online" {
+				balancerLog(b, "health").Infof("[Balancer: %s] agent is online again (was %s), response %d ms", b.Name, orUnknown(b.Status), rt)
+			} else {
+				balancerLog(b, "health").Warningf("[Balancer: %s] agent status %s -> %s", b.Name, orUnknown(b.Status), status)
+			}
+		}
 	}
 	if err != nil {
+		balancerLog(b, "health").Debugf("[Balancer: %s] agent status request failed: %v", b.Name, err)
 		set("offline", map[string]any{})
 		balancerLiveMu.Lock()
 		delete(balancerLive, id)
@@ -605,11 +622,13 @@ func (s *BalancerService) Refresh(id int) (*AgentStatus, error) {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
+		balancerLog(b, "health").Warningf("[Balancer: %s] agent returned HTTP %d to the status request", b.Name, resp.StatusCode)
 		set("error", map[string]any{})
 		return nil, fmt.Errorf("agent returned %d", resp.StatusCode)
 	}
 	var full agentStatusResp
 	if err := json.Unmarshal(raw, &full); err != nil {
+		balancerLog(b, "health").Warningf("[Balancer: %s] cannot parse the agent status: %v", b.Name, err)
 		set("error", map[string]any{})
 		return nil, err
 	}
@@ -639,14 +658,18 @@ func (s *BalancerService) Apply(id int) error {
 	sp := s.buildSpecFor(b)
 	hash := sp.Hash()
 	db := database.GetDB()
+	cfgLog := balancerLog(b, "config")
+	cfgLog.Infof("[Balancer: %s] pushing config %s (%s, %d pool(s)): %s", b.Name, hash[:12], sp.Engine, len(sp.Pools), describeSpec(sp))
 	db.Model(&model.Balancer{}).Where("id = ?", id).Update("config_hash", hash)
 	if err := sp.Validate(); err != nil {
+		cfgLog.Errorf("[Balancer: %s] config %s is invalid, nothing was sent: %v", b.Name, hash[:12], err)
 		db.Model(&model.Balancer{}).Where("id = ?", id).Update("last_error", err.Error())
 		return err
 	}
 	body, _ := json.Marshal(sp)
 	resp, err := s.agentRequest(b, http.MethodPost, "/api/v1/apply", body)
 	if err != nil {
+		cfgLog.Errorf("[Balancer: %s] config %s not delivered, agent unreachable: %v", b.Name, hash[:12], err)
 		db.Model(&model.Balancer{}).Where("id = ?", id).Updates(map[string]any{"last_error": "agent unreachable: " + err.Error(), "status": "offline"})
 		return err
 	}
@@ -661,9 +684,11 @@ func (s *BalancerService) Apply(id int) error {
 		if msg == "" {
 			msg = fmt.Sprintf("agent returned %d", resp.StatusCode)
 		}
+		cfgLog.Errorf("[Balancer: %s] agent rejected config %s (HTTP %d): %s", b.Name, hash[:12], resp.StatusCode, msg)
 		db.Model(&model.Balancer{}).Where("id = ?", id).Update("last_error", msg)
 		return errors.New(msg)
 	}
+	cfgLog.Infof("[Balancer: %s] agent applied config %s", b.Name, hash[:12])
 	db.Model(&model.Balancer{}).Where("id = ?", id).Updates(map[string]any{"applied_hash": hash, "last_applied_at": time.Now().Unix(), "last_error": ""})
 	_, _ = s.Refresh(id)
 	return nil
@@ -749,6 +774,7 @@ func (s *BalancerService) Reconcile() {
 		if recent {
 			continue
 		}
+		balancerLog(&b, "config").Infof("[Balancer: %s] agent runs spec %s but the panel wants %s: re-applying", b.Name, short(st.Hash), short(want))
 		if err := s.Apply(b.Id); err != nil {
 			logger.Warningf("balancer %d (%s): apply failed: %v", b.Id, b.Name, err)
 		}
@@ -787,4 +813,97 @@ func (s *BalancerService) SubscriptionEntries(inboundId int, inboundPort int) []
 		out = append(out, BalancerSubEntry{Address: b.Address, Port: port, Mode: model.NormalizeBalancerSubMode(p.SubMode), Name: b.Name, PoolId: p.Id})
 	}
 	return out
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+func short(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	if h == "" {
+		return "none"
+	}
+	return h
+}
+
+// describeSpec renders a spec as "[pool 3 tcp :443 roundrobin -> node:443(w2), ...]" for the journal.
+func describeSpec(sp spec.Spec) string {
+	var parts []string
+	for _, p := range sp.Pools {
+		var mem []string
+		for _, m := range p.Members {
+			b := ""
+			if m.Backup {
+				b = ",backup"
+			}
+			mem = append(mem, fmt.Sprintf("%s:%d(w%d%s)", m.Host, m.Port, m.Weight, b))
+		}
+		parts = append(parts, fmt.Sprintf("[pool %d %s :%d %s -> %s]", p.ID, p.Proto, p.ListenPort, p.Algorithm, strings.Join(mem, ", ")))
+	}
+	return strings.Join(parts, " ")
+}
+
+// AgentLogs fetches the agent's own journal (config, engine, health, connection, system events).
+func (s *BalancerService) AgentLogs(id int, q EntityLogQuery) ([]logger.Entry, string, error) {
+	b, err := s.Get(id)
+	if err != nil {
+		return nil, "", err
+	}
+	v := url.Values{}
+	v.Set("count", strconv.Itoa(q.Count))
+	v.Set("level", q.Level)
+	if q.Component != "" {
+		v.Set("component", q.Component)
+	}
+	if q.Q != "" {
+		v.Set("q", q.Q)
+	}
+	if q.Since > 0 {
+		v.Set("since", strconv.FormatInt(q.Since, 10))
+	}
+	resp, err := s.agentRequest(b, http.MethodGet, "/api/v1/logs?"+v.Encode(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	if err != nil {
+		return nil, "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("agent returned %d (update the agent to get its journal)", resp.StatusCode)
+	}
+	var out struct {
+		LogLevel string         `json:"logLevel"`
+		Entries  []logger.Entry `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, "", err
+	}
+	return out.Entries, out.LogLevel, nil
+}
+
+// SetAgentLogLevel switches the agent journal between info and debug (debug adds one line per closed connection).
+func (s *BalancerService) SetAgentLogLevel(id int, level string) error {
+	b, err := s.Get(id)
+	if err != nil {
+		return err
+	}
+	body, _ := json.Marshal(map[string]string{"level": level})
+	resp, err := s.agentRequest(b, http.MethodPost, "/api/v1/log-level", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("agent returned %d", resp.StatusCode)
+	}
+	balancerLog(b, "config").Infof("[Balancer: %s] agent journal level set to %s", b.Name, level)
+	return nil
 }

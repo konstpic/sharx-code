@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
@@ -114,7 +113,7 @@ func (m *Manager) MergeAmneziaWgIntoNodeStats(traffic *[]*xray.Traffic, clientTr
 	for _, row := range rows {
 		peers, err := fetchAwgDumpPeers(awg, row.iface)
 		if err != nil {
-			logger.Debugf("amneziawg stats: %s: %v", row.tag, err)
+			lg.Debugf("amneziawg stats: %s: %v", row.tag, err)
 			continue
 		}
 		snapPath := filepath.Join(row.stateDir, awgTransferSnapshotFile)
@@ -170,7 +169,7 @@ func (m *Manager) MergeAmneziaWgIntoNodeStats(traffic *[]*xray.Traffic, clientTr
 		}
 
 		if err := saveAwgTransferSnapshot(snapPath, next); err != nil {
-			logger.Debugf("amneziawg stats: %s: save snapshot: %v", row.tag, err)
+			lg.Debugf("amneziawg stats: %s: save snapshot: %v", row.tag, err)
 		}
 
 		if (tagUp > 0 || tagDown > 0) && traffic != nil {
@@ -289,7 +288,7 @@ func (m *Manager) CollectOnlineSessionsForUser(email string) []xray.OnlineIPSess
 	for _, r := range rows {
 		peers, err := fetchAwgDumpPeers(awg, r.iface)
 		if err != nil {
-			logger.Debugf("amneziawg sessions: %s: %v", r.tag, err)
+			lg.Debugf("amneziawg sessions: %s: %v", r.tag, err)
 			continue
 		}
 		for _, pub := range r.pubKeys {

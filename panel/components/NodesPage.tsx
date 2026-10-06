@@ -3,6 +3,7 @@
 import {
   Activity,
   Copy,
+  FileText,
   Filter,
   LayoutGrid,
   LayoutList,
@@ -32,6 +33,7 @@ import {
 import { NodeRegisterStep } from "@/components/NodeRegisterStep";
 import { NodeSSHProvisionSteps, type SSHProvisionStep } from "@/components/NodeSSHProvisionSteps";
 import { NodeResourceDrawer } from "@/components/NodeResourceDrawer";
+import { EntityLogsModal } from "@/components/EntityLogsModal";
 import {
   NodeListView,
   NodeTilesView,
@@ -256,6 +258,7 @@ export function NodesPage() {
   const sshPollAbort = useRef<{ cancelled: boolean } | null>(null);
 
   const [metricsNode, setMetricsNode] = useState<{ id: number; name: string } | null>(null);
+  const [logsNode, setLogsNode] = useState<{ id: number; name: string } | null>(null);
   const [multiNode, setMultiNode] = useState<boolean | null>(null);
   const [profileList, setProfileList] = useState<XrayProfileRow[]>([]);
   const [profileListLoading, setProfileListLoading] = useState(false);
@@ -1418,6 +1421,7 @@ export function NodesPage() {
       amneziawgStoppingId,
       amneziawgRestartingId,
       onMetrics: (r: NodeRow) => setMetricsNode({ id: r.id, name: r.name }),
+      onLogs: (r: NodeRow) => setLogsNode({ id: r.id, name: r.name }),
       onDelete: (r: NodeRow) => setDeleteTarget(r),
     }),
     [
@@ -1843,6 +1847,16 @@ export function NodesPage() {
                           onClick={() => setMetricsNode({ id: r.id, name: r.name })}
                         >
                           <Activity size={16} />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+                          title={t("pages.logs.title", { defaultValue: "Logs" })}
+                          aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
+                          onClick={() => setLogsNode({ id: r.id, name: r.name })}
+                        >
+                          <FileText size={16} />
                         </Button>
                         <Button
                           type="button"
@@ -2791,6 +2805,13 @@ export function NodesPage() {
         nodeId={metricsNode?.id ?? null}
         nodeName={metricsNode?.name ?? ""}
         onClose={() => setMetricsNode(null)}
+      />
+      <EntityLogsModal
+        open={logsNode != null}
+        entityType="node"
+        entityId={logsNode?.id ?? null}
+        title={`${t("pages.logs.title", { defaultValue: "Logs" })}: ${logsNode?.name ?? ""}`}
+        onClose={() => setLogsNode(null)}
       />
     </PageScaffold>
   );

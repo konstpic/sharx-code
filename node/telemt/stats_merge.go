@@ -15,9 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
-	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/xray"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // promFallbackWarned remembers instances already reported as falling back to the JSON API.
@@ -122,7 +121,7 @@ func (m *Manager) MergeTelemtIntoNodeStats(traffic *[]*xray.Traffic, clientTraff
 		}
 		var doc telemtTomlRoot
 		if err := toml.Unmarshal(b, &doc); err != nil {
-			logger.Debugf("telemt stats: %s: parse config: %v", tag, err)
+			lg.Debugf("telemt stats: %s: parse config: %v", tag, err)
 			continue
 		}
 		if !doc.Server.API.Enabled {
@@ -134,7 +133,7 @@ func (m *Manager) MergeTelemtIntoNodeStats(traffic *[]*xray.Traffic, clientTraff
 		}
 		host, port, err := net.SplitHostPort(listen)
 		if err != nil {
-			logger.Debugf("telemt stats: %s: invalid api listen %q", tag, listen)
+			lg.Debugf("telemt stats: %s: invalid api listen %q", tag, listen)
 			continue
 		}
 		baseURL := "http://" + net.JoinHostPort(host, port)
@@ -146,7 +145,7 @@ func (m *Manager) MergeTelemtIntoNodeStats(traffic *[]*xray.Traffic, clientTraff
 
 		users, err := fetchTelemtUsersJSON(baseURL, authHeader)
 		if err != nil {
-			logger.Debugf("telemt stats: %s: %v", tag, err)
+			lg.Debugf("telemt stats: %s: %v", tag, err)
 			continue
 		}
 
@@ -208,7 +207,7 @@ func (m *Manager) MergeTelemtIntoNodeStats(traffic *[]*xray.Traffic, clientTraff
 
 		// Persist users still in Telemt; drop removed users from snapshot.
 		if err := saveOctetsSnapshot(snapPath, next); err != nil {
-			logger.Debugf("telemt stats: %s: save snapshot: %v", tag, err)
+			lg.Debugf("telemt stats: %s: save snapshot: %v", tag, err)
 		}
 
 		if tagTotal > 0 && traffic != nil {
@@ -299,11 +298,11 @@ func (m *Manager) mergeTelemtPrometheusCounters(
 	}
 	cur, err := fetchTelemtPrometheusUserOctets(metricsURL)
 	if err != nil || len(cur) == 0 {
-		logger.Debugf("telemt stats: %s: prometheus: %v", tag, err)
+		lg.Debugf("telemt stats: %s: prometheus: %v", tag, err)
 		// Falling back to the JSON API loses the up/down split (Telemt only reports a bidirectional
 		// total there), which shows up as "received = 0". Say so once instead of failing silently.
 		if _, warned := promFallbackWarned.LoadOrStore(tag, struct{}{}); !warned {
-			logger.Warningf("telemt stats: %s: no per-user octets in Prometheus metrics at %s (err=%v); using the JSON API total, which has no up/down split — check the Telemt metric names after a Telemt upgrade", tag, metricsURL, err)
+			lg.Warningf("telemt stats: %s: no per-user octets in Prometheus metrics at %s (err=%v); using the JSON API total, which has no up/down split — check the Telemt metric names after a Telemt upgrade", tag, metricsURL, err)
 		}
 		return false
 	}
@@ -353,7 +352,7 @@ func (m *Manager) mergeTelemtPrometheusCounters(
 		}
 	}
 	if err := savePromOctetsSnapshot(snapPath, next); err != nil {
-		logger.Debugf("telemt stats: %s: save prom snapshot: %v", tag, err)
+		lg.Debugf("telemt stats: %s: save prom snapshot: %v", tag, err)
 	}
 	// Single inbound traffic entry with the REAL tag so panel CollectNodeStats can map
 	// it to inboundId via tagToInboundId. Splitting Down into a synthetic tag+"_up"

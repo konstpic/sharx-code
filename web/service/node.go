@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -485,7 +486,8 @@ func (s *NodeService) RefreshNodeAmneziaWgStateFromWorker(node *model.Node) erro
 }
 
 // StopAmneziaWgOnNode stops AmneziaWG sidecars on the worker without stopping Xray.
-func (s *NodeService) StopAmneziaWgOnNode(node *model.Node) error {
+func (s *NodeService) StopAmneziaWgOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "amneziawg", "stop", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -515,7 +517,8 @@ func (s *NodeService) StopAmneziaWgOnNode(node *model.Node) error {
 }
 
 // RestartAmneziaWgOnNode restarts AmneziaWG sidecars on the worker (last applied payloads).
-func (s *NodeService) RestartAmneziaWgOnNode(node *model.Node) error {
+func (s *NodeService) RestartAmneziaWgOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "amneziawg", "restart", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -687,7 +690,8 @@ func (s *NodeService) RefreshNodeTelemtStateFromWorker(node *model.Node) error {
 }
 
 // StopXrayOnNode stops the Xray core on the worker via stop-xray. Telemt status is refreshed from the node (Telemt keeps running unless stopped separately).
-func (s *NodeService) StopXrayOnNode(node *model.Node) error {
+func (s *NodeService) StopXrayOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "xray", "stop", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -719,7 +723,8 @@ func (s *NodeService) StopXrayOnNode(node *model.Node) error {
 }
 
 // StopTelemtOnNode stops Telemt sidecars on the worker without stopping Xray.
-func (s *NodeService) StopTelemtOnNode(node *model.Node) error {
+func (s *NodeService) StopTelemtOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "telemt", "stop", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -749,7 +754,8 @@ func (s *NodeService) StopTelemtOnNode(node *model.Node) error {
 }
 
 // RestartTelemtOnNode restarts Telemt sidecars on the worker (last applied payloads).
-func (s *NodeService) RestartTelemtOnNode(node *model.Node) error {
+func (s *NodeService) RestartTelemtOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "telemt", "restart", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -780,7 +786,8 @@ func (s *NodeService) RestartTelemtOnNode(node *model.Node) error {
 }
 
 // RestartXrayOnNode force-reloads Xray on the worker (same as panel “restart” for local core).
-func (s *NodeService) RestartXrayOnNode(node *model.Node) error {
+func (s *NodeService) RestartXrayOnNode(node *model.Node) (err error) {
+	defer logNodeAction(node, "xray", "restart", time.Now())(&err)
 	if node == nil {
 		return fmt.Errorf("node is nil")
 	}
@@ -1055,6 +1062,11 @@ func (s *NodeService) MaybePushWorkerConfigIfCoresDown(node *model.Node) {
 
 // notifyNodeStatusChange sends a Telegram notification when a node's status changes.
 func (s *NodeService) notifyNodeStatusChange(node *model.Node, oldStatus, newStatus string) {
+	if newStatus == "online" {
+		nodeLog(node, "health").Infof("[Node: %s] status %s -> online", node.Name, oldStatus)
+	} else {
+		nodeLog(node, "health").Warningf("[Node: %s] status %s -> %s", node.Name, oldStatus, newStatus)
+	}
 	// Check if multi-node mode is enabled
 	settingService := SettingService{}
 	multiMode, err := settingService.GetMultiNodeMode()
@@ -2827,7 +2839,8 @@ func NewApplyWorkerConfigMeta(workerJSON []byte, coreProfileHashHex string) *App
 // ApplyConfigToNode sends XRAY JSON and optional Telemt / AmneziaWG payloads to a node.
 // When telemt or amneziawg is non-nil, the array is always sent (empty slice stops all sidecars of that type).
 // meta may be nil; when set, coreProfileHash and expectedConfigSha256 are included in the apply-config body.
-func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, meta *ApplyWorkerConfigMeta) error {
+func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, meta *ApplyWorkerConfigMeta) (err error) {
+	defer logNodeAction(node, "config", "apply config", time.Now())(&err)
 	// Use reasonable timeout for apply-config (30 seconds should be enough for most cases)
 	// If config is very large or node is slow, this can be increased
 	client, err := s.createHTTPClient(node, 30*time.Second)
@@ -2952,7 +2965,8 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 
 // ApplySidecarsToNode pushes Telemt / AmneziaWG / Telemt-WEB-vhost payloads to a worker
 // without touching Xray-core.
-func (s *NodeService) ApplySidecarsToNode(node *model.Node, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost) error {
+func (s *NodeService) ApplySidecarsToNode(node *model.Node, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost) (err error) {
+	defer logNodeAction(node, "config", "apply sidecars (telemt/amneziawg)", time.Now())(&err)
 	client, err := s.createHTTPClient(node, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
@@ -3799,4 +3813,26 @@ func (s *NodeService) RollbackGeofileOnNode(node *model.Node, fileName string) e
 		return fmt.Errorf("node returned %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+// nodeLog returns a journal logger bound to one node, so the event shows up in Nodes -> node -> Logs.
+func nodeLog(node *model.Node, component string) *logger.Scoped {
+	return logger.WithComponent(component).ForEntity("node", strconv.Itoa(node.Id))
+}
+
+// logNodeAction journals a panel-initiated action on a node and its outcome. Use as
+// `defer logNodeAction(node, "xray", "restart", time.Now())(&err)` in a function with a named error result.
+func logNodeAction(node *model.Node, component, action string, started time.Time) func(*error) {
+	return func(errp *error) {
+		if node == nil {
+			return
+		}
+		l := nodeLog(node, component)
+		ms := time.Since(started).Milliseconds()
+		if errp != nil && *errp != nil {
+			l.Errorf("[Node: %s] panel: %s failed after %d ms: %v", node.Name, action, ms, *errp)
+			return
+		}
+		l.Infof("[Node: %s] panel: %s ok (%d ms)", node.Name, action, ms)
+	}
 }

@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,17 +29,17 @@ import (
 )
 
 const (
-	sidecarStopTimeout = 8 * time.Second
+	sidecarStopTimeout   = 8 * time.Second
 	setconfRetryAttempts = 15
 	setconfRetryInterval = 200 * time.Millisecond
 )
 
 // Payload is one inbound's awg setconf config and interface name.
 type Payload struct {
-	InboundId     int    `json:"inboundId"`
-	Tag           string `json:"tag"`
-	Conf          string `json:"conf"`
-	Iface         string `json:"iface"`
+	InboundId     int               `json:"inboundId"`
+	Tag           string            `json:"tag"`
+	Conf          string            `json:"conf"`
+	Iface         string            `json:"iface"`
 	TunnelAddress string            `json:"tunnelAddress,omitempty"`
 	TunnelSubnet  string            `json:"tunnelSubnet,omitempty"`
 	PeerEmails    map[string]string `json:"peerEmails,omitempty"`
@@ -95,7 +96,7 @@ func (m *Manager) LoadAndApplyCache() error {
 	if !found || len(payloads) == 0 {
 		return nil
 	}
-	logger.Infof("AmneziaWG: resuming %d sidecar(s) from local cache (panel not required)", len(payloads))
+	lg.Infof("AmneziaWG: resuming %d sidecar(s) from local cache (panel not required)", len(payloads))
 	return m.Apply(payloads)
 }
 
@@ -141,7 +142,7 @@ func (m *Manager) commitReplaySnapshot(payloads []Payload) {
 
 	if path := m.getCachePath(); path != "" {
 		if err := nodecache.Save(path, cp); err != nil {
-			logger.Warningf("AmneziaWG: write local cache %s: %v", path, err)
+			lg.Warningf("AmneziaWG: write local cache %s: %v", path, err)
 		}
 	}
 }
@@ -191,7 +192,7 @@ func teardownWireGuardIface(iface string) {
 	if out, err := exec.Command("ip", "link", "delete", iface).CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg != "" && !strings.Contains(msg, "Cannot find device") {
-			logger.Debugf("amneziawg: ip link delete %s: %v (%s)", iface, err, msg)
+			lg.Debugf("amneziawg: ip link delete %s: %v (%s)", iface, err, msg)
 		}
 	}
 }
@@ -234,7 +235,7 @@ func ensureTunnelIfaceAddress(iface, cidr string) {
 	if out, err := exec.Command("ip", "-4", "addr", "show", "dev", iface).CombinedOutput(); err == nil {
 		if strings.Contains(string(out), host) {
 			if out2, err2 := exec.Command("ip", "link", "set", iface, "up").CombinedOutput(); err2 != nil {
-				logger.Warningf("amneziawg ip link up %s: %v (%s)", iface, err2, strings.TrimSpace(string(out2)))
+				lg.Warningf("amneziawg ip link up %s: %v (%s)", iface, err2, strings.TrimSpace(string(out2)))
 			}
 			return
 		}
@@ -242,13 +243,13 @@ func ensureTunnelIfaceAddress(iface, cidr string) {
 	if out, err := exec.Command("ip", "addr", "add", cidr, "dev", iface).CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
 		if !strings.Contains(msg, "File exists") {
-			logger.Warningf("amneziawg ip addr add %s %s: %v (%s)", iface, cidr, err, msg)
+			lg.Warningf("amneziawg ip addr add %s %s: %v (%s)", iface, cidr, err, msg)
 		}
 	}
 	if out, err := exec.Command("ip", "link", "set", iface, "up").CombinedOutput(); err != nil {
-		logger.Warningf("amneziawg ip link up %s: %v (%s)", iface, err, strings.TrimSpace(string(out)))
+		lg.Warningf("amneziawg ip link up %s: %v (%s)", iface, err, strings.TrimSpace(string(out)))
 	} else {
-		logger.Infof("amneziawg iface up: %s %s", iface, cidr)
+		lg.Infof("amneziawg iface up: %s %s", iface, cidr)
 	}
 }
 
@@ -294,7 +295,7 @@ func iptablesEnsureAppend(table string, args ...string) {
 	}
 	cmdArgs := buildIptablesArgs(table, "-A", args...)
 	if out, err := exec.Command("iptables", cmdArgs...).CombinedOutput(); err != nil {
-		logger.Warningf("amneziawg iptables append %v: %v (%s)", args, err, strings.TrimSpace(string(out)))
+		lg.Warningf("amneziawg iptables append %v: %v (%s)", args, err, strings.TrimSpace(string(out)))
 	}
 }
 
@@ -311,13 +312,13 @@ func ensureTunnelRouting(iface, subnet string) {
 	if out, err := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1").CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
 		if !strings.Contains(msg, "Read-only file system") {
-			logger.Warningf("amneziawg sysctl ip_forward: %v (%s)", err, msg)
+			lg.Warningf("amneziawg sysctl ip_forward: %v (%s)", err, msg)
 		}
 	}
 	iptablesEnsureAppend("", "FORWARD", "-i", iface, "-j", "ACCEPT")
 	iptablesEnsureAppend("", "FORWARD", "-o", iface, "-j", "ACCEPT")
 	iptablesEnsureAppend("nat", "POSTROUTING", "-s", subnet, "-j", "MASQUERADE")
-	logger.Infof("amneziawg routing OK: iface=%s subnet=%s", iface, subnet)
+	lg.Infof("amneziawg routing OK: iface=%s subnet=%s", iface, subnet)
 }
 
 func listenPortFromConf(conf string) string {
@@ -343,7 +344,7 @@ func peerCountFromConf(conf string) int {
 func applyAwgSetconf(tag string, p Payload, confPath string) bool {
 	awg := findAwgBinary()
 	if awg == "" {
-		logger.Warningf("amneziawg: awg binary not found — sidecar %s setconf skipped", tag)
+		lg.Warningf("amneziawg: awg binary not found — sidecar %s setconf skipped", tag)
 		return false
 	}
 	iface := strings.TrimSpace(p.Iface)
@@ -361,16 +362,12 @@ func applyAwgSetconf(tag string, p Payload, confPath string) bool {
 		if err == nil {
 			port := listenPortFromConf(conf)
 			peers := peerCountFromConf(conf)
-			logger.Infof("amneziawg setconf OK: tag=%s iface=%s listenPort=%s peers=%d (attempt %d)", tag, iface, port, peers, attempt)
+			lg.Infof("amneziawg setconf OK: tag=%s iface=%s listenPort=%s peers=%d (attempt %d)", tag, iface, port, peers, attempt)
 			ensureTunnelIfaceAddress(iface, tunnelAddressFromPayload(p, conf))
 			ensureTunnelRouting(iface, tunnelSubnetFromPayload(p, conf))
 			if showOut, showErr := exec.Command(awg, "show", iface).CombinedOutput(); showErr == nil {
-				summary := strings.TrimSpace(string(showOut))
-				if len(summary) > 240 {
-					summary = summary[:240] + "…"
-				}
-				if summary != "" {
-					logger.Infof("amneziawg show %s: %s", iface, summary)
+				if summary := awgShowSummary(string(showOut)); summary != "" {
+					lg.Infof("amneziawg show %s: %s", iface, summary)
 				}
 			}
 			return true
@@ -379,7 +376,7 @@ func applyAwgSetconf(tag string, p Payload, confPath string) bool {
 			time.Sleep(setconfRetryInterval)
 		}
 	}
-	logger.Warningf("amneziawg setconf FAILED tag=%s iface=%s after %d attempts: %v (%s)", tag, iface, setconfRetryAttempts, lastErr, lastOut)
+	lg.Warningf("amneziawg setconf FAILED tag=%s iface=%s after %d attempts: %v (%s)", tag, iface, setconfRetryAttempts, lastErr, lastOut)
 	return false
 }
 
@@ -467,7 +464,7 @@ func (m *Manager) Apply(payloads []Payload) error {
 				continue
 			}
 			if err := os.WriteFile(cur.confPath, []byte(conf), 0o600); err != nil {
-				logger.Warningf("amneziawg rewrite conf %s: %v", tag, err)
+				lg.Warningf("amneziawg rewrite conf %s: %v", tag, err)
 			} else {
 				retry := p
 				retry.Iface = cur.iface
@@ -498,11 +495,11 @@ func (m *Manager) Apply(payloads []Payload) error {
 		cmd := exec.CommandContext(ctx, bin, "-f", iface)
 		cmd.Dir = stateDir
 		cmd.Env = os.Environ()
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
+		finishOutput := logger.CaptureOutputFunc(cmd, logger.Entry{Source: "node", Channel: "service", Component: "amneziawg", EntityType: "node"}, newAwgLineClassifier())
 
 		done := make(chan struct{})
 		if err := cmd.Start(); err != nil {
+			finishOutput()
 			cancel()
 			close(done)
 			return fmt.Errorf("amneziawg-go start %s: %w", tag, err)
@@ -510,14 +507,15 @@ func (m *Manager) Apply(payloads []Payload) error {
 		go func(tag string, cmd *exec.Cmd, waitCtx context.Context, done chan struct{}) {
 			defer close(done)
 			err := cmd.Wait()
+			finishOutput()
 			if err != nil && waitCtx.Err() == nil {
-				logger.Warningf("AmneziaWG-go exited: tag=%s err=%v", tag, err)
+				lg.Warningf("AmneziaWG-go exited: tag=%s err=%v", tag, err)
 			}
 		}(tag, cmd, ctx, done)
 
 		p.Iface = iface
 		configured := applyAwgSetconf(tag, p, confPath)
-		logger.Infof("AmneziaWG-go started: tag=%s iface=%s pid=%d configured=%v", tag, iface, cmd.Process.Pid, configured)
+		lg.Infof("AmneziaWG-go started: tag=%s iface=%s pid=%d configured=%v", tag, iface, cmd.Process.Pid, configured)
 
 		m.running[tag] = &procState{
 			cancel: cancel, hash: hhex, cmd: cmd, iface: iface, done: done,
@@ -576,5 +574,70 @@ func (m *Manager) Stop() {
 	for tag, st := range m.running {
 		m.stopProc(st)
 		delete(m.running, tag)
+	}
+}
+
+// lg tags this package's journal entries with the amneziawg component.
+var lg = logger.WithComponent("amneziawg")
+
+// awgShowSummary condenses `awg show` to what an operator needs (the keys and obfuscation parameters are in the config).
+func awgShowSummary(out string) string {
+	peers, port := 0, ""
+	for _, ln := range strings.Split(out, "\n") {
+		ln = strings.TrimSpace(ln)
+		switch {
+		case strings.HasPrefix(ln, "peer:"):
+			peers++
+		case strings.HasPrefix(ln, "listening port:"):
+			port = strings.TrimSpace(strings.TrimPrefix(ln, "listening port:"))
+		}
+	}
+	if port == "" && peers == 0 {
+		return ""
+	}
+	return fmt.Sprintf("listening port=%s peers=%d", port, peers)
+}
+
+var (
+	awgDaemonLineRe = regexp.MustCompile(`^(ERROR|WARNING|INFO|DEBUG):?\s+\((\S+)\)\s+\d{4}/\d\d/\d\d \d\d:\d\d:\d\d(?:\.\d+)?\s+(.*)$`)
+	awgPeerRe       = regexp.MustCompile(`^peer\(([^)]+)\)\s*-\s*(.*)$`)
+)
+
+// newAwgLineClassifier returns the per-process line handler for amneziawg-go's output: it reads the daemon's own level,
+// drops the "kernel module" banner box (replaced by one sentence), moves peer(...) into a field and downgrades the
+// per-peer retry chatter, which is normal for a peer that has not connected yet.
+func newAwgLineClassifier() func(line string, e *logger.Entry) bool {
+	bannerSeen := false
+	return func(line string, e *logger.Entry) bool {
+		if strings.ContainsAny(line, "┌└│─┐┘") || strings.HasPrefix(strings.TrimSpace(line), "|") {
+			if !bannerSeen {
+				bannerSeen = true
+				e.Msg = "userspace amneziawg-go started (a kernel with native AmneziaWG support does not need it)"
+				e.Level = "info"
+				return true
+			}
+			return false
+		}
+		if m := awgDaemonLineRe.FindStringSubmatch(line); m != nil {
+			switch m[1] {
+			case "ERROR":
+				e.Level = "error"
+			case "WARNING":
+				e.Level = "warn"
+			case "DEBUG":
+				e.Level = "debug"
+			default:
+				e.Level = "info"
+			}
+			msg := m[3]
+			if pm := awgPeerRe.FindStringSubmatch(msg); pm != nil {
+				msg = pm[2] + " peer=" + pm[1]
+			}
+			e.Msg = msg
+		}
+		if strings.Contains(line, "no known endpoint for peer") {
+			e.Level = "debug"
+		}
+		return true
 	}
 }

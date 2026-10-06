@@ -117,7 +117,7 @@ func readNICBytes(path string) (rx, tx uint64) {
 			continue
 		}
 		name := strings.TrimSpace(line[:i])
-		if name == "lo" || strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "veth") || strings.HasPrefix(name, "br-") {
+		if isVirtualNIC(name) {
 			continue
 		}
 		f := strings.Fields(line[i+1:])
@@ -162,4 +162,9 @@ func countEstablished(files []string, ports map[int]int) map[int]int {
 		f.Close()
 	}
 	return out
+}
+
+// isVirtualNIC reports loopback, docker bridges and veth pairs, which are not the server's real uplink.
+func isVirtualNIC(name string) bool {
+	return name == "lo" || strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "veth") || strings.HasPrefix(name, "br-")
 }

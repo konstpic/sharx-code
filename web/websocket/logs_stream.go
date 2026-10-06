@@ -17,4 +17,10 @@ type UnifiedLogEntry struct {
 	Ts       int64  `json:"ts"`                // unix milliseconds
 	NodeID   string `json:"nodeId,omitempty"`
 	NodeName string `json:"nodeName,omitempty"`
+	// Component is the subsystem (xray, amneziawg, telemt, routing, health, ...). EntityType/EntityID (node, balancer)
+	// select the per-entity journal; ConnID correlates the events of one connection.
+	Component  string `json:"component,omitempty"`
+	EntityType string `json:"entityType,omitempty"`
+	EntityID   string `json:"entityId,omitempty"`
+	ConnID     string `json:"connId,omitempty"`
 }

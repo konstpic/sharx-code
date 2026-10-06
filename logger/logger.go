@@ -32,6 +32,8 @@ var (
 	// logBuffer maintains recent log entries in memory for web UI retrieval.
 	// It stores structured entries; GetLogs serializes them as NDJSON.
 	logBuffer []Entry
+	// logBufMu guards logBuffer: entries come from many goroutines (child-process capture, health loops, HTTP handlers).
+	logBufMu sync.RWMutex
 
 	// minEmitLevel gates Emit() so debug entries are not forwarded to the
 	// in-memory buffer, Loki and the node→panel pusher when the operator
@@ -75,6 +77,11 @@ type Entry struct {
 	NodeName  string `json:"nodeName,omitempty"`
 	Channel   string `json:"channel,omitempty"`
 	Component string `json:"component,omitempty"`
+	// EntityType / EntityID tie an entry to the panel object it is about (node, balancer) so the panel can show a
+	// per-entity journal. ConnID correlates the lifecycle events of one connection or session.
+	EntityType string `json:"entityType,omitempty"`
+	EntityID   string `json:"entityId,omitempty"`
+	ConnID     string `json:"connId,omitempty"`
 }
 
 // SetSource sets the default `source` field for subsequent logs from this process.
@@ -349,10 +356,14 @@ func Emit(e Entry) {
 }
 
 func addToBufferEntry(e Entry, line string) {
+	logBufMu.Lock()
 	if len(logBuffer) >= maxLogBufferSize {
-		logBuffer = logBuffer[1:]
+		// copy instead of re-slicing the head: a re-slice keeps the dropped entries reachable until the next growth
+		copy(logBuffer, logBuffer[1:])
+		logBuffer = logBuffer[:len(logBuffer)-1]
 	}
 	logBuffer = append(logBuffer, e)
+	logBufMu.Unlock()
 
 	// Push to Loki if enabled (keep the exact JSON line for consistency).
 	PushLogToLokiWithComponent(e.Level, line, e.ComponentOrDefault(), e.NodeID)
@@ -437,6 +448,8 @@ func GetLogs(c int, level string) []string {
 	var output []string
 	minRank := levelRank(level)
 
+	logBufMu.RLock()
+	defer logBufMu.RUnlock()
 	for i := len(logBuffer) - 1; i >= 0; i-- {
 		if c > 0 && len(output) >= c {
 			break
@@ -479,6 +492,29 @@ func GetLogsFromFile(c int, level string) []string {
 			continue
 		}
 		out = append(out, line)
+	}
+	return out
+}
+
+// GetEntries returns up to c buffered entries at or above level that match keep (nil keeps all), oldest first.
+// c <= 0 means no limit. It reads the in-memory buffer only (the recent history), copying under the lock.
+func GetEntries(c int, level string, keep func(Entry) bool) []Entry {
+	minRank := levelRank(level)
+	logBufMu.RLock()
+	defer logBufMu.RUnlock()
+	var out []Entry
+	for i := len(logBuffer) - 1; i >= 0; i-- {
+		e := logBuffer[i]
+		if levelRank(e.Level) < minRank || (keep != nil && !keep(e)) {
+			continue
+		}
+		out = append(out, e)
+		if c > 0 && len(out) >= c {
+			break
+		}
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
 	}
 	return out
 }

@@ -32,6 +32,7 @@ func NewBalancerController(g *gin.RouterGroup, nodes *service.NodeService) *Bala
 	g.POST("/apply/:id", a.apply)
 	g.POST("/refresh/:id", a.refresh)
 	g.GET("/metrics/:id", a.metrics)
+	g.POST("/log-level/:id", a.setLogLevel)
 	g.POST("/ssh-install/:id", a.sshInstall)
 	return a
 }
@@ -237,6 +238,26 @@ func (a *BalancerController) metrics(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"success": true, "msg": "", "obj": json.RawMessage(raw)})
+}
+
+// setLogLevel switches the agent journal between info and debug (debug records every closed connection).
+func (a *BalancerController) setLogLevel(c *gin.Context) {
+	id, ok := balancerID(c)
+	if !ok {
+		return
+	}
+	var body struct {
+		Level string `json:"level"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || (body.Level != "info" && body.Level != "debug") {
+		jsonMsg(c, "level must be info or debug", errors.New("invalid level"))
+		return
+	}
+	if err := a.svc.SetAgentLogLevel(id, body.Level); err != nil {
+		jsonMsg(c, "Failed to change the agent log level", err)
+		return
+	}
+	jsonObj(c, gin.H{"level": body.Level}, nil)
 }
 
 func (a *BalancerController) refresh(c *gin.Context) {

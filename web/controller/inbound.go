@@ -460,7 +460,7 @@ func (a *InboundController) getClientTrafficsById(c *gin.Context) {
 // addInbound creates a new inbound configuration.
 func (a *InboundController) addInbound(c *gin.Context) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] addInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	logger.Debugf("[DEBUG-AGENT] addInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	// #endregion
 	// Try to get nodeIds from JSON body first (if Content-Type is application/json)
 	// This must be done BEFORE ShouldBind, which reads the body
@@ -649,7 +649,8 @@ func (a *InboundController) addInbound(c *gin.Context) {
 	}
 
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] addInbound controller: SUCCESS, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
+	logger.Debugf("[DEBUG-AGENT] addInbound controller: SUCCESS, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
+	inboundLog.Infof("inbound created: id=%d remark=%q protocol=%s port=%d", inbound.Id, inbound.Remark, inbound.Protocol, inbound.Port)
 	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, nil)
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
@@ -660,15 +661,15 @@ func (a *InboundController) addInbound(c *gin.Context) {
 
 // delInbound deletes an inbound configuration by its ID.
 func (a *InboundController) delInbound(c *gin.Context) {
-	logger.Infof("[DEBUG-AGENT] delInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	logger.Debugf("[DEBUG-AGENT] delInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		logger.Infof("[DEBUG-AGENT] delInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
+		logger.Debugf("[DEBUG-AGENT] delInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), err)
 		return
 	}
-	logger.Infof("[DEBUG-AGENT] delInbound controller: parsed ID=%d", id)
-	logger.Infof("[DEBUG-AGENT] delInbound controller: calling DelInbound, id=%d", id)
+	logger.Debugf("[DEBUG-AGENT] delInbound controller: parsed ID=%d", id)
+	logger.Debugf("[DEBUG-AGENT] delInbound controller: calling DelInbound, id=%d", id)
 	var delProto model.Protocol
 	var delNodeIDs []int
 	if oldIb, _ := a.inboundService.GetInbound(id); oldIb != nil {
@@ -684,11 +685,12 @@ func (a *InboundController) delInbound(c *gin.Context) {
 	}
 	needRestart, err := a.inboundService.DelInbound(id)
 	if err != nil {
-		logger.Infof("[DEBUG-AGENT] delInbound controller: ERROR from DelInbound, id=%d, error=%v, errorType=%T", id, err, err)
+		logger.Debugf("[DEBUG-AGENT] delInbound controller: ERROR from DelInbound, id=%d, error=%v, errorType=%T", id, err, err)
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	logger.Infof("[DEBUG-AGENT] delInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
+	logger.Debugf("[DEBUG-AGENT] delInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
+	inboundLog.Infof("inbound deleted: id=%d", id)
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), id, nil)
 	if needRestart {
 		if model.IsSidecarProtocol(delProto) {
@@ -708,18 +710,18 @@ func (a *InboundController) delInbound(c *gin.Context) {
 // updateInbound updates an existing inbound configuration.
 func (a *InboundController) updateInbound(c *gin.Context) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	logger.Debugf("[DEBUG-AGENT] updateInbound controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	// #endregion
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] updateInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
+		logger.Debugf("[DEBUG-AGENT] updateInbound controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInbound controller: parsed ID=%d", id)
+	logger.Debugf("[DEBUG-AGENT] updateInbound controller: parsed ID=%d", id)
 	// #endregion
 
 	// Try to get nodeIds from JSON body first (if Content-Type is application/json)
@@ -807,7 +809,7 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	inbound, needRestart, err := a.inboundService.UpdateInbound(inbound)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] updateInbound controller: ERROR from UpdateInbound, id=%d, error=%v", id, err)
+		logger.Debugf("[DEBUG-AGENT] updateInbound controller: ERROR from UpdateInbound, id=%d, error=%v", id, err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
@@ -888,7 +890,8 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	}
 
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
+	logger.Debugf("[DEBUG-AGENT] updateInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
+	inboundLog.Infof("inbound updated: id=%d remark=%q protocol=%s port=%d", id, inbound.Remark, inbound.Protocol, inbound.Port)
 	// #endregion
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), inbound, nil)
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
@@ -956,31 +959,31 @@ func (a *InboundController) addInboundClient(c *gin.Context) {
 // delInboundClient deletes a client from an inbound by inbound ID and client ID.
 func (a *InboundController) delInboundClient(c *gin.Context) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] delInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	logger.Debugf("[DEBUG-AGENT] delInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	// #endregion
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] delInboundClient controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
+		logger.Debugf("[DEBUG-AGENT] delInboundClient controller: invalid ID, param=%s, error=%v", c.Param("id"), err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
 	clientId := c.Param("clientId")
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] delInboundClient controller: parsed ID=%d, clientId=%s", id, clientId)
+	logger.Debugf("[DEBUG-AGENT] delInboundClient controller: parsed ID=%d, clientId=%s", id, clientId)
 	// #endregion
 
 	needRestart, err := a.inboundService.DelInboundClient(id, clientId)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] delInboundClient controller: ERROR, id=%d, clientId=%s, error=%v", id, clientId, err)
+		logger.Debugf("[DEBUG-AGENT] delInboundClient controller: ERROR, id=%d, clientId=%s, error=%v", id, clientId, err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] delInboundClient controller: SUCCESS, id=%d, clientId=%s, needRestart=%v", id, clientId, needRestart)
+	logger.Debugf("[DEBUG-AGENT] delInboundClient controller: SUCCESS, id=%d, clientId=%s, needRestart=%v", id, clientId, needRestart)
 	// #endregion
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
 	delClProto := model.Protocol("")
@@ -1001,36 +1004,36 @@ func (a *InboundController) delInboundClient(c *gin.Context) {
 // updateInboundClient updates a client's configuration in an inbound.
 func (a *InboundController) updateInboundClient(c *gin.Context) {
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
+	logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: ENTRY, path=%s, method=%s", c.Request.URL.Path, c.Request.Method)
 	// #endregion
 	clientId := c.Param("clientId")
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: clientId=%s", clientId)
+	logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: clientId=%s", clientId)
 	// #endregion
 
 	inbound := &model.Inbound{}
 	err := c.ShouldBind(inbound)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] updateInboundClient controller: bind error, clientId=%s, error=%v", clientId, err)
+		logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: bind error, clientId=%s, error=%v", clientId, err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), err)
 		return
 	}
 
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: calling UpdateInboundClient, inboundId=%d, clientId=%s", inbound.Id, clientId)
+	logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: calling UpdateInboundClient, inboundId=%d, clientId=%s", inbound.Id, clientId)
 	// #endregion
 	needRestart, err := a.inboundService.UpdateInboundClient(inbound, clientId)
 	if err != nil {
 		// #region agent log
-		logger.Infof("[DEBUG-AGENT] updateInboundClient controller: ERROR, inboundId=%d, clientId=%s, error=%v", inbound.Id, clientId, err)
+		logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: ERROR, inboundId=%d, clientId=%s, error=%v", inbound.Id, clientId, err)
 		// #endregion
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
 	// #region agent log
-	logger.Infof("[DEBUG-AGENT] updateInboundClient controller: SUCCESS, inboundId=%d, clientId=%s, needRestart=%v", inbound.Id, clientId, needRestart)
+	logger.Debugf("[DEBUG-AGENT] updateInboundClient controller: SUCCESS, inboundId=%d, clientId=%s, needRestart=%v", inbound.Id, clientId, needRestart)
 	// #endregion
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
 	updClProto := model.Protocol("")
@@ -1234,3 +1237,6 @@ func (a *InboundController) reorderInbounds(c *gin.Context) {
 	}
 	jsonMsg(c, "Inbounds reordered", nil)
 }
+
+// inboundLog tags panel actions on inbounds, so the panel journal can filter them by component.
+var inboundLog = logger.WithComponent("inbound")

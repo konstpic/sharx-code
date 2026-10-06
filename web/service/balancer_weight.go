@@ -85,6 +85,15 @@ func (s *BalancerService) RecomputeAutoWeights() {
 		if p.WeightMode == "ping" {
 			liveStatus = s.LiveStatus(p.BalancerId)
 		}
+		active := 0
+		for _, m := range members {
+			if m.Enable && m.NodeStatus != "disabled" {
+				active++
+			}
+		}
+		if active < 2 {
+			continue // a weight only matters relative to other members; a lone member would just reload the engine for nothing
+		}
 		for _, m := range members {
 			if !m.Enable || m.NodeStatus == "disabled" {
 				continue
@@ -154,10 +163,27 @@ func pingWeight(live *AgentStatus, poolId int, m model.BalancerPoolMember) int {
 			if ms.Up == nil || !*ms.Up || ms.RTTMs == nil || *ms.RTTMs <= 0 {
 				return weightFallback
 			}
-			return clampWeight(int(1000 / *ms.RTTMs))
+			return rttWeight(*ms.RTTMs)
 		}
 	}
 	return weightFallback
+}
+
+// rttWeight maps a connect latency to a coarse weight. Raw 1000/RTT changed with every probe (20 ms -> 23, 21 ms -> 22),
+// so a pool with auto weights reloaded the engine every few seconds; five steps only move when the path really changed.
+func rttWeight(ms int64) int {
+	switch {
+	case ms <= 10:
+		return 100
+	case ms <= 30:
+		return 50
+	case ms <= 80:
+		return 25
+	case ms <= 200:
+		return 10
+	default:
+		return 3
+	}
 }
 
 func clampWeight(w int) int {
@@ -168,6 +194,17 @@ func clampWeight(w int) int {
 		return autoWeightMax
 	}
 	return w
+}
+
+// weightChangeSignificant is the hysteresis for auto weights. Every stored change is pushed to the agent and reloads the
+// engine, which restarts UDP sessions and leaves old workers lingering; RTT jitter (20ms -> 21ms) must not do that.
+// A change counts only when it is at least 2 and at least a quarter of the current weight.
+func weightChangeSignificant(old, now int) bool {
+	d := now - old
+	if d < 0 {
+		d = -d
+	}
+	return d >= 2 && d*4 >= old
 }
 
 // upsertPoolMemberWeight writes a member's weight, creating its override row if the pool relies on
@@ -183,7 +220,7 @@ func upsertPoolMemberWeight(db *gorm.DB, poolId, nodeId, weight int) bool {
 		}
 		return true
 	}
-	if row.Weight == weight {
+	if !weightChangeSignificant(row.Weight, weight) {
 		return false
 	}
 	if err := db.Model(&model.BalancerPoolMember{}).Where("id = ?", row.Id).Update("weight", weight).Error; err != nil {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Copy, Pencil, Plus, RefreshCw, Scale, Send, Terminal, Trash2 } from "lucide-react";
+import { Activity, Copy, FileText, Pencil, Plus, RefreshCw, Scale, Send, Terminal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
@@ -9,6 +9,7 @@ import { panel } from "@/lib/paths";
 import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
 import { BalancerSSHInstall } from "@/components/balancers/BalancerSSHInstall";
 import { BalancerTraffic } from "@/components/balancers/BalancerTraffic";
+import { EntityLogsModal } from "@/components/EntityLogsModal";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   AlertBanner,
@@ -67,6 +68,31 @@ type Pool = {
   members?: Member[];
 };
 
+type LiveDiag = {
+  connectionsTotal: number;
+  connectionErrorsTotal: number;
+  timeoutsTotal: number;
+  backendFailuresTotal: number;
+  failoversTotal: number;
+  reloadsTotal: number;
+  conntrack?: { count: number; max: number };
+  interfaces?: { name: string; rxErrs: number; rxDrop: number; txErrs: number; txDrop: number }[];
+};
+
+/** One line of the counters that matter in an incident: errors, timeouts, failovers, conntrack, NIC drops. */
+function DiagLine({ d }: { d: LiveDiag }) {
+  const drops = (d.interfaces ?? []).reduce((a, i) => a + i.rxDrop + i.txDrop + i.rxErrs + i.txErrs, 0);
+  const ct = d.conntrack && d.conntrack.max > 0 ? Math.round((d.conntrack.count * 100) / d.conntrack.max) : null;
+  const bad = d.connectionErrorsTotal > 0 || d.timeoutsTotal > 0 || d.backendFailuresTotal > 0 || drops > 0 || (ct ?? 0) >= 80;
+  return (
+    <p className={`mt-2 font-mono text-[11px] ${bad ? "text-amber-400" : "text-[var(--fg-subtle)]"}`}>
+      conns {d.connectionsTotal} · errors {d.connectionErrorsTotal} · timeouts {d.timeoutsTotal} · backend failures {d.backendFailuresTotal} · failovers {d.failoversTotal} · reloads {d.reloadsTotal}
+      {ct != null ? ` · conntrack ${ct}%` : ""}
+      {` · NIC drops/errs ${drops}`}
+    </p>
+  );
+}
+
 type LiveMember = { host: string; port: number; up: boolean | null; sessions: number; total: number };
 type LivePool = { id: number; port: number; proto: string; listening: boolean | null; members: LiveMember[] };
 
@@ -87,7 +113,7 @@ type Balancer = {
   appliedHash: string;
   lastError: string;
   pools?: Pool[];
-  live?: { running: boolean; hash: string; lastError: string; pools?: LivePool[] };
+  live?: { running: boolean; hash: string; lastError: string; pools?: LivePool[]; diag?: LiveDiag };
 };
 
 type InboundOption = {
@@ -174,6 +200,7 @@ export function BalancersPage() {
   const [install, setInstall] = useState<Balancer | null>(null);
   const [secret, setSecret] = useState("");
   const [trafficOpen, setTrafficOpen] = useState<Set<number>>(new Set());
+  const [logsFor, setLogsFor] = useState<{ id: number; name: string } | null>(null);
   const [installMode, setInstallMode] = useState<"manual" | "ssh">("ssh");
 
   const load = useCallback(async (silent = false) => {
@@ -386,6 +413,9 @@ export function BalancersPage() {
                       >
                         <Activity size={16} className={trafficOpen.has(b.id) ? "text-[var(--accent)]" : ""} />
                       </IconButton>
+                      <IconButton label={t("pages.logs.title", { defaultValue: "Logs" })} onClick={() => setLogsFor({ id: b.id, name: b.name })}>
+                        <FileText size={16} />
+                      </IconButton>
                       <IconButton label={t("pages.balancers.install", { defaultValue: "Install on the server" })} onClick={() => void openInstall(b)}>
                         <Terminal size={16} />
                       </IconButton>
@@ -409,6 +439,8 @@ export function BalancersPage() {
                       <AlertBanner type="error" title={b.lastError} />
                     </div>
                   ) : null}
+
+                  {b.live?.diag ? <DiagLine d={b.live.diag} /> : null}
 
                   {trafficOpen.has(b.id) && b.status === "online" ? (
                     <BalancerTraffic
@@ -702,6 +734,13 @@ export function BalancersPage() {
           {t("pages.balancers.poolDeleteText", { defaultValue: "Clients stop seeing the balancer address for this inbound." })}
         </p>
       </Modal>
+      <EntityLogsModal
+        open={logsFor != null}
+        entityType="balancer"
+        entityId={logsFor?.id ?? null}
+        title={`${t("pages.logs.title", { defaultValue: "Logs" })}: ${logsFor?.name ?? ""}`}
+        onClose={() => setLogsFor(null)}
+      />
     </PageScaffold>
   );
 }

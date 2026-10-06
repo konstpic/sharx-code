@@ -19,7 +19,7 @@ func TestHAProxyRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"bind :443", "balance leastconn", "server s0 10.0.0.1:443 weight 2 check inter 3s fall 2 rise 2", "server s1 node2.example.com:8443 weight 1 check inter 3s fall 2 rise 2 backup"} {
+	for _, want := range []string{"bind :443", "balance leastconn", "server s0 10.0.0.1:443 weight 2 check inter 3s fall 2 rise 2", "server s1 node2.example.com:8443 weight 1 check inter 3s fall 2 rise 2 backup", "option clitcpka", "clitcpka-idle 60s", "srvtcpka-cnt 4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -33,7 +33,7 @@ func TestNginxRenderTCPAndUDP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"zone up_1 128k;", "least_conn;", "server 10.0.0.1:443 weight=2 max_fails=2 fail_timeout=10s;", "listen 443;", "listen 8443 udp;", "hash $remote_addr consistent;", "proxy_pass up_2;"} {
+	for _, want := range []string{"zone up_1 128k;", "least_conn;", "server 10.0.0.1:443 weight=2 max_fails=2 fail_timeout=10s;", "listen 443 so_keepalive=60s:15s:4;", "proxy_socket_keepalive on;", "listen 8443 udp reuseport;", "hash $remote_addr consistent;", "proxy_pass up_2;"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -78,5 +78,33 @@ func TestHashStable(t *testing.T) {
 	b.Pools[0].Members[0].Weight = 5
 	if a.Hash() == b.Hash() {
 		t.Fatal("hash must change with content")
+	}
+}
+
+func TestNginxUDPIsStickyByClient(t *testing.T) {
+	for _, algo := range []string{spec.AlgoRoundRobin, spec.AlgoLeastConn, spec.AlgoSource} {
+		s := spec.Spec{Engine: spec.EngineNginx, Pools: []spec.Pool{{
+			ID: 1, ListenPort: 51820, Proto: spec.ProtoUDP, Algorithm: algo,
+			Members: []spec.Member{{Host: "10.0.0.1", Port: 51820, Weight: 1}, {Host: "10.0.0.2", Port: 51820, Weight: 1}},
+		}}}
+		out, err := Render(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"listen 51820 udp reuseport;", "hash $remote_addr consistent;"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: missing %q in:\n%s", algo, want, out)
+			}
+		}
+		if strings.Contains(out, "least_conn;") {
+			t.Errorf("%s: UDP must not use least_conn", algo)
+		}
+	}
+}
+
+func TestNginxTCPKeepsAlgorithm(t *testing.T) {
+	out, _ := Render(sample(spec.EngineNginx))
+	if !strings.Contains(out, "least_conn;") || strings.Contains(out, "reuseport") {
+		t.Errorf("TCP pool must keep its algorithm and not use reuseport:\n%s", out)
 	}
 }

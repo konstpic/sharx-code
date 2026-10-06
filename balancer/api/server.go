@@ -17,6 +17,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/balancer/engine"
 	"github.com/konstpic/sharx-code/v2/balancer/spec"
 	"github.com/konstpic/sharx-code/v2/config"
+	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
 )
@@ -43,6 +44,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/status", s.auth(s.status))
 	mux.HandleFunc("GET /api/v1/metrics", s.auth(s.metrics))
 	mux.HandleFunc("POST /api/v1/apply", s.auth(s.apply))
+	mux.HandleFunc("GET /api/v1/logs", s.auth(s.logs))
+	mux.HandleFunc("POST /api/v1/log-level", s.auth(s.setLogLevel))
 	mux.HandleFunc("GET /api/v1/docker-updater", s.auth(s.dockerUpdaterStatus))
 	mux.HandleFunc("POST /api/v1/docker-updater/trigger", s.auth(s.dockerUpdaterTrigger))
 	return mux
@@ -90,6 +93,52 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		"now":        time.Now().UnixMilli(),
 		"samples":    samples,
 	})
+}
+
+// logs returns the agent's journal (config, engine, health, connection, system events), oldest first.
+// Query: count (default 500, max 5000), level (debug|info|warn|error, default info), component, since (unix ms), q (substring).
+func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	count, _ := strconv.Atoi(q.Get("count"))
+	if count <= 0 {
+		count = 500
+	}
+	if count > 5000 {
+		count = 5000
+	}
+	level := q.Get("level")
+	if level == "" {
+		level = "info"
+	}
+	component := strings.TrimSpace(q.Get("component"))
+	since, _ := strconv.ParseInt(q.Get("since"), 10, 64)
+	needle := strings.ToLower(strings.TrimSpace(q.Get("q")))
+	entries := logger.GetEntries(count, level, func(e logger.Entry) bool {
+		if component != "" && e.Component != component {
+			return false
+		}
+		if since > 0 && e.TsUnixMs <= since {
+			return false
+		}
+		return needle == "" || strings.Contains(strings.ToLower(e.Msg), needle)
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"logLevel": s.eng.LogLevel(), "entries": entries})
+}
+
+// setLogLevel switches the journal between info and debug (debug adds one line per closed connection).
+func (s *Server) setLogLevel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Level string `json:"level"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON"})
+		return
+	}
+	if err := s.eng.SetLogLevel(body.Level); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logLevel": body.Level})
 }
 
 func (s *Server) apply(w http.ResponseWriter, r *http.Request) {

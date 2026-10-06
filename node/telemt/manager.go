@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -79,7 +80,7 @@ func (m *Manager) LoadAndApplyCache() error {
 	if !found || len(payloads) == 0 {
 		return nil
 	}
-	logger.Infof("Telemt: resuming %d sidecar(s) from local cache (panel not required)", len(payloads))
+	lg.Infof("Telemt: resuming %d sidecar(s) from local cache (panel not required)", len(payloads))
 	return m.Apply(payloads)
 }
 
@@ -100,6 +101,46 @@ const (
 	stableRun = 60 * time.Second
 )
 
+// telemtEntry is the base journal entry for lines printed by the telemt process of an inbound tag.
+// telemtLineLevel reads the level telemt prints ("<ts> INFO module: msg") and demotes the middle-proxy handshake and
+// health chatter, which repeats several times a second, to debug.
+// telemt prints "<rfc3339 ts> LEVEL module::path: message key=value ...". The timestamp and level are already columns in
+// the journal, so they are cut from the text, and the module is shortened to its last two segments.
+var telemtLineRe = regexp.MustCompile(`^\s*\S+\s+(ERROR|WARN|INFO|DEBUG|TRACE)\s+(\S+?):\s+(.*)$`)
+
+func telemtLineLevel(line string, e *logger.Entry) bool {
+	m := telemtLineRe.FindStringSubmatch(line)
+	if m == nil {
+		return true
+	}
+	switch m[1] {
+	case "ERROR":
+		e.Level = "error"
+	case "WARN":
+		e.Level = "warn"
+	case "DEBUG", "TRACE":
+		e.Level = "debug"
+	default:
+		e.Level = "info"
+		if strings.Contains(m[2], "middle_proxy::") && !strings.Contains(m[3], "idle timeout") {
+			e.Level = "debug" // handshake and health chatter repeats several times a second
+		}
+	}
+	if strings.HasSuffix(m[2], "health::idle_refresh") {
+		e.Level = "debug" // routine writer rotation, logged by telemt as WARN several times a second
+	}
+	mod := strings.Split(m[2], "::")
+	if len(mod) > 2 {
+		mod = mod[len(mod)-2:]
+	}
+	e.Msg = strings.Join(mod, "::") + ": " + m[3]
+	return true
+}
+
+func telemtEntry(tag string) logger.Entry {
+	return logger.Entry{Source: "node", Channel: "service", Component: "telemt", Msg: "", EntityType: "node"}
+}
+
 // restartDelay is the pause before restart attempt n (1-based); a variable so tests can shorten it.
 var restartDelay = func(n int) time.Duration { return time.Duration(n) * 2 * time.Second }
 
@@ -117,20 +158,23 @@ func stopProc(tag string, st *procState) {
 	select {
 	case <-st.done:
 	case <-time.After(stopWaitTimeout):
-		logger.Warningf("Telemt: %s did not exit within %s", tag, stopWaitTimeout)
+		lg.Warningf("Telemt: %s did not exit within %s", tag, stopWaitTimeout)
 	}
 }
 
 // superviseProc runs the process until ctx is cancelled. An unexpected exit (for instance a
 // port that was not yet free right after a config change) is retried with a growing delay, so an
 // instance is never left dead until the next config push.
-func superviseProc(ctx context.Context, tag, bin, cfgPath, dir string, first *exec.Cmd, done chan struct{}) {
+func superviseProc(ctx context.Context, tag, bin, cfgPath, dir string, first *exec.Cmd, firstFinish func(), done chan struct{}) {
 	defer close(done)
-	cmd := first
+	cmd, finish := first, firstFinish
 	fails := 0
 	for {
 		started := time.Now()
 		err := cmd.Wait()
+		if finish != nil {
+			finish() // flush the last lines of the dead process into the journal
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -138,9 +182,9 @@ func superviseProc(ctx context.Context, tag, bin, cfgPath, dir string, first *ex
 			fails = 0
 		}
 		fails++
-		logger.Warningf("Telemt exited: tag=%s err=%v (attempt %d/%d)", tag, err, fails, maxQuickRestarts)
+		lg.Warningf("Telemt exited: tag=%s err=%v (attempt %d/%d)", tag, err, fails, maxQuickRestarts)
 		if fails > maxQuickRestarts {
-			logger.Errorf("Telemt: giving up on %s after %d failed starts", tag, maxQuickRestarts)
+			lg.Errorf("Telemt: giving up on %s after %d failed starts", tag, maxQuickRestarts)
 			return
 		}
 		select {
@@ -151,15 +195,16 @@ func superviseProc(ctx context.Context, tag, bin, cfgPath, dir string, first *ex
 		next := exec.CommandContext(ctx, bin, cfgPath)
 		next.Dir = dir
 		next.Env = os.Environ()
-		next.Stdout = os.Stderr
-		next.Stderr = os.Stderr
+		nextFinish := logger.CaptureOutputFunc(next, telemtEntry(tag), telemtLineLevel)
 		if err := next.Start(); err != nil {
-			logger.Warningf("Telemt restart %s: %v", tag, err)
+			nextFinish()
+			lg.Warningf("Telemt restart %s: %v", tag, err)
+			finish = nil
 			cmd = &exec.Cmd{} // Wait() on an unstarted command fails at once and counts as a failed attempt
 			continue
 		}
-		logger.Infof("Telemt restarted: tag=%s pid=%d", tag, next.Process.Pid)
-		cmd = next
+		lg.Infof("Telemt restarted: tag=%s pid=%d", tag, next.Process.Pid)
+		cmd, finish = next, nextFinish
 	}
 }
 
@@ -180,7 +225,7 @@ func (m *Manager) commitReplaySnapshot(payloads []Payload) {
 
 	if path := m.getCachePath(); path != "" {
 		if err := nodecache.Save(path, cp); err != nil {
-			logger.Warningf("Telemt: write local cache %s: %v", path, err)
+			lg.Warningf("Telemt: write local cache %s: %v", path, err)
 		}
 	}
 }
@@ -316,15 +361,15 @@ func (m *Manager) Apply(payloads []Payload) error {
 		cmd := exec.CommandContext(ctx, bin, cfgPath)
 		cmd.Dir = root
 		cmd.Env = os.Environ()
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
+		finish := logger.CaptureOutputFunc(cmd, telemtEntry(tag), telemtLineLevel)
 		if err := cmd.Start(); err != nil {
+			finish()
 			cancel()
 			return fmt.Errorf("telemt start %s: %w", tag, err)
 		}
-		logger.Infof("Telemt started: tag=%s pid=%d", tag, cmd.Process.Pid)
+		lg.Infof("Telemt started: tag=%s pid=%d", tag, cmd.Process.Pid)
 		done := make(chan struct{})
-		go superviseProc(ctx, tag, bin, cfgPath, root, cmd, done)
+		go superviseProc(ctx, tag, bin, cfgPath, root, cmd, finish, done)
 
 		m.running[tag] = &procState{cancel: cancel, hash: hhex, done: done}
 	}
@@ -352,3 +397,6 @@ func (m *Manager) InstallVersion(version string) error {
 	}
 	return nil
 }
+
+// lg tags this package's journal entries with the telemt component.
+var lg = logger.WithComponent("telemt")

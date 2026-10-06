@@ -251,12 +251,28 @@ func (a *APIController) pushNodeLogs(c *gin.Context) {
 		}
 	}
 
-	emitFromNode := func(level string, message string, ts string) {
+	emitFromNode := func(level string, message string, ts string, component string, connID string, source string) {
 		message = strings.TrimSpace(message)
+		component = strings.TrimSpace(component)
+		if component == "" {
+			component = "node"
+		}
 		if message == "" {
 			return
 		}
 		level = normalizeLevel(level)
+		if strings.EqualFold(strings.TrimSpace(component), "xray") || strings.EqualFold(strings.TrimSpace(source), "xray") {
+			component = "xray"
+			// drop the panel's own stats polling, turn access lines into "accepted dest from=... route=... email=..."
+			clean, id, drop := logger.TidyXrayMessage(message)
+			if drop || clean == "" {
+				return
+			}
+			message = clean
+			if id != "" {
+				connID = id
+			}
+		}
 		nodeIDStr := fmt.Sprintf("%d", node.Id)
 		logger.Emit(logger.Entry{
 			Ts:        strings.TrimSpace(ts),
@@ -264,8 +280,13 @@ func (a *APIController) pushNodeLogs(c *gin.Context) {
 			Source:    "node",
 			Msg:       fmt.Sprintf("[Node: %s] %s", node.Name, message),
 			NodeID:    nodeIDStr,
+			NodeName:  node.Name,
 			Channel:   "service",
-			Component: "node",
+			Component: component,
+			// Entity tags drive the per-node journal (Nodes -> node -> Logs).
+			EntityType: "node",
+			EntityID:   nodeIDStr,
+			ConnID:     connID,
 		})
 
 		logsse.Emit(logger.Entry{
@@ -276,12 +297,12 @@ func (a *APIController) pushNodeLogs(c *gin.Context) {
 			NodeID:    nodeIDStr,
 			NodeName:  node.Name,
 			Channel:   "service",
-			Component: "node",
+			Component: component,
 		})
 	}
 
 	for _, e := range req.Entries {
-		emitFromNode(e.Level, e.Msg, e.Ts)
+		emitFromNode(e.Level, e.Msg, e.Ts, e.Component, e.ConnID, e.Source)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logs received"})
@@ -481,13 +502,13 @@ func (a *APIController) pullWorkerXrayConfig(c *gin.Context) {
 	}
 
 	type pullResp struct {
-		Config          json.RawMessage               `json:"config"`
-		Telemt          []service.TelemtNodePayload   `json:"telemt"`
+		Config          json.RawMessage                `json:"config"`
+		Telemt          []service.TelemtNodePayload    `json:"telemt"`
 		AmneziaWG       []service.AmneziaWGNodePayload `json:"amneziawg"`
 		TelemtWeb       []telemtweb.Vhost              `json:"telemtWeb"`
-		NodeId          int                           `json:"nodeId"`
-		CoreProfileHash string                        `json:"coreProfileHash,omitempty"`
-		ConfigSha256    string                        `json:"configSha256,omitempty"`
+		NodeId          int                            `json:"nodeId"`
+		CoreProfileHash string                         `json:"coreProfileHash,omitempty"`
+		ConfigSha256    string                         `json:"configSha256,omitempty"`
 	}
 	logger.Debugf("pull-xray-config: node %s (%d), %d bytes, telemt=%d amneziawg=%d telemtWeb=%d", node.Name, node.Id, len(configJSON), len(telemtPayloads), len(awgPayloads), len(webVhosts))
 	c.JSON(http.StatusOK, pullResp{Config: configJSON, Telemt: telemtPayloads, AmneziaWG: awgPayloads, TelemtWeb: webVhosts, NodeId: node.Id, CoreProfileHash: coreHash, ConfigSha256: cfgHex})

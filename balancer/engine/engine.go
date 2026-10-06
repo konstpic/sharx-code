@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -36,12 +38,17 @@ type Manager struct {
 	version   map[string]string
 	metrics   metricsStore
 	socks     *sockTracker
+	cnt       counters
 }
 
 // New creates a manager storing its state under dir.
 func New(dir string) *Manager {
 	m := &Manager{dir: dir, version: map[string]string{}, socks: newSockTracker()}
 	go m.collectLoop()
+	go m.watchHealth()
+	go m.watchSystem()
+	logger.SetSource("balancer")
+	logger.SetMinEmitLevel(m.LogLevel())
 	return m
 }
 
@@ -78,9 +85,11 @@ func (m *Manager) Restore() error {
 // Apply validates the spec, renders and checks the config with the engine itself, then swaps and reloads it.
 // On any failure the running configuration is left untouched.
 func (m *Manager) Apply(ctx context.Context, s spec.Spec) error {
+	m.cnt.applies.Add(1)
 	if err := s.Validate(); err != nil {
 		return m.fail(err)
 	}
+	panelHash := s.Hash()
 	if s.Engine == spec.EngineNginx {
 		s = resolveForNginx(s)
 		if len(s.Pools) == 0 {
@@ -100,6 +109,7 @@ func (m *Manager) Apply(ctx context.Context, s spec.Spec) error {
 		m.lastErr = ""
 		m.cur = s
 		m.hash = s.Hash()
+		logConfig.Debugf("apply: config unchanged, nothing to reload (spec %s)", panelHash[:12])
 		return nil
 	}
 
@@ -120,6 +130,7 @@ func (m *Manager) Apply(ctx context.Context, s spec.Spec) error {
 		m.stopLocked()
 	}
 	m.engine = s.Engine
+	warnKeepalive(s)
 	if m.cmd == nil {
 		if err := m.startLocked(live); err != nil {
 			return m.failLocked(err)
@@ -130,6 +141,7 @@ func (m *Manager) Apply(ctx context.Context, s spec.Spec) error {
 
 	m.cur, m.hash, m.rendered = s, s.Hash(), text
 	m.lastErr, m.appliedAt = "", time.Now()
+	logConfig.Infof("apply: config applied engine=%s pools=%d spec=%s %s", s.Engine, len(s.Pools), panelHash[:12], describePools(s))
 	if b, err := json.Marshal(s); err == nil {
 		_ = os.WriteFile(filepath.Join(m.dir, "spec.json"), b, 0o600)
 	}
@@ -144,7 +156,8 @@ func (m *Manager) fail(err error) error {
 
 func (m *Manager) failLocked(err error) error {
 	m.lastErr = err.Error()
-	logger.Warningf("balancer apply failed: %v", err)
+	m.cnt.applyErrors.Add(1)
+	logConfig.Errorf("apply failed, the previous config keeps running: %v", err)
 	return err
 }
 
@@ -177,19 +190,23 @@ func (m *Manager) command(live string) *exec.Cmd {
 
 func (m *Manager) startLocked(live string) error {
 	cmd := m.command(live)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	// HAProxy logs sessions to stdout (log stdout), nginx to stderr/stdout (error_log, access_log): both flow into the
+	// journal as parsed events and are still mirrored to the container log.
+	finish := logger.CaptureOutputFunc(cmd, logger.Entry{Source: "balancer", Component: CompEngine}, m.classifyEngineLine)
 	if err := cmd.Start(); err != nil {
+		finish()
 		return err
 	}
 	m.cmd, m.want = cmd, true
-	logger.Infof("%s started (pid %d)", m.engine, cmd.Process.Pid)
-	go m.supervise(cmd, live)
+	logEngine.Infof("%s started pid=%d", m.engine, cmd.Process.Pid)
+	go m.supervise(cmd, live, finish)
 	return nil
 }
 
 // supervise restarts the engine if it exits while it should be running.
-func (m *Manager) supervise(cmd *exec.Cmd, live string) {
+func (m *Manager) supervise(cmd *exec.Cmd, live string, finish func()) {
 	err := cmd.Wait()
+	finish()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cmd != cmd {
@@ -199,7 +216,7 @@ func (m *Manager) supervise(cmd *exec.Cmd, live string) {
 	if !m.want {
 		return
 	}
-	logger.Warningf("%s exited unexpectedly: %v; restarting", m.engine, err)
+	logEngine.Errorf("%s exited unexpectedly: %v; restarting in 2s (existing client connections are lost)", m.engine, err)
 	m.lastErr = fmt.Sprintf("engine exited: %v", err)
 	go func() {
 		time.Sleep(2 * time.Second)
@@ -221,6 +238,8 @@ func (m *Manager) reloadLocked() error {
 	if m.engine == spec.EngineNginx {
 		sig = syscall.SIGHUP
 	}
+	m.cnt.reloads.Add(1)
+	logEngine.Infof("reload requested (%s, signal %v): existing connections stay on the old worker, new ones use the new config", m.engine, sig)
 	return m.cmd.Process.Signal(sig)
 }
 
@@ -272,6 +291,7 @@ type Status struct {
 	AppliedAt int64        `json:"appliedAt"`
 	LastError string       `json:"lastError"`
 	Pools     []PoolStatus `json:"pools"`
+	Diag      Diag         `json:"diag"`
 }
 
 // Status probes the backends and reads engine statistics.
@@ -289,6 +309,7 @@ func (m *Manager) Status() Status {
 	if engine == spec.EngineHAProxy && st.Running {
 		stats, _ = readHAProxyStats()
 	}
+	sel := map[string]int64{}
 	for _, p := range cur.Pools {
 		ps := PoolStatus{ID: p.ID, Port: p.ListenPort, Proto: p.Proto}
 		if p.Proto == spec.ProtoTCP && st.Running {
@@ -307,6 +328,7 @@ func (m *Manager) Status() Status {
 			if hs, ok := stats[fmt.Sprintf("be_%d/s%d", p.ID, i)]; ok {
 				up := hs.Up
 				ms.Up, ms.Sessions, ms.Total = &up, hs.Sessions, hs.Total
+				sel[fmt.Sprintf("%d/%s:%d", p.ID, mem.Host, mem.Port)] = hs.Total
 			} else if probedUp != nil {
 				ms.Up = probedUp
 			}
@@ -320,6 +342,7 @@ func (m *Manager) Status() Status {
 		}
 		st.Pools = append(st.Pools, ps)
 	}
+	st.Diag = m.diag(sel)
 	return st
 }
 
@@ -338,4 +361,48 @@ func probeTCPTimed(host string, port int) (bool, int64) {
 	rtt := time.Since(start).Milliseconds()
 	_ = c.Close()
 	return true, rtt
+}
+
+// describePools summarises a spec for the journal: "pool 1 tcp :443 -> 10.0.0.1:443(w2),10.0.0.2:443(w1)".
+func describePools(s spec.Spec) string {
+	var parts []string
+	for _, p := range s.Pools {
+		var mem []string
+		for _, mm := range p.Members {
+			b := ""
+			if mm.Backup {
+				b = ",backup"
+			}
+			mem = append(mem, fmt.Sprintf("%s:%d(w%d%s)", mm.Host, mm.Port, weightOrOne(mm.Weight), b))
+		}
+		parts = append(parts, fmt.Sprintf("[pool %d %s :%d %s -> %s]", p.ID, p.Proto, p.ListenPort, p.Algorithm, strings.Join(mem, ",")))
+	}
+	return strings.Join(parts, " ")
+}
+
+func weightOrOne(w int) int {
+	if w <= 0 {
+		return 1
+	}
+	return w
+}
+
+// warnKeepalive tells the operator about the one dead-peer case the config cannot cover: nginx probes the node side of a
+// TCP session with the kernel's keepalive defaults (2 hours), so a node that vanishes silently keeps its sessions until
+// the idle timeout. HAProxy tunes this per socket and is not affected.
+func warnKeepalive(s spec.Spec) {
+	if s.Engine != spec.EngineNginx {
+		return
+	}
+	hasTCP := false
+	for _, p := range s.Pools {
+		hasTCP = hasTCP || p.Proto == spec.ProtoTCP
+	}
+	b, err := os.ReadFile("/proc/sys/net/ipv4/tcp_keepalive_time")
+	if err != nil || !hasTCP {
+		return
+	}
+	if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n > 600 {
+		logConfig.Warningf("nginx TCP pools: kernel tcp_keepalive_time is %ds, so sessions to a node that disappears silently are held for hours; set net.ipv4.tcp_keepalive_time=120 on this server or use the HAProxy engine for TCP", n)
+	}
 }
