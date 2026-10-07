@@ -202,11 +202,12 @@ func (a *NodeController) getNodes(c *gin.Context) {
 	for _, node := range nodes {
 		inbounds, _ := a.nodeService.GetInboundsForNode(node.Id)
 		if !canInbounds {
-			// inbound settings carry client credentials (UUIDs, passwords, WireGuard keys): a user who may see nodes but not
-			// inbounds gets the inbound's name and traffic, not its secrets
+			// a user who may see nodes but not inbounds gets the inbound's name and traffic, not its configuration
 			for _, ib := range inbounds {
 				ib.Settings, ib.StreamSettings, ib.ClientStats = "", "", nil
 			}
+		} else {
+			inbounds = redactInboundsFor(c, inbounds)
 		}
 		profiles, _ := profileService.GetProfilesForNode(node.Id)
 		result = append(result, NodeWithInbounds{

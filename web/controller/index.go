@@ -106,12 +106,8 @@ func (a *IndexController) login(c *gin.Context) {
 		return
 	}
 
-	twoFactorEnable, err := a.settingService.GetTwoFactorEnable()
-	if err != nil {
-		logger.Warning("two-factor setting read error:", err)
-		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
-		return
-	}
+	// Each user has their own TOTP secret; the Telegram one-time-code step stays a panel-wide switch.
+	twoFactorEnable, twoFactorToken := service.UserTwoFactor(user.Id)
 
 	if !twoFactorEnable {
 		if !a.checkTelegramTwoFactor(c, form, safeUser, timeStr) {
@@ -120,13 +116,6 @@ func (a *IndexController) login(c *gin.Context) {
 	}
 
 	if twoFactorEnable {
-		twoFactorToken, err := a.settingService.GetTwoFactorToken()
-		if err != nil || twoFactorToken == "" {
-			logger.Warning("two-factor enabled but secret missing")
-			pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
-			return
-		}
-
 		code := strings.TrimSpace(form.TwoFactorCode)
 		if code == "" {
 			tgSent := false
@@ -251,14 +240,11 @@ func (a *IndexController) logout(c *gin.Context) {
 
 // getTwoFactorEnable retrieves the current status of two-factor authentication.
 func (a *IndexController) getTwoFactorEnable(c *gin.Context) {
-	status, err := a.settingService.GetTwoFactorEnable()
+	// 2FA is per user now, and this endpoint is public: it must not tell a visitor which accounts use it. Only the
+	// panel-wide Telegram step is reported.
+	status, err := a.settingService.GetTgTwoFactorEnable()
 	if err != nil {
 		return
-	}
-	if !status {
-		if tg, tgErr := a.settingService.GetTgTwoFactorEnable(); tgErr == nil {
-			status = tg
-		}
 	}
 	jsonObj(c, status, nil)
 }

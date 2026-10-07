@@ -24,6 +24,7 @@ export type UserRow = {
   createdAt: number;
   updatedAt: number;
   lastLoginAt?: number;
+  twoFactor?: boolean;
   self: boolean;
   manageable: boolean;
 };
@@ -71,6 +72,7 @@ export const rbacApi = {
     call<UserRow>(() => postJson<UserRow>(panel("rbac/users"), body, true)),
   updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel(`rbac/users/${id}/update`), body, true)),
+  resetTwoFactor: (id: number) => call(() => postJson(panel(`rbac/users/${id}/two-factor/reset`), {}, true)),
   setPassword: (id: number, password: string) => call(() => postJson(panel(`rbac/users/${id}/password`), { password }, true)),
   deleteUser: (id: number) => call(() => postJson(panel(`rbac/users/${id}/delete`), {}, true)),
   audit: (params: { before?: number; result?: string; limit?: number }) => {

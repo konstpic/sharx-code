@@ -85,6 +85,7 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/twoFactor/begin", a.beginTwoFactorSetup)
 	g.POST("/twoFactor/complete", a.completeTwoFactorSetup)
 	g.POST("/twoFactor/cancel", a.cancelTwoFactorSetup)
+	g.POST("/twoFactor/disable", a.disableTwoFactor)
 	g.POST("/ui/get", a.getUIPreference)
 	g.POST("/ui/set", a.setUIPreference)
 	g.POST("/generateSecretPaths", a.generateSecretPaths)
@@ -346,21 +347,52 @@ func (a *SettingController) completeTwoFactorSetup(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorModalError"))
 		return
 	}
-	if err := a.settingService.SetTwoFactorToken(secret); err != nil {
-		logger.Warning("SetTwoFactorToken:", err)
+	user := session.GetLoginUser(c)
+	if user == nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorBeginUnauthorized"))
+		return
+	}
+	if err := service.EnableUserTwoFactor(user.Id, secret); err != nil {
+		logger.Warning("EnableUserTwoFactor:", err)
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorCompleteError"))
 		return
 	}
-	if err := a.settingService.SetTwoFactorEnable(true); err != nil {
-		logger.Warning("SetTwoFactorEnable:", err)
-		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorCompleteError"))
-		return
-	}
+	service.Audit.Record(service.Actor{Principal: currentPrincipal(c), IP: getRemoteIp(c)}, "user.two_factor_enable", "user", fmt.Sprint(user.Id), user.Username, nil, nil, "ok", "")
 	session.ClearPendingTwoFactorSecret(c)
 	if err := sessions.Default(c).Save(); err != nil {
 		logger.Warning("session save after 2FA setup:", err)
 	}
 	jsonMsg(c, I18nWeb(c, "pages.settings.security.twoFactorModalSetSuccess"), nil)
+}
+
+// disableTwoFactor turns off the caller's own 2FA. The current code is required, so a stolen session alone cannot do it.
+func (a *SettingController) disableTwoFactor(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorBeginUnauthorized"))
+		return
+	}
+	form := &twoFactorCodeForm{}
+	if err := c.ShouldBind(form); err != nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorModalError"))
+		return
+	}
+	enabled, secret := service.UserTwoFactor(user.Id)
+	if !enabled {
+		jsonMsg(c, "", nil)
+		return
+	}
+	if !service.VerifyTOTPCode(secret, form.Code) {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorModalError"))
+		return
+	}
+	if err := service.DisableUserTwoFactor(user.Id); err != nil {
+		logger.Warning("DisableUserTwoFactor:", err)
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.toasts.modifySettings"))
+		return
+	}
+	service.Audit.Record(service.Actor{Principal: currentPrincipal(c), IP: getRemoteIp(c)}, "user.two_factor_disable", "user", fmt.Sprint(user.Id), user.Username, nil, nil, "ok", "")
+	jsonMsg(c, I18nWeb(c, "pages.settings.security.twoFactorModalDeleteSuccess"), nil)
 }
 
 func (a *SettingController) cancelTwoFactorSetup(c *gin.Context) {

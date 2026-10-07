@@ -117,12 +117,13 @@ func (w *WebSocketController) HandleWebSocket(c *gin.Context) {
 		realUserID = u.Id
 	}
 	client := &websocket.Client{
-		ID:     clientID,
-		UserId: uid,
-		Hub:    w.hub,
-		Send:   make(chan []byte, 512), // Increased from 256 to 512 to prevent overflow
-		Topics: make(map[websocket.MessageType]bool),
-		Allow:  wsAllow(realUserID),
+		ID:      clientID,
+		UserId:  uid,
+		Hub:     w.hub,
+		Send:    make(chan []byte, 512), // Increased from 256 to 512 to prevent overflow
+		Topics:  make(map[websocket.MessageType]bool),
+		Allow:   wsAllow(realUserID),
+		Variant: wsVariant(realUserID),
 	}
 
 	// Register client

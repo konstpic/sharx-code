@@ -198,7 +198,7 @@ var routes = map[string][]string{
 
 	// ----- xray: core settings, profiles, outbounds, services, geo files -----
 	"POST /panel/xray/":                                         {XrayRead},
-	"POST /panel/xray/getFullConfig":                            {XrayRead},
+	"POST /panel/xray/getFullConfig":                            {XrayRead, InboundsUpdate, ClientsRead}, // same: the full config embeds the inbounds,
 	"GET /panel/xray/getOutboundsTraffic":                       {XrayRead},
 	"GET /panel/xray/getXrayResult":                             {XrayRead},
 	"GET /panel/xray/getDefaultJsonConfig":                      {XrayRead},
@@ -220,7 +220,7 @@ var routes = map[string][]string{
 	"POST /panel/outbound/add":                                  {OutboundsCreate},
 	"POST /panel/outbound/update/:id":                           {OutboundsUpdate},
 	"POST /panel/outbound/del/:id":                              {OutboundsDelete},
-	"GET /panel/api/server/getConfigJson":                       {XrayRead},
+	"GET /panel/api/server/getConfigJson":                       {XrayRead, InboundsUpdate, ClientsRead}, // the running config contains every client and the server keys,
 	"POST /panel/api/server/stopXrayService":                    {XrayOperate},
 	"POST /panel/api/server/restartXrayService":                 {XrayOperate},
 	"POST /panel/api/server/stopTelemtService":                  {XrayOperate},
@@ -253,9 +253,10 @@ var routes = map[string][]string{
 	"GET /panel/setting/secretPathsMeta":              {SettingsSecurity},
 	"POST /panel/setting/generateSecretPaths":         {SettingsSecurity},
 	"POST /panel/setting/saveSecretPaths":             {SettingsSecurity},
-	"POST /panel/setting/twoFactor/begin":             {SettingsSecurity},
-	"POST /panel/setting/twoFactor/complete":          {SettingsSecurity},
-	"POST /panel/setting/twoFactor/cancel":            {SettingsSecurity},
+	"POST /panel/setting/twoFactor/begin":             Auth,
+	"POST /panel/setting/twoFactor/complete":          Auth,
+	"POST /panel/setting/twoFactor/disable":           Auth, // own 2FA, needs the current code
+	"POST /panel/setting/twoFactor/cancel":            Auth,
 	"POST /panel/setting/subscriptionPageConfig/list": {SettingsRead},
 	"POST /panel/setting/subscriptionPageConfig/get":  {SettingsRead},
 	"POST /panel/setting/subscriptionPageConfig/save": {SettingsUpdate},
@@ -302,17 +303,18 @@ var routes = map[string][]string{
 	"POST /panel/db/tables/:table/rows/:pk/delete":   {SystemDatabase},
 
 	// ----- access control -----
-	"GET /panel/rbac/users":               {UsersRead},
-	"POST /panel/rbac/users":              {UsersCreate},
-	"POST /panel/rbac/users/:id/update":   {UsersUpdate},
-	"POST /panel/rbac/users/:id/password": {UsersUpdate},
-	"POST /panel/rbac/users/:id/delete":   {UsersDelete},
-	"GET /panel/rbac/roles":               {RolesRead},
-	"GET /panel/rbac/permissions":         {RolesRead},
-	"POST /panel/rbac/roles":              {RolesCreate},
-	"POST /panel/rbac/roles/:id/update":   {RolesUpdate},
-	"POST /panel/rbac/roles/:id/delete":   {RolesDelete},
-	"GET /panel/rbac/audit":               {AuditRead},
+	"GET /panel/rbac/users":                       {UsersRead},
+	"POST /panel/rbac/users":                      {UsersCreate},
+	"POST /panel/rbac/users/:id/update":           {UsersUpdate},
+	"POST /panel/rbac/users/:id/password":         {UsersUpdate},
+	"POST /panel/rbac/users/:id/two-factor/reset": {UsersUpdate},
+	"POST /panel/rbac/users/:id/delete":           {UsersDelete},
+	"GET /panel/rbac/roles":                       {RolesRead},
+	"GET /panel/rbac/permissions":                 {RolesRead},
+	"POST /panel/rbac/roles":                      {RolesCreate},
+	"POST /panel/rbac/roles/:id/update":           {RolesUpdate},
+	"POST /panel/rbac/roles/:id/delete":           {RolesDelete},
+	"GET /panel/rbac/audit":                       {AuditRead},
 }
 
 // Lookup returns the permissions required by a route. method and fullPath are as Gin reports them (fullPath already

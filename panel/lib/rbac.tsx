@@ -11,6 +11,8 @@ export type Me = {
   roleId: number;
   roleName: string;
   super: boolean;
+  /** the user's own two-factor authentication is on */
+  twoFactor?: boolean;
   permissions: string[];
 };
 

@@ -184,6 +184,7 @@ type UserView struct {
 	UpdatedAt   int64  `json:"updatedAt"`
 	LastLoginAt *int64 `json:"lastLoginAt,omitempty"`
 	Self        bool   `json:"self"`
+	TwoFactor   bool   `json:"twoFactor"`
 	// Manageable is true when the caller may edit, disable or delete this user.
 	Manageable bool `json:"manageable"`
 }
@@ -258,7 +259,7 @@ func (s *RBACService) ListUsers(actor *Principal) ([]UserView, error) {
 	}
 	out := make([]UserView, 0, len(users))
 	for _, u := range users {
-		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt}
+		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled}
 		var set rbac.Set = rbac.Set{}
 		if u.RoleId != nil {
 			if r, ok := byID[*u.RoleId]; ok {

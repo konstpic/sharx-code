@@ -186,6 +186,7 @@ func NewRBACController(g *gin.RouterGroup) *RBACController {
 	g.POST("/users", a.createUser)
 	g.POST("/users/:id/update", a.updateUser)
 	g.POST("/users/:id/password", a.setPassword)
+	g.POST("/users/:id/two-factor/reset", a.resetTwoFactor)
 	g.POST("/users/:id/delete", a.deleteUser)
 	g.GET("/audit", a.audit)
 	return a
@@ -233,6 +234,7 @@ func (a *RBACController) me(c *gin.Context) {
 		"roleId":      p.RoleId,
 		"roleName":    p.RoleName,
 		"super":       p.Super,
+		"twoFactor":   twoFactorOn(p.UserId),
 		"permissions": p.Perms.List(),
 	}, nil)
 }
@@ -391,6 +393,18 @@ func (a *RBACController) setPassword(c *gin.Context) {
 	jsonObj(c, gin.H{"id": id}, nil)
 }
 
+func (a *RBACController) resetTwoFactor(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := rbacService.ResetUserTwoFactor(actorOf(c), id); err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, gin.H{"id": id}, nil)
+}
+
 func (a *RBACController) deleteUser(c *gin.Context) {
 	id, ok := pathID(c)
 	if !ok {
@@ -414,4 +428,38 @@ func (a *RBACController) audit(c *gin.Context) {
 		return
 	}
 	jsonObj(c, rows, nil)
+}
+
+// wsVariant says how much of a redactable message (inbounds) this user's role may see.
+func wsVariant(userID int) func(websocket.MessageType) uint8 {
+	return func(websocket.MessageType) uint8 {
+		p, err := rbacService.GetPrincipal(userID)
+		if err != nil || p == nil || !p.Enabled {
+			return 0
+		}
+		var v uint8
+		if p.Perms.Has(rbac.ClientsRead) {
+			v |= websocket.VariantClients
+		}
+		if p.Perms.Has(rbac.InboundsUpdate) {
+			v |= websocket.VariantSecrets
+		}
+		return v
+	}
+}
+
+func init() {
+	// the inbounds push carries every inbound with its clients and keys: each socket gets the parts its role may see
+	websocket.RegisterRedactor(websocket.MessageTypeInbounds, func(payload any, variant uint8) any {
+		list, ok := payload.([]*model.Inbound)
+		if !ok {
+			return nil // an unexpected payload is not forwarded to partial viewers
+		}
+		return service.RedactInbounds(list, variant&websocket.VariantClients != 0, variant&websocket.VariantSecrets != 0)
+	})
+}
+
+func twoFactorOn(userID int) bool {
+	on, _ := service.UserTwoFactor(userID)
+	return on
 }

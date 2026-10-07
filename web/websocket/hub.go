@@ -45,12 +45,77 @@ type Client struct {
 	// Allow, when set, is asked before every message of a type is delivered: it is how access control keeps a user's
 	// socket from carrying data (inbounds, nodes, clients...) that their role may not read. A nil Allow allows all.
 	Allow func(MessageType) bool
+	// Variant says how much of a message the client may see (VariantClients|VariantSecrets); it is asked only for message types
+	// that have a redactor. A nil Variant means everything.
+	Variant func(MessageType) uint8
+}
+
+// Visibility bits of Client.Variant.
+const (
+	VariantClients uint8 = 1 << iota // client credentials
+	VariantSecrets                   // server secrets
+	VariantFull    = VariantClients | VariantSecrets
+)
+
+// Redactor returns a copy of a payload reduced to the given visibility. It must not modify the payload it receives, which is
+// shared with the other recipients.
+type Redactor func(payload any, variant uint8) any
+
+var (
+	redactorsMu sync.RWMutex
+	redactors   = map[MessageType]Redactor{}
+)
+
+// RegisterRedactor installs the redactor of a message type (see Client.Variant).
+func RegisterRedactor(t MessageType, fn Redactor) {
+	redactorsMu.Lock()
+	redactors[t] = fn
+	redactorsMu.Unlock()
+}
+
+func redactorFor(t MessageType) Redactor {
+	redactorsMu.RLock()
+	defer redactorsMu.RUnlock()
+	return redactors[t]
 }
 
 // bcast is a serialized message together with its type, so delivery can be filtered per client.
 type bcast struct {
-	typ  MessageType
-	data []byte
+	typ     MessageType
+	payload any
+	data    []byte // the full message
+}
+
+// deliver sends a message to the clients that may receive it, each with the visibility its role allows.
+func (h *Hub) deliver(clients []*Client, b bcast) {
+	clients = filterAllowed(clients, b.typ)
+	red := redactorFor(b.typ)
+	if red == nil {
+		h.broadcastParallel(clients, b.data)
+		return
+	}
+	groups := map[uint8][]*Client{}
+	for _, c := range clients {
+		v := VariantFull
+		if c.Variant != nil {
+			v = c.Variant(b.typ)
+		}
+		groups[v] = append(groups[v], c)
+	}
+	for v, cs := range groups {
+		data := b.data
+		if v != VariantFull {
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.SetEscapeHTML(false)
+			if err := enc.Encode(Message{Type: b.typ, Payload: red(b.payload, v), Time: getCurrentTimestamp()}); err != nil {
+				logger.Error("Failed to marshal redacted WebSocket message:", err)
+				continue
+			}
+			data = bytes.TrimRight(buf.Bytes(), "\n")
+		}
+		h.broadcastParallel(cs, data)
+	}
 }
 
 // filterAllowed drops the clients that may not receive messages of this type.
@@ -215,7 +280,7 @@ func (h *Hub) Run() {
 			h.mu.RUnlock()
 
 			// Parallel broadcast using worker pool
-			h.broadcastParallel(filterAllowed(clients, b.typ), message)
+			h.deliver(clients, b)
 		}
 	}
 }
@@ -365,7 +430,7 @@ func (h *Hub) Broadcast(messageType MessageType, payload any) {
 
 	// Non-blocking send with timeout to prevent delays
 	select {
-	case h.broadcast <- bcast{typ: messageType, data: data}:
+	case h.broadcast <- bcast{typ: messageType, payload: payload, data: data}:
 	case <-time.After(100 * time.Millisecond):
 		logger.Warning("WebSocket broadcast channel is full, dropping message")
 	case <-h.ctx.Done():
@@ -486,7 +551,7 @@ func (h *Hub) BroadcastToTopic(messageType MessageType, payload any) {
 
 	// Parallel send to subscribed clients
 	if len(subscribedClients) > 0 {
-		h.broadcastParallel(subscribedClients, data)
+		h.deliver(subscribedClients, bcast{typ: messageType, payload: payload, data: data})
 	}
 }
 

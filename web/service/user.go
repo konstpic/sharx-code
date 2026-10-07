@@ -103,18 +103,6 @@ func (s *UserService) UpdateUser(id int, username string, password string) error
 		return err
 	}
 
-	twoFactorEnable, err := s.settingService.GetTwoFactorEnable()
-	if err != nil {
-		return err
-	}
-
-	// Historic behaviour: changing the administrator's password resets the (single, panel-wide) 2FA. With several users
-	// that must stay limited to administrators, or any user could switch off 2FA for everybody by changing a password.
-	if twoFactorEnable && s.isAdministrator(id) {
-		s.settingService.SetTwoFactorEnable(false)
-		s.settingService.SetTwoFactorToken("")
-	}
-
 	return db.Model(model.User{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"username": username, "password": hashedPassword}).

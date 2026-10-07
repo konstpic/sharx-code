@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserCog, UserX, Users } from "lucide-react";
+import { KeyRound, ShieldOff, Pencil, Plus, ShieldCheck, Trash2, UserCog, UserX, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader, PageScaffold, Surface } from "@/components/panel";
@@ -91,6 +91,7 @@ function UsersTab() {
   const [editing, setEditing] = useState<UserRow | "new" | null>(null);
   const [pwTarget, setPwTarget] = useState<UserRow | null>(null);
   const [delTarget, setDelTarget] = useState<UserRow | null>(null);
+  const [tfTarget, setTfTarget] = useState<UserRow | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -122,6 +123,18 @@ function UsersTab() {
     setDelTarget(null);
     if (r.ok) {
       toast.success(t("rbac.userDeleted", { defaultValue: "User deleted" }));
+      void load();
+    } else toast.error(r.msg);
+  };
+
+  const doResetTwoFactor = async () => {
+    if (!tfTarget) return;
+    setBusy(true);
+    const r = await rbacApi.resetTwoFactor(tfTarget.id);
+    setBusy(false);
+    setTfTarget(null);
+    if (r.ok) {
+      toast.success(t("rbac.twoFactorReset", { defaultValue: "Two-factor authentication reset; the user's sessions were ended" }));
       void load();
     } else toast.error(r.msg);
   };
@@ -175,6 +188,11 @@ function UsersTab() {
                           <IconButton label={t("rbac.resetPassword", { defaultValue: "Set a new password" })} onClick={() => setPwTarget(u)}>
                             <KeyRound size={16} />
                           </IconButton>
+                          {u.twoFactor ? (
+                            <IconButton label={t("rbac.resetTwoFactor", { defaultValue: "Reset two-factor authentication" })} onClick={() => setTfTarget(u)}>
+                              <ShieldOff size={16} />
+                            </IconButton>
+                          ) : null}
                           <IconButton
                             label={u.enabled ? t("rbac.disableUser", { defaultValue: "Disable" }) : t("rbac.enableUser", { defaultValue: "Enable" })}
                             disabled={busy}
@@ -208,6 +226,20 @@ function UsersTab() {
           }}
         />
       ) : null}
+      <ConfirmDialog
+        open={tfTarget != null}
+        danger
+        loading={busy}
+        title={t("rbac.resetTwoFactor", { defaultValue: "Reset two-factor authentication" })}
+        description={t("rbac.resetTwoFactorText", {
+          defaultValue: "{{name}} will sign in with a password only until they set up two-factor authentication again. Their sessions end.",
+          name: tfTarget?.username ?? "",
+        })}
+        confirmLabel={t("rbac.resetTwoFactorConfirm", { defaultValue: "Reset" })}
+        cancelLabel={t("cancel")}
+        onCancel={() => setTfTarget(null)}
+        onConfirm={() => void doResetTwoFactor()}
+      />
       {pwTarget ? <PasswordModal user={pwTarget} onClose={() => setPwTarget(null)} /> : null}
       <ConfirmDialog
         open={delTarget != null}

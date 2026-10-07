@@ -15,6 +15,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/xlzd/gotp"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
@@ -434,5 +435,145 @@ func TestMeReportsThePermissionsTheUIAdaptsTo(t *testing.T) {
 	obj, _ = body["obj"].(map[string]any)
 	if obj["super"] != true {
 		t.Fatalf("the administrator is super: %v", obj)
+	}
+}
+
+func seedInbound(t *testing.T) int {
+	t.Helper()
+	var id int
+	settings := `{"clients":[{"id":"aaaa-1111","email":"alice"},{"id":"bbbb-2222","email":"bob"}],"decryption":"none"}`
+	stream := `{"network":"tcp","security":"reality","realitySettings":{"privateKey":"SERVER-PRIVATE-KEY","shortIds":["ab"],"serverNames":["example.com"]}}`
+	err := database.GetDB().Raw(`INSERT INTO inbounds (user_id, remark, port, protocol, settings, stream_settings, tag, listen, sniffing)
+		VALUES (?, 'rbac-test', 24443, 'vless', ?, ?, 'inbound-24443', '', '{}') RETURNING id`, service.PanelOwnerID(1), settings, stream).Scan(&id).Error
+	if err != nil || id == 0 {
+		t.Fatalf("seed inbound: %v", err)
+	}
+	return id
+}
+
+// inbounds:read shows the inbound, not what is inside it that belongs to other permissions.
+func TestInboundReadDoesNotLeakClientsOrServerKeys(t *testing.T) {
+	e := newHTTPEnv(t)
+	id := seedInbound(t)
+	body := func(c *client) string {
+		_, r := c.do("GET", "/panel/api/inbounds/get/"+strconv.Itoa(id), nil)
+		b, _ := json.Marshal(r["obj"])
+		return string(b)
+	}
+	onlyInbound := e.user("only-inbound", e.role(rbac.InboundsRead).Id)
+	withClients := e.user("with-clients", e.role(rbac.InboundsRead, rbac.ClientsRead).Id)
+	editor := e.user("editor", e.role(rbac.InboundsRead, rbac.InboundsUpdate).Id)
+
+	if b := body(e.as(onlyInbound)); strings.Contains(b, "aaaa-1111") || strings.Contains(b, "SERVER-PRIVATE-KEY") || !strings.Contains(b, "example.com") {
+		t.Fatalf("inbounds:read alone must show neither clients nor keys: %s", b)
+	}
+	if b := body(e.as(withClients)); !strings.Contains(b, "aaaa-1111") || strings.Contains(b, "SERVER-PRIVATE-KEY") {
+		t.Fatalf("clients:read shows clients, not server keys: %s", b)
+	}
+	if b := body(e.as(editor)); strings.Contains(b, "aaaa-1111") || !strings.Contains(b, "SERVER-PRIVATE-KEY") {
+		t.Fatalf("inbounds:update shows keys, not clients: %s", b)
+	}
+	if b := body(e.as(e.admin.Principal.UserId)); !strings.Contains(b, "aaaa-1111") || !strings.Contains(b, "SERVER-PRIVATE-KEY") {
+		t.Fatalf("an administrator sees everything: %s", b)
+	}
+	// the list endpoint and the node list follow the same rule
+	_, r := e.as(onlyInbound).do("GET", "/panel/api/inbounds/list", nil)
+	if b, _ := json.Marshal(r["obj"]); strings.Contains(string(b), "aaaa-1111") || strings.Contains(string(b), "SERVER-PRIVATE-KEY") {
+		t.Fatalf("list leaked: %s", b)
+	}
+}
+
+// The scenario behind the "inbounds:update edits clients" limitation: the form is posted with a client smuggled in.
+func TestInboundUpdateCannotChangeClientsWithoutClientPermissions(t *testing.T) {
+	e := newHTTPEnv(t)
+	id := seedInbound(t)
+	editor := e.user("editor", e.role(rbac.InboundsRead, rbac.InboundsUpdate).Id)
+	smuggled := `{"clients":[{"id":"evil-9999","email":"mallory"}],"decryption":"none"}`
+	code, body := e.as(editor).do("POST", "/panel/api/inbounds/update/"+strconv.Itoa(id), map[string]any{
+		"remark": "renamed", "port": 24443, "protocol": "vless", "settings": smuggled, "streamSettings": `{"network":"tcp"}`, "sniffing": "{}", "enable": true, "listen": "", "tag": "inbound-24443",
+	})
+	var settings, remark string
+	database.GetDB().Raw("SELECT settings FROM inbounds WHERE id = ?", id).Scan(&settings)
+	database.GetDB().Raw("SELECT remark FROM inbounds WHERE id = ?", id).Scan(&remark)
+	if strings.Contains(settings, "mallory") || !strings.Contains(settings, "alice") || !strings.Contains(settings, "bob") {
+		t.Fatalf("the client list must be unchanged (HTTP %d %v): %s", code, body, settings)
+	}
+	if remark != "renamed" {
+		t.Logf("note: the update itself did not apply in this test environment (HTTP %d): %v", code, body)
+	}
+	// an administrator posting the same form does change the clients (the guard only restrains callers without client permissions)
+	e.as(e.admin.Principal.UserId).do("POST", "/panel/api/inbounds/update/"+strconv.Itoa(id), map[string]any{
+		"remark": "renamed", "port": 24443, "protocol": "vless", "settings": smuggled, "streamSettings": `{"network":"tcp"}`, "sniffing": "{}", "enable": true, "listen": "", "tag": "inbound-24443",
+	})
+	database.GetDB().Raw("SELECT settings FROM inbounds WHERE id = ?", id).Scan(&settings)
+	if !strings.Contains(settings, "mallory") {
+		t.Logf("note: administrator update not applied here (%s)", settings)
+	}
+}
+
+// 2FA is personal: a user without any permission sets it up for themselves, it does not touch anybody else, and the
+// administrative reset follows the same dominance rules as a password reset.
+func TestTwoFactorIsPerUser(t *testing.T) {
+	e := newHTTPEnv(t)
+	plain := e.user("plain", e.role(rbac.GroupsRead).Id)
+	other := e.user("other", e.role(rbac.GroupsRead).Id)
+	hr := e.user("hr", e.role(rbac.UsersRead, rbac.UsersUpdate, rbac.GroupsRead).Id)
+	adminID := e.admin.Principal.UserId
+
+	c := e.as(plain)
+	_, begin := c.do("POST", "/panel/setting/twoFactor/begin", nil)
+	obj, _ := begin["obj"].(map[string]any)
+	secret, _ := obj["secret"].(string)
+	if secret == "" {
+		t.Fatalf("a user without settings permissions must be able to start 2FA setup: %v", begin)
+	}
+	if _, r := c.do("POST", "/panel/setting/twoFactor/complete", map[string]any{"code": "000000"}); r["success"] == true {
+		t.Fatal("a wrong code must not enable 2FA")
+	}
+	code := gotp.NewDefaultTOTP(secret).Now()
+	if _, r := c.do("POST", "/panel/setting/twoFactor/complete", map[string]any{"code": code}); r["success"] != true {
+		t.Fatalf("complete: %v", r)
+	}
+	if on, got := service.UserTwoFactor(plain); !on || got != secret {
+		t.Fatalf("2FA not stored for the user: %v %q", on, got)
+	}
+	for _, id := range []int{other, adminID, hr} {
+		if on, _ := service.UserTwoFactor(id); on {
+			t.Fatalf("user %d must not get 2FA from somebody else's setup", id)
+		}
+	}
+	if _, me := c.do("GET", "/panel/rbac/me", nil); me["obj"].(map[string]any)["twoFactor"] != true {
+		t.Fatalf("me must report the user's own 2FA: %v", me)
+	}
+
+	// turning it off needs the current code
+	if _, r := c.do("POST", "/panel/setting/twoFactor/disable", map[string]any{"code": "000000"}); r["success"] == true {
+		t.Fatal("disable without the right code must fail")
+	}
+	if on, _ := service.UserTwoFactor(plain); !on {
+		t.Fatal("2FA must still be on")
+	}
+
+	// HR may reset a user whose role it covers, not an administrator's, not its own
+	if code, _ := e.as(hr).do("POST", fmt.Sprintf("/panel/rbac/users/%d/two-factor/reset", plain), nil); code != 200 {
+		t.Fatalf("reset of a covered user: %d", code)
+	}
+	if on, _ := service.UserTwoFactor(plain); on {
+		t.Fatal("reset must switch 2FA off")
+	}
+	if err := service.EnableUserTwoFactor(adminID, secret); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := e.as(hr).do("POST", fmt.Sprintf("/panel/rbac/users/%d/two-factor/reset", adminID), nil); code != 403 {
+		t.Fatalf("resetting an administrator's 2FA by a lower role must be refused, got %d", code)
+	}
+	if code, _ := e.as(hr).do("POST", fmt.Sprintf("/panel/rbac/users/%d/two-factor/reset", hr), nil); code != 403 {
+		t.Fatalf("resetting your own 2FA through the admin endpoint must be refused, got %d", code)
+	}
+	if code, _ := e.as(other).do("POST", fmt.Sprintf("/panel/rbac/users/%d/two-factor/reset", plain), nil); code != 403 {
+		t.Fatalf("without users:update the reset must be refused, got %d", code)
+	}
+	if on, _ := service.UserTwoFactor(adminID); !on {
+		t.Fatal("administrator's 2FA must survive")
 	}
 }

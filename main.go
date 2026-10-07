@@ -365,11 +365,12 @@ func updateSetting(port int, username string, password string, webBasePath strin
 	}
 
 	if resetTwoFactor {
-		err := settingService.SetTwoFactorEnable(false)
-
-		if err != nil {
+		// Two-factor authentication is per user now; the command switches it off for every account (the recovery path
+		// when the only administrator lost their device).
+		if err := database.GetDB().Exec("UPDATE users SET two_factor_enabled = FALSE, two_factor_secret = ''").Error; err != nil {
 			logger.Error("Failed to reset two-factor authentication:", err)
 		} else {
+			settingService.SetTwoFactorEnable(false)
 			settingService.SetTwoFactorToken("")
 			logger.Info("Two-factor authentication reset successfully")
 		}

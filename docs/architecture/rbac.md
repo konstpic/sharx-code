@@ -78,13 +78,30 @@ UI (Users & roles → Audit log, `audit:read`).
 * Existing API clients keep working: tokens belong to a user, and existing users are administrators. A token of a user who later
   gets a narrower role gets exactly that role's permissions.
 
+## Two-factor authentication (per user)
+
+TOTP belongs to the account: `users.two_factor_enabled` / `users.two_factor_secret` (migration `0065`). Any signed-in user
+sets up and removes their own (`POST setting/twoFactor/begin|complete|cancel|disable`; removing needs a current code), no
+permission required. An administrator with `users:update` can reset another user's 2FA
+(`POST rbac/users/:id/two-factor/reset`) under the same rules as a password reset: the target's role must be covered, never
+yourself, sessions of the target end, the action is audited (`user.two_factor_reset`). `rbac/me` and the users list report
+whether 2FA is on, never the secret. Changing a password does not touch 2FA. The migration copies the old panel-wide secret
+to every existing user; the old settings stay for rollback. `x-ui setting -resetTwoFactor` switches 2FA off for all accounts
+(recovery when the only administrator lost the device). Rollback: the previous binary reads the old panel-wide settings.
+
+## Inbounds, clients and server keys
+
+An inbound row carries the client list and the server's private keys. `inbounds:read` alone returns the inbound without clients
+and keys; `clients:read` adds the clients; `inbounds:update` adds the keys. On save, the client list is taken from the stored
+row unless the caller has the client permissions (`clients:create|update|delete`), so editing an inbound cannot add or change
+clients. The same filtering applies to the list, node list and WebSocket pushes (`web/service/inbound_access.go`).
+
 ## Known limits
 
-* Two-factor sign-in is a single panel-wide setting (not per user); it applies to everyone. Changing a password only resets it
-  for administrators (the historic behaviour for the single administrator).
-* Inbound settings contain client credentials, so `inbounds:read` is flagged sensitive; `inbounds:update` edits settings
-  that include the client list.
-* Telegram bot administrators are configured separately from panel users.
+* Telegram bot administrators are configured in the panel settings and are a separate trust domain: the bot's admin chat
+  is not mapped to panel users, so `settings:security` (which controls the bot token and chat IDs) is what protects it.
+* The optional Telegram one-time-code step at sign-in is still one panel-wide switch (it sends the code to the admin chat).
+  TOTP is personal.
 
 ## Permission coverage
 
@@ -133,7 +150,7 @@ UI (Users & roles → Audit log, `audit:read`).
 | Xray & routing | `outbounds:delete` | (no delete UI in the list view) | 1 route(s): POST outbound/del/:id | `TestEveryAuthenticatedRouteHasAPermissionEntry`, `TestDirectAPICallBypassingTheUIIsRefusedAndChangesNothing` |
 | Settings | `settings:read` | Settings tabs General/Telegram/Subscription/LDAP/Grafana visible; without it only the account tab and a redacted shell | 12 route(s): GET setting/grafana/dashboard; POST setting/designerLibrary/get; POST setting/subscriptionPageConfig/get; POST setting/subscriptionPageCo… | `TestSettingsAreRedactedAndSecuritySettingsAreSeparate` |
 | Settings | `settings:update` | General and Subscription tabs read-only without it; template share hidden | 11 route(s): POST setting/designerLibrary/save; POST setting/subscriptionPageConfig/save; POST setting/templates/delete; POST setting/templates/local/… | `TestSettingsAreRedactedAndSecuritySettingsAreSeparate` |
-| Settings | `settings:security` | Telegram/LDAP/Grafana tabs read-only; 2FA and secret-path sections hidden | 6 route(s): GET setting/secretPathsMeta; POST setting/generateSecretPaths; POST setting/saveSecretPaths; POST setting/twoFactor/begin; POST setting/t… | `TestSettingsAreRedactedAndSecuritySettingsAreSeparate` |
+| Settings | `settings:security` | Telegram/LDAP/Grafana tabs read-only; secret-path section hidden | 3 route(s): GET setting/secretPathsMeta; POST setting/generateSecretPaths; POST setting/saveSecretPaths | `TestSettingsAreRedactedAndSecuritySettingsAreSeparate` |
 | System | `system:update` | Panel update button not offered | 10 route(s): GET api/server/updater; GET api/server/updater/job; GET api/server/updater/plan; POST api/server/updater/job/start; POST api/server/updat… | route table test, `TestDirectAPICall…` (getDb, importDB, db inspector refused); super-only grant: `TestPrivilegeEscalationThroughRoles` |
 | System | `system:backup` | Backup card on the dashboard hidden | 5 route(s): GET api/backuptotgbot; GET api/server/getDb; POST api/server/importDB; POST setting/migration/execute; POST setting/migration/preview | route table test, `TestDirectAPICall…` (getDb, importDB, db inspector refused); super-only grant: `TestPrivilegeEscalationThroughRoles` |
 | System | `system:database` | Database inspector page and menu entry hidden | 6 route(s): GET db/tables; GET db/tables/:table/rows; GET db/tables/:table/schema; POST db/tables/:table/rows; POST db/tables/:table/rows/:pk; POST d… | route table test, `TestDirectAPICall…` (getDb, importDB, db inspector refused); super-only grant: `TestPrivilegeEscalationThroughRoles` |

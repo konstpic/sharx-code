@@ -70,6 +70,10 @@ type User struct {
 	CreatedAt   int64  `json:"createdAt" gorm:"column:created_at"`
 	UpdatedAt   int64  `json:"updatedAt" gorm:"column:updated_at"`
 	LastLoginAt *int64 `json:"lastLoginAt,omitempty" gorm:"column:last_login_at"`
+
+	// Personal two-factor authentication (migration 0065). The secret never leaves the server.
+	TwoFactorEnabled bool   `json:"-" gorm:"column:two_factor_enabled"`
+	TwoFactorSecret  string `json:"-" gorm:"column:two_factor_secret"`
 }
 
 // Role is a named set of permissions. Permissions is a JSON array of keys from the web/rbac catalogue, or ["*"].

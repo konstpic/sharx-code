@@ -216,7 +216,7 @@ const TAB_EDIT_PERM: Record<string, string> = {
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const { can } = useRbac();
+  const { can, me, reload: reloadMe } = useRbac();
   const params = useParams();
   const activeTab = parseSettingsTab(
     typeof params?.tab === "string" ? params.tab : undefined,
@@ -236,6 +236,7 @@ export function SettingsPage() {
   const [twoFactorSubmitting, setTwoFactorSubmitting] = useState(false);
   const [twoFactorDisableOpen, setTwoFactorDisableOpen] = useState(false);
   const [twoFactorDisableLoading, setTwoFactorDisableLoading] = useState(false);
+  const [twoFactorDisableCode, setTwoFactorDisableCode] = useState("");
   const [panelTheme, setPanelTheme] = useState<PanelThemeId>(PANEL_THEME_DEFAULT);
   const [account, setAccount] = useState({
     oldUsername: "",
@@ -1192,30 +1193,29 @@ export function SettingsPage() {
         <SettingsGrid>
         <SettingsSection
           title={t("pages.settings.security.twoFactorSection")}
+          hint={t("pages.settings.security.twoFactorPersonalHint", {
+            defaultValue: "Two-factor authentication protects your own account only; every user sets up their own.",
+          })}
           icon={Shield}
           iconTone="danger"
           full
-          requires="settings:security"
         >
-          {form.twoFactorEnable && form.twoFactorToken ? (
+          {me?.twoFactor ? (
             <>
               <Row label={t("pages.settings.security.twoFactorEnable")}>
                 <p className="text-sm text-[var(--fg-muted)]">
                   {t("pages.settings.security.twoFactorEnabledHint")}
                 </p>
               </Row>
-              <Row
-                label={t("pages.settings.security.twoFactorTelegram")}
-                hint={t("pages.settings.security.twoFactorTelegramDesc")}
-              >
-                <Switch
-                  checked={form.twoFactorTelegram}
-                  onChange={(v) => patch("twoFactorTelegram", v)}
-                  ariaLabel={t("pages.settings.security.twoFactorTelegram")}
-                />
-              </Row>
               <Row label={t("pages.settings.security.twoFactorDisable")}>
-                <Button type="button" variant="secondary" onClick={() => setTwoFactorDisableOpen(true)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setTwoFactorDisableCode("");
+                    setTwoFactorDisableOpen(true);
+                  }}
+                >
                   {t("pages.settings.security.twoFactorDisable")}
                 </Button>
               </Row>
@@ -1252,6 +1252,25 @@ export function SettingsPage() {
               </Button>
             </Row>
           )}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
+          icon={Shield}
+          iconTone="danger"
+          full
+          requires="settings:security"
+        >
+          <Row
+            label={t("pages.settings.security.twoFactorTelegram")}
+            hint={t("pages.settings.security.twoFactorTelegramDesc")}
+          >
+            <Switch
+              checked={form.twoFactorTelegram}
+              onChange={(v) => patch("twoFactorTelegram", v)}
+              ariaLabel={t("pages.settings.security.twoFactorTelegram")}
+            />
+          </Row>
           <Row
             label={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
             hint={
@@ -2025,6 +2044,7 @@ export function SettingsPage() {
                     setTwoFactorQrB64("");
                     setTwoFactorSecret("");
                     setTwoFactorCodeInput("");
+                    await reloadMe();
                     await load();
                   } else {
                     toast.error(r.msg || t("pages.settings.security.twoFactorModalError"));
@@ -2079,37 +2099,60 @@ export function SettingsPage() {
         </div>
       </Modal>
 
-      <ConfirmDialog
+      <Modal
         open={twoFactorDisableOpen}
-        title={t("pages.settings.security.twoFactorModalDeleteTitle")}
-        description={t("pages.settings.security.twoFactorDisableConfirm")}
-        confirmLabel={t("pages.settings.security.twoFactorDisable")}
-        cancelLabel={t("cancel")}
-        danger
-        loading={twoFactorDisableLoading}
-        onCancel={() => setTwoFactorDisableOpen(false)}
-        onConfirm={() => {
-          void (async () => {
-            if (!form) return;
-            setTwoFactorDisableLoading(true);
-            const body = {
-              ...form,
-              twoFactorEnable: false,
-              twoFactorToken: "",
-              twoFactorTelegram: false,
-            };
-            const r = await postJson(panel("setting/update"), body, true);
-            setTwoFactorDisableLoading(false);
-            setTwoFactorDisableOpen(false);
-            if (r.success) {
-              toast.success(r.msg || t("pages.settings.security.twoFactorModalDeleteSuccess"));
-              await load();
-            } else {
-              toast.error(r.msg || t("pages.settings.toasts.modifySettings"));
-            }
-          })();
+        onClose={() => {
+          if (!twoFactorDisableLoading) setTwoFactorDisableOpen(false);
         }}
-      />
+        title={t("pages.settings.security.twoFactorModalDeleteTitle")}
+        width={420}
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={twoFactorDisableLoading}
+              onClick={() => setTwoFactorDisableOpen(false)}
+            >
+              {t("cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              loading={twoFactorDisableLoading}
+              disabled={!twoFactorDisableCode.trim()}
+              onClick={() => {
+                void (async () => {
+                  setTwoFactorDisableLoading(true);
+                  const r = await postJson(panel("setting/twoFactor/disable"), { code: twoFactorDisableCode.trim() }, true);
+                  setTwoFactorDisableLoading(false);
+                  if (r.success) {
+                    setTwoFactorDisableOpen(false);
+                    toast.success(r.msg || t("pages.settings.security.twoFactorModalDeleteSuccess"));
+                    await reloadMe();
+                    await load();
+                  } else {
+                    toast.error(r.msg || t("pages.settings.security.twoFactorModalError"));
+                  }
+                })();
+              }}
+            >
+              {t("pages.settings.security.twoFactorDisable")}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3 px-5 py-4">
+          <p className="text-sm text-[var(--fg-muted)]">{t("pages.settings.security.twoFactorDisableConfirm")}</p>
+          <Input
+            value={twoFactorDisableCode}
+            onChange={(e) => setTwoFactorDisableCode(e.target.value)}
+            autoComplete="one-time-code"
+            placeholder={t("twoFactorCode")}
+            inputMode="numeric"
+          />
+        </div>
+      </Modal>
 
       <Modal
         open={apiTokenModalOpen}

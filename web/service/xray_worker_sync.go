@@ -58,6 +58,12 @@ func (s *XrayService) ApplyWorkerConfigToNodeIDsAsync(nodeIDs []int) {
 // In single-node mode falls back to RestartXray.
 func (s *XrayService) SyncWorkerXrayForInboundsAsync(inboundIDs []int) {
 	go func() {
+		// a background push must never take the panel down (it also outlives the database in tests)
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Warningf("SyncWorkerXrayForInbounds panic: %v", r)
+			}
+		}()
 		if err := s.syncWorkerXrayForInbounds(inboundIDs); err != nil {
 			logger.Warningf("SyncWorkerXrayForInbounds: %v", err)
 		}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/web/rbac"
 	"github.com/konstpic/sharx-code/v2/web/service"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 	"github.com/konstpic/sharx-code/v2/xray"
@@ -23,7 +24,7 @@ import (
 type inboundBindBody struct {
 	model.Inbound
 	Wireguard *service.WireGuardInboundRequest `json:"wireguard" form:"-"`
-	Amneziawg *service.AmneziaWGInboundRequest  `json:"amneziawg" form:"-"`
+	Amneziawg *service.AmneziaWGInboundRequest `json:"amneziawg" form:"-"`
 }
 
 func parseInboundNodeBindingsPayload(jsonData map[string]interface{}) ([]service.InboundNodeBindingInput, bool) {
@@ -416,7 +417,7 @@ func (a *InboundController) getInbounds(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.obtain"), err)
 		return
 	}
-	jsonObj(c, inbounds, nil)
+	jsonObj(c, redactInboundsFor(c, inbounds), nil)
 }
 
 // getInbound retrieves a specific inbound by its ID.
@@ -431,7 +432,7 @@ func (a *InboundController) getInbound(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.obtain"), err)
 		return
 	}
-	jsonObj(c, inbound, nil)
+	jsonObj(c, redactInboundFor(c, inbound), nil)
 }
 
 // getClientTraffics retrieves client traffic information by email.
@@ -530,6 +531,10 @@ func (a *InboundController) addInbound(c *gin.Context) {
 
 	user := dataUser(c)
 	inbound.UserId = user.Id
+	// clients in a new inbound are clients created: that needs clients:create, whatever inbounds:create allows
+	if service.GuardInboundClients(inbound, nil, can(c, rbac.ClientsCreate)) {
+		logger.WithComponent("audit").Warningf("inbound create by %q: clients in the form were dropped (no clients:create)", currentPrincipal(c).Username)
+	}
 
 	settingService := service.SettingService{}
 	multiMode, _ := settingService.GetMultiNodeMode()
@@ -651,7 +656,7 @@ func (a *InboundController) addInbound(c *gin.Context) {
 	logger.Debugf("[DEBUG-AGENT] addInbound controller: SUCCESS, inboundId=%d, needRestart=%v", inbound.Id, needRestart)
 	inboundLog.Infof("inbound created: id=%d remark=%q protocol=%s port=%d", inbound.Id, inbound.Remark, inbound.Protocol, inbound.Port)
 	// #endregion
-	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, nil)
+	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), redactInboundFor(c, inbound), nil)
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	// Broadcast inbounds update via WebSocket
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
@@ -805,6 +810,12 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	// the client list is not part of "edit inbound": changes to it need clients:update. The stored list is kept otherwise.
+	if existing, gerr := a.inboundService.GetInbound(inbound.Id); gerr == nil && existing != nil {
+		if service.GuardInboundClients(inbound, existing, can(c, rbac.ClientsUpdate)) {
+			logger.WithComponent("audit").Warningf("inbound %d update by %q: client changes in the form were ignored (no clients:update)", inbound.Id, currentPrincipal(c).Username)
+		}
+	}
 	inbound, needRestart, err := a.inboundService.UpdateInbound(inbound)
 	if err != nil {
 		// #region agent log
@@ -892,7 +903,7 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	logger.Debugf("[DEBUG-AGENT] updateInbound controller: SUCCESS, id=%d, needRestart=%v", id, needRestart)
 	inboundLog.Infof("inbound updated: id=%d remark=%q protocol=%s port=%d", id, inbound.Remark, inbound.Protocol, inbound.Port)
 	// #endregion
-	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), inbound, nil)
+	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), redactInboundFor(c, inbound), nil)
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	// Broadcast inbounds update via WebSocket
 	user := dataUser(c)
@@ -1116,6 +1127,10 @@ func (a *InboundController) importInbound(c *gin.Context) {
 	user := dataUser(c)
 	inbound.Id = 0
 	inbound.UserId = user.Id
+	if !can(c, rbac.ClientsCreate) {
+		service.GuardInboundClients(inbound, nil, false)
+		inbound.ClientStats = nil
+	}
 
 	for index := range inbound.ClientStats {
 		inbound.ClientStats[index].Id = 0
@@ -1124,7 +1139,7 @@ func (a *InboundController) importInbound(c *gin.Context) {
 
 	needRestart := false
 	inbound, needRestart, err = a.inboundService.AddInbound(inbound)
-	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), inbound, err)
+	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), redactInboundFor(c, inbound), err)
 	if err == nil {
 		a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	}
@@ -1239,3 +1254,19 @@ func (a *InboundController) reorderInbounds(c *gin.Context) {
 
 // inboundLog tags panel actions on inbounds, so the panel journal can filter them by component.
 var inboundLog = logger.WithComponent("inbound")
+
+// inboundVisibility splits what the caller may see of an inbound: client credentials follow clients:read, server secrets
+// (Reality/TLS private keys, account passwords) follow inbounds:update. See service.RedactInbound.
+func inboundVisibility(c *gin.Context) (canClients, canSecrets bool) {
+	return can(c, rbac.ClientsRead), can(c, rbac.InboundsUpdate)
+}
+
+func redactInboundFor(c *gin.Context, in *model.Inbound) *model.Inbound {
+	cc, cs := inboundVisibility(c)
+	return service.RedactInbound(in, cc, cs)
+}
+
+func redactInboundsFor(c *gin.Context, in []*model.Inbound) []*model.Inbound {
+	cc, cs := inboundVisibility(c)
+	return service.RedactInbounds(in, cc, cs)
+}
