@@ -4689,6 +4689,7 @@ twoFactorReset = "Two-factor authentication reset; the user's sessions were ende
 resetTwoFactor = "Reset two-factor authentication"
 resetTwoFactorText = "{{name}} will sign in with a password only until they set up two-factor authentication again. Their sessions end."
 resetTwoFactorConfirm = "Reset"
+auditHint = "Who did what and how it ended: users, roles, two-factor resets and refused attempts. Entries are kept for the log retention period (log rotation, max age in Settings) and removed automatically after that."
 userDisabled = "User disabled; their sessions were ended"
 userEnabled = "User enabled"
 userDeleted = "User deleted"

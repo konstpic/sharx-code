@@ -42,3 +42,11 @@ func LogRotatePayload(s *entity.AllSetting) map[string]interface{} {
 		"compress":   s.LogRotateCompress,
 	}
 }
+
+// AuditRetentionDays is how long audit entries are kept: the same "max age" as the on-disk journals.
+func AuditRetentionDays(s *entity.AllSetting) int {
+	if s == nil {
+		return 14
+	}
+	return clampInt(s.LogRotateMaxAgeDays, 1, 365, 14)
+}

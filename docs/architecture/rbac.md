@@ -96,6 +96,14 @@ and keys; `clients:read` adds the clients; `inbounds:update` adds the keys. On s
 row unless the caller has the client permissions (`clients:create|update|delete`), so editing an inbound cannot add or change
 clients. The same filtering applies to the list, node list and WebSocket pushes (`web/service/inbound_access.go`).
 
+## Audit journal
+
+The audit trail is stored in `audit_log` and shown in Access → Audit log with the same journal viewer as nodes, balancers and the
+panel (filters, search, volume chart, download as txt/ndjson/csv): one sentence per event ("admin changed role "Support"
+(granted clients:update)"), then `result=`, `ip=`, `id=`. Refused API calls are recorded as `access.denied` (once per user and
+call per five minutes). Entries also go to the panel journal (component `audit`). Retention follows the log rotation setting
+"max age" (default 14 days): an hourly job deletes older rows. Read API: `GET api/server/logs/entity/audit/0` (`audit:read`).
+
 ## Known limits
 
 * Telegram bot administrators are configured in the panel settings and are a separate trust domain: the bot's admin chat

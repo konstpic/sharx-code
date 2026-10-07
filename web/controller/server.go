@@ -988,8 +988,8 @@ func (a *ServerController) getUnifiedLogs(c *gin.Context) {
 // since / until (unix ms). With download=1 it answers with an attachment in format txt, ndjson or csv.
 func (a *ServerController) getEntityLogs(c *gin.Context) {
 	entityType := strings.ToLower(c.Param("type"))
-	if entityType != "node" && entityType != "balancer" && entityType != "panel" {
-		jsonMsg(c, "Unknown entity type", fmt.Errorf("type must be node, balancer or panel"))
+	if entityType != "node" && entityType != "balancer" && entityType != "panel" && entityType != "audit" {
+		jsonMsg(c, "Unknown entity type", fmt.Errorf("type must be node, balancer, panel or audit"))
 		return
 	}
 	// a node's or balancer's journal also needs read access to that node or balancer (route table: logs:read)
@@ -997,6 +997,11 @@ func (a *ServerController) getEntityLogs(c *gin.Context) {
 	case "node":
 		if !can(c, rbac.NodesRead) {
 			forbid(c, "Forbidden: missing permission "+rbac.NodesRead)
+			return
+		}
+	case "audit":
+		if !can(c, rbac.AuditRead) {
+			forbid(c, "Forbidden: missing permission "+rbac.AuditRead)
 			return
 		}
 	case "balancer":

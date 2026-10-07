@@ -446,3 +446,41 @@ func TestRoleDeleteRules(t *testing.T) {
 	}
 	wantErr(t, e.svc.DeleteRole(e.admin, r.Id), ErrNotFound, "already gone")
 }
+
+func TestAuditReadsLikeAJournalAndFollowsRetention(t *testing.T) {
+	e := setupRBAC(t)
+	role := e.role(rbac.GroupsRead)
+	if _, err := e.svc.CreateUser(e.admin, UserInput{Username: "journal-user", Password: "Journal-pass-1", RoleId: role.Id, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	entries := auditEntries(0, 0, 100)
+	if len(entries) == 0 {
+		t.Fatal("no journal entries")
+	}
+	var msg string
+	for _, x := range entries {
+		if strings.Contains(x.Message, "created user") {
+			msg = x.Message
+		}
+	}
+	for _, want := range []string{e.admin.Principal.Username, `created user "journal-user"`, `with role`, "result=ok"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message %q lacks %q", msg, want)
+		}
+	}
+	// a refusal reads as a refusal and is a warning
+	lv, _, m := DescribeAudit(model.AuditLog{ActorName: "bob", Action: "role.update", TargetName: "X", Result: "denied", Detail: "no"})
+	if lv != "warn" || !strings.Contains(m, "tried to") || !strings.Contains(m, "refused") || !strings.Contains(m, "result=refused") {
+		t.Fatalf("denied: %s %s", lv, m)
+	}
+	// retention
+	old := time.Now().Add(-40 * 24 * time.Hour).UnixMilli()
+	database.GetDB().Create(&model.AuditLog{Ts: old, Action: "user.delete", Result: "ok"})
+	n, err := PurgeAuditOlderThan(14)
+	if err != nil || n != 1 {
+		t.Fatalf("purge removed %d, %v", n, err)
+	}
+	if len(auditEntries(0, 0, 100)) != len(entries) {
+		t.Fatal("recent entries must stay")
+	}
+}

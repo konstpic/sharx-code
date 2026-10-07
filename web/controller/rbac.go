@@ -2,9 +2,12 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -108,7 +111,7 @@ func (a *BaseController) authorize(c *gin.Context, apiGroup bool) bool {
 		return false
 	}
 	if !p.Perms.HasAll(reqs) {
-		logger.WithComponent("audit").Warningf("denied %s %s for %q: needs %s", c.Request.Method, path, p.Username, strings.Join(reqs, " + "))
+		recordDenied(c, p, path, reqs)
 		forbid(c, "Forbidden: missing permission "+firstMissing(p, reqs))
 		return false
 	}
@@ -462,4 +465,28 @@ func init() {
 func twoFactorOn(userID int) bool {
 	on, _ := service.UserTwoFactor(userID)
 	return on
+}
+
+var (
+	deniedSeen   = map[string]time.Time{}
+	deniedSeenMu sync.Mutex
+)
+
+// recordDenied puts a refused API call into the audit trail. The same user repeating the same call (a page polling an
+// endpoint it may not read) is recorded once per five minutes, so the trail stays readable.
+func recordDenied(c *gin.Context, p *service.Principal, path string, reqs []string) {
+	key := fmt.Sprintf("%d|%s %s", p.UserId, c.Request.Method, path)
+	now := time.Now()
+	deniedSeenMu.Lock()
+	if t, ok := deniedSeen[key]; ok && now.Sub(t) < 5*time.Minute {
+		deniedSeenMu.Unlock()
+		return
+	}
+	if len(deniedSeen) > 5000 {
+		deniedSeen = map[string]time.Time{}
+	}
+	deniedSeen[key] = now
+	deniedSeenMu.Unlock()
+	service.Audit.Record(service.Actor{Principal: p, IP: getRemoteIp(c)}, "access.denied", "request", "", c.Request.Method+" "+path,
+		nil, nil, "denied", "needs "+strings.Join(reqs, " + "))
 }

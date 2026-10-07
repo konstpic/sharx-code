@@ -21,7 +21,8 @@ import {
 import { useRbac, type PermissionGroup } from "@/lib/rbac";
 import { PermissionMatrix, usePermissionSummary } from "./PermissionMatrix";
 import { ROLE_PRESETS } from "./permLabels";
-import { rbacApi, type AssignableRole, type AuditRow, type Role, type UserRow } from "./rbacApi";
+import { LogExplorer } from "@/components/LogExplorer";
+import { rbacApi, type AssignableRole, type Role, type UserRow } from "./rbacApi";
 
 type TabId = "users" | "roles" | "audit";
 
@@ -622,76 +623,15 @@ function RoleEditorModal({ role, groups, onClose, onSaved }: { role: Role | null
 
 function AuditTab() {
   const { t } = useTranslation();
-  const [rows, setRows] = useState<AuditRow[] | null>(null);
-  const [onlyDenied, setOnlyDenied] = useState(false);
-  const [error, setError] = useState("");
-  const [open, setOpen] = useState<number | null>(null);
-  const [more, setMore] = useState(true);
-
-  const load = useCallback(
-    async (append: boolean, before?: number) => {
-      const r = await rbacApi.audit({ before, result: onlyDenied ? "denied" : undefined, limit: 50 });
-      if (!r.ok) {
-        setError(r.msg);
-        return;
-      }
-      setError("");
-      const list = r.obj ?? [];
-      setMore(list.length === 50);
-      setRows((prev) => (append ? [...(prev ?? []), ...list] : list));
-    },
-    [onlyDenied],
-  );
-  useEffect(() => {
-    void load(false);
-  }, [load]);
-
-  if (error) return <AlertBanner type="error" title={error} />;
-  if (!rows) return <Spinner />;
-
   return (
     <>
-      <div className="mb-3 flex items-center gap-3 text-sm text-[var(--fg-muted)]">
-        <label className="flex items-center gap-2">
-          <Switch checked={onlyDenied} onChange={setOnlyDenied} size="sm" ariaLabel="denied" />
-          {t("rbac.onlyDenied", { defaultValue: "Only refused attempts" })}
-        </label>
-      </div>
-      <Surface padding="none" className="overflow-hidden">
-        {rows.length === 0 ? (
-          <p className="p-4 text-sm text-[var(--fg-muted)]">{t("rbac.noAudit", { defaultValue: "Nothing recorded yet." })}</p>
-        ) : (
-          <ul className="divide-y divide-[var(--border)] text-sm">
-            {rows.map((a) => (
-              <li key={a.id}>
-                <button type="button" className="grid w-full grid-cols-[9.5rem_8rem_1fr_auto] items-baseline gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg)]" onClick={() => setOpen(open === a.id ? null : a.id)}>
-                  <time className="text-xs tabular-nums text-[var(--fg-subtle)]">{fmtDate(a.ts, true)}</time>
-                  <span className="truncate text-[var(--fg)]">{a.actorName || "—"}</span>
-                  <span className="min-w-0 truncate text-[var(--fg-muted)]">
-                    <span className="font-mono text-xs text-[var(--fg)]">{a.action}</span> {a.targetName ? `· ${a.targetName}` : ""}
-                  </span>
-                  <PillTag tone={a.result === "ok" ? "green" : "rose"}>{a.result}</PillTag>
-                </button>
-                {open === a.id ? (
-                  <div className="space-y-2 bg-[var(--bg)] px-4 py-3 font-mono text-xs text-[var(--fg-muted)]">
-                    {a.detail ? <p className="text-[var(--fg)]">{a.detail}</p> : null}
-                    {a.before ? <p>before: {a.before}</p> : null}
-                    {a.after ? <p>after: {a.after}</p> : null}
-                    <p>ip: {a.ip || "—"}</p>
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Surface>
-      {more && rows.length > 0 ? (
-        <div className="mt-3 flex justify-center">
-          <Button variant="secondary" onClick={() => void load(true, rows[rows.length - 1].id)}>
-            {t("rbac.loadMore", { defaultValue: "Load more" })}
-          </Button>
-        </div>
-      ) : null}
+      <p className="mb-3 text-sm text-[var(--fg-muted)]">
+        {t("rbac.auditHint", {
+          defaultValue:
+            "Who did what and how it ended: users, roles, two-factor resets and refused attempts. Entries are kept for the log retention period (log rotation, max age in Settings) and removed automatically after that.",
+        })}
+      </p>
+      <LogExplorer source={{ type: "audit", id: 0 }} defaultRange="7d" heightClass="max-h-[64vh]" />
     </>
   );
 }

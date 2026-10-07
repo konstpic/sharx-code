@@ -42,6 +42,9 @@ func newHTTPEnv(t *testing.T) *httpEnv {
 	testdb.New(t)
 	service.InvalidateRBAC()
 	skipBackgroundTasks = true
+	deniedSeenMu.Lock()
+	deniedSeen = map[string]time.Time{}
+	deniedSeenMu.Unlock()
 	gin.SetMode(gin.TestMode)
 	e := gin.New()
 	e.Use(sessions.Sessions("sharx", cookie.NewStore([]byte("test-secret-test-secret-test-secret"))))
@@ -575,5 +578,31 @@ func TestTwoFactorIsPerUser(t *testing.T) {
 	}
 	if on, _ := service.UserTwoFactor(adminID); !on {
 		t.Fatal("administrator's 2FA must survive")
+	}
+}
+
+func TestAuditJournalEndpointAndDeniedCallsAreRecorded(t *testing.T) {
+	e := newHTTPEnv(t)
+	low := e.user("low", e.role(rbac.GroupsRead).Id)
+	auditor := e.user("auditor", e.role(rbac.AuditRead, rbac.LogsRead).Id)
+	// refused call is recorded once even when repeated
+	for i := 0; i < 3; i++ {
+		if code, _ := e.as(low).do("GET", "/panel/rbac/audit", nil); code != 403 {
+			t.Fatalf("want 403, got %d", code)
+		}
+	}
+	if code, _ := e.as(low).do("GET", "/panel/api/server/logs/entity/audit/0", nil); code != 403 {
+		t.Fatalf("the audit journal needs audit:read, got %d", code)
+	}
+	code, r := e.as(auditor).do("GET", "/panel/api/server/logs/entity/audit/0?levels=info,warn,error", nil)
+	if code != 200 {
+		t.Fatalf("auditor: %d %v", code, r)
+	}
+	b, _ := json.Marshal(r["obj"])
+	if n := strings.Count(string(b), "was refused call GET /panel/rbac/audit"); n != 1 {
+		t.Fatalf("expected exactly one recorded refusal, got %d: %s", n, b)
+	}
+	if !strings.Contains(string(b), "needs audit:read") {
+		t.Fatalf("the reason must be in the entry: %s", b)
 	}
 }

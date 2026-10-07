@@ -255,6 +255,25 @@ func (s *Server) startTask() {
 	// Tailing the same files here produced every line twice in the UI.
 	// s.cron.AddJob("@every 1s", job.NewXrayLogTailJob())
 
+	// Audit trail retention follows the log rotation setting "max age" like every other journal.
+	purgeAudit := func() {
+		st, err := s.settingService.GetAllSetting()
+		if err != nil || st == nil {
+			return
+		}
+		days := service.AuditRetentionDays(st)
+		if n, err := service.PurgeAuditOlderThan(days); err != nil {
+			logger.Warning("audit retention:", err)
+		} else if n > 0 {
+			logger.Infof("audit retention: removed %d entries older than %d days", n, days)
+		}
+	}
+	s.cron.AddFunc("@every 1h", purgeAudit)
+	go func() {
+		time.Sleep(time.Minute)
+		purgeAudit()
+	}()
+
 	// Check if xray needs to be restarted every 30 seconds
 	s.cron.AddFunc("@every 30s", func() {
 		if s.xrayService.IsNeedRestartAndSetFalse() {

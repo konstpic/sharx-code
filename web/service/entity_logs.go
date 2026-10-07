@@ -168,6 +168,10 @@ func (s *ServerService) GetEntityLogs(entityType, entityID string, q EntityLogQu
 	entityType, entityID = strings.ToLower(strings.TrimSpace(entityType)), strings.TrimSpace(entityID)
 
 	var all []websocket.UnifiedLogEntry
+	if entityType == "audit" {
+		all = auditEntries(q.Since, q.Until, MaxLogCount)
+		return finishEntityLogs(all, EntityLogResult{}, q)
+	}
 	stored := logger.ReadEntries(q.Since) // the whole log file, plus rotated archives when the window reaches that far
 	if len(stored) == 0 {
 		stored = logger.GetEntries(0, "debug", nil) // no log file (e.g. Grafana/Loki mode): use the in-memory buffer
@@ -211,6 +215,11 @@ func (s *ServerService) GetEntityLogs(entityType, entityID string, q EntityLogQu
 		}
 	}
 
+	return finishEntityLogs(all, res, q)
+}
+
+// finishEntityLogs applies the query to the collected entries and builds the result (components, volume, newest N).
+func finishEntityLogs(all []websocket.UnifiedLogEntry, res EntityLogResult, q EntityLogQuery) EntityLogResult {
 	comps := map[string]bool{}
 	for _, e := range all {
 		if e.Component != "" {

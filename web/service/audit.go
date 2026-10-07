@@ -41,7 +41,12 @@ func (auditService) Record(a Actor, action, targetType, targetID, targetName str
 		logger.Warningf("audit: cannot record %s: %v", action, err)
 		return
 	}
-	logger.WithComponent("audit").Infof("%s by %s on %s %q (%s)%s", action, e.ActorName, targetType, targetName, result, map[bool]string{true: ": " + detail, false: ""}[detail != ""])
+	lv, _, msg := DescribeAudit(e)
+	if lv == "warn" {
+		logger.WithComponent("audit").Warningf("%s", msg)
+	} else {
+		logger.WithComponent("audit").Infof("%s", msg)
+	}
 }
 
 // AuditQuery filters the trail.

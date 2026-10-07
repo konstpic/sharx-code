@@ -9,7 +9,7 @@ import { getJson, postJson } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { panel } from "@/lib/paths";
 
-export type LogSource = { type: "node" | "balancer" | "panel"; id: number };
+export type LogSource = { type: "node" | "balancer" | "panel" | "audit"; id: number };
 
 type Entry = {
   source: string;
@@ -92,9 +92,9 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
  * Log explorer in the spirit of Grafana/Loki: volume histogram, level and component chips, term search ("-term" excludes),
  * time range, live tail, expandable lines with field filters, and download as txt / ndjson / csv.
  */
-export function LogExplorer({ source, heightClass = "max-h-[56vh]" }: { source: LogSource; heightClass?: string }) {
+export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange = "1h" }: { source: LogSource; heightClass?: string; defaultRange?: string }) {
   const { t } = useTranslation();
-  const [range, setRange] = useState("1h");
+  const [range, setRange] = useState(defaultRange);
   const [levels, setLevels] = useState<Set<Level>>(new Set(["info", "warn", "error"]));
   const [components, setComponents] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
