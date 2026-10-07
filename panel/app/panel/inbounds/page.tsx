@@ -1,5 +1,10 @@
+import { RequirePerm } from "@/components/panel/RequirePerm";
 import { InboundsPage } from "@/components/InboundsPage";
 
 export default function Page() {
-  return <InboundsPage />;
+  return (
+    <RequirePerm perm="inbounds:read">
+      <InboundsPage />
+    </RequirePerm>
+  );
 }

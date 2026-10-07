@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/common"
+	"github.com/konstpic/sharx-code/v2/web/service"
 	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 
@@ -87,6 +88,13 @@ func (w *WebSocketController) HandleWebSocket(c *gin.Context) {
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
+	if u := session.GetLoginUser(c); u != nil {
+		if p, err := rbacService.GetPrincipal(u.Id); err != nil || p == nil || !p.Enabled {
+			logger.Warningf("WebSocket connection refused for a disabled or deleted user from %s", getRemoteIp(c))
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+	}
 
 	// Upgrade connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -100,7 +108,13 @@ func (w *WebSocketController) HandleWebSocket(c *gin.Context) {
 	u := session.GetLoginUser(c)
 	uid := 0
 	if u != nil {
-		uid = u.Id
+		// the client is keyed by the data owner: data pushed "to a user" (per-user matrices) is computed for the owner's data,
+		// which every user with the right permission sees. What each socket receives is still filtered by Allow below.
+		uid = service.PanelOwnerID(u.Id)
+	}
+	realUserID := 0
+	if u != nil {
+		realUserID = u.Id
 	}
 	client := &websocket.Client{
 		ID:     clientID,
@@ -108,6 +122,7 @@ func (w *WebSocketController) HandleWebSocket(c *gin.Context) {
 		Hub:    w.hub,
 		Send:   make(chan []byte, 512), // Increased from 256 to 512 to prevent overflow
 		Topics: make(map[websocket.MessageType]bool),
+		Allow:  wsAllow(realUserID),
 	}
 
 	// Register client

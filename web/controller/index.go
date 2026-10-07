@@ -97,6 +97,15 @@ func (a *IndexController) login(c *gin.Context) {
 		return
 	}
 
+	// A disabled or deleted account, or one without a role, gets the same answer as a wrong password: the response must not
+	// reveal which usernames exist or are blocked.
+	if !rbacService.CanSignIn(user) {
+		logger.Warningf("sign-in refused for blocked user: \"%s\", IP: \"%s\"", safeUser, getRemoteIp(c))
+		a.tgbot.UserLoginNotify(safeUser, getRemoteIp(c), timeStr, 0)
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
+		return
+	}
+
 	twoFactorEnable, err := a.settingService.GetTwoFactorEnable()
 	if err != nil {
 		logger.Warning("two-factor setting read error:", err)
@@ -202,6 +211,7 @@ func (a *IndexController) checkTelegramTwoFactor(c *gin.Context, form LoginForm,
 }
 
 func (a *IndexController) finishLoginSuccess(c *gin.Context, user *model.User, safeUser, timeStr string) {
+	rbacService.MarkLogin(user.Id)
 	logger.Infof("%s logged in successfully, Ip Address: %s\n", safeUser, getRemoteIp(c))
 	a.tgbot.UserLoginNotify(safeUser, getRemoteIp(c), timeStr, 1)
 

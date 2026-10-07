@@ -1,5 +1,10 @@
+import { RequirePerm } from "@/components/panel/RequirePerm";
 import { XrayPage } from "@/components/XrayPage";
 
 export default function Page() {
-  return <XrayPage />;
+  return (
+    <RequirePerm perm="xray:read">
+      <XrayPage />
+    </RequirePerm>
+  );
 }

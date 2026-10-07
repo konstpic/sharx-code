@@ -13,7 +13,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 	"github.com/konstpic/sharx-code/v2/xray"
 
@@ -194,7 +193,7 @@ func (a *InboundController) previewInboundXray(c *gin.Context) {
 		return
 	}
 	inbound := &bindBody.Inbound
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbound.UserId = user.Id
 
 	if err := applySidecarPanelForms(inbound, bindBody.Wireguard, bindBody.Amneziawg); err != nil {
@@ -257,7 +256,7 @@ func (a *InboundController) previewInboundTelemt(c *gin.Context) {
 		return
 	}
 	inbound := &bindBody.Inbound
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbound.UserId = user.Id
 
 	if err := applySidecarPanelForms(inbound, bindBody.Wireguard, bindBody.Amneziawg); err != nil {
@@ -308,7 +307,7 @@ func (a *InboundController) previewInboundAmneziaWg(c *gin.Context) {
 		return
 	}
 	inbound := &bindBody.Inbound
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbound.UserId = user.Id
 
 	if err := applySidecarPanelForms(inbound, bindBody.Wireguard, bindBody.Amneziawg); err != nil {
@@ -411,7 +410,7 @@ func (a *InboundController) computeTlsPin(c *gin.Context) {
 
 // getInbounds retrieves the list of inbounds for the logged-in user.
 func (a *InboundController) getInbounds(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, err := a.inboundService.GetInbounds(user.Id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.obtain"), err)
@@ -529,7 +528,7 @@ func (a *InboundController) addInbound(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbound.UserId = user.Id
 
 	settingService := service.SettingService{}
@@ -702,7 +701,7 @@ func (a *InboundController) delInbound(c *gin.Context) {
 		}
 	}
 	// Broadcast inbounds update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 }
@@ -896,7 +895,7 @@ func (a *InboundController) updateInbound(c *gin.Context) {
 	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundUpdateSuccess"), inbound, nil)
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, inbound.Protocol)
 	// Broadcast inbounds update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 }
@@ -947,7 +946,7 @@ func (a *InboundController) addInboundClient(c *gin.Context) {
 	}
 	a.syncWorkerAfterInboundMutation(needRestart, data.Id, proto)
 	// Broadcast inbounds and clients update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 	// Also broadcast clients update
@@ -992,7 +991,7 @@ func (a *InboundController) delInboundClient(c *gin.Context) {
 	}
 	a.syncWorkerAfterInboundMutation(needRestart, id, delClProto)
 	// Broadcast inbounds and clients update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 	// Also broadcast clients update
@@ -1042,7 +1041,7 @@ func (a *InboundController) updateInboundClient(c *gin.Context) {
 	}
 	a.syncWorkerAfterInboundMutation(needRestart, inbound.Id, updClProto)
 	// Broadcast inbounds and clients update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 	// Also broadcast clients update
@@ -1114,7 +1113,7 @@ func (a *InboundController) importInbound(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbound.Id = 0
 	inbound.UserId = user.Id
 
@@ -1206,7 +1205,7 @@ func (a *InboundController) delInboundClientByEmail(c *gin.Context) {
 	}
 	a.syncWorkerAfterInboundMutation(needRestart, inboundId, byEmailProto)
 	// Broadcast inbounds and clients update via WebSocket
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	inbounds, _ := a.inboundService.GetInbounds(user.Id)
 	websocket.BroadcastInbounds(inbounds)
 	// Also broadcast clients update
@@ -1221,7 +1220,7 @@ type reorderForm struct {
 
 // reorderInbounds stores the manual order of the current user's inbounds.
 func (a *InboundController) reorderInbounds(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	if user == nil {
 		c.AbortWithStatus(http.StatusNotFound)
 		return

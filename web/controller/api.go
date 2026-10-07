@@ -54,6 +54,9 @@ func (a *APIController) checkAPIAuth(c *gin.Context) {
 		c.AbortWithStatus(http.StatusNotFound)
 		return
 	}
+	if !a.authorize(c, true) {
+		return
+	}
 	c.Next()
 }
 

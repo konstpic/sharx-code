@@ -6,7 +6,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -39,7 +38,7 @@ func (a *XrayCoreConfigProfileController) initRouter(g *gin.RouterGroup) {
 // getProfiles retrieves the list of profiles for the logged-in user.
 // Automatically creates a default profile if none exists.
 func (a *XrayCoreConfigProfileController) getProfiles(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Ensure default profile exists
 	_, err := a.profileService.EnsureDefaultProfile(user.Id)
@@ -73,7 +72,7 @@ func (a *XrayCoreConfigProfileController) getProfile(c *gin.Context) {
 
 // addProfile creates a new profile.
 func (a *XrayCoreConfigProfileController) addProfile(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	profile := &model.XrayCoreConfigProfile{}
 
@@ -117,7 +116,7 @@ func (a *XrayCoreConfigProfileController) updateProfile(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Create profile with only provided fields
 	profile := &model.XrayCoreConfigProfile{Id: id, UserId: user.Id}
@@ -243,7 +242,7 @@ func (a *XrayCoreConfigProfileController) setAsDefault(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	err = a.profileService.SetAsDefault(id, user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to set profile as default: "+err.Error(), err)

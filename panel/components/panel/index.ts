@@ -9,3 +9,4 @@ export { PanelHeaderAppMeta } from "./PanelHeaderAppMeta";
 export { PanelTelegramNavLink } from "./PanelTelegramNavLink";
 export { PanelDonateNavLink } from "./PanelDonateNavLink";
 export { PanelGitHubStarLink } from "./PanelGitHubStarLink";
+export { RequirePerm, useLandingHref } from "./RequirePerm";

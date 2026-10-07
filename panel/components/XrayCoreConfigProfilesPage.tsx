@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import {
   XrayConfigTemplateEditor,
@@ -75,6 +76,8 @@ function formatProfileAssignmentsLine(
 
 export function XrayCoreConfigProfilesPage() {
   const { t, i18n } = useTranslation();
+  const canUpdate = useCan("xray:update");
+  const canAssign = useCan(["xray:update", "nodes:update"]);
   const toast = useToast();
   const editorRef = useRef<XrayConfigTemplateEditorHandle>(null);
 
@@ -327,14 +330,16 @@ export function XrayCoreConfigProfilesPage() {
         iconTone="neutral"
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="primary"
-              onClick={() => setAddOpen(true)}
-              className="!gap-2"
-            >
-              <Plus size={16} />
-              {t("pages.xrayCoreConfigProfiles.addProfile")}
-            </Button>
+            {canUpdate ? (
+              <Button
+                variant="primary"
+                onClick={() => setAddOpen(true)}
+                className="!gap-2"
+              >
+                <Plus size={16} />
+                {t("pages.xrayCoreConfigProfiles.addProfile")}
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -381,25 +386,27 @@ export function XrayCoreConfigProfilesPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {!pr.isDefault ? (
+                  {canUpdate && !pr.isDefault ? (
                     <Button type="button" variant="secondary" className="!gap-1.5 !text-xs" onClick={() => void setDefault(pr.id)}>
                       {t("pages.xrayCoreConfigProfiles.setAsDefault")}
                     </Button>
                   ) : null}
-                  {multiNode ? (
+                  {multiNode && canAssign ? (
                     <Button type="button" variant="secondary" className="!gap-1.5 !text-xs" onClick={() => openAssign(pr.id)}>
                       <Users size={14} />
                       {t("pages.xrayCoreConfigProfiles.assignNodes")}
                     </Button>
                   ) : null}
-                  <Button type="button" variant="secondary" className="!gap-1.5 !text-xs" onClick={() => void resetProfile(pr.id)}>
-                    {t("pages.xrayCoreConfigProfiles.resetToDefaultTemplate")}
-                  </Button>
+                  {canUpdate ? (
+                    <Button type="button" variant="secondary" className="!gap-1.5 !text-xs" onClick={() => void resetProfile(pr.id)}>
+                      {t("pages.xrayCoreConfigProfiles.resetToDefaultTemplate")}
+                    </Button>
+                  ) : null}
                   <Button type="button" variant="secondary" className="!gap-1.5 !text-xs" onClick={() => void openEdit(pr.id)}>
                     <Pencil size={14} />
-                    {t("edit")}
+                    {canUpdate ? t("edit") : t("rbac.view", { defaultValue: "View" })}
                   </Button>
-                  {!pr.isDefault ? (
+                  {canUpdate && !pr.isDefault ? (
                     <Button
                       type="button"
                       variant="secondary"
@@ -429,12 +436,15 @@ export function XrayCoreConfigProfilesPage() {
             <Button variant="secondary" onClick={closeEdit}>
               {t("cancel")}
             </Button>
-            <Button variant="primary" loading={saveProfileLoading} disabled={!editDirty} onClick={() => void saveEdit()}>
-              {t("save")}
-            </Button>
+            {canUpdate ? (
+              <Button variant="primary" loading={saveProfileLoading} disabled={!editDirty} onClick={() => void saveEdit()}>
+                {t("save")}
+              </Button>
+            ) : null}
           </div>
         }
       >
+        <ReadOnlyScope readOnly={!canUpdate}>
         {editLoading ? (
           <div className="grid min-h-[200px] place-items-center">
             <Spinner size={36} />
@@ -465,6 +475,7 @@ export function XrayCoreConfigProfilesPage() {
             />
           </div>
         )}
+        </ReadOnlyScope>
       </Modal>
 
       <Modal

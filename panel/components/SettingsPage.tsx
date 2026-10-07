@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { useCan, useRbac } from "@/lib/rbac";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -100,6 +101,7 @@ function SettingsSection({
   icon,
   iconTone = "accent",
   full,
+  requires,
 }: {
   title: string;
   hint?: string;
@@ -107,7 +109,11 @@ function SettingsSection({
   icon?: LucideIcon;
   iconTone?: IconTileTone;
   full?: boolean;
+  /** permission needed to see this section at all (it is hidden otherwise) */
+  requires?: string;
 }) {
+  const allowed = useCan(requires);
+  if (!allowed) return null;
   return (
     <Surface
       padding="none"
@@ -190,9 +196,27 @@ const TG_BOT_LANGUAGE_OPTIONS = Object.entries(BCP47_TO_PANEL_CODE).map(([bcp47,
   label: PANEL_CODE_LABEL[code] ?? bcp47,
 }));
 
+/** What each settings tab needs to be opened. The account tab (own password, sessions, API tokens) needs no permission. */
+const TAB_VIEW_PERM: Record<string, string> = {
+  general: "settings:read",
+  telegram: "settings:read",
+  subscription: "settings:read",
+  ldap: "settings:read",
+  grafana: "settings:read",
+};
+/** What each tab needs to be edited. Telegram, LDAP and Grafana carry security settings: a separate permission. */
+const TAB_EDIT_PERM: Record<string, string> = {
+  general: "settings:update",
+  subscription: "settings:update",
+  telegram: "settings:security",
+  ldap: "settings:security",
+  grafana: "settings:security",
+};
+
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const toast = useToast();
+  const { can } = useRbac();
   const params = useParams();
   const activeTab = parseSettingsTab(
     typeof params?.tab === "string" ? params.tab : undefined,
@@ -450,16 +474,22 @@ export function SettingsPage() {
   };
 
   const settingsTabs: SettingsTabConfig[] = useMemo(
-    () => [
-      { id: "general", label: t("pages.settings.tabs.general"), icon: SlidersHorizontal },
-      { id: "security", label: t("pages.settings.tabs.security"), icon: Shield },
-      { id: "telegram", label: t("pages.settings.tabs.telegram"), icon: Send },
-      { id: "subscription", label: t("pages.settings.tabs.subscription"), icon: Link2 },
-      { id: "ldap", label: t("pages.settings.tabs.ldap"), icon: Building2 },
-      { id: "grafana", label: t("pages.settings.tabs.grafana"), icon: BarChart3 },
-    ],
-    [t],
+    () =>
+      (
+        [
+          { id: "general", label: t("pages.settings.tabs.general"), icon: SlidersHorizontal },
+          { id: "security", label: t("pages.settings.tabs.security"), icon: Shield },
+          { id: "telegram", label: t("pages.settings.tabs.telegram"), icon: Send },
+          { id: "subscription", label: t("pages.settings.tabs.subscription"), icon: Link2 },
+          { id: "ldap", label: t("pages.settings.tabs.ldap"), icon: Building2 },
+          { id: "grafana", label: t("pages.settings.tabs.grafana"), icon: BarChart3 },
+        ] as SettingsTabConfig[]
+      ).filter((tab) => can(TAB_VIEW_PERM[tab.id])),
+    [t, can],
   );
+  const tabAllowed = can(TAB_VIEW_PERM[activeTab]);
+  // A tab the user may see but not edit is shown read-only: the controls are disabled, there is no Save button.
+  const tabReadOnly = !can(TAB_EDIT_PERM[activeTab]);
 
   const activeTabLabel = useMemo(
     () => settingsTabs.find((x) => x.id === activeTab)?.label,
@@ -540,6 +570,17 @@ export function SettingsPage() {
     </nav>
   );
 
+  if (!tabAllowed) {
+    return (
+      <PageScaffold compact>
+        <PageHeader title={t("menu.settings")} icon={SettingsGearIcon} iconTone="neutral" />
+        <p className="text-sm text-[var(--fg-muted)]">
+          {t("rbac.noAccessText", { defaultValue: "Your role does not include access to this section. Ask an administrator if you need it." })}
+        </p>
+      </PageScaffold>
+    );
+  }
+
   const panelBody = (
     <>
       {activeTab === "general" ? (
@@ -595,6 +636,7 @@ export function SettingsPage() {
           </SettingsSection>
 
           <SettingsSection
+            requires="settings:security"
             title={t("pages.settings.sections.secretPaths")}
             hint={t("pages.settings.secretPathsSectionHint")}
             icon={Shield}
@@ -1153,6 +1195,7 @@ export function SettingsPage() {
           icon={Shield}
           iconTone="danger"
           full
+          requires="settings:security"
         >
           {form.twoFactorEnable && form.twoFactorToken ? (
             <>
@@ -1864,16 +1907,18 @@ export function SettingsPage() {
         icon={SettingsGearIcon}
         iconTone="neutral"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={revert} disabled={!dirty} className="!gap-2">
-              <RotateCcw size={16} />
-              {t("reset")}
-            </Button>
-            <Button variant="primary" onClick={() => void save()} loading={saving} disabled={!dirty} className="!gap-2">
-              <Save size={16} />
-              {t("pages.settings.save")}
-            </Button>
-          </div>
+          tabReadOnly ? null : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={revert} disabled={!dirty} className="!gap-2">
+                <RotateCcw size={16} />
+                {t("reset")}
+              </Button>
+              <Button variant="primary" onClick={() => void save()} loading={saving} disabled={!dirty} className="!gap-2">
+                <Save size={16} />
+                {t("pages.settings.save")}
+              </Button>
+            </div>
+          )
         }
       />
 
@@ -1891,7 +1936,18 @@ export function SettingsPage() {
           id={`settings-panel-${activeTab}`}
           aria-labelledby={`settings-tab-${activeTab}`}
         >
-          {panelBody}
+          {tabReadOnly && activeTab !== "security" ? (
+            <>
+              <p className="mb-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--fg-muted)]">
+                {t("rbac.readOnlyTab", { defaultValue: "Read-only: your role can view these settings but not change them." })}
+              </p>
+              <fieldset disabled className="m-0 min-w-0 border-0 p-0">
+                {panelBody}
+              </fieldset>
+            </>
+          ) : (
+            panelBody
+          )}
         </div>
       </div>
 

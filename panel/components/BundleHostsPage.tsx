@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { useCan } from "@/lib/rbac";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import { hostKindLabel, hostTarget, type BundleHostView } from "@/components/BundlesPage";
 import { Button, Collapsible, IconButton, Input, Modal, PillTag, Reveal, SelectNative, Spinner, Switch, useToast } from "@/components/ui";
@@ -98,6 +99,9 @@ function fromHost(h: FullHost): Form {
 /** Hosts under the bundle scheme: every entry a client can be given, bound to one inbound. */
 export function BundleHostsPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("hosts:create");
+  const canUpdate = useCan("hosts:update");
+  const canDelete = useCan("hosts:delete");
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [hosts, setHosts] = useState<FullHost[]>([]);
@@ -181,10 +185,12 @@ export function BundleHostsPage() {
         })}
         actions={
           <>
-            <Button variant="secondary" className="!gap-2" onClick={() => setForm({ ...EMPTY, inboundId: inbounds[0]?.id ?? 0 })}>
-              <Plus size={16} />
-              {t("pages.bundleHosts.add", { defaultValue: "Add address host" })}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" className="!gap-2" onClick={() => setForm({ ...EMPTY, inboundId: inbounds[0]?.id ?? 0 })}>
+                <Plus size={16} />
+                {t("pages.bundleHosts.add", { defaultValue: "Add address host" })}
+              </Button>
+            ) : null}
             <SectionHelpModal scene="hosts" titleKey="pages.bundleHosts.helpTitle" paragraphKeys={["pages.bundleHosts.helpP1", "pages.bundleHosts.helpP2", "pages.bundleHosts.helpP3"]} />
           </>
         }
@@ -203,7 +209,7 @@ export function BundleHostsPage() {
                 </div>
                 {list.map((h) => (
                   <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-0">
-                    <Switch size="sm" checked={h.enable} onChange={(v) => void toggle(h, v)} ariaLabel="enable" />
+                    <Switch size="sm" checked={h.enable} disabled={!canUpdate} onChange={(v) => void toggle(h, v)} ariaLabel="enable" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--fg)]">
                         {h.name}
@@ -224,17 +230,21 @@ export function BundleHostsPage() {
                       ))}
                     </div>
                     <div className="flex items-center gap-1">
-                      {h.customized && h.kind !== "address" ? (
+                      {canUpdate && h.customized && h.kind !== "address" ? (
                         <IconButton label={t("pages.bundleHosts.reset", { defaultValue: "Follow the node again" })} onClick={() => void reset(h)}>
                           <RotateCcw size={14} />
                         </IconButton>
                       ) : null}
-                      <IconButton label={t("edit")} onClick={() => setForm(fromHost(h))}>
-                        <Pencil size={14} />
-                      </IconButton>
-                      <IconButton label={t("delete")} onClick={() => setDeleteTarget(h)}>
-                        <Trash2 size={14} />
-                      </IconButton>
+                      {canUpdate ? (
+                        <IconButton label={t("edit")} onClick={() => setForm(fromHost(h))}>
+                          <Pencil size={14} />
+                        </IconButton>
+                      ) : null}
+                      {canDelete ? (
+                        <IconButton label={t("delete")} onClick={() => setDeleteTarget(h)}>
+                          <Trash2 size={14} />
+                        </IconButton>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -402,6 +412,7 @@ type SuppressedHost = {
 
 function SuppressedHostsPanel({ refreshKey }: { refreshKey: number }) {
   const { t } = useTranslation();
+  const canRestore = useCan("hosts:update");
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<SuppressedHost[] | null>(null);
@@ -448,9 +459,11 @@ function SuppressedHostsPanel({ refreshKey }: { refreshKey: number }) {
               <div className="min-w-0 flex-1 text-sm text-[var(--fg-muted)]">
                 {[r.inboundRemark || (r.inboundId ? `#${r.inboundId}` : undefined), r.nodeName, r.poolBalancer].filter(Boolean).join(" · ") || `#${r.id}`}
               </div>
-              <Button variant="secondary" disabled={busyId === r.id} onClick={() => void restore(r.id)}>
-                {t("pages.bundleHosts.restore", { defaultValue: "Restore" })}
-              </Button>
+              {canRestore ? (
+                <Button variant="secondary" disabled={busyId === r.id} onClick={() => void restore(r.id)}>
+                  {t("pages.bundleHosts.restore", { defaultValue: "Restore" })}
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/crypto"
 	"github.com/konstpic/sharx-code/v2/web/entity"
+	"github.com/konstpic/sharx-code/v2/web/rbac"
 	"github.com/konstpic/sharx-code/v2/web/service"
 	"github.com/konstpic/sharx-code/v2/web/session"
 
@@ -100,7 +102,20 @@ func (a *SettingController) getAllSetting(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
 		return
 	}
+	if !can(c, rbac.SettingsRead) {
+		redactSettings(allSetting) // the UI shell needs the non-secret part (multi-node mode, formats) for every user
+	}
 	jsonObj(c, allSetting, nil)
+}
+
+// redactSettings clears the secrets and infrastructure details of the settings for users without settings:read.
+func redactSettings(s *entity.AllSetting) {
+	s.TgBotToken, s.TgBotProxy, s.TgBotAPIServer, s.TgBotChatId = "", "", "", ""
+	s.TwoFactorToken = ""
+	s.LdapHost, s.LdapBindDN, s.LdapPassword, s.LdapBaseDN, s.LdapUserFilter = "", "", "", "", ""
+	s.GrafanaLokiUrl, s.GrafanaVictoriaMetricsUrl = "", ""
+	s.WebCertFile, s.WebKeyFile, s.SubCertFile, s.SubKeyFile = "", "", "", ""
+	s.ExternalTrafficInformURI = ""
 }
 
 // getDefaultSettings retrieves the default settings based on the host.
@@ -185,8 +200,37 @@ func (a *SettingController) updateSetting(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
 		return
 	}
+	if !can(c, rbac.SettingsSecurity) {
+		// LDAP, 2FA, the Telegram bot, the panel address and TLS decide who can sign in; changing them is a separate
+		// permission, otherwise settings:update would let a user redirect sign-in to a server they control.
+		if cur, curErr := a.settingService.GetAllSetting(); curErr == nil && securitySettingsDiffer(cur, allSetting) {
+			forbid(c, "Forbidden: missing permission "+rbac.SettingsSecurity+" (security settings were changed)")
+			return
+		}
+	}
 	err = a.settingService.UpdateAllSetting(allSetting)
 	jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
+}
+
+// securityFieldPrefixes name the settings fields that belong to settings:security.
+var securityFieldPrefixes = []string{"Web", "SessionMaxAge", "TgBot", "TwoFactor", "TgTwoFactor", "Ldap", "SubCertFile", "SubKeyFile", "Grafana", "ExternalTraffic"}
+
+// securitySettingsDiffer reports whether any security-related setting differs between the stored and the submitted values.
+func securitySettingsDiffer(cur, next *entity.AllSetting) bool {
+	a, b := reflect.ValueOf(cur).Elem(), reflect.ValueOf(next).Elem()
+	t := a.Type()
+	for i := 0; i < t.NumField(); i++ {
+		name := t.Field(i).Name
+		for _, pre := range securityFieldPrefixes {
+			if strings.HasPrefix(name, pre) {
+				if !reflect.DeepEqual(a.Field(i).Interface(), b.Field(i).Interface()) {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 // updateUser updates the current user's username and password.

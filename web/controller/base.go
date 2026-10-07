@@ -65,6 +65,9 @@ func (a *BaseController) checkLogin(c *gin.Context) {
 			}
 			session.EnsureRegistered(c, u.Id, maxAge*60, getRemoteIp(c))
 		}
+		if !a.authorize(c, false) {
+			return
+		}
 		c.Next()
 	}
 }

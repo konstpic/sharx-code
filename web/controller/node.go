@@ -10,8 +10,8 @@ import (
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/web/rbac"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -70,7 +70,7 @@ func (a *NodeController) initRouter(g *gin.RouterGroup) {
 
 // getClientTrafficPerNode returns live per-user per-node traffic (and a Local column in single-node mode).
 func (a *NodeController) getClientTrafficPerNode(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	if user == nil {
 		jsonMsg(c, "Unauthorized", nil)
 		return
@@ -198,8 +198,16 @@ func (a *NodeController) getNodes(c *gin.Context) {
 
 	profileService := service.XrayCoreConfigProfileService{}
 	result := make([]NodeWithInbounds, 0, len(nodes))
+	canInbounds := can(c, rbac.InboundsRead)
 	for _, node := range nodes {
 		inbounds, _ := a.nodeService.GetInboundsForNode(node.Id)
+		if !canInbounds {
+			// inbound settings carry client credentials (UUIDs, passwords, WireGuard keys): a user who may see nodes but not
+			// inbounds gets the inbound's name and traffic, not its secrets
+			for _, ib := range inbounds {
+				ib.Settings, ib.StreamSettings, ib.ClientStats = "", "", nil
+			}
+		}
 		profiles, _ := profileService.GetProfilesForNode(node.Id)
 		result = append(result, NodeWithInbounds{
 			Node:        node,

@@ -61,7 +61,51 @@ type User struct {
 	Id       int    `json:"id" gorm:"primaryKey;autoIncrement"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+
+	// Access control (migration 0064). The session stores a copy of this struct, so nothing here is trusted for
+	// authorization: the role, the enabled flag and the deletion mark are read from the database on every request.
+	RoleId      *int   `json:"roleId,omitempty" gorm:"column:role_id"`
+	Enabled     bool   `json:"enabled" gorm:"column:enabled"`
+	DeletedAt   *int64 `json:"deletedAt,omitempty" gorm:"column:deleted_at"`
+	CreatedAt   int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt   int64  `json:"updatedAt" gorm:"column:updated_at"`
+	LastLoginAt *int64 `json:"lastLoginAt,omitempty" gorm:"column:last_login_at"`
 }
+
+// Role is a named set of permissions. Permissions is a JSON array of keys from the web/rbac catalogue, or ["*"].
+type Role struct {
+	Id          int     `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name        string  `json:"name" gorm:"column:name"`
+	Description string  `json:"description" gorm:"column:description"`
+	IsSystem    bool    `json:"isSystem" gorm:"column:is_system"`
+	SystemKey   *string `json:"systemKey,omitempty" gorm:"column:system_key"`
+	Permissions string  `json:"-" gorm:"column:permissions"`
+	CreatedAt   int64   `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt   int64   `json:"updatedAt" gorm:"column:updated_at"`
+}
+
+// TableName names the roles table for GORM.
+func (Role) TableName() string { return "roles" }
+
+// AuditLog is one entry of the access-control audit trail.
+type AuditLog struct {
+	Id         int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	Ts         int64  `json:"ts" gorm:"column:ts"`
+	ActorId    *int   `json:"actorId,omitempty" gorm:"column:actor_id"`
+	ActorName  string `json:"actorName" gorm:"column:actor_name"`
+	Action     string `json:"action" gorm:"column:action"`
+	TargetType string `json:"targetType" gorm:"column:target_type"`
+	TargetId   string `json:"targetId" gorm:"column:target_id"`
+	TargetName string `json:"targetName" gorm:"column:target_name"`
+	Before     string `json:"before,omitempty" gorm:"column:before_state"`
+	After      string `json:"after,omitempty" gorm:"column:after_state"`
+	IP         string `json:"ip" gorm:"column:ip"`
+	Result     string `json:"result" gorm:"column:result"`
+	Detail     string `json:"detail,omitempty" gorm:"column:detail"`
+}
+
+// TableName names the audit_log table for GORM.
+func (AuditLog) TableName() string { return "audit_log" }
 
 // APIToken stores metadata for a long-lived API JWT (jti) used with Authorization: Bearer.
 type APIToken struct {

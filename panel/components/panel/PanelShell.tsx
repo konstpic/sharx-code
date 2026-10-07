@@ -9,6 +9,7 @@ import {
   Menu,
   Network,
   Package,
+  KeyRound,
   Server,
   Settings,
   User,
@@ -24,6 +25,7 @@ import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p, stripBasePath } from "@/lib/paths";
 import { SETTINGS_TAB_IDS, tSettingsTabLabel } from "@/lib/settingsTabs";
 import { getUiPref } from "@/lib/uiPrefs";
+import { useRbac } from "@/lib/rbac";
 import { NetTrace } from "@/components/panel/NetTrace";
 import { PanelHeaderAppMeta } from "@/components/panel/PanelHeaderAppMeta";
 import { PanelTelegramNavLink } from "@/components/panel/PanelTelegramNavLink";
@@ -40,7 +42,8 @@ type NavEntry =
   | { kind: "settings" }
   | { kind: "nodes" }
   | { kind: "xray" }
-  | { kind: "clients" };
+  | { kind: "clients" }
+  | { kind: "access" };
 
 function routePath(path: string) {
   return stripBasePath(path);
@@ -52,6 +55,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
   const [multi, setMulti] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [menuStyle] = useMenuStyle();
+  const { can } = useRbac();
   const ws = usePanelWebSocket();
   const resyncAfterDisconnect = useRef(false);
   const [netTraceOpen, setNetTraceOpen] = useState(false);
@@ -214,14 +218,29 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     ];
     if (multi) extraAfterInbounds.unshift({ kind: "nodes" as const });
     base.splice(at, 0, ...extraAfterInbounds);
+    base.splice(base.findIndex((x) => "kind" in x && x.kind === "settings"), 0, { kind: "access" as const });
     base.push({
       key: p("logout/"),
       href: p("logout/"),
       icon: <LogOut className="size-[18px] shrink-0 opacity-90" />,
       label: t("menu.logout"),
     });
-    return base;
-  }, [t, multi]);
+    // The menu shows only what the role may open. This is convenience: every endpoint behind a page checks the permission too.
+    const NAV_PERM: Record<string, string> = {
+      [p("panel/")]: "dashboard:read",
+      [p("panel/inbounds")]: "inbounds:read",
+      [p("panel/groups")]: "groups:read",
+      [p("panel/bundles")]: "bundles:read",
+      [p("panel/hosts")]: "hosts:read",
+    };
+    const KIND_PERM: Record<string, string> = {
+      clients: "clients:read",
+      nodes: "nodes:read|balancers:read",
+      xray: "xray:read",
+      access: "users:read|roles:read|audit:read",
+    };
+    return base.filter((x) => ("kind" in x ? can(KIND_PERM[x.kind]) : can(NAV_PERM[x.key])));
+  }, [t, multi, can]);
 
   const isActive = (item: NavItem) => {
     if (item.key === p("logout/")) return false;
@@ -256,10 +275,12 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
             icon: Settings,
             active: inSettings,
             children: [
-              ...SETTINGS_TAB_IDS.map((id) =>
+              ...SETTINGS_TAB_IDS.filter((id) => id === "security" || can("settings:read")).map((id) =>
                 child(id, tSettingsTabLabel(t, id), linkP(`panel/settings/${id}`), u === routePath(p(`panel/settings/${id}`))),
               ),
-              child("db", t("menu.dbInspector"), linkP("panel/db-inspector"), u === dbInspectorHref),
+              ...(can("system:database")
+                ? [child("db", t("menu.dbInspector"), linkP("panel/db-inspector"), u === dbInspectorHref)]
+                : []),
             ],
           });
         } else if (item.kind === "xray") {
@@ -287,6 +308,20 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
               child("stats", t("menu.clientsStatistics"), linkP("panel/clients/statistics"), u === clientsStatsHref || u.startsWith(`${clientsStatsHref}/`)),
             ],
           });
+        } else if (item.kind === "access") {
+          const accessHref = routePath(p("panel/access"));
+          out.push({
+            id: "access",
+            label: t("menu.access", { defaultValue: "Users & roles" }),
+            href: linkP("panel/access"),
+            icon: KeyRound,
+            active: u === accessHref || u.startsWith(`${accessHref}/`),
+            children: [
+              ...(can("users:read") ? [child("users", t("rbac.tabUsers", { defaultValue: "Users" }), linkP("panel/access"), false)] : []),
+              ...(can("roles:read") ? [child("roles", t("rbac.tabRoles", { defaultValue: "Roles" }), linkP("panel/access") + "?tab=roles", false)] : []),
+              ...(can("audit:read") ? [child("audit", t("rbac.tabAudit", { defaultValue: "Audit log" }), linkP("panel/access") + "?tab=audit", false)] : []),
+            ],
+          });
         } else if (item.kind === "nodes") {
           out.push({
             id: "nodes",
@@ -295,10 +330,16 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
             icon: Network,
             active: inNodes,
             children: [
-              child("manage", t("menu.nodesManage"), linkP("panel/nodes"), u === nodesListHref),
-              child("stats", t("menu.nodesStatistics"), linkP("panel/nodes/statistics"), u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`)),
-              child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
-              child("balancers", t("menu.balancers", { defaultValue: "Balancers" }), linkP("panel/nodes/balancers"), u === nodesBalancersHref),
+              ...(can("nodes:read")
+                ? [
+                    child("manage", t("menu.nodesManage"), linkP("panel/nodes"), u === nodesListHref),
+                    child("stats", t("menu.nodesStatistics"), linkP("panel/nodes/statistics"), u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`)),
+                    child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
+                  ]
+                : []),
+              ...(can("balancers:read")
+                ? [child("balancers", t("menu.balancers", { defaultValue: "Balancers" }), linkP("panel/nodes/balancers"), u === nodesBalancersHref)]
+                : []),
             ],
           });
         }
@@ -315,7 +356,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, t, pathname, inSettings, inXray, inClients, inNodes, dbInspectorHref, xrayListHref, xrayGeoHref, xrayProfilesHref, clientsListHref, clientsStatsHref, nodesListHref, nodesStatsHref, nodesGeoHref, nodesBalancersHref]);
+  }, [items, t, can, pathname, inSettings, inXray, inClients, inNodes, dbInspectorHref, xrayListHref, xrayGeoHref, xrayProfilesHref, clientsListHref, clientsStatsHref, nodesListHref, nodesStatsHref, nodesGeoHref, nodesBalancersHref]);
 
   const closeMobile = () => setMobileNav(false);
 

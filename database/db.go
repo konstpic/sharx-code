@@ -45,6 +45,8 @@ func initUser() error {
 		user := &model.User{
 			Username: defaultUsername,
 			Password: hashedPassword,
+			RoleId:   AdminRoleID(),
+			Enabled:  true,
 		}
 		return db.Create(user).Error
 	}
@@ -179,6 +181,10 @@ func InitDB(dbConnectionString string) error {
 		return fmt.Errorf("failed to initialize default user: %w", err)
 	}
 
+	// Step 5.5: access control must never leave the panel without an administrator (restore from an old dump,
+	// rollback to a version that did not know roles, a hand-edited database).
+	EnsureAdminAccess()
+
 	// Step 6: Run seeders
 	if err := runSeeders(isUsersEmpty); err != nil {
 		return fmt.Errorf("failed to run seeders: %w", err)
@@ -234,4 +240,42 @@ func GetDB() *gorm.DB {
 // IsNotFound checks if the given error is a GORM record not found error.
 func IsNotFound(err error) bool {
 	return err == gorm.ErrRecordNotFound
+}
+
+// AdminRoleID returns the id of the built-in Administrator role (nil if migration 0064 has not run).
+func AdminRoleID() *int {
+	var id int
+	if err := db.Raw("SELECT id FROM roles WHERE system_key = 'administrator'").Scan(&id).Error; err != nil || id == 0 {
+		return nil
+	}
+	return &id
+}
+
+// EnsureAdminAccess guarantees that at least one enabled, not deleted user holds the Administrator role, and that no
+// user is left without a role. Users without a role (created by an older version after the migration ran) become
+// Administrators: that is what they were before roles existed. If no administrator can sign in, the first user is
+// restored as one. It is idempotent and runs on every start.
+func EnsureAdminAccess() {
+	admin := AdminRoleID()
+	if admin == nil {
+		return
+	}
+	res := db.Exec("UPDATE users SET role_id = ?, updated_at = ? WHERE role_id IS NULL AND deleted_at IS NULL", *admin, time.Now().Unix())
+	if res.Error == nil && res.RowsAffected > 0 {
+		appLogger.Warningf("RBAC: %d user(s) without a role were made Administrators (as they were before roles existed)", res.RowsAffected)
+	}
+	var n int64
+	db.Raw(`SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u.role_id
+	        WHERE u.enabled = TRUE AND u.deleted_at IS NULL AND r.permissions LIKE '%"*"%'`).Scan(&n)
+	if n > 0 {
+		return
+	}
+	var first int
+	db.Raw("SELECT id FROM users WHERE deleted_at IS NULL ORDER BY id LIMIT 1").Scan(&first)
+	if first == 0 {
+		return
+	}
+	if err := db.Exec("UPDATE users SET role_id = ?, enabled = TRUE, updated_at = ? WHERE id = ?", *admin, time.Now().Unix(), first).Error; err == nil {
+		appLogger.Warningf("RBAC: no enabled administrator was left, user id %d was restored as Administrator", first)
+	}
 }

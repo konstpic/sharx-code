@@ -28,6 +28,10 @@ export type InboundListViewContext = {
   onShare: (id: number, remark: string) => void;
   dnd?: ReorderDnd;
   dndHint?: string;
+  /** what the signed-in user may do (hides controls the server would refuse) */
+  canUpdate: boolean;
+  canDelete: boolean;
+  canShare: boolean;
 };
 
 function MetaItem({
@@ -78,33 +82,37 @@ function InboundOperateButtons({
   ctx: InboundListViewContext;
   compact?: boolean;
 }) {
-  const { t, onDelete, onShare } = ctx;
+  const { t, onDelete, onShare, canDelete, canShare } = ctx;
   return (
     <div
       className={`flex items-center ${compact ? "gap-0.5" : "gap-1"}`}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
-        onClick={() => onShare(r.id, r.remark)}
-        title={t("pages.templates.share", { defaultValue: "Share as template" })}
-        aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
-      >
-        <Share2 size={16} />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
-        onClick={() => onDelete(r.id)}
-        title={t("delete")}
-        aria-label={t("delete")}
-      >
-        <Trash2 size={16} />
-      </Button>
+      {canShare ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+          onClick={() => onShare(r.id, r.remark)}
+          title={t("pages.templates.share", { defaultValue: "Share as template" })}
+          aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
+        >
+          <Share2 size={16} />
+        </Button>
+      ) : null}
+      {canDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
+          onClick={() => onDelete(r.id)}
+          title={t("delete")}
+          aria-label={t("delete")}
+        >
+          <Trash2 size={16} />
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -162,7 +170,7 @@ export function InboundListRowView({
               <Switch
                 size="sm"
                 checked={r.enable}
-                disabled={toggleEnableBusyId === r.id}
+                disabled={toggleEnableBusyId === r.id || !ctx.canUpdate}
                 ariaLabel={`${t("enable")} — ${r.remark || `inbound ${r.id}`}`}
                 onChange={(next) => void onToggleEnable(r.id, next)}
               />
@@ -221,7 +229,7 @@ export function InboundTileCardView({
             <Switch
               size="sm"
               checked={r.enable}
-              disabled={toggleEnableBusyId === r.id}
+              disabled={toggleEnableBusyId === r.id || !ctx.canUpdate}
               ariaLabel={`${t("enable")} — ${r.remark || `inbound ${r.id}`}`}
               onChange={(next) => void onToggleEnable(r.id, next)}
             />

@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 )
 
 // ClientHWIDController handles HTTP requests for client HWID management.
@@ -51,7 +50,7 @@ func (a *ClientHWIDController) getHWIDs(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", nil)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	cl, err := a.clientService.GetClient(clientId)
 	if err != nil || cl == nil || cl.UserId != user.Id {
 		jsonMsg(c, "Client not found or access denied", nil)
@@ -74,7 +73,7 @@ func (a *ClientHWIDController) setHWIDBlocked(c *gin.Context) {
 		jsonMsg(c, "Invalid HWID ID", nil)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var body struct {
 		Blocked bool `json:"blocked"`
 	}

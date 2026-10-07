@@ -47,6 +47,7 @@ import {
   speedMbpsFormat,
 } from "@/lib/format";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import {
   isWgQuickConfProtocol,
   wgQuickConfFromPanelText,
@@ -1502,6 +1503,12 @@ function ClientUnifiedCard({
   onOpenSessions,
   onShowSubscriptionQr,
 }: ClientUnifiedCardProps) {
+  const canCreate = useCan("clients:create");
+  const canUpdate = useCan("clients:update");
+  const canOperate = useCan("clients:operate");
+  const canDelete = useCan("clients:delete");
+  // what the card may change: a new client needs create, an existing one needs update
+  const readOnly = variant === "existing" || isEdit ? !canUpdate : !canCreate;
   const id = (s: string) => `${fieldIdPrefix}-${s}`;
   const expiryMs = expiryMsFromForm(form);
   const totalGb = totalGbFromForm(form);
@@ -1605,7 +1612,7 @@ function ClientUnifiedCard({
                   ? t("pages.clients.disableClient", { defaultValue: "Disable client" })
                   : t("pages.clients.enableClient", { defaultValue: "Enable client" })
               }
-              disabled={variant === "existing" && sheetActionBusy != null}
+              disabled={(variant === "existing" && sheetActionBusy != null) || readOnly}
               className={
                 form.enable
                   ? "!text-emerald-600 hover:!text-emerald-700 dark:!text-emerald-400 dark:hover:!text-emerald-300"
@@ -1660,8 +1667,9 @@ function ClientUnifiedCard({
                 <Unplug size={18} />
               </IconButton>
             ) : null}
-            {showExistingChrome ? (
+            {showExistingChrome && (canOperate || canDelete) ? (
               <>
+                {canOperate ? (
                 <IconButton
                   type="button"
                   label={t("pages.clients.resetTraffic", { defaultValue: "Reset traffic" })}
@@ -1674,6 +1682,8 @@ function ClientUnifiedCard({
                     <RotateCcw size={18} />
                   )}
                 </IconButton>
+                ) : null}
+                {canOperate ? (
                 <IconButton
                   type="button"
                   label={t("pages.clients.clearHwid", {
@@ -1689,6 +1699,8 @@ function ClientUnifiedCard({
                     <Smartphone size={18} />
                   )}
                 </IconButton>
+                ) : null}
+                {canDelete ? (
                 <IconButton
                   type="button"
                   label={t("pages.clients.deleteClient", {
@@ -1700,12 +1712,14 @@ function ClientUnifiedCard({
                 >
                   <Trash2 size={18} />
                 </IconButton>
+                ) : null}
               </>
             ) : null}
             </div>
           </div>
         </div>
 
+        <ReadOnlyScope readOnly={readOnly}>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="space-y-5 text-sm">
             {/* --- Identity group --- */}
@@ -2455,6 +2469,7 @@ function ClientUnifiedCard({
             </p>
           </div>
         </div>
+        </ReadOnlyScope>
       </div>
     </div>
   );
@@ -2462,6 +2477,12 @@ function ClientUnifiedCard({
 
 export function ClientsPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("clients:create");
+  const canUpdate = useCan("clients:update");
+  const canOperate = useCan("clients:operate");
+  const canDelete = useCan("clients:delete");
+  const canGroups = useCan(["groups:update", "clients:update"]);
+  const canBulk = canUpdate || canOperate || canDelete;
   const toast = useToast();
   const ws = usePanelWebSocket();
   const tablePrefsReadyRef = useRef(false);
@@ -3881,20 +3902,24 @@ export function ClientsPage() {
         iconTone="info"
         actions={
           <>
-            <Button
-              variant={bulkMode ? "primary" : "secondary"}
-              onClick={() => setBulkMode((v) => !v)}
-              className="!gap-2"
-            >
-              <ListChecks size={16} />
-              {bulkMode
-                ? t("pages.clients.bulkDone", { defaultValue: "Done" })
-                : t("pages.clients.bulkActions", { defaultValue: "Bulk actions" })}
-            </Button>
-            <Button variant="secondary" onClick={openAdd} className="!gap-2">
-              <Plus size={16} />
-              {t("pages.clients.addClient")}
-            </Button>
+            {canBulk ? (
+              <Button
+                variant={bulkMode ? "primary" : "secondary"}
+                onClick={() => setBulkMode((v) => !v)}
+                className="!gap-2"
+              >
+                <ListChecks size={16} />
+                {bulkMode
+                  ? t("pages.clients.bulkDone", { defaultValue: "Done" })
+                  : t("pages.clients.bulkActions", { defaultValue: "Bulk actions" })}
+              </Button>
+            ) : null}
+            {canCreate ? (
+              <Button variant="secondary" onClick={openAdd} className="!gap-2">
+                <Plus size={16} />
+                {t("pages.clients.addClient")}
+              </Button>
+            ) : null}
             <SectionHelpModal
               scene="clients"
               titleKey="pages.clients.helpModalTitle"
@@ -4054,10 +4079,12 @@ export function ClientsPage() {
             <div className="flex flex-col items-center gap-3 text-center">
               <IconTile icon={Users} tone="neutral" size="lg" />
               <p className="text-sm text-[var(--fg-muted)]">{t("noData")}</p>
-              <Button variant="primary" onClick={openAdd} className="!gap-2">
-                <Plus size={16} />
-                {t("pages.clients.addClient")}
-              </Button>
+              {canCreate ? (
+                <Button variant="primary" onClick={openAdd} className="!gap-2">
+                  <Plus size={16} />
+                  {t("pages.clients.addClient")}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -4088,46 +4115,54 @@ export function ClientsPage() {
                   {t("pages.clients.clearSelection")}
                 </Button>
                 <span className="mx-1 hidden h-4 w-px bg-[var(--border)] sm:inline" aria-hidden />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="!h-8 !gap-1.5 !px-2.5 !text-xs"
-                  disabled={!selectedIds.size}
-                  onClick={() => openBulkAssignGroup()}
-                >
-                  <Building2 size={14} />
-                  {t("pages.clients.assignGroup")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="!h-8 !gap-1.5 !px-2.5 !text-xs"
-                  disabled={!selectedIds.size}
-                  onClick={() => void runBulkResetTraffic()}
-                >
-                  <RotateCcw size={14} />
-                  {t("pages.clients.resetTraffic", { defaultValue: "Reset traffic" })}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="!h-8 !gap-1.5 !px-2.5 !text-xs"
-                  disabled={!selectedIds.size}
-                  onClick={() => void runBulkClearHwid()}
-                >
-                  <Smartphone size={14} />
-                  {t("pages.clients.clearHwid", { defaultValue: "Clear HWIDs" })}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="!h-8 !gap-1.5 !px-2.5 !text-xs text-red-600 dark:text-red-400"
-                  disabled={!selectedIds.size}
-                  onClick={() => void runBulkDelete()}
-                >
-                  <Trash2 size={14} />
-                  {t("delete")}
-                </Button>
+                {canGroups ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="!h-8 !gap-1.5 !px-2.5 !text-xs"
+                    disabled={!selectedIds.size}
+                    onClick={() => openBulkAssignGroup()}
+                  >
+                    <Building2 size={14} />
+                    {t("pages.clients.assignGroup")}
+                  </Button>
+                ) : null}
+                {canOperate ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="!h-8 !gap-1.5 !px-2.5 !text-xs"
+                    disabled={!selectedIds.size}
+                    onClick={() => void runBulkResetTraffic()}
+                  >
+                    <RotateCcw size={14} />
+                    {t("pages.clients.resetTraffic", { defaultValue: "Reset traffic" })}
+                  </Button>
+                ) : null}
+                {canOperate ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="!h-8 !gap-1.5 !px-2.5 !text-xs"
+                    disabled={!selectedIds.size}
+                    onClick={() => void runBulkClearHwid()}
+                  >
+                    <Smartphone size={14} />
+                    {t("pages.clients.clearHwid", { defaultValue: "Clear HWIDs" })}
+                  </Button>
+                ) : null}
+                {canDelete ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="!h-8 !gap-1.5 !px-2.5 !text-xs text-red-600 dark:text-red-400"
+                    disabled={!selectedIds.size}
+                    onClick={() => void runBulkDelete()}
+                  >
+                    <Trash2 size={14} />
+                    {t("delete")}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
             <div className="panel-data-table overflow-x-auto">
@@ -4558,19 +4593,21 @@ export function ClientsPage() {
             >
               {t("cancel")}
             </Button>
-            <Button
-              variant="primary"
-              type="button"
-              loading={modalSubmitting}
-              disabled={fetchingClient}
-              onClick={() => void submitClient()}
-            >
-              {modalSubmitting
-                ? null
-                : isEdit
-                  ? t("update")
-                  : t("create")}
-            </Button>
+            {(isEdit ? canUpdate : canCreate) ? (
+              <Button
+                variant="primary"
+                type="button"
+                loading={modalSubmitting}
+                disabled={fetchingClient}
+                onClick={() => void submitClient()}
+              >
+                {modalSubmitting
+                  ? null
+                  : isEdit
+                    ? t("update")
+                    : t("create")}
+              </Button>
+            ) : null}
           </div>
         }
       >
@@ -4927,18 +4964,20 @@ export function ClientsPage() {
               >
                 {t("pages.clients.sessions.refresh")}
               </Button>
-              <Button
-                type="button"
-                variant="primary"
-                loading={sessionsDropBusy}
-                disabled={
-                  sessionsLoading ||
-                  !sessionsData?.results?.some((x) => x.dropAvailable)
-                }
-                onClick={() => void dropAllSessions()}
-              >
-                {t("pages.clients.sessions.dropAll")}
-              </Button>
+              {canOperate ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  loading={sessionsDropBusy}
+                  disabled={
+                    sessionsLoading ||
+                    !sessionsData?.results?.some((x) => x.dropAvailable)
+                  }
+                  onClick={() => void dropAllSessions()}
+                >
+                  {t("pages.clients.sessions.dropAll")}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="secondary"
@@ -5050,6 +5089,7 @@ export function ClientsPage() {
                               size="sm"
                               checked={isSessionIpBlocked(s.ip, sessionsData.blockedSessionIps)}
                               disabled={
+                                !canOperate ||
                                 !s.ip?.trim() ||
                                 sessionIpBlockBusy === s.ip ||
                                 sessionsDropBusy ||
@@ -5067,17 +5107,19 @@ export function ClientsPage() {
                               : "—"}
                           </td>
                           <td className="p-2 text-right">
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              className="!h-7 !px-2 !text-[10px]"
-                              disabled={sessionsDropBusy || !block.dropAvailable || !s.ip?.trim()}
-                              onClick={() => void dropSessionIp(s.ip)}
-                            >
-                              {t("pages.clients.sessions.dropOne", {
-                                defaultValue: "Disconnect",
-                              })}
-                            </Button>
+                            {canOperate ? (
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                className="!h-7 !px-2 !text-[10px]"
+                                disabled={sessionsDropBusy || !block.dropAvailable || !s.ip?.trim()}
+                                onClick={() => void dropSessionIp(s.ip)}
+                              >
+                                {t("pages.clients.sessions.dropOne", {
+                                  defaultValue: "Disconnect",
+                                })}
+                              </Button>
+                            ) : null}
                           </td>
                         </tr>
                       ))}
@@ -5200,7 +5242,7 @@ export function ClientsPage() {
                       <Switch
                         size="sm"
                         checked={!!h.blocked}
-                        disabled={hwidBlockBusyId === h.id}
+                        disabled={hwidBlockBusyId === h.id || !canOperate}
                         ariaLabel={t("pages.clients.hwidBlockToggle", {
                           defaultValue: "Block this device",
                         })}
@@ -5215,16 +5257,18 @@ export function ClientsPage() {
                           : t("disabled")}
                     </td>
                     <td className="p-2 align-top text-right">
-                      <IconButton
-                        type="button"
-                        label={t("pages.clients.hwidRemoveDevice", {
-                          defaultValue: "Remove device",
-                        })}
-                        className="!h-8 !w-8 text-[var(--fg-subtle)] hover:text-red-400"
-                        onClick={() => setHwidDeleteRow(h)}
-                      >
-                        <Trash2 className="size-4" aria-hidden />
-                      </IconButton>
+                      {canOperate ? (
+                        <IconButton
+                          type="button"
+                          label={t("pages.clients.hwidRemoveDevice", {
+                            defaultValue: "Remove device",
+                          })}
+                          className="!h-8 !w-8 text-[var(--fg-subtle)] hover:text-red-400"
+                          onClick={() => setHwidDeleteRow(h)}
+                        >
+                          <Trash2 className="size-4" aria-hidden />
+                        </IconButton>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

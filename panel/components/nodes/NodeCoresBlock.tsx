@@ -151,7 +151,7 @@ export function NodeCoresBlock({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
                 </span>
               ) : null}
             </span>
-            {r.enable ? (
+            {r.enable && ctx.canOperate ? (
               <span className="flex shrink-0 items-center gap-1">
                 <IconAction tone="stop" title={c.stopTitle} onClick={c.onStop} loading={c.stopping} disabled={!running || busy}>
                   <Power size={14} />

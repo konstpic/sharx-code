@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { panel } from "@/lib/paths";
+import { useCan } from "@/lib/rbac";
 import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
 import { BalancerSSHInstall } from "@/components/balancers/BalancerSSHInstall";
 import { BalancerTraffic } from "@/components/balancers/BalancerTraffic";
@@ -186,6 +187,11 @@ function Dot({ up }: { up: boolean | null | undefined }) {
 
 export function BalancersPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("balancers:create");
+  const canUpdate = useCan("balancers:update");
+  const canDelete = useCan("balancers:delete");
+  const canOperate = useCan("balancers:operate");
+  const canLogs = useCan("logs:read");
   const toast = useToast();
   const [list, setList] = useState<Balancer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -234,7 +240,7 @@ export function BalancersPage() {
     },
     [load, t, toast],
   );
-  const dnd = useReorderDnd({ ids: list.map((b) => b.id), enabled: true, orientation: "vertical", onReorder: (ids) => void reorder(ids) });
+  const dnd = useReorderDnd({ ids: list.map((b) => b.id), enabled: canUpdate, orientation: "vertical", onReorder: (ids) => void reorder(ids) });
   const shown = applyOrder(list, dnd.order);
 
   const openInstall = useCallback(
@@ -323,10 +329,12 @@ export function BalancersPage() {
         iconTone="accent"
         actions={
           <>
-            <Button variant="secondary" className="!gap-2" onClick={() => setEditing({ engine: "haproxy", name: "", address: "", apiAddress: "", remark: "" })}>
-              <Plus size={16} />
-              {t("pages.balancers.add", { defaultValue: "Add balancer" })}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" className="!gap-2" onClick={() => setEditing({ engine: "haproxy", name: "", address: "", apiAddress: "", remark: "" })}>
+                <Plus size={16} />
+                {t("pages.balancers.add", { defaultValue: "Add balancer" })}
+              </Button>
+            ) : null}
             <SectionHelpModal
               scene="balancers"
               titleKey="pages.balancers.helpTitle"
@@ -350,10 +358,12 @@ export function BalancersPage() {
                     "A balancer is a separate server in front of your nodes: clients connect to it and it forwards the traffic to a healthy node.",
                 })}
               </p>
-              <Button variant="primary" className="!gap-2" onClick={() => setEditing({ engine: "haproxy", name: "", address: "", apiAddress: "", remark: "" })}>
-                <Plus size={16} />
-                {t("pages.balancers.add", { defaultValue: "Add balancer" })}
-              </Button>
+              {canCreate ? (
+                <Button variant="primary" className="!gap-2" onClick={() => setEditing({ engine: "haproxy", name: "", address: "", apiAddress: "", remark: "" })}>
+                  <Plus size={16} />
+                  {t("pages.balancers.add", { defaultValue: "Add balancer" })}
+                </Button>
+              ) : null}
             </div>
           </Surface>
         ) : (
@@ -378,6 +388,7 @@ export function BalancersPage() {
                         size="sm"
                         checked={b.enable}
                         ariaLabel={t("pages.balancers.enabled", { defaultValue: "Enabled" })}
+                        disabled={!canUpdate}
                         onChange={(v) => void toggleEnable(b, v)}
                       />
                       <div className="min-w-0">
@@ -413,24 +424,36 @@ export function BalancersPage() {
                       >
                         <Activity size={16} className={trafficOpen.has(b.id) ? "text-[var(--accent)]" : ""} />
                       </IconButton>
-                      <IconButton label={t("pages.logs.title", { defaultValue: "Logs" })} onClick={() => setLogsFor({ id: b.id, name: b.name })}>
-                        <FileText size={16} />
-                      </IconButton>
-                      <IconButton label={t("pages.balancers.install", { defaultValue: "Install on the server" })} onClick={() => void openInstall(b)}>
-                        <Terminal size={16} />
-                      </IconButton>
-                      <IconButton label={t("pages.balancers.refresh", { defaultValue: "Refresh status" })} disabled={busy} onClick={() => void act(b, "refresh")}>
-                        <RefreshCw size={16} className={busy ? "animate-spin" : ""} />
-                      </IconButton>
-                      <IconButton label={t("pages.balancers.apply", { defaultValue: "Push configuration" })} disabled={busy} onClick={() => void act(b, "apply", t("pages.balancers.applied", { defaultValue: "Configuration applied" }))}>
-                        <Send size={16} />
-                      </IconButton>
-                      <IconButton label={t("edit")} onClick={() => setEditing(b)}>
-                        <Pencil size={16} />
-                      </IconButton>
-                      <IconButton label={t("delete")} onClick={() => setDeleteTarget(b)}>
-                        <Trash2 size={16} />
-                      </IconButton>
+                      {canLogs ? (
+                        <IconButton label={t("pages.logs.title", { defaultValue: "Logs" })} onClick={() => setLogsFor({ id: b.id, name: b.name })}>
+                          <FileText size={16} />
+                        </IconButton>
+                      ) : null}
+                      {canCreate ? (
+                        <IconButton label={t("pages.balancers.install", { defaultValue: "Install on the server" })} onClick={() => void openInstall(b)}>
+                          <Terminal size={16} />
+                        </IconButton>
+                      ) : null}
+                      {canOperate ? (
+                        <IconButton label={t("pages.balancers.refresh", { defaultValue: "Refresh status" })} disabled={busy} onClick={() => void act(b, "refresh")}>
+                          <RefreshCw size={16} className={busy ? "animate-spin" : ""} />
+                        </IconButton>
+                      ) : null}
+                      {canOperate ? (
+                        <IconButton label={t("pages.balancers.apply", { defaultValue: "Push configuration" })} disabled={busy} onClick={() => void act(b, "apply", t("pages.balancers.applied", { defaultValue: "Configuration applied" }))}>
+                          <Send size={16} />
+                        </IconButton>
+                      ) : null}
+                      {canUpdate ? (
+                        <IconButton label={t("edit")} onClick={() => setEditing(b)}>
+                          <Pencil size={16} />
+                        </IconButton>
+                      ) : null}
+                      {canDelete ? (
+                        <IconButton label={t("delete")} onClick={() => setDeleteTarget(b)}>
+                          <Trash2 size={16} />
+                        </IconButton>
+                      ) : null}
                     </div>
                   </div>
 
@@ -473,12 +496,16 @@ export function BalancersPage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <PillTag tone={p.subEnabled ? "blue" : "neutral"}>{modeLabel(p.subMode, p.subEnabled)}</PillTag>
-                              <IconButton label={t("edit")} onClick={() => setPoolEdit({ balancer: b, pool: p })}>
-                                <Pencil size={14} />
-                              </IconButton>
-                              <IconButton label={t("delete")} onClick={() => setPoolDelete(p)}>
-                                <Trash2 size={14} />
-                              </IconButton>
+                              {canUpdate ? (
+                                <>
+                                  <IconButton label={t("edit")} onClick={() => setPoolEdit({ balancer: b, pool: p })}>
+                                    <Pencil size={14} />
+                                  </IconButton>
+                                  <IconButton label={t("delete")} onClick={() => setPoolDelete(p)}>
+                                    <Trash2 size={14} />
+                                  </IconButton>
+                                </>
+                              ) : null}
                             </div>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -510,21 +537,23 @@ export function BalancersPage() {
                         </div>
                       );
                     })}
-                    <div>
-                      <Button
-                        variant="ghost"
-                        className="!gap-2 !px-2 !py-1 text-xs"
-                        onClick={() =>
-                          setPoolEdit({
-                            balancer: b,
-                            pool: { balancerId: b.id, listenPort: 0, algorithm: "roundrobin", weightMode: "manual", healthCheck: true, subEnabled: true, subMode: "prepend", autoMembers: true, enable: true, proxyProtocol: false },
-                          })
-                        }
-                      >
-                        <Plus size={14} />
-                        {t("pages.balancers.addPool", { defaultValue: "Put an inbound behind this balancer" })}
-                      </Button>
-                    </div>
+                    {canUpdate ? (
+                      <div>
+                        <Button
+                          variant="ghost"
+                          className="!gap-2 !px-2 !py-1 text-xs"
+                          onClick={() =>
+                            setPoolEdit({
+                              balancer: b,
+                              pool: { balancerId: b.id, listenPort: 0, algorithm: "roundrobin", weightMode: "manual", healthCheck: true, subEnabled: true, subMode: "prepend", autoMembers: true, enable: true, proxyProtocol: false },
+                            })
+                          }
+                        >
+                          <Plus size={14} />
+                          {t("pages.balancers.addPool", { defaultValue: "Put an inbound behind this balancer" })}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );

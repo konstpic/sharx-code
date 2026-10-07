@@ -10,7 +10,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -42,7 +41,7 @@ func (a *HostController) initRouter(g *gin.RouterGroup) {
 
 // getHosts retrieves the list of all hosts for the current user.
 func (a *HostController) getHosts(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	hosts, err := a.hostService.GetHosts(user.Id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
@@ -58,7 +57,7 @@ func (a *HostController) getHost(c *gin.Context) {
 		jsonMsg(c, "Invalid host ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	host, err := a.hostService.GetHost(id)
 	if err != nil {
 		jsonMsg(c, "Failed to get host", err)
@@ -73,7 +72,7 @@ func (a *HostController) getHost(c *gin.Context) {
 
 // addHost creates a new host.
 func (a *HostController) addHost(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Extract inboundIds from JSON or form data
 	var inboundIdsFromJSON []int
@@ -157,7 +156,7 @@ func (a *HostController) updateHost(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Extract inboundIds from JSON or form data
 	var inboundIdsFromJSON []int
@@ -242,7 +241,7 @@ func (a *HostController) saveHostSubscriptionBindings(c *gin.Context) {
 		jsonMsg(c, "Invalid host ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	var body struct {
 		Inbounds []service.HostInboundSubscriptionSaveItem `json:"inbounds"`
@@ -274,7 +273,7 @@ func (a *HostController) deleteHost(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	err = a.hostService.DeleteHost(user.Id, id)
 	if err != nil {
 		logger.Errorf("Failed to delete host: %v", err)

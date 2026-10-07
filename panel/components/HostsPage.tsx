@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   AlertBanner,
@@ -324,6 +325,9 @@ function hostBindingRowsToPayload(rows: HostNodeBindingFormRow[]) {
 
 export function HostsPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("hosts:create");
+  const canUpdate = useCan("hosts:update");
+  const canDelete = useCan("hosts:delete");
   const toast = useToast();
   const [rows, setRows] = useState<HostRow[]>([]);
   const [inbounds, setInbounds] = useState<InboundOption[]>([]);
@@ -803,10 +807,12 @@ export function HostsPage() {
         iconTone="info"
         actions={
           <>
-            <Button variant="secondary" onClick={openAdd} className="!gap-2">
-              <Plus size={16} />
-              {t("pages.hosts.addHost")}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" onClick={openAdd} className="!gap-2">
+                <Plus size={16} />
+                {t("pages.hosts.addHost")}
+              </Button>
+            ) : null}
             <SectionHelpModal
               scene="hosts"
               titleKey="pages.hosts.helpModalTitle"
@@ -832,12 +838,14 @@ export function HostsPage() {
               <IconTile icon={Server} tone="neutral" size="lg" />
               <p>{t("noData")}</p>
             </div>
-            <div>
-              <Button variant="primary" onClick={openAdd} className="!gap-2">
-                <Plus size={16} />
-                {t("pages.hosts.addHost")}
-              </Button>
-            </div>
+            {canCreate ? (
+              <div>
+                <Button variant="primary" onClick={openAdd} className="!gap-2">
+                  <Plus size={16} />
+                  {t("pages.hosts.addHost")}
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="panel-data-table overflow-x-auto">
@@ -882,7 +890,7 @@ export function HostsPage() {
                       <Switch
                         size="sm"
                         checked={r.enable !== false}
-                        disabled={togglingEnableId === r.id}
+                        disabled={togglingEnableId === r.id || !canUpdate}
                         ariaLabel={t("pages.hosts.enable")}
                         onChange={(next) => {
                           void patchHostEnable(r, next);
@@ -906,16 +914,18 @@ export function HostsPage() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center gap-0.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
-                          onClick={() => setDeleteTarget(r)}
-                          title={t("pages.hosts.deleteHost")}
-                          aria-label={t("pages.hosts.deleteHost")}
-                        >
-                          <Trash2 size={16} />
-                        </Button>
+                        {canDelete ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
+                            onClick={() => setDeleteTarget(r)}
+                            title={t("pages.hosts.deleteHost")}
+                            aria-label={t("pages.hosts.deleteHost")}
+                          >
+                            <Trash2 size={16} />
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -1192,17 +1202,20 @@ export function HostsPage() {
             >
               {t("cancel")}
             </Button>
-            <Button
-              variant="primary"
-              type="button"
-              loading={editSubmitting}
-              onClick={() => void submitEdit()}
-            >
-              {t("update")}
-            </Button>
+            {canUpdate ? (
+              <Button
+                variant="primary"
+                type="button"
+                loading={editSubmitting}
+                onClick={() => void submitEdit()}
+              >
+                {t("update")}
+              </Button>
+            ) : null}
           </div>
         }
       >
+        <ReadOnlyScope readOnly={!canUpdate}>
         <div className="flex flex-col gap-4 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_oklab,var(--bg-elevated)_88%,transparent)] px-4 py-3">
             <span className="text-sm font-medium text-[var(--fg)]">
@@ -1567,6 +1580,7 @@ export function HostsPage() {
             )}
           </TabPanels>
         </div>
+        </ReadOnlyScope>
       </Drawer>
 
       <Modal

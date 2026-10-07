@@ -89,6 +89,7 @@ import {
 } from "@/lib/nameFlag";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { suggestInboundTag, validateInboundTagInput } from "@/lib/inboundTag";
 import {
   INBOUNDS_VIEW_MODE_STORAGE_KEY,
@@ -578,6 +579,10 @@ const defaultForm = () => ({
 
 export function InboundsPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("inbounds:create");
+  const canUpdate = useCan("inbounds:update");
+  const canDelete = useCan("inbounds:delete");
+  const canShare = useCan("settings:update");
   const toast = useToast();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1930,7 +1935,7 @@ export function InboundsPage() {
   );
   const inboundDnd = useReorderDnd({
     ids: displayedInboundRows.map((r) => r.id),
-    enabled: inboundDndEnabled,
+    enabled: inboundDndEnabled && canUpdate,
     orientation: viewMode === "tiles" ? "horizontal" : "vertical",
     onReorder: reorderInbounds,
   });
@@ -1948,11 +1953,14 @@ export function InboundsPage() {
         void setInboundEnableFromRow(id, next),
       toggleEnableBusyId: toggleEnableBusyId,
       onDelete: (id: number) => setDeleteId(id),
+      canUpdate,
+      canDelete,
+      canShare,
       onShare: (id: number, remark: string) => setShareTarget({ id, remark }),
       dnd: inboundDnd,
       dndHint: dndDisabledHint,
     }),
-    [t, openEdit, setInboundEnableFromRow, toggleEnableBusyId, inboundDnd, dndDisabledHint],
+    [t, openEdit, setInboundEnableFromRow, toggleEnableBusyId, inboundDnd, dndDisabledHint, canUpdate, canDelete, canShare],
   );
 
   const isHysteriaFamily =
@@ -1977,18 +1985,22 @@ export function InboundsPage() {
         iconTone="accent"
         actions={
           <>
-            <Button
-              variant="secondary"
-              onClick={openAdd}
-              className="!gap-2"
-            >
-              <Plus size={16} />
-              {t("pages.inbounds.addInbound")}
-            </Button>
-            <Button variant="secondary" onClick={() => setGalleryOpen(true)} className="!gap-2">
-              <LayoutTemplate size={16} />
-              {t("pages.templates.gallery", { defaultValue: "Templates" })}
-            </Button>
+            {canCreate ? (
+              <Button
+                variant="secondary"
+                onClick={openAdd}
+                className="!gap-2"
+              >
+                <Plus size={16} />
+                {t("pages.inbounds.addInbound")}
+              </Button>
+            ) : null}
+            {canCreate ? (
+              <Button variant="secondary" onClick={() => setGalleryOpen(true)} className="!gap-2">
+                <LayoutTemplate size={16} />
+                {t("pages.templates.gallery", { defaultValue: "Templates" })}
+              </Button>
+            ) : null}
             <SectionHelpModal
               scene="inbounds"
               titleKey="pages.inbounds.helpModalTitle"
@@ -2238,7 +2250,7 @@ export function InboundsPage() {
                         <Switch
                           size="sm"
                           checked={r.enable}
-                          disabled={toggleEnableBusyId === r.id}
+                          disabled={toggleEnableBusyId === r.id || !canUpdate}
                           onChange={(next) => void setInboundEnableFromRow(r.id, next)}
                           ariaLabel={`${t("enable")} — ${r.remark || `inbound ${r.id}`}`}
                         />
@@ -2248,23 +2260,27 @@ export function InboundsPage() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex flex-wrap gap-1">
-                          <Button
-                            variant="secondary"
-                            className="!p-2"
-                            onClick={() => setShareTarget({ id: r.id, remark: r.remark })}
-                            aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
-                            title={t("pages.templates.share", { defaultValue: "Share as template" })}
-                          >
-                            <Share2 size={16} />
-                          </Button>
-                          <Button
-                            variant="danger"
-                            className="!p-2"
-                            onClick={() => setDeleteId(r.id)}
-                            aria-label={t("delete")}
-                          >
-                            <Trash2 size={16} />
-                          </Button>
+                          {canShare ? (
+                            <Button
+                              variant="secondary"
+                              className="!p-2"
+                              onClick={() => setShareTarget({ id: r.id, remark: r.remark })}
+                              aria-label={t("pages.templates.share", { defaultValue: "Share as template" })}
+                              title={t("pages.templates.share", { defaultValue: "Share as template" })}
+                            >
+                              <Share2 size={16} />
+                            </Button>
+                          ) : null}
+                          {canDelete ? (
+                            <Button
+                              variant="danger"
+                              className="!p-2"
+                              onClick={() => setDeleteId(r.id)}
+                              aria-label={t("delete")}
+                            >
+                              <Trash2 size={16} />
+                            </Button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -2354,7 +2370,7 @@ export function InboundsPage() {
                   {t("pages.inbounds.next", { defaultValue: "Next" })}
                   <ArrowRight size={14} />
                 </Button>
-              ) : (
+              ) : (isEdit ? canUpdate : canCreate) ? (
                 <Button
                   variant="primary"
                   type="button"
@@ -2364,11 +2380,12 @@ export function InboundsPage() {
                 >
                   {t("pages.inbounds.save", { defaultValue: "Save" })}
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
         }
       >
+        <ReadOnlyScope readOnly={isEdit && !canUpdate}>
         {fetchingInbound ? (
           <div className="grid min-h-32 place-items-center">
             <Spinner size={32} />
@@ -7911,6 +7928,7 @@ export function InboundsPage() {
             )}
           </div>
         )}
+        </ReadOnlyScope>
       </Modal>
 
       <TemplateGalleryModal

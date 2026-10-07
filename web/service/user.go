@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
@@ -24,6 +25,8 @@ func (s *UserService) GetFirstUser() (*model.User, error) {
 
 	user := &model.User{}
 	err := db.Model(model.User{}).
+		Where("deleted_at IS NULL").
+		Order("id").
 		First(user).
 		Error
 	if err != nil {
@@ -84,6 +87,14 @@ func (s *UserService) VerifyPassword(username string, password string) *model.Us
 	return user
 }
 
+// isAdministrator reports whether the user holds a role with the wildcard permission.
+func (s *UserService) isAdministrator(id int) bool {
+	var n int64
+	database.GetDB().Raw(`SELECT COUNT(*) FROM users u JOIN roles r ON r.id = u.role_id
+		WHERE u.id = ? AND r.permissions LIKE '%"*"%'`, id).Scan(&n)
+	return n > 0
+}
+
 func (s *UserService) UpdateUser(id int, username string, password string) error {
 	db := database.GetDB()
 	hashedPassword, err := crypto.HashPasswordAsBcrypt(password)
@@ -97,7 +108,9 @@ func (s *UserService) UpdateUser(id int, username string, password string) error
 		return err
 	}
 
-	if twoFactorEnable {
+	// Historic behaviour: changing the administrator's password resets the (single, panel-wide) 2FA. With several users
+	// that must stay limited to administrators, or any user could switch off 2FA for everybody by changing a password.
+	if twoFactorEnable && s.isAdministrator(id) {
 		s.settingService.SetTwoFactorEnable(false)
 		s.settingService.SetTwoFactorToken("")
 	}
@@ -122,15 +135,23 @@ func (s *UserService) UpdateFirstUser(username string, password string) error {
 
 	db := database.GetDB()
 	user := &model.User{}
-	err := db.Model(model.User{}).First(user).Error
+	err := db.Model(model.User{}).Where("deleted_at IS NULL").Order("id").First(user).Error
 	if database.IsNotFound(err) {
 		user.Username = username
 		user.Password = hashedPassword
+		user.Enabled = true
+		user.RoleId = database.AdminRoleID()
+		user.CreatedAt = time.Now().Unix()
 		return db.Model(model.User{}).Create(user).Error
 	} else if err != nil {
 		return err
 	}
+	// This is the command-line recovery path ("x-ui setting -username -password"): whoever runs it on the server must
+	// get a working administrator back, even if the account had been disabled or its role changed.
 	user.Username = username
 	user.Password = hashedPassword
+	user.Enabled = true
+	user.RoleId = database.AdminRoleID()
+	user.UpdatedAt = time.Now().Unix()
 	return db.Save(user).Error
 }

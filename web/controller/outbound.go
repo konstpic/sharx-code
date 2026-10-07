@@ -6,7 +6,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,7 +35,7 @@ func (a *OutboundController) initRouter(g *gin.RouterGroup) {
 
 // getOutbounds retrieves the list of outbounds for the logged-in user.
 func (a *OutboundController) getOutbounds(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	outbounds, err := a.outboundService.GetOutbounds(user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to get outbounds", err)
@@ -62,7 +61,7 @@ func (a *OutboundController) getOutbound(c *gin.Context) {
 
 // addOutbound creates a new outbound configuration.
 func (a *OutboundController) addOutbound(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	outbound := &model.Outbound{}
 

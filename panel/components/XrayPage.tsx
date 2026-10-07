@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, getJson, postJson } from "@/lib/api";
 import { linkP, panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { normalizeAllSetting } from "@/lib/allSetting";
 import { PageScaffold, PageHeader, Surface } from "@/components/panel";
 import { ShareTemplateModal, TemplateGalleryModal } from "@/components/templates/TemplateHub";
@@ -63,6 +64,8 @@ function templateToString(xraySetting: unknown): string {
 export function XrayPage({ initialView = "template" }: { initialView?: XrayView }) {
   const geoOnlyPage = initialView === "geo";
   const { t } = useTranslation();
+  const canUpdate = useCan("xray:update");
+  const canOperate = useCan("xray:operate");
   const toast = useToast();
   const [view, setView] = useState<XrayView>(initialView);
   const [dataEpoch, setDataEpoch] = useState(0);
@@ -445,7 +448,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
                 </Button>
               </div>
             ) : null}
-            {view === "template" ? (
+            {view === "template" && canUpdate ? (
               <>
                 <span
                   className="hidden h-7 w-px shrink-0 self-center bg-[var(--border)] sm:block"
@@ -519,6 +522,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
       <div className="flex flex-col gap-4">
         <div className="min-w-0 space-y-3">
           {view === "geo" ? (
+          <ReadOnlyScope readOnly={!canOperate}>
           <Surface>
             <div className="mb-3 flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[var(--fg)]">
@@ -742,6 +746,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
               </div>
             </div>
           </Surface>
+          </ReadOnlyScope>
           ) : null}
 
           {view !== "geo" ? (
@@ -750,7 +755,7 @@ export function XrayPage({ initialView = "template" }: { initialView?: XrayView 
               template={view === "runtime" ? runtime : template}
               onTemplateChange={setTemplate}
               syncKey={`${view}:${dataEpoch}`}
-              readOnly={view === "runtime"}
+              readOnly={view === "runtime" || !canUpdate}
               loading={view === "runtime" ? loadingRuntime : loading}
               onErrorChange={setHasSectionError}
             />

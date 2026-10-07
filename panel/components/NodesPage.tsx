@@ -33,6 +33,7 @@ import {
 import { NodeRegisterStep } from "@/components/NodeRegisterStep";
 import { NodeSSHProvisionSteps, type SSHProvisionStep } from "@/components/NodeSSHProvisionSteps";
 import { NodeResourceDrawer } from "@/components/NodeResourceDrawer";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { EntityLogsModal } from "@/components/EntityLogsModal";
 import {
   NodeListView,
@@ -199,6 +200,11 @@ volumes:
 
 export function NodesPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("nodes:create");
+  const canUpdate = useCan("nodes:update");
+  const canDelete = useCan("nodes:delete");
+  const canOperate = useCan("nodes:operate");
+  const canLogs = useCan("logs:read");
   const toast = useToast();
   const ws = usePanelWebSocket();
   const resyncAfterDisconnect = useRef(false);
@@ -1371,7 +1377,7 @@ export function NodesPage() {
     };
   }, [viewMode]);
 
-  const nodeDndEnabled = sortedAndFilteredRows.length === rows.length;
+  const nodeDndEnabled = canUpdate && sortedAndFilteredRows.length === rows.length;
   const reorderNodes = useCallback(
     async (nextIds: number[]) => {
       const pos = new Map(nextIds.map((id, i) => [id, i]));
@@ -1423,6 +1429,10 @@ export function NodesPage() {
       onMetrics: (r: NodeRow) => setMetricsNode({ id: r.id, name: r.name }),
       onLogs: (r: NodeRow) => setLogsNode({ id: r.id, name: r.name }),
       onDelete: (r: NodeRow) => setDeleteTarget(r),
+      canUpdate,
+      canDelete,
+      canOperate,
+      canLogs,
     }),
     [
       t,
@@ -1445,6 +1455,10 @@ export function NodesPage() {
       restartAmneziaWgOnRow,
       amneziawgStoppingId,
       amneziawgRestartingId,
+      canUpdate,
+      canDelete,
+      canOperate,
+      canLogs,
     ],
   );
 
@@ -1456,10 +1470,12 @@ export function NodesPage() {
         iconTone="success"
         actions={
           <>
-            <Button variant="secondary" onClick={openAdd} className="!gap-2">
-              <Plus size={16} />
-              {t("pages.nodes.addNode")}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" onClick={openAdd} className="!gap-2">
+                <Plus size={16} />
+                {t("pages.nodes.addNode")}
+              </Button>
+            ) : null}
             <SectionHelpModal
               scene="nodes"
               titleKey="pages.nodes.helpModalTitle"
@@ -1567,12 +1583,14 @@ export function NodesPage() {
               <IconTile icon={Network} tone="neutral" size="lg" />
               <p>{t("noData")}</p>
             </div>
-            <div>
-              <Button variant="primary" onClick={openAdd} className="!gap-2">
-                <Plus size={16} />
-                {t("pages.nodes.addNode")}
-              </Button>
-            </div>
+            {canCreate ? (
+              <div>
+                <Button variant="primary" onClick={openAdd} className="!gap-2">
+                  <Plus size={16} />
+                  {t("pages.nodes.addNode")}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </Surface>
       ) : viewMode === "table" ? (
@@ -1648,7 +1666,7 @@ export function NodesPage() {
                       <Switch
                         size="sm"
                         checked={r.enable !== false}
-                        disabled={togglingEnableId === r.id}
+                        disabled={togglingEnableId === r.id || !canUpdate}
                         ariaLabel={t("pages.nodes.nodeEnabled")}
                         onChange={(next) => {
                           void patchNodeEnable(r, next);
@@ -1848,26 +1866,30 @@ export function NodesPage() {
                         >
                           <Activity size={16} />
                         </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
-                          title={t("pages.logs.title", { defaultValue: "Logs" })}
-                          aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
-                          onClick={() => setLogsNode({ id: r.id, name: r.name })}
-                        >
-                          <FileText size={16} />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
-                          onClick={() => setDeleteTarget(r)}
-                          title={t("pages.nodes.deleteNode")}
-                          aria-label={t("pages.nodes.deleteNode")}
-                        >
-                          <Trash2 size={16} />
-                        </Button>
+                        {canLogs ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+                            title={t("pages.logs.title", { defaultValue: "Logs" })}
+                            aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
+                            onClick={() => setLogsNode({ id: r.id, name: r.name })}
+                          >
+                            <FileText size={16} />
+                          </Button>
+                        ) : null}
+                        {canDelete ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
+                            onClick={() => setDeleteTarget(r)}
+                            title={t("pages.nodes.deleteNode")}
+                            aria-label={t("pages.nodes.deleteNode")}
+                          >
+                            <Trash2 size={16} />
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -2548,17 +2570,20 @@ export function NodesPage() {
             >
               {t("cancel")}
             </Button>
-            <Button
-              variant="primary"
-              type="button"
-              loading={editSubmitting}
-              onClick={() => void submitEdit()}
-            >
-              {t("update")}
-            </Button>
+            {canUpdate ? (
+              <Button
+                variant="primary"
+                type="button"
+                loading={editSubmitting}
+                onClick={() => void submitEdit()}
+              >
+                {t("update")}
+              </Button>
+            ) : null}
           </div>
         }
       >
+        <ReadOnlyScope readOnly={!canUpdate}>
         <div className="flex flex-col gap-3 text-sm">
           <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[color-mix(in_oklab,var(--fg)_4%,transparent)] px-3 py-2.5">
             <span className="text-sm font-medium text-[var(--fg)]">
@@ -2730,6 +2755,7 @@ export function NodesPage() {
             </div>
           </div>
         </div>
+        </ReadOnlyScope>
       </Modal>
 
       <Modal

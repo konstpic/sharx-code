@@ -14,7 +14,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -133,7 +132,7 @@ func fillBundleIds(cards ...*model.ClientCardView) {
 
 // getClients retrieves the list of all clients for the current user.
 func (a *ClientController) getClients(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	clients, err := a.clientService.GetClients(user.Id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
@@ -168,7 +167,7 @@ func (a *ClientController) getClient(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	client, err := a.clientService.GetClient(id)
 	if err != nil {
 		jsonMsg(c, "Failed to get client", err)
@@ -241,7 +240,7 @@ func (a *ClientController) getClientShareLinks(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	client, err := a.clientService.GetClient(id)
 	if err != nil {
 		jsonMsg(c, "Failed to get client", err)
@@ -261,7 +260,7 @@ func (a *ClientController) getClientShareLinks(c *gin.Context) {
 
 // addClient creates a new client.
 func (a *ClientController) addClient(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Extract inboundIds and groupId from JSON or form data
 	var inboundIdsFromJSON []int
@@ -401,7 +400,7 @@ func (a *ClientController) updateClient(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	// Get existing client first to preserve fields not being updated
 	existing, err := a.clientService.GetClient(id)
@@ -796,7 +795,7 @@ func (a *ClientController) deleteClient(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	needRestart, err := a.clientService.DeleteClient(user.Id, id)
 	if err != nil {
 		logger.Errorf("Failed to delete client: %v", err)
@@ -821,7 +820,7 @@ func (a *ClientController) deleteClient(c *gin.Context) {
 
 // resetAllClientTraffics resets traffic counters for all clients of the current user.
 func (a *ClientController) resetAllClientTraffics(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	needRestart, err := a.clientService.ResetAllClientTraffics(user.Id)
 	if err != nil {
 		logger.Errorf("Failed to reset all client traffics: %v", err)
@@ -845,7 +844,7 @@ func (a *ClientController) resetClientTraffic(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	needRestart, err := a.clientService.ResetClientTraffic(user.Id, id)
 	if err != nil {
 		logger.Errorf("Failed to reset client traffic: %v", err)
@@ -864,7 +863,7 @@ func (a *ClientController) resetClientTraffic(c *gin.Context) {
 
 // delDepletedClients deletes clients that have exhausted their traffic limits or expired.
 func (a *ClientController) delDepletedClients(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	count, needRestart, err := a.clientService.DelDepletedClients(user.Id)
 	if err != nil {
 		logger.Errorf("Failed to delete depleted clients: %v", err)
@@ -893,7 +892,7 @@ func (a *ClientController) clearClientHWIDs(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	// Verify client belongs to user
 	client, err := a.clientService.GetClient(id)
 	if err != nil || client == nil || client.UserId != user.Id {
@@ -914,7 +913,7 @@ func (a *ClientController) clearClientHWIDs(c *gin.Context) {
 
 // clearAllClientHWIDs clears all HWIDs for all clients of the current user.
 func (a *ClientController) clearAllClientHWIDs(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	hwidService := service.ClientHWIDService{}
 	count, err := hwidService.ClearAllHWIDs(user.Id)
@@ -939,7 +938,7 @@ func (a *ClientController) setHWIDLimitForAllClients(c *gin.Context) {
 		return
 	}
 
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 
 	hwidService := service.ClientHWIDService{}
 	count, err := hwidService.SetHWIDLimitForAllClients(user.Id, req.MaxHwid, req.Enabled)
@@ -954,7 +953,7 @@ func (a *ClientController) setHWIDLimitForAllClients(c *gin.Context) {
 
 // bulkResetTraffic resets traffic for selected clients.
 func (a *ClientController) bulkResetTraffic(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 	}
@@ -978,7 +977,7 @@ func (a *ClientController) bulkResetTraffic(c *gin.Context) {
 
 // bulkClearHwid clears HWIDs for selected clients.
 func (a *ClientController) bulkClearHwid(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 	}
@@ -998,7 +997,7 @@ func (a *ClientController) bulkClearHwid(c *gin.Context) {
 
 // bulkDelete deletes selected clients.
 func (a *ClientController) bulkDelete(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 	}
@@ -1022,7 +1021,7 @@ func (a *ClientController) bulkDelete(c *gin.Context) {
 
 // bulkEnable enables or disables selected clients.
 func (a *ClientController) bulkEnable(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 		Enable    bool  `json:"enable" form:"enable"`
@@ -1047,7 +1046,7 @@ func (a *ClientController) bulkEnable(c *gin.Context) {
 
 // bulkSetHwidLimit sets HWID limit for selected clients.
 func (a *ClientController) bulkSetHwidLimit(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 		MaxHwid   int   `json:"maxHwid" form:"maxHwid"`
@@ -1074,7 +1073,7 @@ func (a *ClientController) getClientSessions(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	svc := service.ClientSessionService{}
 	data, err := svc.GetOnlineSessionsForClient(user.Id, id)
 	if err != nil {
@@ -1091,7 +1090,7 @@ func (a *ClientController) dropClientSessions(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var body struct {
 		IPs []string `json:"ips"`
 	}
@@ -1117,7 +1116,7 @@ func (a *ClientController) setSessionIPBlocked(c *gin.Context) {
 		jsonMsg(c, "Invalid client ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var body struct {
 		IP      string `json:"ip"`
 		Blocked bool   `json:"blocked"`

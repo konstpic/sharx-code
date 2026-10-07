@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   AlertBanner,
@@ -91,6 +92,9 @@ export function hostTarget(h: BundleHostView): string {
 
 export function BundlesPage() {
   const { t } = useTranslation();
+  const canCreate = useCan("bundles:create");
+  const canUpdate = useCan("bundles:update");
+  const canDelete = useCan("bundles:delete");
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [state, setState] = useState<State | null>(null);
@@ -253,6 +257,7 @@ export function BundlesPage() {
   }, [clients, memberIds, memberQuery]);
 
   const report = state?.report;
+  const canSave = draft?.id ? canUpdate : canCreate;
 
   return (
     <PageScaffold compact>
@@ -262,16 +267,18 @@ export function BundlesPage() {
         iconTone="accent"
         actions={
           <>
-            {unusedAutoCount > 0 ? (
+            {canUpdate && unusedAutoCount > 0 ? (
               <Button variant="secondary" className="!gap-2" onClick={() => void cleanupUnusedAuto()} disabled={busy}>
                 <Trash2 size={16} />
                 {t("pages.bundles.cleanupUnusedAuto", { defaultValue: "Remove unused auto bundles ({{n}})", n: unusedAutoCount })}
               </Button>
             ) : null}
-            <Button variant="secondary" className="!gap-2" onClick={() => void openEditor()} disabled={!state?.enabled}>
-              <Plus size={16} />
-              {t("pages.bundles.add", { defaultValue: "Create bundle" })}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" className="!gap-2" onClick={() => void openEditor()} disabled={!state?.enabled}>
+                <Plus size={16} />
+                {t("pages.bundles.add", { defaultValue: "Create bundle" })}
+              </Button>
+            ) : null}
             <SectionHelpModal scene="bundles" titleKey="pages.bundles.helpTitle" paragraphKeys={["pages.bundles.helpP1", "pages.bundles.helpP2", "pages.bundles.helpP3"]} />
           </>
         }
@@ -304,11 +311,13 @@ export function BundlesPage() {
                       ))}
                     </ul>
                   ) : null}
-                  <div>
-                    <Button variant="primary" loading={busy} onClick={() => void convert()}>
-                      {t("pages.bundles.convertNow", { defaultValue: "Convert now" })}
-                    </Button>
-                  </div>
+                  {canUpdate ? (
+                    <div>
+                      <Button variant="primary" loading={busy} onClick={() => void convert()}>
+                        {t("pages.bundles.convertNow", { defaultValue: "Convert now" })}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </Surface>
             ) : null}
@@ -349,9 +358,11 @@ export function BundlesPage() {
                       <IconButton label={t("edit")} onClick={() => void openEditor(b)}>
                         <Pencil size={16} />
                       </IconButton>
-                      <IconButton label={t("delete")} onClick={() => setDeleteTarget(b)}>
-                        <Trash2 size={16} />
-                      </IconButton>
+                      {canDelete ? (
+                        <IconButton label={t("delete")} onClick={() => setDeleteTarget(b)}>
+                          <Trash2 size={16} />
+                        </IconButton>
+                      ) : null}
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -389,12 +400,15 @@ export function BundlesPage() {
             <Button variant="secondary" disabled={saving} onClick={() => setDraft(null)}>
               {t("cancel")}
             </Button>
-            <Button variant="primary" loading={saving} onClick={() => void save()}>
-              {t("confirm")}
-            </Button>
+            {canSave ? (
+              <Button variant="primary" loading={saving} onClick={() => void save()}>
+                {t("confirm")}
+              </Button>
+            ) : null}
           </div>
         }
       >
+        <ReadOnlyScope readOnly={!canSave}>
         {draft ? (
           <div className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -541,6 +555,7 @@ export function BundlesPage() {
             ) : null}
           </div>
         ) : null}
+        </ReadOnlyScope>
       </Modal>
 
       <Modal

@@ -39,6 +39,16 @@ api.interceptors.response.use(
         window.location.reload();
       }
     }
+    // A refusal by access control (403) carries the usual `{success:false,msg}` body. Resolving it lets every existing
+    // `if (!r.success) toast.error(r.msg)` show the reason instead of ending in an unhandled promise rejection.
+    if (
+      error.response?.status === 403 &&
+      error.response.data &&
+      typeof error.response.data === "object" &&
+      (error.response.data as { success?: unknown }).success === false
+    ) {
+      return Promise.resolve(error.response);
+    }
     return Promise.reject(error);
   }
 );

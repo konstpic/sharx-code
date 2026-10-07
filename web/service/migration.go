@@ -381,9 +381,12 @@ func (s *MigrationService) migrateUsers(sqliteDB *sql.DB, tx *gorm.DB) (int, err
 		}
 
 		user := model.User{
-			Id:       id,
-			Username: username.String,
-			Password: password.String,
+			Id:        id,
+			Username:  username.String,
+			Password:  password.String,
+			Enabled:   true,
+			RoleId:    database.AdminRoleID(), // panels being migrated had a single administrator
+			CreatedAt: time.Now().Unix(),
 		}
 
 		if err := tx.Create(&user).Error; err != nil {

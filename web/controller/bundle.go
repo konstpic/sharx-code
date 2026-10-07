@@ -9,7 +9,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 )
 
 // BundleController exposes bundles and bundle-scheme hosts under /panel/bundle.
@@ -108,7 +107,7 @@ func (a *BundleController) add(c *gin.Context) {
 	if body.HostRefs != nil {
 		refs = *body.HostRefs
 	}
-	b, err := a.svc.Create(session.GetLoginUser(c).Id, &body.Bundle, refs)
+	b, err := a.svc.Create(dataUser(c).Id, &body.Bundle, refs)
 	if err != nil {
 		jsonMsg(c, "Failed to create bundle", err)
 		return
@@ -288,7 +287,7 @@ func (a *BundleController) addHost(c *gin.Context) {
 		jsonMsg(c, "Invalid request", err)
 		return
 	}
-	h, err := a.svc.CreateAddressHost(session.GetLoginUser(c).Id, body.InboundId, body.HostInput)
+	h, err := a.svc.CreateAddressHost(dataUser(c).Id, body.InboundId, body.HostInput)
 	if err != nil {
 		jsonMsg(c, "Failed to create host", err)
 		return

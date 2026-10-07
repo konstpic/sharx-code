@@ -8,7 +8,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -57,7 +56,7 @@ func (a *ClientGroupController) initRouter(g *gin.RouterGroup) {
 
 // getGroups retrieves all groups for the current user.
 func (a *ClientGroupController) getGroups(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	groups, err := a.groupService.GetGroups(user.Id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
@@ -73,7 +72,7 @@ func (a *ClientGroupController) getGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	group, err := a.groupService.GetGroup(id, user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to get group", err)
@@ -84,7 +83,7 @@ func (a *ClientGroupController) getGroup(c *gin.Context) {
 
 // addGroup creates a new group.
 func (a *ClientGroupController) addGroup(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	group := &model.ClientGroup{}
 	err := c.ShouldBind(group)
 	if err != nil {
@@ -111,7 +110,7 @@ func (a *ClientGroupController) updateGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	group := &model.ClientGroup{}
 	err = c.ShouldBind(group)
 	if err != nil {
@@ -138,7 +137,7 @@ func (a *ClientGroupController) deleteGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	err = a.groupService.DeleteGroup(user.Id, id)
 	if err != nil {
 		logger.Errorf("Failed to delete group: %v", err)
@@ -155,7 +154,7 @@ func (a *ClientGroupController) getClientsInGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to get clients in group", err)
@@ -171,7 +170,7 @@ func (a *ClientGroupController) assignClientsToGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 	}
@@ -196,7 +195,7 @@ func (a *ClientGroupController) removeClientsFromGroup(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ClientIds []int `json:"clientIds" form:"clientIds"`
 	}
@@ -221,7 +220,7 @@ func (a *ClientGroupController) bulkResetTraffic(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	// Get all clients in group
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
@@ -256,7 +255,7 @@ func (a *ClientGroupController) bulkClearHwid(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	// Get all clients in group
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
@@ -287,7 +286,7 @@ func (a *ClientGroupController) bulkDelete(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	// Get all clients in group
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
@@ -322,7 +321,7 @@ func (a *ClientGroupController) bulkEnable(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		Enable bool `json:"enable" form:"enable"`
 	}
@@ -381,7 +380,7 @@ func (a *ClientGroupController) bulkSetHwidLimit(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		MaxHwid int  `json:"maxHwid" form:"maxHwid"`
 		Enabled bool `json:"enabled" form:"enabled"`
@@ -429,7 +428,7 @@ func (a *ClientGroupController) bulkAssignInbounds(c *gin.Context) {
 		jsonMsg(c, "Inbounds are managed through bundles: assign a bundle to the group instead", errors.New("bundles are active"))
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		InboundIds []int  `json:"inboundIds" form:"inboundIds"`
 		Mode       string `json:"mode" form:"mode"`
@@ -490,7 +489,7 @@ func (a *ClientGroupController) bulkAssignBundles(c *gin.Context) {
 	if req.Mode != "add" {
 		req.Mode = "replace"
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to get clients in group", err)
@@ -520,7 +519,7 @@ func (a *ClientGroupController) bulkSetExpiry(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		ExpiryTime int64 `json:"expiryTime" form:"expiryTime"`
 	}
@@ -556,7 +555,7 @@ func (a *ClientGroupController) bulkSetTrafficLimit(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		TotalGB int64 `json:"totalGB" form:"totalGB"`
 	}
@@ -592,7 +591,7 @@ func (a *ClientGroupController) bulkSetIPLimit(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	var req struct {
 		MaxIPs  int  `json:"maxIPs" form:"maxIPs"`
 		Enabled bool `json:"enabled" form:"enabled"`
@@ -655,7 +654,7 @@ func (a *ClientGroupController) getEffectiveSettings(c *gin.Context) {
 		jsonMsg(c, "Invalid group ID", err)
 		return
 	}
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	clients, err := a.groupService.GetClientsInGroup(id, user.Id)
 	if err != nil {
 		jsonMsg(c, "Failed to get clients in group", err)

@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson, type Msg } from "@/lib/api";
 import { panel } from "@/lib/paths";
+import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
   Button,
@@ -245,6 +246,9 @@ function formatGroupDateTime(ms: number | undefined, empty: string): string {
 export function GroupsPage() {
   const { t } = useTranslation();
   const toast = useToast();
+  const canCreate = useCan("groups:create");
+  const canUpdate = useCan("groups:update");
+  const canDelete = useCan("groups:delete");
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -761,10 +765,12 @@ export function GroupsPage() {
         iconTone="warning"
         actions={
           <>
-            <Button variant="secondary" onClick={openAdd} className="!gap-2">
-              <Plus size={16} />
-              {t("pages.groups.addGroup")}
-            </Button>
+            {canCreate ? (
+              <Button variant="secondary" onClick={openAdd} className="!gap-2">
+                <Plus size={16} />
+                {t("pages.groups.addGroup")}
+              </Button>
+            ) : null}
             <SectionHelpModal scene="groups" titleKey="pages.groups.helpTitle" paragraphKeys={["pages.groups.helpP1", "pages.groups.helpP2", "pages.groups.helpP3"]} />
           </>
         }
@@ -822,14 +828,16 @@ export function GroupsPage() {
                           >
                             <Pencil size={16} />
                           </Button>
-                          <Button
-                            variant="danger"
-                            className="!p-2"
-                            onClick={() => setDeleteId(r.id)}
-                            aria-label={t("delete")}
-                          >
-                            <Trash2 size={16} />
-                          </Button>
+                          {canDelete ? (
+                            <Button
+                              variant="danger"
+                              className="!p-2"
+                              onClick={() => setDeleteId(r.id)}
+                              aria-label={t("delete")}
+                            >
+                              <Trash2 size={16} />
+                            </Button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -861,19 +869,22 @@ export function GroupsPage() {
             >
               {t("cancel")}
             </Button>
-            <Button
-              variant="primary"
-              type="button"
-              loading={saving}
-              disabled={!hasPendingChanges}
-              onClick={() => void submitAll()}
-            >
-              {t("save", { defaultValue: "Save" })}
-            </Button>
+            {canUpdate ? (
+              <Button
+                variant="primary"
+                type="button"
+                loading={saving}
+                disabled={!hasPendingChanges}
+                onClick={() => void submitAll()}
+              >
+                {t("save", { defaultValue: "Save" })}
+              </Button>
+            ) : null}
           </div>
         }
       >
         {bulkGroup ? (
+          <ReadOnlyScope readOnly={!canUpdate}>
           <div
             className={
               "relative flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-sm"
@@ -1337,6 +1348,7 @@ export function GroupsPage() {
               </div>
             </div>
           </div>
+          </ReadOnlyScope>
         ) : null}
       </Modal>
 

@@ -19,8 +19,8 @@ import (
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/web/global"
 	"github.com/konstpic/sharx-code/v2/web/logsse"
+	"github.com/konstpic/sharx-code/v2/web/rbac"
 	"github.com/konstpic/sharx-code/v2/web/service"
-	"github.com/konstpic/sharx-code/v2/web/session"
 	"github.com/konstpic/sharx-code/v2/web/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -48,11 +48,16 @@ type ServerController struct {
 	lastWorkerHostMetricsPoll time.Time
 }
 
+// skipBackgroundTasks lets tests build the real router without starting the cron jobs.
+var skipBackgroundTasks bool
+
 // NewServerController creates a new ServerController, initializes routes, and starts background tasks.
 func NewServerController(g *gin.RouterGroup) *ServerController {
 	a := &ServerController{}
 	a.initRouter(g)
-	a.startTask()
+	if !skipBackgroundTasks {
+		a.startTask()
+	}
 	return a
 }
 
@@ -112,7 +117,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 }
 
 func (a *ServerController) listGeofileAssets(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	fileName := strings.TrimSpace(c.Param("fileName"))
 	rows, err := a.serverService.ListGeofileAssets(user.Id, fileName)
 	if err != nil {
@@ -123,7 +128,7 @@ func (a *ServerController) listGeofileAssets(c *gin.Context) {
 }
 
 func (a *ServerController) uploadGeofileAsset(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	fileName := strings.TrimSpace(c.Param("fileName"))
 	formFile, _, err := c.Request.FormFile("file")
 	if err != nil {
@@ -141,7 +146,7 @@ func (a *ServerController) uploadGeofileAsset(c *gin.Context) {
 }
 
 func (a *ServerController) downloadGeofileAsset(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	fileName := strings.TrimSpace(c.Param("fileName"))
 	srcURL := strings.TrimSpace(c.PostForm("url"))
 	displayName := strings.TrimSpace(c.PostForm("displayName"))
@@ -175,7 +180,7 @@ type geofileAssetApplyResponse struct {
 }
 
 func (a *ServerController) applyGeofileAsset(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	id, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
 	if err != nil || id <= 0 {
 		jsonMsg(c, "invalid asset id", fmt.Errorf("bad id"))
@@ -196,7 +201,7 @@ func (a *ServerController) applyGeofileAsset(c *gin.Context) {
 }
 
 func (a *ServerController) deleteGeofileAsset(c *gin.Context) {
-	user := session.GetLoginUser(c)
+	user := dataUser(c)
 	id, err := strconv.Atoi(strings.TrimSpace(c.Param("id")))
 	if err != nil || id <= 0 {
 		jsonMsg(c, "invalid asset id", fmt.Errorf("bad id"))
@@ -986,6 +991,19 @@ func (a *ServerController) getEntityLogs(c *gin.Context) {
 	if entityType != "node" && entityType != "balancer" && entityType != "panel" {
 		jsonMsg(c, "Unknown entity type", fmt.Errorf("type must be node, balancer or panel"))
 		return
+	}
+	// a node's or balancer's journal also needs read access to that node or balancer (route table: logs:read)
+	switch entityType {
+	case "node":
+		if !can(c, rbac.NodesRead) {
+			forbid(c, "Forbidden: missing permission "+rbac.NodesRead)
+			return
+		}
+	case "balancer":
+		if !can(c, rbac.BalancersRead) {
+			forbid(c, "Forbidden: missing permission "+rbac.BalancersRead)
+			return
+		}
 	}
 	count, _ := strconv.Atoi(c.Query("count"))
 	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)

@@ -42,6 +42,26 @@ type Client struct {
 	Send   chan []byte
 	Hub    *Hub
 	Topics map[MessageType]bool // Subscribed topics
+	// Allow, when set, is asked before every message of a type is delivered: it is how access control keeps a user's
+	// socket from carrying data (inbounds, nodes, clients...) that their role may not read. A nil Allow allows all.
+	Allow func(MessageType) bool
+}
+
+// bcast is a serialized message together with its type, so delivery can be filtered per client.
+type bcast struct {
+	typ  MessageType
+	data []byte
+}
+
+// filterAllowed drops the clients that may not receive messages of this type.
+func filterAllowed(clients []*Client, typ MessageType) []*Client {
+	out := clients[:0:0]
+	for _, c := range clients {
+		if c.Allow == nil || c.Allow(typ) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Hub maintains the set of active clients and broadcasts messages to them
@@ -50,7 +70,7 @@ type Hub struct {
 	clients map[*Client]bool
 
 	// Inbound messages from clients
-	broadcast chan []byte
+	broadcast chan bcast
 
 	// Register requests from clients
 	register chan *Client
@@ -94,7 +114,7 @@ func NewHub() *Hub {
 
 	return &Hub{
 		clients:          make(map[*Client]bool),
-		broadcast:        make(chan []byte, 2048), // Increased from 256 to 2048 for high load
+		broadcast:        make(chan bcast, 2048),  // Increased from 256 to 2048 for high load
 		register:         make(chan *Client, 100), // Buffered channel for fast registration
 		unregister:       make(chan *Client, 100), // Buffered channel for fast unregistration
 		ctx:              ctx,
@@ -174,7 +194,8 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 			logger.Debugf("WebSocket client disconnected: %s (total: %d)", client.ID, count)
 
-		case message := <-h.broadcast:
+		case b := <-h.broadcast:
+			message := b.data
 			if message == nil {
 				continue
 			}
@@ -194,7 +215,7 @@ func (h *Hub) Run() {
 			h.mu.RUnlock()
 
 			// Parallel broadcast using worker pool
-			h.broadcastParallel(clients, message)
+			h.broadcastParallel(filterAllowed(clients, b.typ), message)
 		}
 	}
 }
@@ -344,7 +365,7 @@ func (h *Hub) Broadcast(messageType MessageType, payload any) {
 
 	// Non-blocking send with timeout to prevent delays
 	select {
-	case h.broadcast <- data:
+	case h.broadcast <- bcast{typ: messageType, data: data}:
 	case <-time.After(100 * time.Millisecond):
 		logger.Warning("WebSocket broadcast channel is full, dropping message")
 	case <-h.ctx.Done():
@@ -406,7 +427,7 @@ func (h *Hub) BroadcastToUser(userId int, messageType MessageType, payload any) 
 		logger.Warningf("WebSocket user message too large: %d bytes, dropping", len(data))
 		return
 	}
-	h.broadcastParallel(targets, data)
+	h.broadcastParallel(filterAllowed(targets, messageType), data)
 }
 
 // BroadcastToTopic sends a message only to clients subscribed to the specific topic
@@ -457,7 +478,7 @@ func (h *Hub) BroadcastToTopic(messageType MessageType, payload any) {
 	// Filter clients by topics and quickly release lock
 	subscribedClients := make([]*Client, 0)
 	for client := range h.clients {
-		if len(client.Topics) == 0 || client.Topics[messageType] {
+		if (len(client.Topics) == 0 || client.Topics[messageType]) && (client.Allow == nil || client.Allow(messageType)) {
 			subscribedClients = append(subscribedClients, client)
 		}
 	}

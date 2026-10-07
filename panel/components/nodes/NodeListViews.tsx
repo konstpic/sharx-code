@@ -65,6 +65,11 @@ export type NodeListViewContext = {
   onMetrics: (r: NodeListRow) => void;
   onLogs: (r: NodeListRow) => void;
   onDelete: (r: NodeListRow) => void;
+  /** what the signed-in user may do (hides controls the server would refuse) */
+  canUpdate: boolean;
+  canDelete: boolean;
+  canOperate: boolean;
+  canLogs: boolean;
 };
 
 function inboundsLabel(r: NodeListRow): string {
@@ -106,7 +111,7 @@ function NodeOperateButtons({
   ctx: NodeListViewContext;
   compact?: boolean;
 }) {
-  const { t, onMetrics, onLogs, onDelete } = ctx;
+  const { t, onMetrics, onLogs, onDelete, canDelete, canLogs } = ctx;
   return (
     <div
       className={`flex items-center ${compact ? "gap-0.5" : "gap-1"}`}
@@ -123,26 +128,30 @@ function NodeOperateButtons({
       >
         <Activity size={16} />
       </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
-        title={t("pages.logs.title", { defaultValue: "Logs" })}
-        aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
-        onClick={() => onLogs(r)}
-      >
-        <FileText size={16} />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
-        onClick={() => onDelete(r)}
-        title={t("pages.nodes.deleteNode")}
-        aria-label={t("pages.nodes.deleteNode")}
-      >
-        <Trash2 size={16} />
-      </Button>
+      {canLogs ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+          title={t("pages.logs.title", { defaultValue: "Logs" })}
+          aria-label={t("pages.logs.title", { defaultValue: "Logs" })}
+          onClick={() => onLogs(r)}
+        >
+          <FileText size={16} />
+        </Button>
+      ) : null}
+      {canDelete ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--danger)]"
+          onClick={() => onDelete(r)}
+          title={t("pages.nodes.deleteNode")}
+          aria-label={t("pages.nodes.deleteNode")}
+        >
+          <Trash2 size={16} />
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -166,7 +175,7 @@ function NodeXrayControls({ r, ctx }: { r: NodeListRow; ctx: NodeListViewContext
         {t("pages.nodes.xrayState")}
       </span>
       <XrayStateBadge state={r.xrayState} t={t} />
-      {r.enable ? (
+      {r.enable && ctx.canOperate ? (
         <>
           <Button
             type="button"
@@ -224,7 +233,7 @@ function NodeTelemtControls({ r, ctx }: { r: NodeListRow; ctx: NodeListViewConte
         {t("pages.nodes.telemtState")}
       </span>
       <TelemtStateBadge state={r.telemtState} t={t} />
-      {r.enable ? (
+      {r.enable && ctx.canOperate ? (
         <>
           <Button
             type="button"
@@ -282,7 +291,7 @@ function NodeAmneziaWgControls({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
         AWG
       </span>
       <AmneziaWgStateBadge state={r.amneziawgState} t={t} />
-      {r.enable ? (
+      {r.enable && ctx.canOperate ? (
         <>
           <Button
             type="button"
@@ -394,7 +403,7 @@ export function NodeListRowView({
               <Switch
                 size="sm"
                 checked={r.enable !== false}
-                disabled={togglingEnableId === r.id}
+                disabled={togglingEnableId === r.id || !ctx.canUpdate}
                 ariaLabel={t("pages.nodes.nodeEnabled")}
                 onChange={(next) => void onPatchEnable(r, next)}
               />
@@ -452,7 +461,7 @@ export function NodeTileCardView({
             <Switch
               size="sm"
               checked={r.enable !== false}
-              disabled={togglingEnableId === r.id}
+              disabled={togglingEnableId === r.id || !ctx.canUpdate}
               ariaLabel={t("pages.nodes.nodeEnabled")}
               onChange={(next) => void onPatchEnable(r, next)}
             />

@@ -31,6 +31,7 @@ import { getJson, postJson, api } from "@/lib/api";
 import { formatSecond, sizeFormat, toFixed } from "@/lib/format";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p } from "@/lib/paths";
+import { useCan } from "@/lib/rbac";
 import { usePanelAccentColor } from "@/lib/panelTheme";
 import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
@@ -467,6 +468,9 @@ function MultiSeriesResourceChart({
 
 export function DashboardPage() {
   const { t } = useTranslation();
+  const canLogs = useCan("logs:read");
+  const canXrayOperate = useCan("xray:operate");
+  const canBackup = useCan("system:backup");
   const toast = useToast();
   const accent = usePanelAccentColor();
   const [loading, setLoading] = useState(true);
@@ -1109,7 +1113,7 @@ export function DashboardPage() {
 
         {(showQuickActions || showUptime) && (
         <Reveal className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {showQuickActions && (
+          {showQuickActions && canLogs && (
           <Surface className="flex flex-col">
             <div className="flex items-center gap-2">
               <IconTile icon={History} tone="info" size="sm" />
@@ -1169,7 +1173,7 @@ export function DashboardPage() {
                 </span>
               </div>
             </div>
-            {!multi ? (
+            {!multi && canXrayOperate ? (
               <div className="mt-2 flex justify-end gap-0 border-t border-[var(--border)]/80 pt-2">
                 <IconButton
                   label={t("pages.index.stopTelemt")}
@@ -1186,16 +1190,18 @@ export function DashboardPage() {
                 </IconButton>
               </div>
             ) : null}
-            <button
-              type="button"
-              onClick={openVer}
-              className="mt-3 rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] py-2 text-center text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-strong)]"
-            >
-              {t("pages.index.coreVersionSwitch")}
-            </button>
+            {canXrayOperate ? (
+              <button
+                type="button"
+                onClick={openVer}
+                className="mt-3 rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] py-2 text-center text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-strong)]"
+              >
+                {t("pages.index.coreVersionSwitch")}
+              </button>
+            ) : null}
           </Surface>
           )}
-          {showQuickActions && (
+          {showQuickActions && canBackup && (
           <Surface className="flex flex-col">
             <div className="flex items-center gap-2">
               <IconTile icon={Server} tone="success" size="sm" />

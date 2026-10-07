@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { PanelShell } from "@/components/panel/PanelShell";
 import { PanelWebSocketProvider } from "@/lib/panelWebSocket";
+import { RbacProvider } from "@/lib/rbac";
 
 /** Uses full shell for most panel routes; minimal chrome for the public subscription page. */
 export function PanelLayoutGate({ children }: { children: React.ReactNode }) {
@@ -13,7 +14,9 @@ export function PanelLayoutGate({ children }: { children: React.ReactNode }) {
   }
   return (
     <PanelWebSocketProvider>
-      <PanelShell>{children}</PanelShell>
+      <RbacProvider>
+        <PanelShell>{children}</PanelShell>
+      </RbacProvider>
     </PanelWebSocketProvider>
   );
 }
