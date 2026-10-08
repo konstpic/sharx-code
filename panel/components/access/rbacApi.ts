@@ -25,6 +25,9 @@ export type UserRow = {
   updatedAt: number;
   lastLoginAt?: number;
   twoFactor?: boolean;
+  email?: string;
+  authSource?: string;
+  roleManaged?: boolean;
   self: boolean;
   manageable: boolean;
 };
@@ -70,7 +73,7 @@ export const rbacApi = {
   users: () => call<UserRow[]>(() => getJson<UserRow[]>(panel("rbac/users"))),
   createUser: (body: { username: string; password: string; roleId: number; enabled: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel("rbac/users"), body, true)),
-  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean }) =>
+  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean; email?: string; detachRole?: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel(`rbac/users/${id}/update`), body, true)),
   resetTwoFactor: (id: number) => call(() => postJson(panel(`rbac/users/${id}/two-factor/reset`), {}, true)),
   setPassword: (id: number, password: string) => call(() => postJson(panel(`rbac/users/${id}/password`), { password }, true)),
@@ -82,4 +85,103 @@ export const rbacApi = {
     q.set("limit", String(params.limit ?? 50));
     return call<AuditRow[]>(() => getJson<AuditRow[]>(panel(`rbac/audit?${q}`)));
   },
+};
+
+// ------------------------------------------------------------------------------------------------ single sign-on
+
+export type SsoPreset = {
+  id: string;
+  name: string;
+  kind: string;
+  params: { key: string; label: string; example?: string; optional?: boolean }[] | null;
+  notes?: string;
+  groups: boolean;
+  stage: number;
+};
+
+export type SsoOverrides = {
+  issuer?: string;
+  authUrl?: string;
+  tokenUrl?: string;
+  userInfoUrl?: string;
+  jwksUrl?: string;
+  scopes?: string[];
+  claims?: { subject?: string; email?: string; emailVerified?: string; name?: string; username?: string; groups?: string };
+  trustEmail?: boolean;
+  tokenAuth?: string;
+  pkce?: boolean;
+  extraParams?: Record<string, string>;
+  redirectBase?: string;
+};
+
+export type SsoProvider = {
+  id: number;
+  key: string;
+  name: string;
+  preset: string;
+  kind: string;
+  enabled: boolean;
+  clientId: string;
+  hasSecret: boolean;
+  params: Record<string, string> | null;
+  overrides: SsoOverrides;
+  allowedDomains: string[];
+  allowedEmails: string[];
+  allowSignup: boolean;
+  linkByEmail: boolean;
+  roleMode: "local" | "idp";
+  noMatch: "deny" | "default" | "keep";
+  defaultRoleId?: number;
+  callbackPath: string;
+  identities: number;
+  updatedAt: number;
+};
+
+export type SsoProviderInput = Omit<SsoProvider, "id" | "kind" | "hasSecret" | "callbackPath" | "identities" | "updatedAt" | "params"> & {
+  params: Record<string, string>;
+  clientSecret?: string | null;
+};
+
+export type SsoRule = {
+  id: number;
+  providerId?: number | null;
+  position: number;
+  kind: "group" | "claim" | "email_domain" | "email" | "any";
+  claim: string;
+  value: string;
+  roleId: number;
+  roleName: string;
+  enabled: boolean;
+};
+
+export type SsoIdentity = {
+  id: number;
+  userId: number;
+  username?: string;
+  providerKey: string;
+  provider: string;
+  email: string;
+  displayName: string;
+  groups: string[];
+  createdAt: number;
+  lastLoginAt: number;
+};
+
+export const ssoApi = {
+  presets: () => call<SsoPreset[]>(() => getJson<SsoPreset[]>(panel("auth/presets"))),
+  providers: () => call<SsoProvider[]>(() => getJson<SsoProvider[]>(panel("auth/providers"))),
+  saveProvider: (id: number | null, body: SsoProviderInput) =>
+    call<SsoProvider>(() => postJson<SsoProvider>(panel(id == null ? "auth/providers" : `auth/providers/${id}/update`), body, true)),
+  deleteProvider: (id: number) => call(() => postJson(panel(`auth/providers/${id}/delete`), {}, true)),
+  testProvider: (id: number) => call<Record<string, string>>(() => postJson<Record<string, string>>(panel(`auth/providers/${id}/test`), {}, true)),
+  rules: () => call<SsoRule[]>(() => getJson<SsoRule[]>(panel("auth/rules"))),
+  saveRule: (id: number | null, body: { providerId: number | null; position: number; kind: string; claim: string; value: string; roleId: number; enabled: boolean }) =>
+    call<SsoRule>(() => postJson<SsoRule>(panel(id == null ? "auth/rules" : `auth/rules/${id}/update`), body, true)),
+  deleteRule: (id: number) => call(() => postJson(panel(`auth/rules/${id}/delete`), {}, true)),
+  identities: () => call<SsoIdentity[]>(() => getJson<SsoIdentity[]>(panel("auth/identities"))),
+  unlink: (id: number) => call(() => postJson(panel(`auth/identities/${id}/unlink`), {}, true)),
+  settings: () => call<{ localLogin: boolean }>(() => getJson<{ localLogin: boolean }>(panel("auth/settings"))),
+  saveSettings: (body: { localLogin: boolean }) => call(() => postJson(panel("auth/settings"), body, true)),
+  myIdentities: () => call<SsoIdentity[]>(() => getJson<SsoIdentity[]>(panel("auth/my-identities"))),
+  myUnlink: (id: number) => call(() => postJson(panel(`auth/my-identities/${id}/unlink`), {}, true)),
 };

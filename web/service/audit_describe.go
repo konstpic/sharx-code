@@ -131,6 +131,42 @@ func DescribeAudit(e model.AuditLog) (level, component, message string) {
 		}
 	case "role.delete":
 		what = fmt.Sprintf("deleted role %s", target)
+	case "auth.sso_login":
+		what = fmt.Sprintf("signed in through %s", strOf(after, "provider"))
+	case "auth.sso_signup":
+		what = fmt.Sprintf("was created by sign-in through %s with role %s", strOf(after, "provider"), quote(strOf(after, "role")))
+	case "auth.sso_denied":
+		what = fmt.Sprintf("sign in through %s (%s)", target, strOf(after, "identity"))
+	case "auth.role_sync":
+		was := "none"
+		if r := strOf(before, "role"); r != "" {
+			was = quote(r)
+		}
+		what = fmt.Sprintf("was given the role %s (was %s) by the identity provider", quote(strOf(after, "role")), was)
+	case "auth.role_revoke":
+		what = fmt.Sprintf("lost the role %s: the identity provider no longer grants one", quote(strOf(before, "role")))
+	case "auth.identity_link":
+		what = fmt.Sprintf("linked an account at %s to %s", strOf(after, "provider"), target)
+	case "auth.identity_unlink":
+		what = fmt.Sprintf("unlinked an identity from %s", target)
+	case "sso.provider_create":
+		what = fmt.Sprintf("added sign-in provider %s", target)
+	case "sso.provider_update":
+		what = fmt.Sprintf("changed sign-in provider %s", target)
+	case "sso.provider_delete":
+		what = fmt.Sprintf("removed sign-in provider %s", target)
+	case "sso.rule_create":
+		what = fmt.Sprintf("added role rule %s", target)
+	case "sso.rule_update":
+		what = fmt.Sprintf("changed role rule %s", target)
+	case "sso.rule_delete":
+		what = fmt.Sprintf("removed role rule %s", target)
+	case "sso.local_login":
+		if after != nil && fmt.Sprint(after["enabled"]) == "true" {
+			what = "allowed password sign-in for everybody"
+		} else {
+			what = "closed password sign-in for non-administrators"
+		}
 	case "access.denied":
 		what = fmt.Sprintf("call %s", e.TargetName)
 	default:
@@ -143,6 +179,13 @@ func DescribeAudit(e model.AuditLog) (level, component, message string) {
 	if denied {
 		level = "warn"
 		message = fmt.Sprintf("%s tried to %s - refused", actor, strings.Replace(what, " (their sessions ended)", "", 1))
+		if e.Action == "auth.sso_denied" {
+			who := strOf(after, "identity")
+			if who == "" {
+				who = "an unknown visitor"
+			}
+			message = fmt.Sprintf("Sign-in through %s by %s was refused", e.TargetName, who)
+		}
 		if e.Action == "access.denied" {
 			message = fmt.Sprintf("%s was refused %s", actor, what)
 		}

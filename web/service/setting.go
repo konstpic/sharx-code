@@ -66,6 +66,7 @@ var defaultValueMap = map[string]string{
 	"tgCpu":                       "80",
 	"tgLang":                      "en-US",
 	"twoFactorEnable":             "false",
+	"ssoLocalLogin":               "true",
 	"twoFactorToken":              "",
 	"twoFactorTelegram":           "false",
 	"tgTwoFactorEnable":           "false",

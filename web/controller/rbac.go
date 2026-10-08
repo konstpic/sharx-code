@@ -354,9 +354,11 @@ func (a *RBACController) createUser(c *gin.Context) {
 }
 
 type userUpdateBody struct {
-	Username *string `json:"username"`
-	RoleId   *int    `json:"roleId"`
-	Enabled  *bool   `json:"enabled"`
+	Username   *string `json:"username"`
+	RoleId     *int    `json:"roleId"`
+	Enabled    *bool   `json:"enabled"`
+	Email      *string `json:"email"`
+	DetachRole *bool   `json:"detachRole"`
 }
 
 func (a *RBACController) updateUser(c *gin.Context) {
@@ -369,7 +371,7 @@ func (a *RBACController) updateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
 		return
 	}
-	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled})
+	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled, Email: b.Email, DetachRole: b.DetachRole})
 	if err != nil {
 		rbacFail(c, err)
 		return

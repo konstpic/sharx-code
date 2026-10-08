@@ -86,6 +86,11 @@ const (
 	RolesDelete = "roles:delete"
 
 	AuditRead = "audit:read"
+
+	// Single sign-on: identity providers, role rules, linked accounts. Managing them can hand anybody on the provider an
+	// administrator account, so it is administrators only (like the LDAP settings).
+	AuthRead   = "auth:read"
+	AuthManage = "auth:manage"
 )
 
 // Permission describes one entry of the catalogue.
@@ -174,6 +179,8 @@ var catalogue = []Permission{
 	p(RolesUpdate, "access", true),
 	p(RolesDelete, "access", true),
 	p(AuditRead, "access", false),
+	p(AuthRead, "access", true),
+	p(AuthManage, "access", true),
 }
 
 var byKey = func() map[string]Permission {
@@ -228,7 +235,7 @@ func resourceOf(key string) string {
 // superOnly lists permissions that are equivalent to full control of the panel: whoever holds them can sign in as anyone
 // (LDAP and 2FA settings), read or replace the whole database (backup, raw tables). Only an administrator may put them into
 // a role, so a delegated "manage roles" permission can never mint a second administrator by the back door.
-var superOnly = map[string]bool{SettingsSecurity: true, SystemBackup: true, SystemDatabase: true}
+var superOnly = map[string]bool{SettingsSecurity: true, SystemBackup: true, SystemDatabase: true, AuthManage: true}
 
 // IsSuperOnly reports whether only an administrator may grant the permission.
 func IsSuperOnly(key string) bool { return superOnly[key] }

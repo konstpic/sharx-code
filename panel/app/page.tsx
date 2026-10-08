@@ -4,7 +4,7 @@ import { Globe, KeyRound, Lock, User } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { postJson } from "@/lib/api";
+import { getJson, postJson } from "@/lib/api";
 import { changeLanguage, panelSelectLangValue, supported } from "@/lib/i18n";
 import { easeStandard, durations } from "@/lib/motion";
 import { parsePanelTheme, applyPanelTheme } from "@/lib/panelTheme";
@@ -23,8 +23,28 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const publicMeta = usePublicAppMeta();
+  const [sso, setSso] = useState<{ key: string; name: string; preset: string }[]>([]);
   useEffect(() => {
     setReady(true);
+    // single sign-on providers, and the reason a sign-in through one of them was refused
+    void (async () => {
+      try {
+        const r = await getJson<{ providers: { key: string; name: string; preset: string }[] }>(p("auth/providers"));
+        if (r.success && r.obj?.providers) setSso(r.obj.providers);
+      } catch {
+        /* the password form still works */
+      }
+    })();
+    const code = new URLSearchParams(window.location.search).get("sso_error");
+    if (code) {
+      toast.error(
+        t(`pages.login.sso.errors.${code}`, {
+          defaultValue: "Single sign-on failed. Try again or contact an administrator.",
+        }),
+      );
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -320,6 +340,25 @@ export default function LoginPage() {
                 {awaiting2FA ? t("confirm") : t("login")}
               </Button>
             </form>
+            {sso.length > 0 && !awaiting2FA ? (
+              <div className="mt-5 border-t border-[var(--border)] pt-5">
+                <p className="mb-3 text-center text-xs text-[var(--fg-muted)]">
+                  {t("pages.login.sso.or", { defaultValue: "or sign in with" })}
+                </p>
+                <div className="flex flex-col gap-2">
+                  {sso.map((x) => (
+                    <a
+                      key={x.key}
+                      href={p(`auth/sso/${x.key}/start`)}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--accent)] hover:bg-[var(--bg)]"
+                    >
+                      <KeyRound className="size-4 text-[var(--fg-subtle)]" aria-hidden />
+                      {x.name}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </Surface>
         </motion.div>
       </div>

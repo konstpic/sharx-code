@@ -185,8 +185,20 @@ type UserView struct {
 	LastLoginAt *int64 `json:"lastLoginAt,omitempty"`
 	Self        bool   `json:"self"`
 	TwoFactor   bool   `json:"twoFactor"`
+	Email       string `json:"email,omitempty"`
+	// AuthSource is "local" or the key of the single sign-on provider that created the account; RoleManaged says the role
+	// is set by that provider's rules and cannot be changed by hand.
+	AuthSource  string `json:"authSource"`
+	RoleManaged bool   `json:"roleManaged"`
 	// Manageable is true when the caller may edit, disable or delete this user.
 	Manageable bool `json:"manageable"`
+}
+
+func sourceOrLocal(s string) string {
+	if s == "" {
+		return "local"
+	}
+	return s
 }
 
 func roleView(r model.Role, count int64, actor *Principal) RoleView {
@@ -259,7 +271,7 @@ func (s *RBACService) ListUsers(actor *Principal) ([]UserView, error) {
 	}
 	out := make([]UserView, 0, len(users))
 	for _, u := range users {
-		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled}
+		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled, Email: u.Email, AuthSource: sourceOrLocal(u.AuthSource), RoleManaged: u.RoleManaged}
 		var set rbac.Set = rbac.Set{}
 		if u.RoleId != nil {
 			if r, ok := byID[*u.RoleId]; ok {
@@ -586,6 +598,10 @@ type UserPatch struct {
 	Username *string
 	RoleId   *int
 	Enabled  *bool
+	Email    *string
+	// DetachRole releases a user whose role was managed by single sign-on to local role management. It cannot be undone
+	// from here; the user would have to be recreated by the identity provider.
+	DetachRole *bool
 }
 
 // UpdateUser changes a user's name, role or status. Rules: the caller cannot change their own role or status; the target's
@@ -625,6 +641,9 @@ func (s *RBACService) UpdateUser(a Actor, id int, patch UserPatch) (*UserView, e
 			if self {
 				return forbidden("you cannot change your own role")
 			}
+			if before.RoleManaged {
+				return conflict("the role of this user comes from single sign-on (%s); detach the user from it first", before.AuthSource)
+			}
 			nr, err := loadRole(tx, *patch.RoleId)
 			if err != nil {
 				return err
@@ -636,6 +655,18 @@ func (s *RBACService) UpdateUser(a Actor, id int, patch UserPatch) (*UserView, e
 			rid := nr.Id
 			after.RoleId = &rid
 			upd["role_id"] = nr.Id
+		}
+		if patch.Email != nil {
+			e := strings.ToLower(strings.TrimSpace(*patch.Email))
+			if len(e) > 254 || (e != "" && !strings.Contains(e, "@")) {
+				return invalid("the e-mail address is not valid")
+			}
+			after.Email = e
+			upd["email"] = e
+		}
+		if patch.DetachRole != nil && *patch.DetachRole && before.RoleManaged {
+			after.RoleManaged = false
+			upd["role_managed"] = false
 		}
 		if patch.Enabled != nil && *patch.Enabled != before.Enabled {
 			if self {

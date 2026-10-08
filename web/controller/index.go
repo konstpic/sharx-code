@@ -56,6 +56,7 @@ func (a *IndexController) initRouter(g *gin.RouterGroup) {
 
 	g.POST("/login", a.login)
 	g.POST("/getTwoFactorEnable", a.getTwoFactorEnable)
+	a.registerSSO(g)
 }
 
 // index handles the root route, redirecting logged-in users to the panel or showing the login page.
@@ -107,6 +108,16 @@ func (a *IndexController) login(c *gin.Context) {
 	}
 
 	// Each user has their own TOTP secret; the Telegram one-time-code step stays a panel-wide switch.
+	// With password sign-in closed for ordinary users (single sign-on only), administrators keep it as the way back in when
+	// the identity provider is down.
+	if !service.SSO.LocalLoginEnabled() {
+		if p, err := rbacService.GetPrincipal(user.Id); err != nil || p == nil || !p.Super {
+			logger.Warningf("password sign-in refused (single sign-on only) for \"%s\", IP: \"%s\"", safeUser, getRemoteIp(c))
+			pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.passwordLoginDisabled"))
+			return
+		}
+	}
+
 	twoFactorEnable, twoFactorToken := service.UserTwoFactor(user.Id)
 
 	if !twoFactorEnable {
@@ -200,6 +211,14 @@ func (a *IndexController) checkTelegramTwoFactor(c *gin.Context, form LoginForm,
 }
 
 func (a *IndexController) finishLoginSuccess(c *gin.Context, user *model.User, safeUser, timeStr string) {
+	if !a.establishSession(c, user, safeUser, timeStr) {
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.login.toasts.successLogin"), nil)
+}
+
+// establishSession starts the login session for an authenticated user (password, 2FA or single sign-on alike).
+func (a *IndexController) establishSession(c *gin.Context, user *model.User, safeUser, timeStr string) bool {
 	rbacService.MarkLogin(user.Id)
 	logger.Infof("%s logged in successfully, Ip Address: %s\n", safeUser, getRemoteIp(c))
 	a.tgbot.UserLoginNotify(safeUser, getRemoteIp(c), timeStr, 1)
@@ -217,11 +236,11 @@ func (a *IndexController) finishLoginSuccess(c *gin.Context, user *model.User, s
 	}
 	if err := sessions.Default(c).Save(); err != nil {
 		logger.Warning("Unable to save session: ", err)
-		return
+		return false
 	}
 
 	logger.Infof("%s logged in successfully", safeUser)
-	jsonMsg(c, I18nWeb(c, "pages.login.toasts.successLogin"), nil)
+	return true
 }
 
 // logout handles user logout by clearing the session and redirecting to the login page.

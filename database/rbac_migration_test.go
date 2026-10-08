@@ -104,4 +104,37 @@ func TestRBACMigrationOnAnExistingDatabase(t *testing.T) {
 	if err := db.Exec("UPDATE users SET username = 'renamed', password = 'h3' WHERE username = 'legacy-two'").Error; err != nil {
 		t.Fatal(err)
 	}
+
+	// later releases: per-user 2FA and single sign-on. They must keep existing accounts local and role-unmanaged, be
+	// repeatable, and leave the previous binary's statements working.
+	for _, f := range files {
+		if f.Version > 64 {
+			if err := m.ApplyMigration(f); err != nil {
+				t.Fatalf("migration %s: %v", f.Name, err)
+			}
+			if err := m.ApplyMigration(f); err != nil {
+				t.Fatalf("migration %s must be idempotent: %v", f.Name, err)
+			}
+		}
+	}
+	var legacy struct {
+		AuthSource  string
+		RoleManaged bool
+		Email       string
+	}
+	if err := db.Raw("SELECT auth_source, role_managed, email FROM users WHERE username = 'legacy-admin'").Scan(&legacy).Error; err != nil {
+		t.Fatal(err)
+	}
+	if legacy.AuthSource != "local" || legacy.RoleManaged || legacy.Email != "" {
+		t.Fatalf("existing accounts stay local and role-unmanaged: %+v", legacy)
+	}
+	for _, tbl := range []string{"auth_providers", "user_identities", "auth_role_rules"} {
+		var c int64
+		if err := db.Raw("SELECT COUNT(*) FROM " + tbl).Scan(&c).Error; err != nil {
+			t.Fatalf("table %s: %v", tbl, err)
+		}
+	}
+	if err := db.Exec("INSERT INTO users (username, password) VALUES ('old-binary-after-sso', 'h')").Error; err != nil {
+		t.Fatalf("an old binary must still be able to create users: %v", err)
+	}
 }

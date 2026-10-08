@@ -22,9 +22,10 @@ import { useRbac, type PermissionGroup } from "@/lib/rbac";
 import { PermissionMatrix, usePermissionSummary } from "./PermissionMatrix";
 import { ROLE_PRESETS } from "./permLabels";
 import { LogExplorer } from "@/components/LogExplorer";
+import { SsoTab } from "./SsoTab";
 import { rbacApi, type AssignableRole, type Role, type UserRow } from "./rbacApi";
 
-type TabId = "users" | "roles" | "audit";
+type TabId = "users" | "roles" | "sso" | "audit";
 
 function fmtDate(ts?: number, ms = false): string {
   if (!ts) return "—";
@@ -40,6 +41,7 @@ export function AccessPage() {
       [
         { id: "users" as const, label: t("rbac.tabUsers", { defaultValue: "Users" }), icon: Users, perm: "users:read" },
         { id: "roles" as const, label: t("rbac.tabRoles", { defaultValue: "Roles" }), icon: ShieldCheck, perm: "roles:read" },
+        { id: "sso" as const, label: t("rbac.tabSso", { defaultValue: "Single sign-on" }), icon: KeyRound, perm: "auth:read" },
         { id: "audit" as const, label: t("rbac.tabAudit", { defaultValue: "Audit log" }), icon: KeyRound, perm: "audit:read" },
       ].filter((x) => can(x.perm)),
     [t, can],
@@ -49,7 +51,7 @@ export function AccessPage() {
   // ?tab=roles in the address opens that tab (the menu links to it)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("tab");
-    if (q === "roles" || q === "audit" || q === "users") setTab(q);
+    if (q === "roles" || q === "audit" || q === "users" || q === "sso") setTab(q);
   }, []);
   const active = tabs.find((x) => x.id === tab)?.id ?? tabs[0]?.id;
 
@@ -76,6 +78,7 @@ export function AccessPage() {
       />
       {active === "users" ? <UsersTab /> : null}
       {active === "roles" ? <RolesTab /> : null}
+      {active === "sso" ? <SsoTab /> : null}
       {active === "audit" ? <AuditTab /> : null}
     </PageScaffold>
   );
@@ -171,6 +174,11 @@ function UsersTab() {
                   <td className="px-4 py-3">
                     <span className="font-medium text-[var(--fg)]">{u.username}</span>
                     {u.self ? <PillTag tone="blue" className="ml-2">{t("rbac.you", { defaultValue: "you" })}</PillTag> : null}
+                    {u.authSource && u.authSource !== "local" ? (
+                      <PillTag tone="neutral" className="ml-2">
+                        SSO · {u.authSource}
+                      </PillTag>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--fg-muted)]">{u.roleName || "—"}</td>
                   <td className="px-4 py-3">
@@ -268,9 +276,11 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
   const [password, setPassword] = useState("");
   const [roleId, setRoleId] = useState<number>(user?.roleId ?? 0);
   const [enabled, setEnabled] = useState(user?.enabled ?? true);
+  const [email, setEmail] = useState(user?.email ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const isNew = user == null;
+  const managed = !!user?.roleManaged;
 
   useEffect(() => {
     void (async () => {
@@ -293,6 +303,7 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           username: username !== user.username ? username : undefined,
           roleId: roleId !== user.roleId ? roleId : undefined,
           enabled: enabled !== user.enabled && !user.self ? enabled : undefined,
+          email: email !== (user.email ?? "") ? email : undefined,
         });
     setSaving(false);
     if (r.ok) {
@@ -335,7 +346,7 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           {roles == null ? (
             <Spinner />
           ) : (
-            <SelectNative value={roleId} disabled={user?.self} onChange={(e) => setRoleId(Number(e.target.value))}>
+            <SelectNative value={roleId} disabled={user?.self || managed} onChange={(e) => setRoleId(Number(e.target.value))}>
               {user && !roles.some((r) => r.id === user.roleId) ? <option value={user.roleId}>{user.roleName}</option> : null}
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -345,9 +356,33 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
             </SelectNative>
           )}
           <span className="text-[11px] text-[var(--fg-subtle)]">
-            {t("rbac.roleListHint", { defaultValue: "Only roles that grant nothing you do not hold yourself are offered." })}
+            {managed
+              ? t("rbac.roleManagedHint", { defaultValue: "The role of this user comes from single sign-on ({{src}}) and is set by its rules at every sign-in.", src: user?.authSource })
+              : t("rbac.roleListHint", { defaultValue: "Only roles that grant nothing you do not hold yourself are offered." })}
           </span>
         </label>
+        {!isNew ? (
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">{t("rbac.fieldEmail", { defaultValue: "E-mail (used to link a verified single sign-on account, if the provider allows it)" })}</span>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          </label>
+        ) : null}
+        {managed ? (
+          <div>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                const r = await rbacApi.updateUser(user!.id, { detachRole: true });
+                if (r.ok) {
+                  toast.success(t("rbac.detached", { defaultValue: "The role is now managed locally" }));
+                  onSaved();
+                } else setError(r.msg);
+              }}
+            >
+              {t("rbac.detachRole", { defaultValue: "Manage the role locally" })}
+            </Button>
+          </div>
+        ) : null}
         <label className="flex items-center gap-3 text-sm text-[var(--fg-muted)]">
           <Switch checked={enabled} onChange={setEnabled} disabled={user?.self} ariaLabel="enabled" />
           {t("rbac.fieldEnabled", { defaultValue: "Account is active" })}

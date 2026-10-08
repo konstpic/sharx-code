@@ -42,10 +42,12 @@ const RESOURCES: Record<string, string> = {
   users: "Users",
   roles: "Roles",
   audit: "Audit log",
+  auth: "Single sign-on",
 };
 
 const ACTIONS: Record<string, string> = {
   read: "View",
+  manage: "Manage",
   create: "Create",
   update: "Edit",
   delete: "Delete",

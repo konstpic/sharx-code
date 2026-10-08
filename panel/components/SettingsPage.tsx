@@ -33,6 +33,7 @@ import {
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCan, useRbac } from "@/lib/rbac";
+import { LinkedAccounts } from "@/components/access/LinkedAccounts";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -1294,6 +1295,16 @@ export function SettingsPage() {
               ariaLabel={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
             />
           </Row>
+        </SettingsSection>
+
+        <SettingsSection
+          title={t("rbac.sso.linkedSection", { defaultValue: "Single sign-on accounts" })}
+          hint={t("rbac.sso.linkedHint", { defaultValue: "Link your account at a sign-in provider to enter with it. Your role stays the one you have." })}
+          icon={KeyRound}
+          iconTone="accent"
+          full
+        >
+          <LinkedAccounts />
         </SettingsSection>
 
         <SettingsSection

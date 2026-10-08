@@ -34,6 +34,9 @@ func authRoutes(t *testing.T) map[string]bool {
 // public subscription page). They are deliberately not in the permission table.
 var publicRoutes = map[string]bool{
 	"GET /": true, "GET /logout": true, "GET /logout/": true, "POST /login": true, "POST /getTwoFactorEnable": true,
+	// single sign-on: the browser comes back from the identity provider without a session; state, nonce, PKCE and the
+	// binding cookie are checked inside the handlers
+	"GET /auth/providers": true, "GET /auth/sso/:key/start": true, "GET /auth/sso/:key/callback": true,
 	"POST /panel/api/node/push-logs": true, "POST /panel/api/node/push-geo": true, "POST /panel/api/node/pull-xray-config": true,
 	"GET /panel/api/public/appMeta": true, "GET /panel/api/public/subscription": true,
 }

@@ -74,6 +74,11 @@ type User struct {
 	// Personal two-factor authentication (migration 0065). The secret never leaves the server.
 	TwoFactorEnabled bool   `json:"-" gorm:"column:two_factor_enabled"`
 	TwoFactorSecret  string `json:"-" gorm:"column:two_factor_secret"`
+
+	// Single sign-on (migration 0066).
+	Email       string `json:"email,omitempty" gorm:"column:email"`
+	AuthSource  string `json:"authSource,omitempty" gorm:"column:auth_source"`
+	RoleManaged bool   `json:"roleManaged" gorm:"column:role_managed"`
 }
 
 // Role is a named set of permissions. Permissions is a JSON array of keys from the web/rbac catalogue, or ["*"].
@@ -921,3 +926,60 @@ func NormalizeBalancerSubMode(s string) string {
 		return BalancerSubPrepend
 	}
 }
+
+// AuthProvider is a configured external identity provider (OIDC / OAuth 2.0).
+type AuthProvider struct {
+	Id             int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Key            string `json:"key" gorm:"column:key"`
+	Name           string `json:"name" gorm:"column:name"`
+	Preset         string `json:"preset" gorm:"column:preset"`
+	Enabled        bool   `json:"enabled" gorm:"column:enabled"`
+	ClientId       string `json:"clientId" gorm:"column:client_id"`
+	ClientSecret   string `json:"-" gorm:"column:client_secret"`
+	Config         string `json:"-" gorm:"column:config"`
+	AllowedDomains string `json:"-" gorm:"column:allowed_domains"`
+	AllowedEmails  string `json:"-" gorm:"column:allowed_emails"`
+	AllowSignup    bool   `json:"allowSignup" gorm:"column:allow_signup"`
+	LinkByEmail    bool   `json:"linkByEmail" gorm:"column:link_by_email"`
+	RoleMode       string `json:"roleMode" gorm:"column:role_mode"`
+	NoMatch        string `json:"noMatch" gorm:"column:no_match"`
+	DefaultRoleId  *int   `json:"defaultRoleId,omitempty" gorm:"column:default_role_id"`
+	CreatedAt      int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt      int64  `json:"updatedAt" gorm:"column:updated_at"`
+}
+
+// TableName names the auth_providers table for GORM.
+func (AuthProvider) TableName() string { return "auth_providers" }
+
+// UserIdentity links a user to an account at an identity provider. A user can hold several.
+type UserIdentity struct {
+	Id            int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId        int    `json:"userId" gorm:"column:user_id"`
+	ProviderId    int    `json:"providerId" gorm:"column:provider_id"`
+	Subject       string `json:"subject" gorm:"column:subject"`
+	Email         string `json:"email" gorm:"column:email"`
+	EmailVerified bool   `json:"emailVerified" gorm:"column:email_verified"`
+	DisplayName   string `json:"displayName" gorm:"column:display_name"`
+	Groups        string `json:"-" gorm:"column:groups"`
+	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`
+	LastLoginAt   int64  `json:"lastLoginAt" gorm:"column:last_login_at"`
+}
+
+// TableName names the user_identities table for GORM.
+func (UserIdentity) TableName() string { return "user_identities" }
+
+// AuthRoleRule maps an attribute of an identity to a panel role.
+type AuthRoleRule struct {
+	Id         int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	ProviderId *int   `json:"providerId,omitempty" gorm:"column:provider_id"`
+	Position   int    `json:"position" gorm:"column:position"`
+	Kind       string `json:"kind" gorm:"column:kind"`
+	Claim      string `json:"claim" gorm:"column:claim"`
+	Value      string `json:"value" gorm:"column:value"`
+	RoleId     int    `json:"roleId" gorm:"column:role_id"`
+	Enabled    bool   `json:"enabled" gorm:"column:enabled"`
+	CreatedAt  int64  `json:"createdAt" gorm:"column:created_at"`
+}
+
+// TableName names the auth_role_rules table for GORM.
+func (AuthRoleRule) TableName() string { return "auth_role_rules" }
