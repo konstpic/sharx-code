@@ -87,6 +87,13 @@ const (
 
 	AuditRead = "audit:read"
 
+	// Organizations (tenants). An account that belongs to one is limited to its client groups; granting or removing that
+	// limit is the power these keys carry.
+	OrgsRead   = "orgs:read"
+	OrgsCreate = "orgs:create"
+	OrgsUpdate = "orgs:update"
+	OrgsDelete = "orgs:delete"
+
 	// Single sign-on: identity providers, role rules, linked accounts. Managing them can hand anybody on the provider an
 	// administrator account, so it is administrators only (like the LDAP settings).
 	AuthRead   = "auth:read"
@@ -179,6 +186,10 @@ var catalogue = []Permission{
 	p(RolesUpdate, "access", true),
 	p(RolesDelete, "access", true),
 	p(AuditRead, "access", false),
+	p(OrgsRead, "access", false),
+	p(OrgsCreate, "access", true),
+	p(OrgsUpdate, "access", true),
+	p(OrgsDelete, "access", true),
 	p(AuthRead, "access", true),
 	p(AuthManage, "access", true),
 }

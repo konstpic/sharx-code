@@ -53,6 +53,13 @@ func newAuthHTTP(t *testing.T) *authHTTP {
 	return a
 }
 
+// enrolAdmin gives the acting administrator a second factor, so that a policy covering them may be saved.
+func (a *authHTTP) enrolAdmin() {
+	service.EnableUserTwoFactor(a.admin.Principal.UserId, gotp.RandomSecret(20))
+	p, _ := a.svc.GetPrincipal(a.admin.Principal.UserId)
+	a.admin.Principal = p
+}
+
 func (a *authHTTP) methods(mut func(c *service.MethodsConfig)) {
 	a.t.Helper()
 	c := service.Methods.Config()
@@ -421,6 +428,7 @@ func TestPasskeyOverHTTP(t *testing.T) {
 
 func TestMFAEnrollmentGate(t *testing.T) {
 	a := newAuthHTTP(t)
+	a.enrolAdmin()
 	a.methods(func(c *service.MethodsConfig) { c.MfaPolicy = "all" })
 	uid := a.user("gated", a.role(rbac.ClientsRead, rbac.GroupsRead).Id)
 	c := a.as(uid)
@@ -456,6 +464,8 @@ func TestMFAGateIsSkippedForProviderSignInsThatCountAsMFA(t *testing.T) {
 	s := newSSOHTTP(t)
 	s.roleFor("g", rbac.ClientsRead, rbac.GroupsRead)
 	s.idp.User = authntest.Claims{Sub: "ak-mfa", Email: "m@corp.example", EmailVerified: true, Username: "mfa-ann", Groups: []string{"g"}}
+	service.EnableUserTwoFactor(s.admin.Principal.UserId, gotp.RandomSecret(20))
+	s.admin.Principal, _ = s.svc.GetPrincipal(s.admin.Principal.UserId)
 	c := service.Methods.Config()
 	c.MfaPolicy, c.SsoCountsAsMfa = "all", true
 	if _, err := service.Methods.Save(s.admin, c); err != nil {

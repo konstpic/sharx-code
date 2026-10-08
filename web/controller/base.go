@@ -69,6 +69,7 @@ func (a *BaseController) checkLogin(c *gin.Context) {
 			return
 		}
 		c.Next()
+		scopeFinish(c)
 	}
 }
 

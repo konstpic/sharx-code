@@ -37,6 +37,7 @@ func (a *ClientGroupController) initRouter(g *gin.RouterGroup) {
 	g.POST("/add", a.addGroup)
 	g.POST("/update/:id", a.updateGroup)
 	g.POST("/del/:id", a.deleteGroup)
+	g.POST("/:id/org", a.setGroupOrg)
 	g.GET("/:id/clients", a.getClientsInGroup)
 	g.GET("/:id/effectiveSettings", a.getEffectiveSettings)
 	g.POST("/:id/assignClients", a.assignClientsToGroup)
@@ -94,6 +95,7 @@ func (a *ClientGroupController) addGroup(c *gin.Context) {
 	if len(group.Name) > 30 {
 		group.Name = group.Name[:30]
 	}
+	group.OrgId = nil // a group is handed to an organization only through POST group/:id/org (orgs:update)
 	err = a.groupService.AddGroup(user.Id, group)
 	if err != nil {
 		logger.Errorf("Failed to add group: %v", err)
@@ -735,4 +737,23 @@ func intSliceEqual(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// setGroupOrg hands the group to an organization (orgId null: to nobody). Its clients follow.
+func (a *ClientGroupController) setGroupOrg(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var b struct {
+		OrgId *int `json:"orgId"`
+	}
+	if !bodyOf(c, &b) {
+		return
+	}
+	if err := rbacService.SetGroupOrg(actorOf(c), id, b.OrgId); err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, gin.H{"id": id, "orgId": b.OrgId}, nil)
 }

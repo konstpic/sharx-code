@@ -315,6 +315,11 @@ var routes = map[string][]string{
 	"POST /panel/rbac/roles/:id/update":           {RolesUpdate},
 	"POST /panel/rbac/roles/:id/delete":           {RolesDelete},
 	"GET /panel/rbac/audit":                       {AuditRead},
+	"GET /panel/rbac/orgs":                        {OrgsRead},
+	"POST /panel/rbac/orgs":                       {OrgsCreate},
+	"POST /panel/rbac/orgs/:id/update":            {OrgsUpdate},
+	"POST /panel/rbac/orgs/:id/delete":            {OrgsDelete},
+	"POST /panel/group/:id/org":                   {GroupsUpdate, OrgsUpdate},
 
 	// ----- single sign-on -----
 	"GET /panel/auth/presets":                    {AuthRead},

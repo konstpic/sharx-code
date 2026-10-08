@@ -63,6 +63,9 @@ type Principal struct {
 	// passkey). Required without enrolled means the account may only reach the pages where it can enrol.
 	MFARequired bool
 	MFAEnrolled bool
+
+	// OrgId: the account is limited to this organization (nil: not limited).
+	OrgId *int
 }
 
 // Can reports whether the principal holds a permission.
@@ -143,6 +146,9 @@ func (s *RBACService) loadPrincipal(userId int) (*Principal, error) {
 		}
 	}
 	p.Super = p.Perms.IsSuper()
+	if !p.Super {
+		p.OrgId = u.OrgId // an administrator is never limited, whatever the column says
+	}
 	p.MFAEnrolled = u.TwoFactorEnabled && u.TwoFactorSecret != "" || Passkeys.HasPasskeys(u.Id)
 	switch Methods.str("authMfaPolicy") {
 	case "all":
@@ -213,6 +219,7 @@ type UserView struct {
 	AuthSource  string `json:"authSource"`
 	RoleManaged bool   `json:"roleManaged"`
 	RequireMFA  bool   `json:"requireMfa"`
+	OrgId       *int   `json:"orgId,omitempty"`
 	// Manageable is true when the caller may edit, disable or delete this user.
 	Manageable bool `json:"manageable"`
 }
@@ -294,7 +301,7 @@ func (s *RBACService) ListUsers(actor *Principal) ([]UserView, error) {
 	}
 	out := make([]UserView, 0, len(users))
 	for _, u := range users {
-		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled, Email: u.Email, AuthSource: sourceOrLocal(u.AuthSource), RoleManaged: u.RoleManaged, RequireMFA: u.RequireMFA}
+		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled, Email: u.Email, AuthSource: sourceOrLocal(u.AuthSource), RoleManaged: u.RoleManaged, RequireMFA: u.RequireMFA, OrgId: u.OrgId}
 		var set rbac.Set = rbac.Set{}
 		if u.RoleId != nil {
 			if r, ok := byID[*u.RoleId]; ok {
@@ -496,6 +503,13 @@ func (s *RBACService) UpdateRole(a Actor, id int, in RoleInput) (*RoleView, erro
 				}
 			}
 		}
+		if rbac.NewSet(perms).IsSuper() {
+			var limited int64
+			tx.Model(&model.User{}).Where("role_id = ? AND org_id IS NOT NULL AND deleted_at IS NULL", id).Count(&limited)
+			if limited > 0 {
+				return conflict("%d user(s) with this role are limited to an organization: an administrator role would lift the limit", limited)
+			}
+		}
 		after = before
 		after.Name, after.Description, after.Permissions, after.UpdatedAt = name, desc, encodePerms(perms), time.Now().Unix()
 		after.RequireMFA = in.RequireMFA
@@ -629,6 +643,9 @@ type UserPatch struct {
 	DetachRole *bool
 	// RequireMFA makes a second factor mandatory for this user (true) or leaves it to the role and the panel policy (false).
 	RequireMFA *bool
+	// OrgId limits the account to an organization; ClearOrg lifts the limit.
+	OrgId    *int
+	ClearOrg bool
 }
 
 // UpdateUser changes a user's name, role or status. Rules: the caller cannot change their own role or status; the target's
@@ -691,6 +708,20 @@ func (s *RBACService) UpdateUser(a Actor, id int, patch UserPatch) (*UserView, e
 			after.Email = e
 			upd["email"] = e
 		}
+		if patch.OrgId != nil || patch.ClearOrg {
+			if patch.ClearOrg {
+				after.OrgId = nil
+				upd["org_id"] = nil
+			} else {
+				var n int64
+				tx.Model(&model.Organization{}).Where("id = ?", *patch.OrgId).Count(&n)
+				if n == 0 {
+					return invalid("organization does not exist")
+				}
+				after.OrgId = patch.OrgId
+				upd["org_id"] = *patch.OrgId
+			}
+		}
 		if patch.RequireMFA != nil && *patch.RequireMFA != before.RequireMFA {
 			after.RequireMFA = *patch.RequireMFA
 			upd["require_mfa"] = *patch.RequireMFA
@@ -705,6 +736,9 @@ func (s *RBACService) UpdateUser(a Actor, id int, patch UserPatch) (*UserView, e
 			}
 			after.Enabled = *patch.Enabled
 			upd["enabled"] = *patch.Enabled
+		}
+		if after.OrgId != nil && roleIsAdmin(afterRole) {
+			return invalid("an administrator cannot be limited to an organization")
 		}
 		wasAdmin := before.Enabled && roleIsAdmin(beforeRole)
 		willBeAdmin := after.Enabled && roleIsAdmin(afterRole)

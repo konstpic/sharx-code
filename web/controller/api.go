@@ -58,6 +58,7 @@ func (a *APIController) checkAPIAuth(c *gin.Context) {
 		return
 	}
 	c.Next()
+	scopeFinish(c)
 }
 
 // initRouter sets up the API routes for inbounds, server, and other endpoints.

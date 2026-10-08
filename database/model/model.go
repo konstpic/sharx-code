@@ -81,6 +81,8 @@ type User struct {
 	RoleManaged bool   `json:"roleManaged" gorm:"column:role_managed"`
 	// RequireMFA makes a second factor (TOTP or a passkey) mandatory for this user, whatever the role or the panel policy say.
 	RequireMFA bool `json:"requireMfa" gorm:"column:require_mfa"`
+	// OrgId limits the account to one organization (see Organization). Nil: not limited.
+	OrgId *int `json:"orgId,omitempty" gorm:"column:org_id"`
 }
 
 // Role is a named set of permissions. Permissions is a JSON array of keys from the web/rbac catalogue, or ["*"].
@@ -799,6 +801,7 @@ type ClientGroup struct {
 	UserId      int    `json:"userId" gorm:"index"`                // Associated user ID
 	Name        string `json:"name" form:"name"`                   // Group name
 	Description string `json:"description" form:"description"`     // Group description
+	OrgId       *int   `json:"orgId,omitempty" gorm:"column:org_id"` // Owning organization (nil: not owned by any)
 	CreatedAt   int64  `json:"createdAt" gorm:"autoCreateTime"`    // Creation timestamp
 	UpdatedAt   int64  `json:"updatedAt" gorm:"autoUpdateTime"`    // Last update timestamp
 
@@ -1035,3 +1038,15 @@ type UserRecoveryCode struct {
 
 // TableName names the user_recovery_codes table for GORM.
 func (UserRecoveryCode) TableName() string { return "user_recovery_codes" }
+
+// Organization is a tenant: a named set of users and client groups. A user in an organization is limited to its groups.
+type Organization struct {
+	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name        string `json:"name" gorm:"column:name"`
+	Description string `json:"description" gorm:"column:description"`
+	CreatedAt   int64  `json:"createdAt" gorm:"column:created_at"`
+	UpdatedAt   int64  `json:"updatedAt" gorm:"column:updated_at"`
+}
+
+// TableName names the organizations table for GORM.
+func (Organization) TableName() string { return "organizations" }

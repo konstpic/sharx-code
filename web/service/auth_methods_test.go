@@ -471,7 +471,16 @@ func TestMFAPolicyIsPartOfThePrincipal(t *testing.T) {
 	if p := pr(plain.Id); p.MFARequired {
 		t.Fatal("off by default")
 	}
+	// the administrator who sets a policy that covers them must have a second factor already
+	c0 := Methods.Config()
+	c0.PublicUrl, c0.MfaPolicy = "https://panel.example.com/", "admins"
+	if _, err := Methods.Save(e.admin, c0); !errorsIs(err, ErrConflict) {
+		t.Fatalf("a policy must not lock out whoever sets it: %v", err)
+	}
+	EnableUserTwoFactor(e.admin.Principal.UserId, "JBSWY3DPEHPK3PXP")
+	e.admin = e.actor(e.admin.Principal.UserId)
 	e.methods(func(c *MethodsConfig) { c.MfaPolicy = "admins" })
+	DisableUserTwoFactor(e.admin.Principal.UserId)
 	if p := pr(e.admin.Principal.UserId); !p.MFARequired || p.MFAEnrolled {
 		t.Fatalf("administrators must enrol under the 'admins' policy: %+v", p)
 	}

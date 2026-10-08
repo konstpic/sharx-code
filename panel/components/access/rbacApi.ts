@@ -30,6 +30,7 @@ export type UserRow = {
   authSource?: string;
   roleManaged?: boolean;
   requireMfa?: boolean;
+  orgId?: number;
   self: boolean;
   manageable: boolean;
 };
@@ -75,7 +76,7 @@ export const rbacApi = {
   users: () => call<UserRow[]>(() => getJson<UserRow[]>(panel("rbac/users"))),
   createUser: (body: { username: string; password: string; roleId: number; enabled: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel("rbac/users"), body, true)),
-  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean; email?: string; detachRole?: boolean; requireMfa?: boolean }) =>
+  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean; email?: string; detachRole?: boolean; requireMfa?: boolean; orgId?: number; clearOrg?: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel(`rbac/users/${id}/update`), body, true)),
   resetTwoFactor: (id: number) => call(() => postJson(panel(`rbac/users/${id}/two-factor/reset`), {}, true)),
   setPassword: (id: number, password: string) => call(() => postJson(panel(`rbac/users/${id}/password`), { password }, true)),
@@ -251,4 +252,18 @@ export const methodsApi = {
   passkeyRename: (id: number, name: string) => call(() => postJson(panel(`auth/passkeys/${id}/rename`), { name }, true)),
   recoveryStatus: () => call<{ totp: boolean; remaining: number }>(() => getJson(panel("setting/recoveryCodes/status"))),
   recoveryGenerate: (code: string) => call<{ recoveryCodes: string[] }>(() => postJson(panel("setting/recoveryCodes/generate"), { code }, true)),
+};
+
+// ------------------------------------------------------------------------------------------------ organizations
+
+export type OrgRow = { id: number; name: string; description: string; users: number; groups: number; createdAt: number };
+export type GroupRow = { id: number; name: string; orgId?: number; clientCount?: number };
+
+export const orgApi = {
+  list: () => call<OrgRow[]>(() => getJson<OrgRow[]>(panel("rbac/orgs"))),
+  save: (id: number | null, body: { name: string; description: string }) =>
+    call<OrgRow>(() => postJson<OrgRow>(panel(id == null ? "rbac/orgs" : `rbac/orgs/${id}/update`), body, true)),
+  remove: (id: number) => call(() => postJson(panel(`rbac/orgs/${id}/delete`), {}, true)),
+  groups: () => call<GroupRow[]>(() => getJson<GroupRow[]>(panel("group/list"))),
+  setGroupOrg: (groupId: number, orgId: number | null) => call(() => postJson(panel(`group/${groupId}/org`), { orgId }, true)),
 };

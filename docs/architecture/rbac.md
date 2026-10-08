@@ -104,6 +104,31 @@ panel (filters, search, volume chart, download as txt/ndjson/csv): one sentence 
 call per five minutes). Entries also go to the panel journal (component `audit`). Retention follows the log rotation setting
 "max age" (default 14 days): an hourly job deletes older rows. Read API: `GET api/server/logs/entity/audit/0` (`audit:read`).
 
+## Organizations and resource scope (tenants)
+
+A role says *what* an account may do; an **organization** says *on which data*. An organization owns **client groups** (a client already
+belongs to one group, so ownership is decided by the group); an account assigned to an organization (`users.org_id`) is **limited** to
+those groups and the clients in them. Accounts without an organization behave exactly as before. Administrators are never limited
+(an administrator cannot be assigned to an organization, and a role that has limited users cannot be turned into an administrator
+role). Managing organizations uses `orgs:read|create|update|delete`; handing a group to an organization needs `groups:update` +
+`orgs:update` (`POST group/:id/org`); assigning a user is part of editing the user.
+
+Enforcement is central and **deny-by-default** (`web/controller/scope.go`, called from the same authorization step as the permission
+check): a limited account may use only the routes in the scope table, whatever its role allows, and everything else answers
+`403 {"code":"org_scope"}`. For the allowed routes: a group or client outside the organization answers **404** (it does not exist as
+far as the account can tell) on `get`, links, sessions, HWID list, delete, reset traffic and every group bulk operation that works on
+the group's clients; `GET client/list` and `GET group/list` are **filtered** to the organization before they leave the server; the
+WebSocket delivers **no** live data to a limited account (it is panel-wide and not filtered per organization).
+
+Deliberately *not* available to a limited account because it would reach outside the organization: creating or editing clients (they
+carry inbound and bundle ids that are shared), creating or deleting groups, assigning or removing a group's clients, assigning inbounds
+or bundles to a group, nodes, inbounds, settings, access control, other organizations. Administrators do those for the organization.
+A group created through the API cannot claim an organization by itself. Extending the table (for example per-organization inbound
+allow-lists, so that limited accounts may create clients) is the next step and needs those allow-lists first.
+
+Tests: `web/controller/org_scope_test.go` (lists filtered, every id route 404 outside, bulk operations cannot reach foreign clients,
+deny-by-default matrix, WebSocket, administrators never limited, role-escalation guard, group creation cannot claim an organization).
+
 ## Known limits
 
 * Telegram bot administrators are configured in the panel settings and are a separate trust domain: the bot's admin chat

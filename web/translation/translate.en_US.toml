@@ -4732,6 +4732,7 @@ tabMethods = "Sign-in methods"
 requireMfaUser = "Require two-factor authentication for this user"
 requireMfaRole = "Everybody with this role must use two-factor authentication"
 mfaRequiredBanner = "Two-factor authentication is required for your account. Set up an authenticator app or a security key below to continue."
+tabOrgs = "Organizations"
 
 [rbac.group]
 overview = "Overview & logs"
@@ -4763,6 +4764,7 @@ users = "Users"
 roles = "Roles"
 audit = "Audit log"
 auth = "Single sign-on"
+orgs = "Organizations"
 
 [rbac.action]
 read = "View"
@@ -4801,6 +4803,8 @@ users_delete = "Delete users whose permissions are within yours."
 roles_create = "Create roles with permissions you hold yourself."
 roles_update = "Edit roles whose permissions are within yours."
 roles_delete = "Delete roles that nobody holds."
+orgs_update = "Hand client groups to an organization and limit accounts to it."
+orgs_create = "Create organizations (tenants)."
 
 [rbac.preset]
 readonly = "Read only"
@@ -5026,3 +5030,17 @@ passkey = "Sign in with a passkey"
 magicLink = "E-mail me a sign-in link"
 forgot = "Forgot your password?"
 createAccount = "Create an account"
+
+[rbac.orgs]
+intro = "An organization owns client groups. A user assigned to it (Users → edit) sees and manages only those groups and the clients in them, and can use nothing else: no nodes, inbounds, settings or other organizations. Creating and editing clients and assigning inbounds stay with administrators."
+title = "Organizations"
+add = "Add organization"
+none = "No organizations yet."
+counts = "{{u}} user(s) · {{g}} group(s)"
+groupsTitle = "Client groups and their organization"
+groupsHint = "The clients of a group follow it. A group without an organization is visible only to accounts that are not limited."
+noOrg = "— none —"
+delete = "Delete the organization?"
+deleteText = "{{name}} must have no users and no groups."
+edit = "Edit organization"
+userOrg = "Organization (limits the account to its client groups)"

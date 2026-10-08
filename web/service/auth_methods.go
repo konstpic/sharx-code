@@ -138,6 +138,12 @@ func (m *AuthMethodsService) Save(a Actor, in MethodsConfig) (*MethodsView, erro
 	default:
 		return nil, invalid("the MFA policy must be off, admins or all")
 	}
+	// a policy must not lock out the person who sets it: they would be left with the enrolment pages only
+	if a.Principal != nil && in.MfaPolicy != before.MfaPolicy && !a.Principal.MFAEnrolled && in.MfaPolicy != "off" {
+		if in.MfaPolicy == "all" || (in.MfaPolicy == "admins" && a.Principal.Super) {
+			return nil, conflict("set up your own two-factor authentication first (Settings -> Security): this policy would apply to you")
+		}
+	}
 	if !Mail.Usable() {
 		var need []string
 		if in.MagicLink && !before.MagicLink {

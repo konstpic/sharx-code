@@ -107,6 +107,9 @@ func (a *BaseController) authorize(c *gin.Context, apiGroup bool) bool {
 			"msg": "Set up two-factor authentication (an authenticator app or a security key) to continue"})
 		return false
 	}
+	if !scopeAllows(c, p, c.Request.Method, path) {
+		return false
+	}
 	reqs, known := rbac.Lookup(c.Request.Method, path)
 	if !known {
 		if p.Super {
@@ -185,6 +188,9 @@ func wsAllow(userID int) func(websocket.MessageType) bool {
 		if err != nil || p == nil || !p.Enabled {
 			return false
 		}
+		if p.OrgId != nil {
+			return false // live panel-wide data is not filtered per organization: a limited account gets none of it
+		}
 		return p.Perms.HasAll(reqs)
 	}
 }
@@ -211,6 +217,10 @@ func NewRBACController(g *gin.RouterGroup) *RBACController {
 	g.POST("/users/:id/password", a.setPassword)
 	g.POST("/users/:id/two-factor/reset", a.resetTwoFactor)
 	g.POST("/users/:id/delete", a.deleteUser)
+	g.GET("/orgs", a.listOrgs)
+	g.POST("/orgs", a.createOrg)
+	g.POST("/orgs/:id/update", a.updateOrg)
+	g.POST("/orgs/:id/delete", a.deleteOrg)
 	g.GET("/audit", a.audit)
 	return a
 }
@@ -261,6 +271,8 @@ func (a *RBACController) me(c *gin.Context) {
 		"mfaRequired": p.MFARequired,
 		"mfaEnrolled": p.MFAEnrolled,
 		"mfaGated":    p.MFARequired && !p.MFAEnrolled && !session.MFAExempt(c),
+		"orgId":       p.OrgId,
+		"scoped":      p.OrgId != nil,
 		"permissions": p.Perms.List(),
 	}, nil)
 }
@@ -384,6 +396,8 @@ type userUpdateBody struct {
 	Email      *string `json:"email"`
 	DetachRole *bool   `json:"detachRole"`
 	RequireMFA *bool   `json:"requireMfa"`
+	OrgId      *int    `json:"orgId"`
+	ClearOrg   bool    `json:"clearOrg"`
 }
 
 func (a *RBACController) updateUser(c *gin.Context) {
@@ -396,7 +410,7 @@ func (a *RBACController) updateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
 		return
 	}
-	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled, Email: b.Email, DetachRole: b.DetachRole, RequireMFA: b.RequireMFA})
+	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled, Email: b.Email, DetachRole: b.DetachRole, RequireMFA: b.RequireMFA, OrgId: b.OrgId, ClearOrg: b.ClearOrg})
 	if err != nil {
 		rbacFail(c, err)
 		return
@@ -516,4 +530,60 @@ func recordDenied(c *gin.Context, p *service.Principal, path string, reqs []stri
 	deniedSeenMu.Unlock()
 	service.Audit.Record(service.Actor{Principal: p, IP: getRemoteIp(c)}, "access.denied", "request", "", c.Request.Method+" "+path,
 		nil, nil, "denied", "needs "+strings.Join(reqs, " + "))
+}
+
+func (a *RBACController) listOrgs(c *gin.Context) {
+	list, err := rbacService.ListOrgs()
+	if err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, list, nil)
+}
+
+type orgBody struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func (a *RBACController) createOrg(c *gin.Context) {
+	var b orgBody
+	if !bodyOf(c, &b) {
+		return
+	}
+	v, err := rbacService.SaveOrg(actorOf(c), 0, b.Name, b.Description)
+	if err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, v, nil)
+}
+
+func (a *RBACController) updateOrg(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var b orgBody
+	if !bodyOf(c, &b) {
+		return
+	}
+	v, err := rbacService.SaveOrg(actorOf(c), id, b.Name, b.Description)
+	if err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, v, nil)
+}
+
+func (a *RBACController) deleteOrg(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := rbacService.DeleteOrg(actorOf(c), id); err != nil {
+		rbacFail(c, err)
+		return
+	}
+	jsonObj(c, gin.H{"id": id}, nil)
 }

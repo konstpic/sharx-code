@@ -43,6 +43,7 @@ const RESOURCES: Record<string, string> = {
   roles: "Roles",
   audit: "Audit log",
   auth: "Single sign-on",
+  orgs: "Organizations",
 };
 
 const ACTIONS: Record<string, string> = {

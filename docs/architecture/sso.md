@@ -1,6 +1,6 @@
 # Single sign-on: OpenID Connect and OAuth 2.0
 
-Status: **stages 1, 2 and 3 are implemented** (3 in `auth-methods.md`) (this document describes them). Later stages are listed at the end with what they need.
+Status: **stages 1-4 are implemented** (3 in `auth-methods.md`, 4 in `rbac.md`) (3 in `auth-methods.md`) (this document describes them). Later stages are listed at the end with what they need.
 
 ## Where this sits in the existing panel
 
@@ -212,6 +212,6 @@ kind=group  value=sharx-ops-*   → Operator
 ## Later stages
 
 * **Stage 3 – other methods (implemented).** E-mail + password, magic links, self-registration, password reset (all need a verified SMTP server, configured in the panel), passkeys / security keys, recovery codes, MFA policy: see [`auth-methods.md`](auth-methods.md).
-* **Stage 4 – scopes of authority.** Groups, organizations / tenants / projects as entities, resource-level permissions (for example per node or per client group) on top of the existing `resource:action` model; the route table and `Principal` already centralize the check, so this extends them rather than replacing them.
+* **Stage 4 – scopes of authority (implemented in its first form).** Organizations (tenants) own client groups, and an account in an organization is limited to those groups and their clients, enforced centrally and deny-by-default: see "Organizations and resource scope" in [`rbac.md`](rbac.md). Groups of people, projects and per-organization allow-lists of inbounds / nodes (so limited accounts can also create clients) are the next extension.
 
 Rollback: deploy the previous version. The new tables and columns are ignored by it; accounts created through SSO have an unusable random password and so cannot sign in with the old version until an administrator sets one. Optional cleanup is in `database/migrations/0066_sso.sql` and `0067_sso_resync.sql`.

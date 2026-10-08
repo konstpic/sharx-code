@@ -18,6 +18,9 @@ export type Me = {
   mfaEnrolled?: boolean;
   /** required and not set up yet: only the enrolment pages work */
   mfaGated?: boolean;
+  /** limited to an organization: only its client groups and their clients are reachable */
+  scoped?: boolean;
+  orgId?: number;
   permissions: string[];
 };
 
@@ -40,7 +43,9 @@ function evaluate(me: Me | null, perm: string | string[] | undefined): boolean {
   if (!me) return false;
   if (me.super) return true;
   const set = new Set(me.permissions);
-  const one = (p: string) => p.split("|").some((alt) => set.has(alt));
+  // an account limited to an organization works with clients and groups only (the server refuses the rest anyway)
+  const scopedOk = (alt: string) => !me.scoped || /^(clients|groups):/.test(alt);
+  const one = (p: string) => p.split("|").some((alt) => set.has(alt) && scopedOk(alt));
   return Array.isArray(perm) ? perm.every(one) : one(perm);
 }
 

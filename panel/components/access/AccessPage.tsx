@@ -23,10 +23,11 @@ import { PermissionMatrix, usePermissionSummary } from "./PermissionMatrix";
 import { ROLE_PRESETS } from "./permLabels";
 import { LogExplorer } from "@/components/LogExplorer";
 import { SsoTab } from "./SsoTab";
+import { OrgsTab } from "./OrgsTab";
 import { MethodsTab } from "./MethodsTab";
-import { rbacApi, type AssignableRole, type Role, type UserRow } from "./rbacApi";
+import { orgApi, rbacApi, type OrgRow, type AssignableRole, type Role, type UserRow } from "./rbacApi";
 
-type TabId = "users" | "roles" | "sso" | "methods" | "audit";
+type TabId = "users" | "roles" | "orgs" | "sso" | "methods" | "audit";
 
 function fmtDate(ts?: number, ms = false): string {
   if (!ts) return "—";
@@ -42,6 +43,7 @@ export function AccessPage() {
       [
         { id: "users" as const, label: t("rbac.tabUsers", { defaultValue: "Users" }), icon: Users, perm: "users:read" },
         { id: "roles" as const, label: t("rbac.tabRoles", { defaultValue: "Roles" }), icon: ShieldCheck, perm: "roles:read" },
+        { id: "orgs" as const, label: t("rbac.tabOrgs", { defaultValue: "Organizations" }), icon: Users, perm: "orgs:read" },
         { id: "sso" as const, label: t("rbac.tabSso", { defaultValue: "Single sign-on" }), icon: KeyRound, perm: "auth:read" },
         { id: "methods" as const, label: t("rbac.tabMethods", { defaultValue: "Sign-in methods" }), icon: ShieldCheck, perm: "auth:read" },
         { id: "audit" as const, label: t("rbac.tabAudit", { defaultValue: "Audit log" }), icon: KeyRound, perm: "audit:read" },
@@ -53,7 +55,7 @@ export function AccessPage() {
   // ?tab=roles in the address opens that tab (the menu links to it)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("tab");
-    if (q === "roles" || q === "audit" || q === "users" || q === "sso" || q === "methods") setTab(q);
+    if (q === "roles" || q === "audit" || q === "users" || q === "sso" || q === "methods" || q === "orgs") setTab(q);
   }, []);
   const active = tabs.find((x) => x.id === tab)?.id ?? tabs[0]?.id;
 
@@ -80,6 +82,7 @@ export function AccessPage() {
       />
       {active === "users" ? <UsersTab /> : null}
       {active === "roles" ? <RolesTab /> : null}
+      {active === "orgs" ? <OrgsTab /> : null}
       {active === "sso" ? <SsoTab /> : null}
       {active === "methods" ? <MethodsTab /> : null}
       {active === "audit" ? <AuditTab /> : null}
@@ -274,6 +277,7 @@ function UsersTab() {
 function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: () => void; onSaved: () => void }) {
   const { t } = useTranslation();
   const toast = useToast();
+  const { can } = useRbac();
   const [roles, setRoles] = useState<AssignableRole[] | null>(null);
   const [username, setUsername] = useState(user?.username ?? "");
   const [password, setPassword] = useState("");
@@ -281,6 +285,8 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
   const [enabled, setEnabled] = useState(user?.enabled ?? true);
   const [email, setEmail] = useState(user?.email ?? "");
   const [requireMfa, setRequireMfa] = useState(user?.requireMfa ?? false);
+  const [orgId, setOrgId] = useState<number>(user?.orgId ?? 0);
+  const [orgList, setOrgList] = useState<OrgRow[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const isNew = user == null;
@@ -298,6 +304,14 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
     })();
   }, [user]);
 
+  useEffect(() => {
+    if (!can("orgs:read")) return;
+    void (async () => {
+      const r = await orgApi.list();
+      if (r.ok) setOrgList(r.obj ?? []);
+    })();
+  }, [can]);
+
   const save = async () => {
     setError("");
     setSaving(true);
@@ -309,6 +323,7 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           enabled: enabled !== user.enabled && !user.self ? enabled : undefined,
           email: email !== (user.email ?? "") ? email : undefined,
           requireMfa: requireMfa !== (user.requireMfa ?? false) ? requireMfa : undefined,
+          ...(orgId !== (user.orgId ?? 0) ? (orgId === 0 ? { clearOrg: true } : { orgId }) : {}),
         });
     setSaving(false);
     if (r.ok) {
@@ -370,6 +385,19 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           <label className="grid gap-1">
             <span className="text-xs text-[var(--fg-muted)]">{t("rbac.fieldEmail", { defaultValue: "E-mail (used to link a verified single sign-on account, if the provider allows it)" })}</span>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          </label>
+        ) : null}
+        {!isNew && orgList.length > 0 ? (
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">{t("rbac.orgs.userOrg", { defaultValue: "Organization (limits the account to its client groups)" })}</span>
+            <SelectNative value={orgId} disabled={!can("users:update")} onChange={(e) => setOrgId(Number(e.target.value))}>
+              <option value={0}>{t("rbac.orgs.noOrg", { defaultValue: "— none —" })}</option>
+              {orgList.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </SelectNative>
           </label>
         ) : null}
         {!isNew ? (
