@@ -40,6 +40,26 @@ type IdP struct {
 	UserInfoSub string
 	// Calls counts hits per path.
 	Calls map[string]int
+
+	// OfflineAccess makes the provider issue refresh tokens (rotating: each use returns a new one and kills the old one).
+	OfflineAccess bool
+	users         map[string]Claims // the current state of each person, as the provider would say it now
+	refresh       map[string]string // refresh token -> subject
+	revoked       map[string]bool   // subject -> deactivated
+}
+
+// SetUser changes what the provider says about a person from now on (group membership, e-mail, ...).
+func (p *IdP) SetUser(c Claims) {
+	p.mu.Lock()
+	p.users[c.Sub] = c
+	p.mu.Unlock()
+}
+
+// Deactivate makes the provider refuse every refresh token of the person.
+func (p *IdP) Deactivate(sub string) {
+	p.mu.Lock()
+	p.revoked[sub] = true
+	p.mu.Unlock()
 }
 
 // Claims is the user the provider authenticates.
@@ -66,7 +86,7 @@ func New(t *testing.T) *IdP {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &IdP{T: t, Key: key, Kid: "k1", ClientID: "sharx-client", Secret: "s3cret", codes: map[string]*Grant{}, Calls: map[string]int{}}
+	p := &IdP{T: t, Key: key, Kid: "k1", ClientID: "sharx-client", Secret: "s3cret", codes: map[string]*Grant{}, Calls: map[string]int{}, users: map[string]Claims{}, refresh: map[string]string{}, revoked: map[string]bool{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", p.discovery)
 	mux.HandleFunc("/jwks", p.jwks)
@@ -116,6 +136,8 @@ func (p *IdP) Authorize(authURL string) (code, state string) {
 	code = "code-" + q.Get("state")[:6]
 	p.mu.Lock()
 	p.codes[code] = &Grant{Nonce: q.Get("nonce"), Challenge: q.Get("code_challenge"), User: p.User}
+	p.users[p.User.Sub] = p.User
+	delete(p.revoked, p.User.Sub)
 	p.mu.Unlock()
 	return code, q.Get("state")
 }
@@ -132,6 +154,10 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 	}
 	if user != p.ClientID || pass != p.Secret {
 		http.Error(w, `{"error":"invalid_client"}`, http.StatusUnauthorized)
+		return
+	}
+	if r.PostForm.Get("grant_type") == "refresh_token" {
+		p.refreshGrant(w, r.PostForm.Get("refresh_token"))
 		return
 	}
 	p.mu.Lock()
@@ -171,7 +197,35 @@ func (p *IdP) token(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.codes["at:"+signed[len(signed)-8:]] = g
 	p.mu.Unlock()
-	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at-" + signed[len(signed)-8:], "id_token": signed, "token_type": "Bearer"})
+	out := map[string]any{"access_token": "at-" + signed[len(signed)-8:], "id_token": signed, "token_type": "Bearer"}
+	if p.OfflineAccess {
+		rt := "rt-" + signed[len(signed)-10:]
+		p.mu.Lock()
+		p.refresh[rt] = g.User.Sub
+		p.mu.Unlock()
+		out["refresh_token"] = rt
+	}
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (p *IdP) refreshGrant(w http.ResponseWriter, rt string) {
+	p.mu.Lock()
+	sub, ok := p.refresh[rt]
+	delete(p.refresh, rt) // rotation: a refresh token works once
+	dead := p.revoked[sub]
+	u := p.users[sub]
+	p.mu.Unlock()
+	if !ok || dead {
+		http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
+		return
+	}
+	at := "at-" + b64([]byte(sub + time.Now().String()))[:10]
+	nrt := "rt-" + b64([]byte(rt + "x"))[:12]
+	p.mu.Lock()
+	p.codes["at:"+at[len(at)-8:]] = &Grant{User: u}
+	p.refresh[nrt] = sub
+	p.mu.Unlock()
+	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": at, "refresh_token": nrt, "token_type": "Bearer"})
 }
 
 func (p *IdP) userinfo(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +242,11 @@ func (p *IdP) userinfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad token", http.StatusUnauthorized)
 		return
 	}
+	p.mu.Lock()
+	if cur, ok := p.users[g.User.Sub]; ok {
+		g.User = cur
+	}
+	p.mu.Unlock()
 	sub := g.User.Sub
 	if p.UserInfoSub != "" {
 		sub = p.UserInfoSub

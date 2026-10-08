@@ -37,6 +37,9 @@ var publicRoutes = map[string]bool{
 	// single sign-on: the browser comes back from the identity provider without a session; state, nonce, PKCE and the
 	// binding cookie are checked inside the handlers
 	"GET /auth/providers": true, "GET /auth/sso/:key/start": true, "GET /auth/sso/:key/callback": true,
+	"POST /auth/sso/:key/callback": true, "GET /auth/sso/:key/begin": true, "POST /auth/sso/:key/webhook": true,
+	"GET /auth/methods": true, "POST /auth/magic/request": true, "POST /auth/magic/verify": true, "POST /auth/register": true, "POST /auth/register/confirm": true,
+	"POST /auth/password/forgot": true, "POST /auth/password/reset": true, "POST /auth/passkey/login/begin": true, "POST /auth/passkey/login/finish": true,
 	"POST /panel/api/node/push-logs": true, "POST /panel/api/node/push-geo": true, "POST /panel/api/node/pull-xray-config": true,
 	"GET /panel/api/public/appMeta": true, "GET /panel/api/public/subscription": true,
 }

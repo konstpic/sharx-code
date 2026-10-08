@@ -2,7 +2,7 @@
 
 import { Globe, KeyRound, Lock, User } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
 import { changeLanguage, panelSelectLangValue, supported } from "@/lib/i18n";
@@ -11,7 +11,37 @@ import { parsePanelTheme, applyPanelTheme } from "@/lib/panelTheme";
 import { p } from "@/lib/paths";
 import { usePublicAppMeta } from "@/lib/usePublicAppMeta";
 import { Button, Input, SelectNative, Spinner, useToast } from "@/components/ui";
+import { EmailFlow, PasskeyButton, type FlowMode } from "@/components/login/EmailFlows";
+import { getAssertion, webauthnSupported } from "@/lib/webauthn";
 import { PanelHeaderAppMeta, PanelTelegramNavLink, Surface } from "@/components/panel";
+
+/** The Telegram Login widget: Telegram's own script draws the button and sends the signed payload to the panel's callback. */
+function TelegramLogin({ providerKey, bot }: { providerKey: string; bot: string }) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await getJson<{ authUrl: string }>(p(`auth/sso/${providerKey}/begin`));
+        if (!alive || !r.success || !r.obj?.authUrl || !host.current) return;
+        host.current.innerHTML = "";
+        const sc = document.createElement("script");
+        sc.src = "https://telegram.org/js/telegram-widget.js?22";
+        sc.async = true;
+        sc.setAttribute("data-telegram-login", bot);
+        sc.setAttribute("data-size", "large");
+        sc.setAttribute("data-auth-url", r.obj.authUrl);
+        host.current.appendChild(sc);
+      } catch {
+        /* the other sign-in methods still work */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [providerKey, bot]);
+  return <div ref={host} className="flex min-h-10 justify-center" />;
+}
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -23,18 +53,39 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const publicMeta = usePublicAppMeta();
-  const [sso, setSso] = useState<{ key: string; name: string; preset: string }[]>([]);
+  const [sso, setSso] = useState<{ key: string; name: string; preset: string; kind?: string; botUsername?: string }[]>([]);
+  const [methods, setMethods] = useState<{ magicLink?: boolean; signup?: boolean; passwordReset?: boolean; passkeys?: boolean }>({});
+  const [flow, setFlow] = useState<{ mode: FlowMode; token: string } | null>(null);
+  const [keyChallenge, setKeyChallenge] = useState<{ state: string; options: Record<string, unknown> } | null>(null);
   useEffect(() => {
     setReady(true);
     // single sign-on providers, and the reason a sign-in through one of them was refused
     void (async () => {
       try {
-        const r = await getJson<{ providers: { key: string; name: string; preset: string }[] }>(p("auth/providers"));
+        const r = await getJson<{ providers: { key: string; name: string; preset: string; kind?: string; botUsername?: string }[] }>(p("auth/providers"));
         if (r.success && r.obj?.providers) setSso(r.obj.providers);
       } catch {
         /* the password form still works */
       }
     })();
+    void (async () => {
+      try {
+        const r = await getJson<{ magicLink?: boolean; signup?: boolean; passwordReset?: boolean; passkeys?: boolean }>(p("auth/methods"));
+        if (r.success && r.obj) setMethods(r.obj);
+      } catch {
+        /* optional */
+      }
+    })();
+    // links from e-mail open the page with a one-time token
+    const qs = new URLSearchParams(window.location.search);
+    for (const [param, mode] of [["magic", "magicVerify"], ["confirm", "confirm"], ["reset", "reset"]] as const) {
+      const tok = qs.get(param);
+      if (tok) {
+        setFlow({ mode, token: tok });
+        window.history.replaceState(null, "", window.location.pathname);
+        break;
+      }
+    }
     const code = new URLSearchParams(window.location.search).get("sso_error");
     if (code) {
       toast.error(
@@ -63,11 +114,15 @@ export default function LoginPage() {
     applyPanelTheme(theme);
   }, [publicMeta?.panelTheme]);
 
-  const submitLogin = async (resend: boolean) => {
+  const submitLogin = async (resend: boolean, keyResponse?: unknown) => {
     setLoading(true);
     try {
-      const v = { ...form, twoFactorCode: resend ? "" : form.twoFactorCode };
-      const res = await postJson(p("login"), v);
+      const v: Record<string, unknown> = { ...form, twoFactorCode: resend ? "" : form.twoFactorCode };
+      if (keyResponse !== undefined && keyChallenge) {
+        v.webauthnState = keyChallenge.state;
+        v.webauthnResponse = keyResponse;
+      }
+      const res = await postJson(p("login"), v, keyResponse !== undefined ? true : undefined);
       if (res.success) {
         toast.success(res.msg || t("pages.login.toasts.successLogin"));
         if (typeof window !== "undefined") {
@@ -77,9 +132,10 @@ export default function LoginPage() {
         return;
       }
       const obj = res.obj as
-        | { needTwoFactor?: boolean; telegramSent?: boolean; resendIn?: number }
+        | { needTwoFactor?: boolean; telegramSent?: boolean; resendIn?: number; webauthn?: { state: string; options: Record<string, unknown> } }
         | undefined;
       if (obj?.needTwoFactor) {
+        setKeyChallenge(obj.webauthn ?? null);
         if (obj.telegramSent) {
           toast.success(t("pages.login.toasts.twoFactorTelegramSent"));
         } else if (typeof obj.resendIn === "number") {
@@ -217,6 +273,10 @@ export default function LoginPage() {
             SharX Panel
           </p>
           <Surface>
+            {flow ? (
+              <EmailFlow mode={flow.mode} token={flow.token} onBack={() => setFlow(null)} />
+            ) : (
+            <>
             <form onSubmit={onSubmit} className="flex flex-col gap-4">
               {!awaiting2FA ? (
                 <>
@@ -296,7 +356,7 @@ export default function LoginPage() {
                         autoFocus
                         inputSize="lg"
                         className="!pl-10"
-                        placeholder={t("twoFactorCode")}
+                        placeholder={t("pages.login.flows.codeOrRecovery", { defaultValue: "Code or recovery code" })}
                         value={form.twoFactorCode}
                         onChange={(e) => setForm((f) => ({ ...f, twoFactorCode: e.target.value }))}
                         required
@@ -340,13 +400,55 @@ export default function LoginPage() {
                 {awaiting2FA ? t("confirm") : t("login")}
               </Button>
             </form>
+            {awaiting2FA && keyChallenge && webauthnSupported() ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-3 w-full"
+                onClick={async () => {
+                  try {
+                    const resp = await getAssertion(keyChallenge.options);
+                    await submitLogin(false, resp);
+                  } catch {
+                    toast.error(t("rbac.keys.failed", { defaultValue: "The key could not be used." }));
+                  }
+                }}
+              >
+                {t("pages.login.flows.useKey", { defaultValue: "Use a security key" })}
+              </Button>
+            ) : null}
+            {!awaiting2FA && (methods.passkeys || methods.magicLink || methods.signup || methods.passwordReset) ? (
+              <div className="mt-4 flex flex-col gap-3">
+                {methods.passkeys && webauthnSupported() ? <PasskeyButton onError={(m) => toast.error(m)} /> : null}
+                <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
+                  {methods.magicLink ? (
+                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "magic", token: "" })}>
+                      {t("pages.login.flows.magicLink", { defaultValue: "E-mail me a sign-in link" })}
+                    </button>
+                  ) : null}
+                  {methods.passwordReset ? (
+                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "forgot", token: "" })}>
+                      {t("pages.login.flows.forgot", { defaultValue: "Forgot your password?" })}
+                    </button>
+                  ) : null}
+                  {methods.signup ? (
+                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "register", token: "" })}>
+                      {t("pages.login.flows.createAccount", { defaultValue: "Create an account" })}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {sso.length > 0 && !awaiting2FA ? (
               <div className="mt-5 border-t border-[var(--border)] pt-5">
                 <p className="mb-3 text-center text-xs text-[var(--fg-muted)]">
                   {t("pages.login.sso.or", { defaultValue: "or sign in with" })}
                 </p>
                 <div className="flex flex-col gap-2">
-                  {sso.map((x) => (
+                  {sso.map((x) =>
+                    x.kind === "telegram" && x.botUsername ? (
+                      <TelegramLogin key={x.key} providerKey={x.key} bot={x.botUsername} />
+                    ) : (
                     <a
                       key={x.key}
                       href={p(`auth/sso/${x.key}/start`)}
@@ -355,10 +457,13 @@ export default function LoginPage() {
                       <KeyRound className="size-4 text-[var(--fg-subtle)]" aria-hidden />
                       {x.name}
                     </a>
-                  ))}
+                    ),
+                  )}
                 </div>
               </div>
             ) : null}
+            </>
+            )}
           </Surface>
         </motion.div>
       </div>

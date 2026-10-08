@@ -58,6 +58,11 @@ type Principal struct {
 	RoleName string
 	Perms    rbac.Set
 	Super    bool
+
+	// MFARequired: the panel policy, the role or the user demands a second factor. MFAEnrolled: the user has one (TOTP or a
+	// passkey). Required without enrolled means the account may only reach the pages where it can enrol.
+	MFARequired bool
+	MFAEnrolled bool
 }
 
 // Can reports whether the principal holds a permission.
@@ -138,6 +143,21 @@ func (s *RBACService) loadPrincipal(userId int) (*Principal, error) {
 		}
 	}
 	p.Super = p.Perms.IsSuper()
+	p.MFAEnrolled = u.TwoFactorEnabled && u.TwoFactorSecret != "" || Passkeys.HasPasskeys(u.Id)
+	switch Methods.str("authMfaPolicy") {
+	case "all":
+		p.MFARequired = true
+	case "admins":
+		p.MFARequired = p.Super
+	}
+	if u.RequireMFA {
+		p.MFARequired = true
+	}
+	if u.RoleId != nil {
+		var req bool
+		db.Raw("SELECT require_mfa FROM roles WHERE id = ?", *u.RoleId).Scan(&req)
+		p.MFARequired = p.MFARequired || req
+	}
 	return p, nil
 }
 
@@ -171,6 +191,8 @@ type RoleView struct {
 	Manageable bool `json:"manageable"`
 	// Assignable is true when the caller may give this role to a user (it grants nothing the caller does not hold).
 	Assignable bool `json:"assignable"`
+	// RequireMFA: everybody holding the role must have a second factor.
+	RequireMFA bool `json:"requireMfa"`
 }
 
 // UserView is a user as the UI shows it. The password hash is never part of it.
@@ -190,6 +212,7 @@ type UserView struct {
 	// is set by that provider's rules and cannot be changed by hand.
 	AuthSource  string `json:"authSource"`
 	RoleManaged bool   `json:"roleManaged"`
+	RequireMFA  bool   `json:"requireMfa"`
 	// Manageable is true when the caller may edit, disable or delete this user.
 	Manageable bool `json:"manageable"`
 }
@@ -206,7 +229,7 @@ func roleView(r model.Role, count int64, actor *Principal) RoleView {
 	set := rbac.NewSet(perms)
 	v := RoleView{
 		Id: r.Id, Name: r.Name, Description: r.Description, IsSystem: r.IsSystem, Permissions: set.List(),
-		UserCount: count, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		UserCount: count, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, RequireMFA: r.RequireMFA,
 	}
 	if actor != nil {
 		v.Assignable = actor.Perms.Covers(set)
@@ -271,7 +294,7 @@ func (s *RBACService) ListUsers(actor *Principal) ([]UserView, error) {
 	}
 	out := make([]UserView, 0, len(users))
 	for _, u := range users {
-		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled, Email: u.Email, AuthSource: sourceOrLocal(u.AuthSource), RoleManaged: u.RoleManaged}
+		v := UserView{Id: u.Id, Username: u.Username, Enabled: u.Enabled, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt, LastLoginAt: u.LastLoginAt, TwoFactor: u.TwoFactorEnabled, Email: u.Email, AuthSource: sourceOrLocal(u.AuthSource), RoleManaged: u.RoleManaged, RequireMFA: u.RequireMFA}
 		var set rbac.Set = rbac.Set{}
 		if u.RoleId != nil {
 			if r, ok := byID[*u.RoleId]; ok {
@@ -373,6 +396,7 @@ type RoleInput struct {
 	Name        string
 	Description string
 	Permissions []string
+	RequireMFA  bool
 }
 
 func (s *RBACService) normalizeRole(in RoleInput) (string, string, []string, error) {
@@ -409,7 +433,7 @@ func (s *RBACService) CreateRole(a Actor, in RoleInput) (*RoleView, error) {
 			return conflict("a role named %q already exists", name)
 		}
 		now := time.Now().Unix()
-		created = model.Role{Name: name, Description: desc, Permissions: encodePerms(perms), CreatedAt: now, UpdatedAt: now}
+		created = model.Role{Name: name, Description: desc, Permissions: encodePerms(perms), CreatedAt: now, UpdatedAt: now, RequireMFA: in.RequireMFA}
 		return tx.Create(&created).Error
 	})
 	if err != nil {
@@ -422,7 +446,7 @@ func (s *RBACService) CreateRole(a Actor, in RoleInput) (*RoleView, error) {
 }
 
 func roleState(r model.Role) map[string]any {
-	return map[string]any{"name": r.Name, "description": r.Description, "permissions": parsePerms(r.Permissions)}
+	return map[string]any{"name": r.Name, "description": r.Description, "permissions": parsePerms(r.Permissions), "requireMfa": r.RequireMFA}
 }
 
 // UpdateRole changes a custom role. Rules: system roles are immutable; a caller cannot edit their own role; the caller
@@ -474,8 +498,9 @@ func (s *RBACService) UpdateRole(a Actor, id int, in RoleInput) (*RoleView, erro
 		}
 		after = before
 		after.Name, after.Description, after.Permissions, after.UpdatedAt = name, desc, encodePerms(perms), time.Now().Unix()
+		after.RequireMFA = in.RequireMFA
 		return tx.Model(&model.Role{}).Where("id = ?", id).Updates(map[string]any{
-			"name": after.Name, "description": after.Description, "permissions": after.Permissions, "updated_at": after.UpdatedAt,
+			"name": after.Name, "description": after.Description, "permissions": after.Permissions, "updated_at": after.UpdatedAt, "require_mfa": in.RequireMFA,
 		}).Error
 	})
 	if err != nil {
@@ -602,6 +627,8 @@ type UserPatch struct {
 	// DetachRole releases a user whose role was managed by single sign-on to local role management. It cannot be undone
 	// from here; the user would have to be recreated by the identity provider.
 	DetachRole *bool
+	// RequireMFA makes a second factor mandatory for this user (true) or leaves it to the role and the panel policy (false).
+	RequireMFA *bool
 }
 
 // UpdateUser changes a user's name, role or status. Rules: the caller cannot change their own role or status; the target's
@@ -663,6 +690,10 @@ func (s *RBACService) UpdateUser(a Actor, id int, patch UserPatch) (*UserView, e
 			}
 			after.Email = e
 			upd["email"] = e
+		}
+		if patch.RequireMFA != nil && *patch.RequireMFA != before.RequireMFA {
+			after.RequireMFA = *patch.RequireMFA
+			upd["require_mfa"] = *patch.RequireMFA
 		}
 		if patch.DetachRole != nil && *patch.DetachRole && before.RoleManaged {
 			after.RoleManaged = false

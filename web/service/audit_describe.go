@@ -167,6 +167,34 @@ func DescribeAudit(e model.AuditLog) (level, component, message string) {
 		} else {
 			what = "closed password sign-in for non-administrators"
 		}
+	case "auth.magic_login":
+		what = "signed in with an e-mail link"
+	case "auth.signup":
+		what = "registered and confirmed their e-mail address"
+	case "auth.password_reset_self":
+		what = "set a new password with an e-mail link (their other sessions ended)"
+	case "auth.recovery_code_used":
+		what = "signed in with a recovery code instead of the authenticator"
+	case "user.recovery_codes":
+		what = "generated a new set of recovery codes"
+	case "auth.passkey_login":
+		what = "signed in with a passkey"
+	case "auth.passkey_add":
+		what = "added a security key"
+	case "auth.passkey_remove":
+		what = "removed a security key"
+	case "auth.passkey_clone":
+		what = "used a security key whose counter went backwards (possible clone)"
+	case "auth.resync_revoked":
+		what = fmt.Sprintf("lost access: %s", e.Detail)
+	case "auth.webhook_revoked":
+		what = fmt.Sprintf("lost access: %s", e.Detail)
+	case "mail.settings":
+		what = fmt.Sprintf("changed the SMTP server settings (%s)", strOf(after, "host"))
+	case "mail.test":
+		what = fmt.Sprintf("sent a test message to %s", strOf(after, "to"))
+	case "auth.methods":
+		what = "changed the sign-in methods"
 	case "access.denied":
 		what = fmt.Sprintf("call %s", e.TargetName)
 	default:

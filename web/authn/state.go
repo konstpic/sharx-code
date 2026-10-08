@@ -20,6 +20,11 @@ type Flow struct {
 	LinkUserID  int    // non-zero: the flow links a new identity to this signed-in user instead of signing in
 	Next        string
 	Created     time.Time
+
+	// filled in by the callback, not at the start: what some providers add to the redirect
+	State    string // the state value itself (VK wants it back in the token request)
+	DeviceID string // VK ID
+	UserHint string // Sign in with Apple: the "user" form field with the name, sent on the first sign-in only
 }
 
 // Flows is an in-memory one-time store with a short lifetime.

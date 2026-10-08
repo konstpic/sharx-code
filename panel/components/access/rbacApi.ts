@@ -13,6 +13,7 @@ export type Role = {
   updatedAt: number;
   manageable: boolean;
   assignable: boolean;
+  requireMfa?: boolean;
 };
 
 export type UserRow = {
@@ -28,6 +29,7 @@ export type UserRow = {
   email?: string;
   authSource?: string;
   roleManaged?: boolean;
+  requireMfa?: boolean;
   self: boolean;
   manageable: boolean;
 };
@@ -67,13 +69,13 @@ export const rbacApi = {
   roles: () => call<Role[]>(() => getJson<Role[]>(panel("rbac/roles"))),
   assignable: () => call<AssignableRole[]>(() => getJson<AssignableRole[]>(panel("rbac/assignable-roles"))),
   permissions: () => call<{ groups: { id: string; permissions: { key: string; group: string; sensitive?: boolean }[] }[] }>(() => getJson(panel("rbac/permissions"))),
-  saveRole: (id: number | null, body: { name: string; description: string; permissions: string[] }) =>
+  saveRole: (id: number | null, body: { name: string; description: string; permissions: string[]; requireMfa?: boolean }) =>
     call<Role>(() => postJson<Role>(panel(id == null ? "rbac/roles" : `rbac/roles/${id}/update`), body, true)),
   deleteRole: (id: number) => call(() => postJson(panel(`rbac/roles/${id}/delete`), {}, true)),
   users: () => call<UserRow[]>(() => getJson<UserRow[]>(panel("rbac/users"))),
   createUser: (body: { username: string; password: string; roleId: number; enabled: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel("rbac/users"), body, true)),
-  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean; email?: string; detachRole?: boolean }) =>
+  updateUser: (id: number, body: { username?: string; roleId?: number; enabled?: boolean; email?: string; detachRole?: boolean; requireMfa?: boolean }) =>
     call<UserRow>(() => postJson<UserRow>(panel(`rbac/users/${id}/update`), body, true)),
   resetTwoFactor: (id: number) => call(() => postJson(panel(`rbac/users/${id}/two-factor/reset`), {}, true)),
   setPassword: (id: number, password: string) => call(() => postJson(panel(`rbac/users/${id}/password`), { password }, true)),
@@ -135,11 +137,22 @@ export type SsoProvider = {
   callbackPath: string;
   identities: number;
   updatedAt: number;
+  resync: boolean;
+  resyncMinutes: number;
+  hasWebhook: boolean;
+  webhookPath: string;
+  /** only in the answer to the request that created it */
+  webhookSecret?: string;
 };
 
-export type SsoProviderInput = Omit<SsoProvider, "id" | "kind" | "hasSecret" | "callbackPath" | "identities" | "updatedAt" | "params"> & {
+export type SsoProviderInput = Omit<
+  SsoProvider,
+  "id" | "kind" | "hasSecret" | "callbackPath" | "identities" | "updatedAt" | "params" | "hasWebhook" | "webhookPath" | "webhookSecret"
+> & {
   params: Record<string, string>;
   clientSecret?: string | null;
+  rotateWebhook?: boolean;
+  clearWebhook?: boolean;
 };
 
 export type SsoRule = {
@@ -165,6 +178,9 @@ export type SsoIdentity = {
   groups: string[];
   createdAt: number;
   lastLoginAt: number;
+  resync?: boolean;
+  refreshedAt?: number;
+  resyncError?: string;
 };
 
 export const ssoApi = {
@@ -184,4 +200,55 @@ export const ssoApi = {
   saveSettings: (body: { localLogin: boolean }) => call(() => postJson(panel("auth/settings"), body, true)),
   myIdentities: () => call<SsoIdentity[]>(() => getJson<SsoIdentity[]>(panel("auth/my-identities"))),
   myUnlink: (id: number) => call(() => postJson(panel(`auth/my-identities/${id}/unlink`), {}, true)),
+};
+
+// ------------------------------------------------------------------------------------------------ sign-in methods
+
+export type MailView = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  hasPassword: boolean;
+  from: string;
+  fromName: string;
+  security: "starttls" | "tls" | "none";
+  skipVerify: boolean;
+  verifiedAt: number;
+  usable: boolean;
+};
+
+export type MailInput = Omit<MailView, "hasPassword" | "verifiedAt" | "usable"> & { password?: string | null };
+
+export type MethodsConfig = {
+  magicLink: boolean;
+  signup: boolean;
+  signupRoleId: number;
+  signupDomains: string[];
+  passwordReset: boolean;
+  emailLogin: boolean;
+  passkeys: boolean;
+  mfaPolicy: "off" | "admins" | "all";
+  ssoCountsAsMfa: boolean;
+  rpId: string;
+  origins: string[];
+  publicUrl: string;
+};
+
+export type MethodsView = MethodsConfig & { mail: MailView; needsMail: string[]; blocked: string[] };
+
+export type PasskeyRow = { id: number; name: string; createdAt: number; lastUsedAt: number };
+
+export const methodsApi = {
+  get: () => call<MethodsView>(() => getJson<MethodsView>(panel("auth/methods"))),
+  save: (body: MethodsConfig) => call<MethodsView>(() => postJson<MethodsView>(panel("auth/methods"), body, true)),
+  saveMail: (body: MailInput) => call<MailView>(() => postJson<MailView>(panel("auth/mail"), body, true)),
+  testMail: (to: string) => call<MailView>(() => postJson<MailView>(panel("auth/mail/test"), { to }, true)),
+  passkeys: () => call<{ keys: PasskeyRow[]; enabled: boolean }>(() => getJson(panel("auth/passkeys"))),
+  passkeyBegin: () => call<{ state: string; options: Record<string, unknown> }>(() => postJson(panel("auth/passkeys/register/begin"), {}, true)),
+  passkeyFinish: (body: { state: string; name: string; response: unknown }) => call<PasskeyRow>(() => postJson<PasskeyRow>(panel("auth/passkeys/register/finish"), body, true)),
+  passkeyDelete: (id: number) => call(() => postJson(panel(`auth/passkeys/${id}/delete`), {}, true)),
+  passkeyRename: (id: number, name: string) => call(() => postJson(panel(`auth/passkeys/${id}/rename`), { name }, true)),
+  recoveryStatus: () => call<{ totp: boolean; remaining: number }>(() => getJson(panel("setting/recoveryCodes/status"))),
+  recoveryGenerate: (code: string) => call<{ recoveryCodes: string[] }>(() => postJson(panel("setting/recoveryCodes/generate"), { code }, true)),
 };

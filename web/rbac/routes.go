@@ -317,23 +317,35 @@ var routes = map[string][]string{
 	"GET /panel/rbac/audit":                       {AuditRead},
 
 	// ----- single sign-on -----
-	"GET /panel/auth/presets":                   {AuthRead},
-	"GET /panel/auth/providers":                 {AuthRead},
-	"GET /panel/auth/rules":                     {AuthRead},
-	"GET /panel/auth/identities":                {AuthRead},
-	"GET /panel/auth/settings":                  {AuthRead},
-	"POST /panel/auth/providers":                {AuthManage},
-	"POST /panel/auth/providers/:id/update":     {AuthManage},
-	"POST /panel/auth/providers/:id/delete":     {AuthManage},
-	"POST /panel/auth/providers/:id/test":       {AuthManage},
-	"POST /panel/auth/rules":                    {AuthManage},
-	"POST /panel/auth/rules/:id/update":         {AuthManage},
-	"POST /panel/auth/rules/:id/delete":         {AuthManage},
-	"POST /panel/auth/identities/:id/unlink":    {AuthManage},
-	"POST /panel/auth/settings":                 {AuthManage},
-	"GET /panel/auth/my-identities":             Auth, // own linked accounts
-	"POST /panel/auth/my-identities/:id/unlink": Auth,
-	"GET /panel/auth/link/:key/start":           Auth,
+	"GET /panel/auth/presets":                    {AuthRead},
+	"GET /panel/auth/providers":                  {AuthRead},
+	"GET /panel/auth/rules":                      {AuthRead},
+	"GET /panel/auth/identities":                 {AuthRead},
+	"GET /panel/auth/settings":                   {AuthRead},
+	"POST /panel/auth/providers":                 {AuthManage},
+	"POST /panel/auth/providers/:id/update":      {AuthManage},
+	"POST /panel/auth/providers/:id/delete":      {AuthManage},
+	"POST /panel/auth/providers/:id/test":        {AuthManage},
+	"POST /panel/auth/rules":                     {AuthManage},
+	"POST /panel/auth/rules/:id/update":          {AuthManage},
+	"POST /panel/auth/rules/:id/delete":          {AuthManage},
+	"POST /panel/auth/identities/:id/unlink":     {AuthManage},
+	"POST /panel/auth/settings":                  {AuthManage},
+	"GET /panel/auth/my-identities":              Auth, // own linked accounts
+	"POST /panel/auth/my-identities/:id/unlink":  Auth,
+	"GET /panel/auth/link/:key/start":            Auth,
+	"GET /panel/auth/methods":                    {AuthRead},
+	"GET /panel/auth/mail":                       {AuthRead},
+	"POST /panel/auth/methods":                   {AuthManage},
+	"POST /panel/auth/mail":                      {AuthManage},
+	"POST /panel/auth/mail/test":                 {AuthManage},
+	"GET /panel/auth/passkeys":                   Auth, // own security keys
+	"POST /panel/auth/passkeys/register/begin":   Auth,
+	"POST /panel/auth/passkeys/register/finish":  Auth,
+	"POST /panel/auth/passkeys/:id/delete":       Auth,
+	"POST /panel/auth/passkeys/:id/rename":       Auth,
+	"POST /panel/setting/recoveryCodes/generate": Auth, // own recovery codes, needs the current 2FA code
+	"GET /panel/setting/recoveryCodes/status":    Auth,
 }
 
 // Lookup returns the permissions required by a route. method and fullPath are as Gin reports them (fullPath already

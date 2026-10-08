@@ -13,6 +13,11 @@ export type Me = {
   super: boolean;
   /** the user's own two-factor authentication is on */
   twoFactor?: boolean;
+  /** the panel policy, the role or the account demands a second factor */
+  mfaRequired?: boolean;
+  mfaEnrolled?: boolean;
+  /** required and not set up yet: only the enrolment pages work */
+  mfaGated?: boolean;
   permissions: string[];
 };
 
@@ -57,6 +62,13 @@ export function RbacProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // An account that must have a second factor and has none can use only the page where it sets one up.
+  useEffect(() => {
+    if (me?.mfaGated && typeof window !== "undefined" && !window.location.pathname.includes("/settings/security")) {
+      window.location.replace(panel("settings/security/?mfa=required"));
+    }
+  }, [me?.mfaGated]);
 
   // Role changes made by an administrator should show up without a new sign-in.
   useEffect(() => {

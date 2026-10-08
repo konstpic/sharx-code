@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -34,6 +35,77 @@ func (a *IndexController) registerSSO(g *gin.RouterGroup) {
 	g.GET("/auth/providers", a.ssoProviders)
 	g.GET("/auth/sso/:key/start", a.ssoStart)
 	g.GET("/auth/sso/:key/callback", a.ssoCallback)
+	// Sign in with Apple answers with a cross-site form POST: it is turned into a GET to our own address, which a Lax session
+	// cookie accompanies (a top-level GET navigation), so the same binding check applies.
+	g.POST("/auth/sso/:key/callback", a.ssoCallbackPost)
+	// the Telegram widget has no redirect to start: the page asks for a state first
+	g.GET("/auth/sso/:key/begin", a.ssoBegin)
+	g.POST("/auth/sso/:key/webhook", a.ssoWebhook)
+}
+
+func (a *IndexController) ssoCallbackPost(c *gin.Context) {
+	q := url.Values{}
+	for _, k := range []string{"code", "state", "error", "user"} {
+		if v := c.PostForm(k); v != "" {
+			q.Set(k, v)
+		}
+	}
+	c.Redirect(http.StatusSeeOther, webBasePath(c)+"auth/sso/"+url.PathEscape(c.Param("key"))+"/callback?"+q.Encode())
+}
+
+// ssoBegin starts a flow that the page continues itself (the Telegram widget): it returns the state and sets the binding.
+func (a *IndexController) ssoBegin(c *gin.Context) {
+	if !ssoStartRL.Allow(getRemoteIp(c)) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"success": false})
+		return
+	}
+	p, err := service.SSO.ProviderByKey(c.Param("key"))
+	if err != nil || service.SSO.KindOf(p) != "telegram" {
+		c.JSON(http.StatusNotFound, gin.H{"success": false})
+		return
+	}
+	fl := authn.Flow{Provider: p.Key, Binding: authn.Random(24)}
+	state := ssoFlows.Put(fl)
+	s := sessions.Default(c)
+	s.Set(ssoBindingKey, fl.Binding)
+	if err := s.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	jsonObj(c, gin.H{"state": state, "bot": p.ClientId, "authUrl": callbackURL(c, p.Key, service.SSO.RedirectBase(p)) + "?state=" + url.QueryEscape(state)}, nil)
+}
+
+var ssoWebhookRL = authn.NewLimiter(120, time.Minute)
+
+// ssoWebhook receives events from the identity provider (a person changed or was deactivated). It carries its own
+// authentication (bearer secret, or HMAC with a timestamp); a refused call tells nothing about why.
+func (a *IndexController) ssoWebhook(c *gin.Context) {
+	if !ssoWebhookRL.Allow(getRemoteIp(c)) {
+		c.AbortWithStatus(http.StatusTooManyRequests)
+		return
+	}
+	p, err := service.SSO.ProviderByKey(c.Param("key"))
+	body, rerr := io.ReadAll(io.LimitReader(c.Request.Body, 64<<10))
+	if err != nil || rerr != nil || p.WebhookSecret == "" {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	h := map[string]string{
+		"authorization":     c.GetHeader("Authorization"),
+		"x-sharx-signature": c.GetHeader("X-SharX-Signature"),
+		"x-sharx-timestamp": c.GetHeader("X-SharX-Timestamp"),
+	}
+	res, err := service.SSO.HandleWebhook(c.Request.Context(), p, h, body, time.Now())
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"success": true, "matched": res.Matched, "action": res.Action})
+	case errors.Is(err, service.ErrInvalid):
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": err.Error()})
+	default:
+		service.SSO.RecordDenied(p, nil, getRemoteIp(c), errors.New("webhook refused"))
+		c.AbortWithStatus(http.StatusUnauthorized)
+	}
 }
 
 func (a *IndexController) ssoProviders(c *gin.Context) {
@@ -164,7 +236,13 @@ func (a *IndexController) ssoCallback(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
-	id, err := cl.Complete(ctx, c.Query("code"), fl, time.Now())
+	fl.State, fl.DeviceID, fl.UserHint = c.Query("state"), c.Query("device_id"), c.Query("user")
+	var id *authn.Identity
+	if service.SSO.KindOf(p) == "telegram" {
+		id, err = service.SSO.CompleteTelegram(p, c.Request.URL.Query(), time.Now())
+	} else {
+		id, err = cl.Complete(ctx, c.Query("code"), fl, time.Now())
+	}
 	if err != nil {
 		logger.Warningf("sso: sign-in via %s failed: %v", p.Key, err)
 		service.SSO.RecordDenied(p, nil, ip, err)
@@ -191,7 +269,7 @@ func (a *IndexController) ssoCallback(c *gin.Context) {
 		return
 	}
 	timeStr := time.Now().Format("2006-01-02 15:04:05")
-	if !a.establishSession(c, user, user.Username, timeStr) {
+	if !a.establishSession(c, user, user.Username, timeStr, service.Methods.Config().SsoCountsAsMfa) {
 		a.ssoFail(c, "failed", false)
 		return
 	}

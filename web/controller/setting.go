@@ -86,6 +86,8 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g.POST("/twoFactor/complete", a.completeTwoFactorSetup)
 	g.POST("/twoFactor/cancel", a.cancelTwoFactorSetup)
 	g.POST("/twoFactor/disable", a.disableTwoFactor)
+	g.POST("/recoveryCodes/generate", a.generateRecoveryCodes)
+	g.GET("/recoveryCodes/status", a.recoveryCodesStatus)
 	g.POST("/ui/get", a.getUIPreference)
 	g.POST("/ui/set", a.setUIPreference)
 	g.POST("/generateSecretPaths", a.generateSecretPaths)
@@ -362,7 +364,47 @@ func (a *SettingController) completeTwoFactorSetup(c *gin.Context) {
 	if err := sessions.Default(c).Save(); err != nil {
 		logger.Warning("session save after 2FA setup:", err)
 	}
-	jsonMsg(c, I18nWeb(c, "pages.settings.security.twoFactorModalSetSuccess"), nil)
+	// the codes that replace the authenticator if the phone is lost: shown once, now
+	codes, _ := service.GenerateRecoveryCodes(user.Id)
+	service.InvalidateRBAC()
+	jsonMsgObj(c, I18nWeb(c, "pages.settings.security.twoFactorModalSetSuccess"), gin.H{"recoveryCodes": codes}, nil)
+}
+
+// generateRecoveryCodes replaces the user's recovery codes. The current authenticator code is required, so a stolen session
+// alone cannot mint codes that would work after the session ends.
+func (a *SettingController) generateRecoveryCodes(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorBeginUnauthorized"))
+		return
+	}
+	form := &twoFactorCodeForm{}
+	if err := c.ShouldBind(form); err != nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorModalError"))
+		return
+	}
+	enabled, secret := service.UserTwoFactor(user.Id)
+	if !enabled || !service.VerifyTOTPCode(secret, strings.TrimSpace(form.Code)) {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.security.twoFactorModalError"))
+		return
+	}
+	codes, err := service.GenerateRecoveryCodes(user.Id)
+	if err != nil {
+		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.settings.toasts.modifySettings"))
+		return
+	}
+	service.Audit.Record(service.Actor{Principal: currentPrincipal(c), IP: getRemoteIp(c)}, "user.recovery_codes", "user", fmt.Sprint(user.Id), user.Username, nil, nil, "ok", "new set generated")
+	jsonObj(c, gin.H{"recoveryCodes": codes}, nil)
+}
+
+func (a *SettingController) recoveryCodesStatus(c *gin.Context) {
+	user := session.GetLoginUser(c)
+	if user == nil {
+		pureJsonMsg(c, http.StatusOK, false, "")
+		return
+	}
+	enabled, _ := service.UserTwoFactor(user.Id)
+	jsonObj(c, gin.H{"totp": enabled, "remaining": service.RemainingRecoveryCodes(user.Id)}, nil)
 }
 
 // disableTwoFactor turns off the caller's own 2FA. The current code is required, so a stolen session alone cannot do it.

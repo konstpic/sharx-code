@@ -251,7 +251,7 @@ export function SsoTab() {
                 <span className="truncate font-medium text-[var(--fg)]">{i.username}</span>
                 <span className="truncate text-[var(--fg-muted)]">{i.provider}</span>
                 <span className="min-w-0 truncate text-xs text-[var(--fg-subtle)]">
-                  {i.email} {i.groups.length > 0 ? `· ${i.groups.slice(0, 4).join(", ")}${i.groups.length > 4 ? "…" : ""}` : ""} · {fmtDate(i.lastLoginAt)}
+                  {i.email}{i.resyncError ? ` · ⚠ ${i.resyncError}` : i.resync ? " · ✓ re-checked" : ""} {i.groups.length > 0 ? `· ${i.groups.slice(0, 4).join(", ")}${i.groups.length > 4 ? "…" : ""}` : ""} · {fmtDate(i.lastLoginAt)}
                 </span>
                 {manage ? (
                   <IconButton label={t("rbac.sso.unlink", { defaultValue: "Unlink" })} onClick={() => setUnlinkTarget(i)}>
@@ -406,6 +406,10 @@ function ProviderModal({
   const [noMatch, setNoMatch] = useState<"deny" | "default" | "keep">(provider?.noMatch ?? "deny");
   const [defaultRole, setDefaultRole] = useState<number>(provider?.defaultRoleId ?? 0);
   const [adv, setAdv] = useState(false);
+  const [resync, setResync] = useState(provider?.resync ?? false);
+  const [resyncMinutes, setResyncMinutes] = useState(provider?.resyncMinutes ?? 15);
+  const [webhookAction, setWebhookAction] = useState<"keep" | "rotate" | "clear">("keep");
+  const [issuedSecret, setIssuedSecret] = useState("");
   const o = provider?.overrides ?? {};
   const [ov, setOv] = useState({
     redirectBase: o.redirectBase ?? "",
@@ -466,15 +470,48 @@ function ProviderModal({
       roleMode,
       noMatch,
       defaultRoleId: defaultRole || undefined,
+      resync,
+      resyncMinutes,
+      rotateWebhook: webhookAction === "rotate",
+      clearWebhook: webhookAction === "clear",
     });
     setSaving(false);
     if (r.ok) {
       toast.success(t("rbac.sso.saved", { defaultValue: "Provider saved" }));
+      if (r.obj?.webhookSecret) {
+        setIssuedSecret(r.obj.webhookSecret); // shown once; the dialog closes the editor
+        return;
+      }
       onSaved();
     } else setError(r.msg);
   };
 
   const area = "min-h-[72px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-sm";
+  if (issuedSecret) {
+    return (
+      <Modal
+        open
+        onClose={onSaved}
+        title={t("rbac.sso.webhookSecretTitle", { defaultValue: "Webhook secret" })}
+        width={520}
+        footer={
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={onSaved}>
+              {t("rbac.sso.done", { defaultValue: "Done" })}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <AlertBanner type="warning" title={t("rbac.sso.webhookSecretOnce", { defaultValue: "Copy it now: it is not shown again." })} />
+          <Input readOnly value={issuedSecret} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+          <Button variant="secondary" onClick={() => void copyTextToClipboard(issuedSecret)}>
+            <Copy size={16} /> {t("rbac.sso.copy", { defaultValue: "Copy" })}
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
   return (
     <Modal
       open
@@ -517,20 +554,29 @@ function ProviderModal({
           </Field>
         ))}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Client ID">
+          <Field label={preset === "telegram" ? "Bot username (without @)" : preset === "apple" ? "Services ID" : "Client ID"}>
             <Input value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
           </Field>
           <Field
-            label="Client secret"
+            label={preset === "telegram" ? "Bot token" : preset === "apple" ? "Private key (.p8)" : "Client secret"}
             hint={provider?.hasSecret ? t("rbac.sso.secretKept", { defaultValue: "Stored encrypted; leave empty to keep it" }) : undefined}
           >
-            <Input
-              type="password"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              autoComplete="new-password"
-              placeholder={provider?.hasSecret ? "••••••••" : ""}
-            />
+            {preset === "apple" ? (
+              <textarea
+                className="min-h-[72px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 font-mono text-xs"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                placeholder={provider?.hasSecret ? "••••••••" : "-----BEGIN PRIVATE KEY-----"}
+              />
+            ) : (
+              <Input
+                type="password"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                autoComplete="new-password"
+                placeholder={provider?.hasSecret ? "••••••••" : ""}
+              />
+            )}
           </Field>
         </div>
         <Field label={t("rbac.sso.redirectUri", { defaultValue: "Redirect URI to register at the provider" })}>
@@ -596,6 +642,48 @@ function ProviderModal({
             ))}
           </SelectNative>
         </Field>
+
+        {info?.kind === "oidc" || info?.kind === "oauth2" ? (
+          <div className="grid gap-3 rounded-xl border border-[var(--border)] p-3">
+            <label className="flex items-center gap-3 text-sm text-[var(--fg-muted)]">
+              <Switch checked={resync} onChange={setResync} ariaLabel="resync" />
+              <span>
+                {t("rbac.sso.resync", { defaultValue: "Keep roles and access in step with the provider between sign-ins" })}
+                <span className="block text-[11px] text-[var(--fg-subtle)]">
+                  {t("rbac.sso.resyncHint", {
+                    defaultValue:
+                      "The panel keeps the provider's refresh token (encrypted, rotated at every use) and re-checks each person. Removed from a group: the role changes; deactivated: sessions end. The provider must grant offline access (Authentik: the offline_access scope).",
+                  })}
+                </span>
+              </span>
+            </label>
+            {resync ? (
+              <Field label={t("rbac.sso.resyncEvery", { defaultValue: "Re-check every (minutes, 5-1440)" })}>
+                <Input type="number" value={resyncMinutes} onChange={(e) => setResyncMinutes(Number(e.target.value))} />
+              </Field>
+            ) : null}
+            <Field
+              label={t("rbac.sso.webhook", { defaultValue: "Webhook for instant changes" })}
+              hint={t("rbac.sso.webhookHint", {
+                defaultValue:
+                  "The provider POSTs {event: updated|deactivated|deleted, sub|email|username} to this address with the secret as a Bearer token, or signed with HMAC-SHA256 (X-SharX-Signature over timestamp.body).",
+              })}
+            >
+              <div className="flex flex-col gap-2">
+                {provider?.hasWebhook ? <Input readOnly className="font-mono text-xs" value={`${window.location.origin}${p(provider.webhookPath)}`} /> : null}
+                <SelectNative value={webhookAction} onChange={(e) => setWebhookAction(e.target.value as "keep" | "rotate" | "clear")}>
+                  <option value="keep">
+                    {provider?.hasWebhook
+                      ? t("rbac.sso.webhookKeep", { defaultValue: "Webhook is on (keep the secret)" })
+                      : t("rbac.sso.webhookOff", { defaultValue: "Webhook is off" })}
+                  </option>
+                  <option value="rotate">{t("rbac.sso.webhookRotate", { defaultValue: "Create a new secret (shown once)" })}</option>
+                  {provider?.hasWebhook ? <option value="clear">{t("rbac.sso.webhookClear", { defaultValue: "Turn the webhook off" })}</option> : null}
+                </SelectNative>
+              </div>
+            </Field>
+          </div>
+        ) : null}
 
         <button type="button" className="text-left text-xs text-[var(--accent)]" onClick={() => setAdv((v) => !v)}>
           {adv ? "▾" : "▸"} {t("rbac.sso.advanced", { defaultValue: "Advanced: endpoints, scopes, claim names" })}

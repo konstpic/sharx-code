@@ -127,12 +127,22 @@ var presets = []Preset{
 				UserInfoURL: "https://login.yandex.ru/info?format=json", Scopes: []string{"login:email", "login:info"}, PKCE: true, TokenAuth: "post",
 				Claims: ClaimMap{Subject: "id", Username: "login", Name: "real_name", Email: "default_email"}, TrustEmail: true}
 		}},
-	{Id: "vk", Name: "VK ID", Kind: "oauth2", Stage: 2, Notes: "Needs a dedicated adapter (POST user info with device id). Planned for stage 2.",
-		build: func(p map[string]string) Config { return Config{Kind: "oauth2"} }},
-	{Id: "apple", Name: "Sign in with Apple", Kind: "oidc", Stage: 2, Notes: "Needs a generated JWT client secret and form_post response. Planned for stage 2.",
-		build: func(p map[string]string) Config { return Config{Kind: "oidc"} }},
-	{Id: "telegram", Name: "Telegram Login", Kind: "widget", Stage: 2, Notes: "Not OAuth: signed widget payload. Planned for stage 2.",
-		build: func(p map[string]string) Config { return Config{Kind: "oauth2"} }},
+	{Id: "vk", Name: "VK ID", Kind: "vk", Stage: 1,
+		Notes: "OAuth 2.1 with PKCE on id.vk.com. Client ID is the app id; the secret is not used for the code exchange. Register the redirect URI in the VK ID app.",
+		build: func(p map[string]string) Config {
+			return Config{Kind: "vk", AuthURL: "https://id.vk.com/authorize", TokenURL: "https://id.vk.com/oauth2/auth", UserInfoURL: "https://id.vk.com/oauth2/user_info",
+				Scopes: []string{"email"}, PKCE: true, Claims: ClaimMap{Subject: "user_id", Email: "email", Name: "name", Username: "user_id"}}
+		}},
+	{Id: "apple", Name: "Sign in with Apple", Kind: "oidc", Stage: 1,
+		Params: []Param{{Key: "teamId", Label: "Apple Team ID", Example: "ABCDE12345"}, {Key: "keyId", Label: "Key ID of the Sign in with Apple key", Example: "K1L2M3N4O5"}},
+		Notes:  "Client ID is the Services ID; the client secret field takes the contents of the .p8 private key (a short-lived JWT is signed from it). The e-mail may be an Apple relay address. Apple sends the name only the first time.",
+		build: func(p map[string]string) Config {
+			return Config{Kind: "oidc", Issuer: "https://appleid.apple.com", Scopes: []string{"name", "email"}, PKCE: false, TokenAuth: "post",
+				ExtraParams: map[string]string{"response_mode": "form_post"}}
+		}},
+	{Id: "telegram", Name: "Telegram Login", Kind: "telegram", Stage: 1,
+		Notes: "Client ID is the bot's username (without @), the client secret is the bot token. Set the panel's domain with /setdomain in @BotFather. Telegram gives no e-mail, so e-mail rules and linking do not apply.",
+		build: func(p map[string]string) Config { return Config{Kind: "telegram"} }},
 }
 
 // Presets lists the known providers.

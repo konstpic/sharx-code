@@ -79,7 +79,9 @@ func TestIDTokenValidation(t *testing.T) {
 	}{
 		{"wrong audience", func(i *authntest.IdP) { i.Tamper = func(c jwt.MapClaims) { c["aud"] = "someone-else" } }, "audience"},
 		{"wrong issuer", func(i *authntest.IdP) { i.Tamper = func(c jwt.MapClaims) { c["iss"] = "https://evil.example" } }, "issuer"},
-		{"expired", func(i *authntest.IdP) { i.Tamper = func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Hour).Unix() } }, "expired"},
+		{"expired", func(i *authntest.IdP) {
+			i.Tamper = func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Hour).Unix() }
+		}, "expired"},
 		{"wrong nonce", func(i *authntest.IdP) { i.Tamper = func(c jwt.MapClaims) { c["nonce"] = "replayed" } }, "nonce"},
 		{"no expiry", func(i *authntest.IdP) { i.Tamper = func(c jwt.MapClaims) { delete(c, "exp") } }, "exp"},
 		{"signed by another key", func(i *authntest.IdP) { i.SignWith = other }, "signature"},
@@ -231,7 +233,7 @@ func TestPresetsBuildAndValidate(t *testing.T) {
 		t.Fatal("a required parameter is missing")
 	}
 	if _, err := authn.BuildConfig("apple", nil); err == nil {
-		t.Fatal("providers without an adapter must not be configurable yet")
+		t.Fatal("apple needs its team and key ids")
 	}
 	for _, id := range []string{"github", "google", "discord", "yandex", "gitlab", "microsoft", "keycloak", "auth0", "okta", "linkedin", "facebook"} {
 		p, ok := authn.PresetByID(id)

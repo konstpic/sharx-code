@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/database"
@@ -45,6 +46,15 @@ func (s *UserService) VerifyPassword(username string, password string) *model.Us
 		Where("username = ?", username).
 		First(user).
 		Error
+	if err == gorm.ErrRecordNotFound && strings.Contains(username, "@") && Methods.Config().EmailLogin {
+		// the e-mail address instead of the username, when it identifies exactly one account
+		var found []model.User
+		db.Where("LOWER(email) = LOWER(?) AND deleted_at IS NULL", strings.TrimSpace(username)).Limit(2).Find(&found)
+		if len(found) == 1 {
+			*user = found[0]
+			err = nil
+		}
+	}
 	if err == gorm.ErrRecordNotFound {
 		return nil
 	} else if err != nil {

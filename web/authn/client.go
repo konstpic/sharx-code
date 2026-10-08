@@ -29,6 +29,8 @@ type Config struct {
 	ExtraParams  map[string]string // added to the authorization request (prompt, hd, ...)
 	ClientID     string
 	ClientSecret string
+	// SecretFn, when set, produces the client secret for each token request (Sign in with Apple signs a short-lived JWT).
+	SecretFn func() (string, error) `json:"-"`
 }
 
 // Provider is a configured identity provider with its caches.
@@ -126,9 +128,42 @@ func (p *Provider) AuthorizeURL(redirectURI, state, nonce, verifier string) (str
 
 // Tokens is the part of the token response that is used. The access token is used once (user info) and then dropped.
 type Tokens struct {
-	AccessToken string `json:"access_token"`
-	IDToken     string `json:"id_token"`
-	TokenType   string `json:"token_type"`
+	AccessToken  string `json:"access_token"`
+	IDToken      string `json:"id_token"`
+	TokenType    string `json:"token_type"`
+	RefreshToken string `json:"refresh_token"`
+	UserID       any    `json:"user_id"` // VK ID returns the user id with the token
+}
+
+func (p *Provider) clientSecret() (string, error) {
+	if p.Cfg.SecretFn != nil {
+		return p.Cfg.SecretFn()
+	}
+	return p.Cfg.ClientSecret, nil
+}
+
+// tokenRequest posts a grant to the token endpoint with the configured client authentication.
+func (p *Provider) tokenRequest(ctx context.Context, form url.Values) (*Tokens, error) {
+	secret, err := p.clientSecret()
+	if err != nil {
+		return nil, err
+	}
+	var t Tokens
+	switch {
+	case p.Cfg.TokenAuth == "post":
+		form.Set("client_id", p.Cfg.ClientID)
+		form.Set("client_secret", secret)
+		err = postForm(ctx, p.Cfg.TokenURL, form, "", "", &t)
+	case secret == "": // public client: identify by client_id in the body
+		form.Set("client_id", p.Cfg.ClientID)
+		err = postForm(ctx, p.Cfg.TokenURL, form, "", "", &t)
+	default:
+		err = postForm(ctx, p.Cfg.TokenURL, form, p.Cfg.ClientID, secret, &t)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // Exchange trades the authorization code for tokens.
@@ -137,27 +172,33 @@ func (p *Provider) Exchange(ctx context.Context, code, redirectURI, verifier str
 	if p.Cfg.PKCE {
 		form.Set("code_verifier", verifier)
 	}
-	var t Tokens
-	var err error
-	if p.Cfg.TokenAuth == "post" {
-		form.Set("client_id", p.Cfg.ClientID)
-		form.Set("client_secret", p.Cfg.ClientSecret)
-		err = postForm(ctx, p.Cfg.TokenURL, form, "", "", &t)
-	} else {
-		if p.Cfg.ClientSecret == "" { // public client: identify by client_id in the body
-			form.Set("client_id", p.Cfg.ClientID)
-			err = postForm(ctx, p.Cfg.TokenURL, form, "", "", &t)
-		} else {
-			err = postForm(ctx, p.Cfg.TokenURL, form, p.Cfg.ClientID, p.Cfg.ClientSecret, &t)
-		}
-	}
+	t, err := p.tokenRequest(ctx, form)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
 	if t.AccessToken == "" && t.IDToken == "" {
 		return nil, errors.New("token exchange: the provider returned no tokens")
 	}
-	return &t, nil
+	return t, nil
+}
+
+// Refresh redeems a refresh token. Providers rotate it: the answer usually carries a new one that replaces the old; when it
+// does not, the old one stays valid.
+func (p *Provider) Refresh(ctx context.Context, refreshToken string) (*Tokens, error) {
+	if err := p.Discover(ctx); err != nil {
+		return nil, err
+	}
+	t, err := p.tokenRequest(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {refreshToken}})
+	if err != nil {
+		return nil, err
+	}
+	if t.AccessToken == "" {
+		return nil, errors.New("refresh: the provider returned no access token")
+	}
+	if t.RefreshToken == "" {
+		t.RefreshToken = refreshToken
+	}
+	return t, nil
 }
 
 var allowedAlgs = []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"}
@@ -184,8 +225,10 @@ func (p *Provider) VerifyIDToken(ctx context.Context, raw, nonce string, now tim
 	if err != nil {
 		return nil, fmt.Errorf("invalid ID token: %w", err)
 	}
-	if got, _ := claims["nonce"].(string); !SameBinding(got, nonce) {
-		return nil, errors.New("invalid ID token: nonce mismatch")
+	if nonce != "" { // not present in the ID token of a refresh response
+		if got, _ := claims["nonce"].(string); !SameBinding(got, nonce) {
+			return nil, errors.New("invalid ID token: nonce mismatch")
+		}
 	}
 	if aud, ok := claims["aud"].([]any); ok && len(aud) > 1 {
 		if azp, _ := claims["azp"].(string); azp != p.Cfg.ClientID {
@@ -221,6 +264,9 @@ type emailEntry struct {
 func (p *Provider) Complete(ctx context.Context, code string, fl Flow, now time.Time) (*Identity, error) {
 	if err := p.Discover(ctx); err != nil {
 		return nil, err
+	}
+	if p.Cfg.Kind == "vk" {
+		return p.completeVK(ctx, code, fl)
 	}
 	toks, err := p.Exchange(ctx, code, fl.RedirectURI, fl.Verifier)
 	if err != nil {
@@ -272,6 +318,9 @@ func (p *Provider) Complete(ctx context.Context, code string, fl Flow, now time.
 			}
 		}
 	}
+	if fl.UserHint != "" {
+		mergeAppleName(merged, fl.UserHint)
+	}
 	id := ExtractIdentity(merged, p.Cfg.Claims)
 	if p.Cfg.TrustEmail && id.Email != "" {
 		id.EmailVerified = true
@@ -279,5 +328,42 @@ func (p *Provider) Complete(ctx context.Context, code string, fl Flow, now time.
 	if id.Subject == "" {
 		return nil, errors.New("the provider returned no stable user id")
 	}
+	id.RefreshToken = toks.RefreshToken
+	return &id, nil
+}
+
+// Resync asks the provider, with a stored refresh token, what it says about the person now. It returns the identity with
+// the (possibly rotated) refresh token in id.RefreshToken. A revoked grant is reported as an error for which IsGrantRevoked
+// is true: the provider no longer vouches for the person.
+func (p *Provider) Resync(ctx context.Context, refreshToken, wantSubject string, now time.Time) (*Identity, error) {
+	toks, err := p.Refresh(ctx, refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	merged := map[string]any{}
+	if p.Cfg.Kind == "oidc" && toks.IDToken != "" {
+		if idc, err := p.VerifyIDToken(ctx, toks.IDToken, "", now); err == nil {
+			for k, v := range idc {
+				merged[k] = v
+			}
+		}
+	}
+	ui, err := p.UserInfo(ctx, toks.AccessToken)
+	if err != nil && len(merged) == 0 {
+		return nil, err
+	}
+	for k, v := range ui {
+		if _, have := merged[k]; !have || p.Cfg.Kind == "oauth2" {
+			merged[k] = v
+		}
+	}
+	id := ExtractIdentity(merged, p.Cfg.Claims)
+	if p.Cfg.TrustEmail && id.Email != "" {
+		id.EmailVerified = true
+	}
+	if id.Subject != wantSubject {
+		return nil, fmt.Errorf("the refreshed identity belongs to somebody else")
+	}
+	id.RefreshToken = toks.RefreshToken
 	return &id, nil
 }

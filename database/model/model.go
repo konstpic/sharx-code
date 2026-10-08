@@ -79,6 +79,8 @@ type User struct {
 	Email       string `json:"email,omitempty" gorm:"column:email"`
 	AuthSource  string `json:"authSource,omitempty" gorm:"column:auth_source"`
 	RoleManaged bool   `json:"roleManaged" gorm:"column:role_managed"`
+	// RequireMFA makes a second factor (TOTP or a passkey) mandatory for this user, whatever the role or the panel policy say.
+	RequireMFA bool `json:"requireMfa" gorm:"column:require_mfa"`
 }
 
 // Role is a named set of permissions. Permissions is a JSON array of keys from the web/rbac catalogue, or ["*"].
@@ -91,6 +93,7 @@ type Role struct {
 	Permissions string  `json:"-" gorm:"column:permissions"`
 	CreatedAt   int64   `json:"createdAt" gorm:"column:created_at"`
 	UpdatedAt   int64   `json:"updatedAt" gorm:"column:updated_at"`
+	RequireMFA  bool    `json:"requireMfa" gorm:"column:require_mfa"`
 }
 
 // TableName names the roles table for GORM.
@@ -944,6 +947,9 @@ type AuthProvider struct {
 	RoleMode       string `json:"roleMode" gorm:"column:role_mode"`
 	NoMatch        string `json:"noMatch" gorm:"column:no_match"`
 	DefaultRoleId  *int   `json:"defaultRoleId,omitempty" gorm:"column:default_role_id"`
+	Resync         bool   `json:"resync" gorm:"column:resync"`
+	ResyncMinutes  int    `json:"resyncMinutes" gorm:"column:resync_minutes"`
+	WebhookSecret  string `json:"-" gorm:"column:webhook_secret"`
 	CreatedAt      int64  `json:"createdAt" gorm:"column:created_at"`
 	UpdatedAt      int64  `json:"updatedAt" gorm:"column:updated_at"`
 }
@@ -963,6 +969,9 @@ type UserIdentity struct {
 	Groups        string `json:"-" gorm:"column:groups"`
 	CreatedAt     int64  `json:"createdAt" gorm:"column:created_at"`
 	LastLoginAt   int64  `json:"lastLoginAt" gorm:"column:last_login_at"`
+	RefreshToken  string `json:"-" gorm:"column:refresh_token"`
+	RefreshedAt   int64  `json:"refreshedAt" gorm:"column:refreshed_at"`
+	ResyncError   string `json:"resyncError" gorm:"column:resync_error"`
 }
 
 // TableName names the user_identities table for GORM.
@@ -983,3 +992,46 @@ type AuthRoleRule struct {
 
 // TableName names the auth_role_rules table for GORM.
 func (AuthRoleRule) TableName() string { return "auth_role_rules" }
+
+// AuthToken is a one-time token sent by e-mail (magic link, sign-up confirmation, password reset). Only its hash is stored.
+type AuthToken struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Kind      string `json:"kind" gorm:"column:kind"`
+	TokenHash string `json:"-" gorm:"column:token_hash"`
+	UserId    *int   `json:"userId,omitempty" gorm:"column:user_id"`
+	Email     string `json:"email" gorm:"column:email"`
+	Payload   string `json:"-" gorm:"column:payload"`
+	IP        string `json:"ip" gorm:"column:ip"`
+	CreatedAt int64  `json:"createdAt" gorm:"column:created_at"`
+	ExpiresAt int64  `json:"expiresAt" gorm:"column:expires_at"`
+	UsedAt    *int64 `json:"usedAt,omitempty" gorm:"column:used_at"`
+}
+
+// TableName names the auth_tokens table for GORM.
+func (AuthToken) TableName() string { return "auth_tokens" }
+
+// UserPasskey is a registered WebAuthn credential (a passkey or a hardware security key).
+type UserPasskey struct {
+	Id           int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId       int    `json:"userId" gorm:"column:user_id"`
+	Name         string `json:"name" gorm:"column:name"`
+	CredentialId string `json:"-" gorm:"column:credential_id"`
+	Credential   string `json:"-" gorm:"column:credential"`
+	CreatedAt    int64  `json:"createdAt" gorm:"column:created_at"`
+	LastUsedAt   int64  `json:"lastUsedAt" gorm:"column:last_used_at"`
+}
+
+// TableName names the user_passkeys table for GORM.
+func (UserPasskey) TableName() string { return "user_passkeys" }
+
+// UserRecoveryCode is a one-time code that replaces a second factor when the device is lost. Only its hash is stored.
+type UserRecoveryCode struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId    int    `json:"userId" gorm:"column:user_id"`
+	CodeHash  string `json:"-" gorm:"column:code_hash"`
+	CreatedAt int64  `json:"createdAt" gorm:"column:created_at"`
+	UsedAt    *int64 `json:"usedAt,omitempty" gorm:"column:used_at"`
+}
+
+// TableName names the user_recovery_codes table for GORM.
+func (UserRecoveryCode) TableName() string { return "user_recovery_codes" }

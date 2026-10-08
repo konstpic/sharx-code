@@ -261,6 +261,7 @@ func (s *Server) startTask() {
 		if err != nil || st == nil {
 			return
 		}
+		service.AuthEmail.PurgeExpiredTokens()
 		days := service.AuditRetentionDays(st)
 		if n, err := service.PurgeAuditOlderThan(days); err != nil {
 			logger.Warning("audit retention:", err)
@@ -269,6 +270,12 @@ func (s *Server) startTask() {
 		}
 	}
 	s.cron.AddFunc("@every 1h", purgeAudit)
+	// keep people in step with their identity provider (refresh tokens); a no-op unless a provider has it switched on
+	s.cron.AddFunc("@every 2m", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		service.SSO.ResyncDue(ctx, 30)
+	})
 	go func() {
 		time.Sleep(time.Minute)
 		purgeAudit()

@@ -34,6 +34,8 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCan, useRbac } from "@/lib/rbac";
 import { LinkedAccounts } from "@/components/access/LinkedAccounts";
+import { SecurityMethods } from "@/components/access/SecurityMethods";
+import { RecoveryCodesModal } from "@/components/access/RecoveryCodesModal";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -238,6 +240,7 @@ export function SettingsPage() {
   const [twoFactorDisableOpen, setTwoFactorDisableOpen] = useState(false);
   const [twoFactorDisableLoading, setTwoFactorDisableLoading] = useState(false);
   const [twoFactorDisableCode, setTwoFactorDisableCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [panelTheme, setPanelTheme] = useState<PanelThemeId>(PANEL_THEME_DEFAULT);
   const [account, setAccount] = useState({
     oldUsername: "",
@@ -1192,6 +1195,16 @@ export function SettingsPage() {
 
       {activeTab === "security" ? (
         <SettingsGrid>
+        {me?.mfaGated ? (
+          <div className="lg:col-span-2">
+            <AlertBanner
+              type="warning"
+              title={t("rbac.mfaRequiredBanner", {
+                defaultValue: "Two-factor authentication is required for your account. Set up an authenticator app or a security key below to continue.",
+              })}
+            />
+          </div>
+        ) : null}
         <SettingsSection
           title={t("pages.settings.security.twoFactorSection")}
           hint={t("pages.settings.security.twoFactorPersonalHint", {
@@ -1295,6 +1308,16 @@ export function SettingsPage() {
               ariaLabel={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
             />
           </Row>
+        </SettingsSection>
+
+        <SettingsSection
+          title={t("rbac.keys.section", { defaultValue: "Security keys and recovery" })}
+          hint={t("rbac.keys.sectionHint", { defaultValue: "Passkeys, hardware keys and one-time recovery codes for your own account." })}
+          icon={KeyRound}
+          iconTone="warning"
+          full
+        >
+          <SecurityMethods totpOn={!!me?.twoFactor} onChanged={() => void reloadMe()} />
         </SettingsSection>
 
         <SettingsSection
@@ -2055,6 +2078,8 @@ export function SettingsPage() {
                     setTwoFactorQrB64("");
                     setTwoFactorSecret("");
                     setTwoFactorCodeInput("");
+                    const codes = (r.obj as { recoveryCodes?: string[] } | undefined)?.recoveryCodes;
+                    if (codes?.length) setRecoveryCodes(codes);
                     await reloadMe();
                     await load();
                   } else {
@@ -2109,6 +2134,8 @@ export function SettingsPage() {
           )}
         </div>
       </Modal>
+
+      {recoveryCodes ? <RecoveryCodesModal codes={recoveryCodes} onClose={() => setRecoveryCodes(null)} /> : null}
 
       <Modal
         open={twoFactorDisableOpen}

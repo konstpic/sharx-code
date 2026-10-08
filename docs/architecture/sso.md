@@ -1,6 +1,6 @@
 # Single sign-on: OpenID Connect and OAuth 2.0
 
-Status: **stage 1 is implemented** (this document describes it). Later stages are listed at the end with what they need.
+Status: **stages 1, 2 and 3 are implemented** (3 in `auth-methods.md`) (this document describes them). Later stages are listed at the end with what they need.
 
 ## Where this sits in the existing panel
 
@@ -34,7 +34,7 @@ auth_role_rules (provider_id | NULL, position, kind, claim, value, role_id, enab
 * **Identity** – an account at a provider, identified by `(provider, subject)` where *subject* is the provider's stable id (`sub`). **An e-mail address is never an identity.** A user can hold several identities, at most one per provider.
 * **Provider** – configuration of one OIDC / OAuth 2.0 server. Adding a provider is a configuration task: a *preset* (a Go table entry, or the generic `oidc` / `oauth2` preset configured by hand in the UI) supplies endpoints, scopes and claim names; the engine is the same for all.
 * **Role rule** – maps an attribute of the identity (group, claim, e-mail domain, exact e-mail, or "everybody") to a role. First enabled match wins (provider-specific rules before global ones, then by position).
-* **Session / OAuth connection** – the panel keeps no provider tokens: the access token is used once (user info) and dropped; there is no refresh token to rotate in stage 1 (see stage 2). The session is the existing cookie session.
+* **Session / OAuth connection** – the access token is used once (user info) and dropped. Only when a provider is set to *keep roles and access in step* does the panel keep that provider's **refresh token**, sealed with AES-GCM on the identity, replaced at every use (rotation); it is forgotten the moment the provider refuses it. The session is the existing cookie session.
 
 ## Sign-in flow (authorization code + PKCE)
 
@@ -75,10 +75,42 @@ Managing providers and rules needs `auth:manage`, which only administrators can 
 
 | Event in the provider | Effect in the panel |
 |---|---|
-| user's groups change | next sign-in (the role is re-evaluated) |
-| user removed from every mapped group | next sign-in: role revoked, sessions ended |
-| user deactivated in the provider | **not detected** until they try to sign in again; their open session lives until it expires (`Session max age`). Keep that short when the provider is the source of truth, or disable the user in the panel |
-| webhook / SCIM push | **not in stage 1** (see stage 2) |
+| user's groups change | next sign-in; **or within the re-check interval** (5-1440 min, default 15) when *keep in step* is on; **or at once** when the provider calls the webhook |
+| user removed from every mapped group | the role is revoked and sessions end, at the same moments |
+| user deactivated or their grant revoked | the scheduled re-check gets `invalid_grant` and ends their sessions and API tokens; the webhook (`deactivated` / `deleted`) does it at once and, for a role managed by the provider, removes the role too (never the last administrator's) |
+| nothing enabled | next sign-in only; the open session lives until it expires (`Session max age`) |
+
+### Re-check with refresh tokens
+
+Switch on *Keep roles and access in step with the provider* on the provider. The authorization request then asks for `offline_access` (Google: `access_type=offline`, `prompt=consent`; Apple does not use it). A job runs every two minutes and re-checks, a few at a time, the identities whose last check is older than the provider's interval: it redeems the refresh token (the answer carries a new one, which replaces the old), asks the user-info endpoint what the provider says now, requires the same `sub`, and applies exactly the decision a sign-in would (rules, allow-lists, disabled accounts, last-administrator protection). A refresh token the provider refuses (revoked, expired, user deactivated) is deleted and the person's sessions and API tokens end; their role stays, so a person the provider lets back in is not locked out locally. A provider that cannot be reached leaves things as they are and retries at the next interval; the error is shown on the linked account.
+
+### Webhook
+
+*Webhook for instant changes* creates a secret (shown once) and the address `<panel>/auth/sso/<key>/webhook`. The provider sends `POST` with JSON:
+
+```json
+{"event": "updated" | "deactivated" | "deleted", "sub": "…", "email": "…", "username": "…"}
+```
+
+Identify the person by `sub` (best), else by e-mail or username; an ambiguous match changes nobody. Authenticate with **one of**:
+
+* `Authorization: Bearer <secret>`;
+* `Authorization: Basic …` with the secret as the password (a webhook URL like `https://hook:SECRET@panel.example.com/auth/sso/authentik/webhook` for providers that cannot set headers);
+* `X-SharX-Timestamp: <unix seconds>` and `X-SharX-Signature: sha256=<hex HMAC-SHA256 of "<timestamp>.<body>" with the secret>` (a request older than five minutes is refused, so a captured one cannot be replayed).
+
+`updated` makes the panel re-check that person now (needs a saved refresh token; without one the change applies at the next sign-in). `deactivated` / `deleted` end the sessions and API tokens and remove a provider-managed role. A refused call is a plain 401 that says nothing about why; calls are rate limited and audited.
+
+In Authentik create a **Webhook Mapping** (Customization → Property Mappings) that returns this JSON, for example
+
+```python
+return {
+    "event": "updated",
+    "email": notification.event.user.get("email", ""),
+    "username": notification.event.user.get("username", ""),
+}
+```
+
+and a **Notification Transport** of mode *Webhook* that uses it, pointed at the address above, bound through a **Notification Rule** to the events you care about (user write, user deactivation). SCIM is **not** implemented: the webhook and the scheduled re-check cover the same need (apply group changes and deactivation) without the panel exposing a user directory API.
 
 ## Other security properties
 
@@ -100,10 +132,12 @@ The redirect URI is `<panel address><base path>auth/sso/<key>/callback`, for exa
 | Authentik | `authentik` | `…/auth/sso/authentik/callback` |
 | Keycloak | `keycloak` | `…/auth/sso/keycloak/callback` |
 | Google | `google` | `…/auth/sso/google/callback` |
+| Sign in with Apple | `apple` | `…/auth/sso/apple/callback` (Apple posts a form to it; the panel turns it into a GET that keeps the browser binding) |
+| Telegram Login | `telegram` | no redirect URI: `/setdomain` the panel's host in @BotFather; the widget calls `…/auth/sso/telegram/callback?state=…` |
 | Microsoft / Entra ID | `microsoft` | `…/auth/sso/microsoft/callback` |
 | GitHub | `github` | `…/auth/sso/github/callback` |
 | GitLab | `gitlab` | `…/auth/sso/gitlab/callback` |
-| Auth0 / Okta / LinkedIn / Discord / Facebook / Yandex ID | preset id | `…/auth/sso/<key>/callback` |
+| Auth0 / Okta / LinkedIn / Discord / Facebook / Yandex ID / VK ID | preset id | `…/auth/sso/<key>/callback` |
 | any OIDC / OAuth 2.0 | whatever you choose | `…/auth/sso/<key>/callback` |
 
 ## Setting up Authentik
@@ -142,6 +176,9 @@ Every provider needs a Client ID and secret and the redirect URI above. What dif
 * **Okta** – domain (+ authorization server, e.g. `default`); add a *Groups* claim to the authorization server.
 * **LinkedIn** – *Sign In with LinkedIn using OpenID Connect* product. No groups.
 * **Discord / Facebook** – OAuth 2.0 identity only; Facebook does not say whether an e-mail is verified, so it never links or satisfies allow-lists.
+* **Sign in with Apple** – Services ID as Client ID (Return URL = the callback URI above), Team ID and Key ID of a *Sign in with Apple* key as parameters, the contents of the `.p8` file as the secret (the panel signs a five-minute ES256 JWT from it for each token request). Apple sends the name only the first time, and the e-mail may be a relay address.
+* **VK ID** – an app in VK ID with the callback URI as trusted redirect; Client ID is the app id. OAuth 2.1 with PKCE; VK adds `device_id` to the redirect, which the panel passes on to the token request; the profile is a POST to `id.vk.com/oauth2/user_info`. Written from VK's documentation and exercised against a stand-in server in the tests, not against VK itself.
+* **Telegram Login** – Client ID is the bot's username (without @), the secret is the bot token. The login page asks the panel for a one-time state (and sets the browser binding), then Telegram's script sends a signed payload; the panel checks the HMAC (keyed with SHA-256 of the bot token), the payload's age (10 minutes) and the state. Telegram has no e-mail, so e-mail rules, allow-lists by address and e-mail linking do not apply: use *self-registration* with a default role, or link from Settings.
 * **Yandex ID** – OAuth 2.0; scopes `login:email login:info`; addresses are verified.
 * **Any OpenID Connect provider** – preset *OpenID Connect (manual)*: issuer URL; endpoints come from discovery, or override them under Advanced.
 * **Any OAuth 2.0 provider** – preset *OAuth 2.0 (manual)*: authorization, token and user-info endpoints; map the claims (user id, e-mail, username, groups) to the JSON field names of the user-info answer.
@@ -174,8 +211,7 @@ kind=group  value=sharx-ops-*   → Operator
 
 ## Later stages
 
-* **Stage 2 – providers that need their own adapter and token lifecycle.** Sign in with Apple (JWT client secret, `form_post`), VK ID (POST user info, device id), Telegram Login (signed widget payload). Refresh-token based re-sync (`offline_access`, rotation on every use, revocation on use after rotation) so a role removal or deactivation in the provider takes effect without a new sign-in; an Authentik webhook / SCIM endpoint (HMAC-signed) for push changes and deactivation.
-* **Stage 3 – other methods.** E-mail + password with self-registration and e-mail confirmation, magic links (needs SMTP), passkeys / WebAuthn and hardware keys (`go-webauthn`), recovery codes, MFA policy (required for an organization, a role or a user).
+* **Stage 3 – other methods (implemented).** E-mail + password, magic links, self-registration, password reset (all need a verified SMTP server, configured in the panel), passkeys / security keys, recovery codes, MFA policy: see [`auth-methods.md`](auth-methods.md).
 * **Stage 4 – scopes of authority.** Groups, organizations / tenants / projects as entities, resource-level permissions (for example per node or per client group) on top of the existing `resource:action` model; the route table and `Principal` already centralize the check, so this extends them rather than replacing them.
 
-Rollback: deploy the previous version. The new tables and columns are ignored by it; accounts created through SSO have an unusable random password and so cannot sign in with the old version until an administrator sets one. Optional cleanup is in `database/migrations/0066_sso.sql`.
+Rollback: deploy the previous version. The new tables and columns are ignored by it; accounts created through SSO have an unusable random password and so cannot sign in with the old version until an administrator sets one. Optional cleanup is in `database/migrations/0066_sso.sql` and `0067_sso_resync.sql`.

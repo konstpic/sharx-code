@@ -88,6 +88,13 @@ type ProviderInput struct {
 	RoleMode       string            `json:"roleMode"`
 	NoMatch        string            `json:"noMatch"`
 	DefaultRoleId  *int              `json:"defaultRoleId"`
+	// Resync keeps the person's role and access in step with the provider between sign-ins (needs a refresh token: the
+	// provider must grant offline access). ResyncMinutes is how often each person is re-checked.
+	Resync        bool `json:"resync"`
+	ResyncMinutes int  `json:"resyncMinutes"`
+	// RotateWebhook creates a new webhook secret (shown once in the answer); ClearWebhook turns the webhook off.
+	RotateWebhook bool `json:"rotateWebhook"`
+	ClearWebhook  bool `json:"clearWebhook"`
 }
 
 // ProviderView is a provider as the admin UI shows it. The secret is never included.
@@ -112,6 +119,12 @@ type ProviderView struct {
 	CallbackPath   string            `json:"callbackPath"`
 	Identities     int64             `json:"identities"`
 	UpdatedAt      int64             `json:"updatedAt"`
+	Resync         bool              `json:"resync"`
+	ResyncMinutes  int               `json:"resyncMinutes"`
+	HasWebhook     bool              `json:"hasWebhook"`
+	WebhookPath    string            `json:"webhookPath"`
+	// WebhookSecret is set only in the answer to the request that created it.
+	WebhookSecret string `json:"webhookSecret,omitempty"`
 }
 
 var keyRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
@@ -141,6 +154,16 @@ func (s *SSOService) secret() []byte {
 	return b
 }
 
+func resyncMinutes(p model.AuthProvider) int {
+	if p.ResyncMinutes < 5 {
+		return 15
+	}
+	if p.ResyncMinutes > 1440 {
+		return 1440
+	}
+	return p.ResyncMinutes
+}
+
 func providerView(p model.AuthProvider, identities int64) ProviderView {
 	var sc storedConfig
 	_ = json.Unmarshal([]byte(p.Config), &sc)
@@ -153,6 +176,7 @@ func providerView(p model.AuthProvider, identities int64) ProviderView {
 		Params: sc.Params, Overrides: sc.Overrides, AllowedDomains: decodeList(p.AllowedDomains), AllowedEmails: decodeList(p.AllowedEmails),
 		AllowSignup: p.AllowSignup, LinkByEmail: p.LinkByEmail, RoleMode: p.RoleMode, NoMatch: p.NoMatch, DefaultRoleId: p.DefaultRoleId,
 		CallbackPath: "auth/sso/" + p.Key + "/callback", Identities: identities, UpdatedAt: p.UpdatedAt,
+		Resync: p.Resync, ResyncMinutes: resyncMinutes(p), HasWebhook: p.WebhookSecret != "", WebhookPath: "auth/sso/" + p.Key + "/webhook",
 	}
 }
 
@@ -295,6 +319,11 @@ func (s *SSOService) SaveProvider(a Actor, id int, in ProviderInput) (*ProviderV
 	if _, err := buildConfig(in.Preset, sc); err != nil {
 		return nil, invalid("%v", err)
 	}
+	if in.Preset == "apple" && in.ClientSecret != nil && *in.ClientSecret != "" {
+		if _, err := authn.AppleSecret(in.Params["teamId"], in.Params["keyId"], in.ClientId, *in.ClientSecret, time.Now()); err != nil {
+			return nil, invalid("%v", err)
+		}
+	}
 	var saved model.AuthProvider
 	var before model.AuthProvider
 	err := withLock(func(tx *gorm.DB) error {
@@ -326,6 +355,17 @@ func (s *SSOService) SaveProvider(a Actor, id int, in ProviderInput) (*ProviderV
 		saved.AllowedDomains, saved.AllowedEmails = encodeList(in.AllowedDomains), encodeList(in.AllowedEmails)
 		saved.AllowSignup, saved.LinkByEmail = in.AllowSignup, in.LinkByEmail
 		saved.RoleMode, saved.NoMatch, saved.DefaultRoleId = in.RoleMode, in.NoMatch, in.DefaultRoleId
+		saved.Resync, saved.ResyncMinutes = in.Resync, in.ResyncMinutes
+		if in.RotateWebhook {
+			sealed, err := authn.Seal(s.secret(), authn.Random(32))
+			if err != nil {
+				return err
+			}
+			saved.WebhookSecret = sealed
+		}
+		if in.ClearWebhook {
+			saved.WebhookSecret = ""
+		}
 		cb, _ := json.Marshal(sc)
 		saved.Config = string(cb)
 		if in.ClientSecret != nil {
@@ -350,12 +390,17 @@ func (s *SSOService) SaveProvider(a Actor, id int, in ProviderInput) (*ProviderV
 		return nil, err
 	}
 	dropClient(saved.Id)
+	issued := ""
+	if in.RotateWebhook {
+		issued, _ = authn.Open(s.secret(), saved.WebhookSecret)
+	}
 	action := "sso.provider_update"
 	if id == 0 {
 		action = "sso.provider_create"
 	}
 	Audit.Record(a, action, "provider", fmt.Sprint(saved.Id), saved.Name, providerAudit(before), providerAudit(saved), "ok", "")
 	v := providerView(saved, 0)
+	v.WebhookSecret = issued
 	return &v, nil
 }
 
@@ -364,7 +409,7 @@ func providerAudit(p model.AuthProvider) map[string]any {
 	if p.Id == 0 {
 		return nil
 	}
-	return map[string]any{"key": p.Key, "preset": p.Preset, "enabled": p.Enabled, "clientId": p.ClientId, "signup": p.AllowSignup, "linkByEmail": p.LinkByEmail, "roleMode": p.RoleMode, "noMatch": p.NoMatch, "secretSet": p.ClientSecret != ""}
+	return map[string]any{"key": p.Key, "preset": p.Preset, "enabled": p.Enabled, "clientId": p.ClientId, "signup": p.AllowSignup, "linkByEmail": p.LinkByEmail, "roleMode": p.RoleMode, "noMatch": p.NoMatch, "secretSet": p.ClientSecret != "", "resync": p.Resync, "webhook": p.WebhookSecret != ""}
 }
 
 // DeleteProvider removes a provider with its rules and the identities that came from it. Accounts stay; one that was
@@ -396,6 +441,9 @@ type PublicProvider struct {
 	Key    string `json:"key"`
 	Name   string `json:"name"`
 	Preset string `json:"preset"`
+	Kind   string `json:"kind"`
+	// BotUsername is the public name of the bot, for the Telegram widget only.
+	BotUsername string `json:"botUsername,omitempty"`
 }
 
 // PublicProviders lists enabled, complete providers for the login page.
@@ -404,7 +452,11 @@ func (s *SSOService) PublicProviders() []PublicProvider {
 	database.GetDB().Where("enabled = TRUE AND client_id <> ''").Order("id").Find(&rows)
 	out := make([]PublicProvider, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, PublicProvider{Key: r.Key, Name: r.Name, Preset: r.Preset})
+		pp := PublicProvider{Key: r.Key, Name: r.Name, Preset: r.Preset, Kind: s.KindOf(&r)}
+		if pp.Kind == "telegram" {
+			pp.BotUsername = r.ClientId
+		}
+		out = append(out, pp)
 	}
 	return out
 }
@@ -466,11 +518,32 @@ func (s *SSOService) Client(p *model.AuthProvider) (*authn.Provider, error) {
 		return nil, err
 	}
 	cfg.ClientID = p.ClientId
+	if p.Resync && cfg.Kind == "oidc" {
+		// ask for a refresh token: the offline_access scope, and for Google its own switch
+		has := false
+		for _, sc := range cfg.Scopes {
+			has = has || sc == "offline_access"
+		}
+		if !has && p.Preset != "google" && p.Preset != "apple" {
+			cfg.Scopes = append(append([]string(nil), cfg.Scopes...), "offline_access")
+		}
+		if p.Preset == "google" {
+			ep := map[string]string{"access_type": "offline", "prompt": "consent"}
+			for k, v := range cfg.ExtraParams {
+				ep[k] = v
+			}
+			cfg.ExtraParams = ep
+		}
+	}
 	secret, err := authn.Open(s.secret(), p.ClientSecret)
 	if err != nil {
 		return nil, err
 	}
 	cfg.ClientSecret = secret
+	if p.Preset == "apple" {
+		team, key, pem := sc.Params["teamId"], sc.Params["keyId"], secret
+		cfg.SecretFn = func() (string, error) { return authn.AppleSecret(team, key, p.ClientId, pem, time.Now()) }
+	}
 	c := authn.New(cfg)
 	clientCache[p.Id] = cachedClient{updated: p.UpdatedAt, p: c}
 	return c, nil
@@ -661,6 +734,9 @@ type IdentityView struct {
 	Groups      []string `json:"groups"`
 	CreatedAt   int64    `json:"createdAt"`
 	LastLoginAt int64    `json:"lastLoginAt"`
+	Resync      bool     `json:"resync"`      // a saved sign-in is kept and re-checked
+	RefreshedAt int64    `json:"refreshedAt"` // when the provider was last asked
+	ResyncError string   `json:"resyncError"`
 }
 
 // Identities lists linked accounts: of one user, or all when userID is 0.
@@ -683,7 +759,8 @@ func (s *SSOService) Identities(userID int) ([]IdentityView, error) {
 	out := make([]IdentityView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, IdentityView{Id: r.Id, UserId: r.UserId, Username: r.Username, ProviderKey: r.ProviderKey, Provider: r.ProviderName, Email: r.Email,
-			DisplayName: r.DisplayName, Groups: decodeList(r.Groups), CreatedAt: r.CreatedAt, LastLoginAt: r.LastLoginAt})
+			DisplayName: r.DisplayName, Groups: decodeList(r.Groups), CreatedAt: r.CreatedAt, LastLoginAt: r.LastLoginAt,
+			Resync: r.RefreshToken != "", RefreshedAt: r.RefreshedAt, ResyncError: r.ResyncError})
 	}
 	return out, nil
 }
@@ -822,6 +899,7 @@ func (s *SSOService) decideRole(tx *gorm.DB, p *model.AuthProvider, id authn.Ide
 // SignIn turns a verified identity into a signed-in user. linkUserID is non-zero when a signed-in user is linking a new
 // identity instead of signing in.
 func (s *SSOService) SignIn(p *model.AuthProvider, id authn.Identity, ip string, linkUserID int) (*model.User, error) {
+	refresh := s.sealRefresh(p, id)
 	if !authn.EmailAllowed(id, decodeList(p.AllowedDomains), decodeList(p.AllowedEmails)) {
 		return nil, deny("not_allowed", "the e-mail address is not on the allow list")
 	}
@@ -850,7 +928,7 @@ func (s *SSOService) SignIn(p *model.AuthProvider, id authn.Identity, ip string,
 				return deny("already_linked", "this user already has an account at this provider")
 			}
 			if err := tx.Create(&model.UserIdentity{UserId: user.Id, ProviderId: p.Id, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified,
-				DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now}).Error; err != nil {
+				DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now, RefreshToken: refresh, RefreshedAt: now}).Error; err != nil {
 				return err
 			}
 			events = append(events, func() {
@@ -969,7 +1047,7 @@ func (s *SSOService) SignIn(p *model.AuthProvider, id authn.Identity, ip string,
 				return err
 			}
 			if err := tx.Create(&model.UserIdentity{UserId: user.Id, ProviderId: p.Id, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified,
-				DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now}).Error; err != nil {
+				DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now, RefreshToken: refresh, RefreshedAt: now}).Error; err != nil {
 				return err
 			}
 			role := afterRole
@@ -995,10 +1073,14 @@ func (s *SSOService) SignIn(p *model.AuthProvider, id authn.Identity, ip string,
 			return err
 		}
 		if found {
-			tx.Model(&model.UserIdentity{}).Where("id = ?", ident.Id).Updates(map[string]any{"email": id.Email, "email_verified": id.EmailVerified,
-				"display_name": id.Name, "groups": encodeGroups(id.Groups), "last_login_at": now})
+			idUpd := map[string]any{"email": id.Email, "email_verified": id.EmailVerified,
+				"display_name": id.Name, "groups": encodeGroups(id.Groups), "last_login_at": now, "resync_error": ""}
+			if refresh != "" {
+				idUpd["refresh_token"], idUpd["refreshed_at"] = refresh, now
+			}
+			tx.Model(&model.UserIdentity{}).Where("id = ?", ident.Id).Updates(idUpd)
 		} else if err := tx.Create(&model.UserIdentity{UserId: user.Id, ProviderId: p.Id, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified,
-			DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now}).Error; err != nil {
+			DisplayName: id.Name, Groups: encodeGroups(id.Groups), CreatedAt: now, LastLoginAt: now, RefreshToken: refresh, RefreshedAt: now}).Error; err != nil {
 			return err
 		}
 		if v, ok := upd["role_id"]; ok {
@@ -1051,4 +1133,40 @@ func (s *SSOService) RedirectBase(p *model.AuthProvider) string {
 	var sc storedConfig
 	_ = json.Unmarshal([]byte(p.Config), &sc)
 	return sc.Overrides.RedirectBase
+}
+
+// sealRefresh seals the refresh token for storage, but only for providers that are set to keep people in step.
+func (s *SSOService) sealRefresh(p *model.AuthProvider, id authn.Identity) string {
+	if !p.Resync || id.RefreshToken == "" {
+		return ""
+	}
+	sealed, err := authn.Seal(s.secret(), id.RefreshToken)
+	if err != nil {
+		return ""
+	}
+	return sealed
+}
+
+// KindOf is how the provider signs people in: oidc, oauth2, vk or telegram.
+func (s *SSOService) KindOf(p *model.AuthProvider) string {
+	if pr, ok := authn.PresetByID(p.Preset); ok {
+		return pr.Kind
+	}
+	return "oidc"
+}
+
+// CompleteTelegram verifies the signed payload of the Telegram Login widget. The panel's own parameters (state) are not part
+// of what Telegram signed.
+func (s *SSOService) CompleteTelegram(p *model.AuthProvider, q map[string][]string, now time.Time) (*authn.Identity, error) {
+	token, err := authn.Open(s.secret(), p.ClientSecret)
+	if err != nil {
+		return nil, err
+	}
+	signed := map[string][]string{}
+	for k, v := range q {
+		if k != "state" {
+			signed[k] = v
+		}
+	}
+	return authn.VerifyTelegram(token, signed, now, 10*time.Minute)
 }

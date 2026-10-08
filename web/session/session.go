@@ -14,6 +14,7 @@ import (
 
 const (
 	loginUserKey              = "LOGIN_USER"
+	mfaExemptKey              = "MFA_EXEMPT"
 	pendingTwoFactorSecretKey = "PENDING_TWO_FACTOR_SECRET"
 	defaultPath               = "/"
 	// requestAPILoginUserKey: Bearer JWT user for this request (takes precedence over session).
@@ -127,4 +128,21 @@ func GetPendingTwoFactorSecret(c *gin.Context) string {
 func ClearPendingTwoFactorSecret(c *gin.Context) {
 	s := sessions.Default(c)
 	s.Delete(pendingTwoFactorSecretKey)
+}
+
+// SetMFAExempt marks this session as having satisfied the MFA policy elsewhere (a sign-in through an identity provider that
+// did its own multi-factor step).
+func SetMFAExempt(c *gin.Context, on bool) {
+	s := sessions.Default(c)
+	if on {
+		s.Set(mfaExemptKey, true)
+	} else {
+		s.Delete(mfaExemptKey)
+	}
+}
+
+// MFAExempt reports the mark set by SetMFAExempt.
+func MFAExempt(c *gin.Context) bool {
+	v, _ := sessions.Default(c).Get(mfaExemptKey).(bool)
+	return v
 }

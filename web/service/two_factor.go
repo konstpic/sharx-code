@@ -24,12 +24,15 @@ func UserTwoFactor(userID int) (enabled bool, secret string) {
 
 // EnableUserTwoFactor stores a verified secret and turns 2FA on for the user.
 func EnableUserTwoFactor(userID int, secret string) error {
+	defer InvalidateRBAC() // the MFA policy looks at whether a second factor exists
 	return database.GetDB().Model(&model.User{}).Where("id = ? AND deleted_at IS NULL", userID).
 		Updates(map[string]any{"two_factor_enabled": true, "two_factor_secret": secret, "updated_at": time.Now().Unix()}).Error
 }
 
 // DisableUserTwoFactor turns 2FA off and forgets the secret.
 func DisableUserTwoFactor(userID int) error {
+	defer InvalidateRBAC()
+	DeleteRecoveryCodes(userID)
 	return database.GetDB().Model(&model.User{}).Where("id = ?", userID).
 		Updates(map[string]any{"two_factor_enabled": false, "two_factor_secret": "", "updated_at": time.Now().Unix()}).Error
 }
@@ -53,6 +56,7 @@ func (s *RBACService) ResetUserTwoFactor(a Actor, id int) error {
 		if !a.Principal.Perms.Covers(rbac.NewSet(parsePerms(r.Permissions))) {
 			return forbidden("this user has more permissions than you, so you cannot reset their two-factor authentication")
 		}
+		DeleteRecoveryCodes(id)
 		return tx.Model(&model.User{}).Where("id = ?", id).
 			Updates(map[string]any{"two_factor_enabled": false, "two_factor_secret": "", "updated_at": time.Now().Unix()}).Error
 	})
@@ -60,6 +64,7 @@ func (s *RBACService) ResetUserTwoFactor(a Actor, id int) error {
 		Audit.Record(a, "user.two_factor_reset", "user", fmt.Sprint(id), target.Username, nil, nil, "denied", err.Error())
 		return err
 	}
+	InvalidateRBAC()
 	revokeAccess(id)
 	Audit.Record(a, "user.two_factor_reset", "user", fmt.Sprint(id), target.Username, nil, nil, "ok", "")
 	return nil

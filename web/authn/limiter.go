@@ -44,3 +44,32 @@ func (l *Limiter) Allow(key string) bool {
 	}
 	return true
 }
+
+// Hit records an event without checking the limit (a failure counter).
+func (l *Limiter) Hit(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	cut := now.Add(-l.window)
+	kept := l.hits[key][:0]
+	for _, t := range l.hits[key] {
+		if t.After(cut) {
+			kept = append(kept, t)
+		}
+	}
+	l.hits[key] = append(kept, now)
+}
+
+// Over reports whether the key has reached the limit within the window, without recording anything.
+func (l *Limiter) Over(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cut := time.Now().Add(-l.window)
+	n := 0
+	for _, t := range l.hits[key] {
+		if t.After(cut) {
+			n++
+		}
+	}
+	return n >= l.max
+}

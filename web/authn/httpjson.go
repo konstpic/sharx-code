@@ -14,6 +14,27 @@ import (
 
 const maxBody = 1 << 20
 
+// HTTPError is a non-2xx answer from a provider.
+type HTTPError struct {
+	Host   string
+	Status int
+	Body   string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("%s returned %d: %s", e.Host, e.Status, e.Body)
+}
+
+// IsGrantRevoked reports that the provider refused a refresh token for good: the grant was revoked, expired, or the user
+// was deactivated (OAuth 2.0 "invalid_grant", or 400/401 on the token endpoint).
+func IsGrantRevoked(err error) bool {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.Status == 400 || he.Status == 401 || strings.Contains(he.Body, "invalid_grant")
+}
+
 // HTTPClient is used for every call to an identity provider: bounded time, no automatic redirects to other hosts' schemes,
 // bounded response size. Replaceable in tests.
 var HTTPClient = &http.Client{
@@ -69,7 +90,7 @@ func doJSON(req *http.Request, out any) error {
 		if len(msg) > 200 {
 			msg = msg[:200]
 		}
-		return fmt.Errorf("%s returned %d: %s", req.URL.Host, resp.StatusCode, msg)
+		return &HTTPError{Host: req.URL.Host, Status: resp.StatusCode, Body: msg}
 	}
 	return json.Unmarshal(body, out)
 }

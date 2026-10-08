@@ -101,6 +101,12 @@ func (a *BaseController) authorize(c *gin.Context, apiGroup bool) bool {
 	if path == "" { // NoRoute: the SPA shell for client-side routes. The page itself carries no data; its API calls are checked.
 		return true
 	}
+	if p.MFARequired && !p.MFAEnrolled && !session.MFAExempt(c) && !mfaEnrollmentRoute(c.Request.Method, path) {
+		// the account must have a second factor and has none yet: it may reach only the pages where it can set one up
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "mfa_enrollment_required",
+			"msg": "Set up two-factor authentication (an authenticator app or a security key) to continue"})
+		return false
+	}
 	reqs, known := rbac.Lookup(c.Request.Method, path)
 	if !known {
 		if p.Super {
@@ -116,6 +122,20 @@ func (a *BaseController) authorize(c *gin.Context, apiGroup bool) bool {
 		return false
 	}
 	return true
+}
+
+// mfaEnrollmentRoute lists what an account that still has to enrol a second factor may use: its own 2FA, security keys and
+// recovery codes, its profile, and signing out.
+func mfaEnrollmentRoute(method, path string) bool {
+	switch method + " " + path {
+	case "GET /panel/rbac/me", "POST /panel/setting/ui/get", "POST /panel/setting/ui/set", "POST /panel/setting/all", "POST /panel/setting/defaultSettings",
+		"POST /panel/setting/twoFactor/begin", "POST /panel/setting/twoFactor/complete", "POST /panel/setting/twoFactor/cancel",
+		"POST /panel/setting/recoveryCodes/generate", "GET /panel/setting/recoveryCodes/status",
+		"GET /panel/auth/passkeys", "POST /panel/auth/passkeys/register/begin", "POST /panel/auth/passkeys/register/finish",
+		"POST /panel/auth/passkeys/:id/delete", "POST /panel/auth/passkeys/:id/rename":
+		return true
+	}
+	return false
 }
 
 func firstMissing(p *service.Principal, reqs []string) string {
@@ -238,6 +258,9 @@ func (a *RBACController) me(c *gin.Context) {
 		"roleName":    p.RoleName,
 		"super":       p.Super,
 		"twoFactor":   twoFactorOn(p.UserId),
+		"mfaRequired": p.MFARequired,
+		"mfaEnrolled": p.MFAEnrolled,
+		"mfaGated":    p.MFARequired && !p.MFAEnrolled && !session.MFAExempt(c),
 		"permissions": p.Perms.List(),
 	}, nil)
 }
@@ -273,6 +296,7 @@ type roleBody struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions"`
+	RequireMFA  bool     `json:"requireMfa"`
 }
 
 func (a *RBACController) createRole(c *gin.Context) {
@@ -281,7 +305,7 @@ func (a *RBACController) createRole(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
 		return
 	}
-	r, err := rbacService.CreateRole(actorOf(c), service.RoleInput{Name: b.Name, Description: b.Description, Permissions: b.Permissions})
+	r, err := rbacService.CreateRole(actorOf(c), service.RoleInput{Name: b.Name, Description: b.Description, Permissions: b.Permissions, RequireMFA: b.RequireMFA})
 	if err != nil {
 		rbacFail(c, err)
 		return
@@ -299,7 +323,7 @@ func (a *RBACController) updateRole(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
 		return
 	}
-	r, err := rbacService.UpdateRole(actorOf(c), id, service.RoleInput{Name: b.Name, Description: b.Description, Permissions: b.Permissions})
+	r, err := rbacService.UpdateRole(actorOf(c), id, service.RoleInput{Name: b.Name, Description: b.Description, Permissions: b.Permissions, RequireMFA: b.RequireMFA})
 	if err != nil {
 		rbacFail(c, err)
 		return
@@ -359,6 +383,7 @@ type userUpdateBody struct {
 	Enabled    *bool   `json:"enabled"`
 	Email      *string `json:"email"`
 	DetachRole *bool   `json:"detachRole"`
+	RequireMFA *bool   `json:"requireMfa"`
 }
 
 func (a *RBACController) updateUser(c *gin.Context) {
@@ -371,7 +396,7 @@ func (a *RBACController) updateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
 		return
 	}
-	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled, Email: b.Email, DetachRole: b.DetachRole})
+	u, err := rbacService.UpdateUser(actorOf(c), id, service.UserPatch{Username: b.Username, RoleId: b.RoleId, Enabled: b.Enabled, Email: b.Email, DetachRole: b.DetachRole, RequireMFA: b.RequireMFA})
 	if err != nil {
 		rbacFail(c, err)
 		return

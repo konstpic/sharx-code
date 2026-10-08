@@ -23,9 +23,10 @@ import { PermissionMatrix, usePermissionSummary } from "./PermissionMatrix";
 import { ROLE_PRESETS } from "./permLabels";
 import { LogExplorer } from "@/components/LogExplorer";
 import { SsoTab } from "./SsoTab";
+import { MethodsTab } from "./MethodsTab";
 import { rbacApi, type AssignableRole, type Role, type UserRow } from "./rbacApi";
 
-type TabId = "users" | "roles" | "sso" | "audit";
+type TabId = "users" | "roles" | "sso" | "methods" | "audit";
 
 function fmtDate(ts?: number, ms = false): string {
   if (!ts) return "—";
@@ -42,6 +43,7 @@ export function AccessPage() {
         { id: "users" as const, label: t("rbac.tabUsers", { defaultValue: "Users" }), icon: Users, perm: "users:read" },
         { id: "roles" as const, label: t("rbac.tabRoles", { defaultValue: "Roles" }), icon: ShieldCheck, perm: "roles:read" },
         { id: "sso" as const, label: t("rbac.tabSso", { defaultValue: "Single sign-on" }), icon: KeyRound, perm: "auth:read" },
+        { id: "methods" as const, label: t("rbac.tabMethods", { defaultValue: "Sign-in methods" }), icon: ShieldCheck, perm: "auth:read" },
         { id: "audit" as const, label: t("rbac.tabAudit", { defaultValue: "Audit log" }), icon: KeyRound, perm: "audit:read" },
       ].filter((x) => can(x.perm)),
     [t, can],
@@ -51,7 +53,7 @@ export function AccessPage() {
   // ?tab=roles in the address opens that tab (the menu links to it)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("tab");
-    if (q === "roles" || q === "audit" || q === "users" || q === "sso") setTab(q);
+    if (q === "roles" || q === "audit" || q === "users" || q === "sso" || q === "methods") setTab(q);
   }, []);
   const active = tabs.find((x) => x.id === tab)?.id ?? tabs[0]?.id;
 
@@ -79,6 +81,7 @@ export function AccessPage() {
       {active === "users" ? <UsersTab /> : null}
       {active === "roles" ? <RolesTab /> : null}
       {active === "sso" ? <SsoTab /> : null}
+      {active === "methods" ? <MethodsTab /> : null}
       {active === "audit" ? <AuditTab /> : null}
     </PageScaffold>
   );
@@ -277,6 +280,7 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
   const [roleId, setRoleId] = useState<number>(user?.roleId ?? 0);
   const [enabled, setEnabled] = useState(user?.enabled ?? true);
   const [email, setEmail] = useState(user?.email ?? "");
+  const [requireMfa, setRequireMfa] = useState(user?.requireMfa ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const isNew = user == null;
@@ -304,6 +308,7 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           roleId: roleId !== user.roleId ? roleId : undefined,
           enabled: enabled !== user.enabled && !user.self ? enabled : undefined,
           email: email !== (user.email ?? "") ? email : undefined,
+          requireMfa: requireMfa !== (user.requireMfa ?? false) ? requireMfa : undefined,
         });
     setSaving(false);
     if (r.ok) {
@@ -365,6 +370,12 @@ function UserFormModal({ user, onClose, onSaved }: { user: UserRow | null; onClo
           <label className="grid gap-1">
             <span className="text-xs text-[var(--fg-muted)]">{t("rbac.fieldEmail", { defaultValue: "E-mail (used to link a verified single sign-on account, if the provider allows it)" })}</span>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+          </label>
+        ) : null}
+        {!isNew ? (
+          <label className="flex items-center gap-3 text-sm text-[var(--fg-muted)]">
+            <Switch checked={requireMfa} onChange={setRequireMfa} ariaLabel="require mfa" />
+            {t("rbac.requireMfaUser", { defaultValue: "Require two-factor authentication for this user" })}
           </label>
         ) : null}
         {managed ? (
@@ -563,11 +574,12 @@ function RoleEditorModal({ role, groups, onClose, onSaved }: { role: Role | null
   const [name, setName] = useState(role?.name ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
   const [value, setValue] = useState<Set<string>>(new Set(role?.permissions ?? []));
+  const [requireMfa, setRequireMfa] = useState(role?.requireMfa ?? false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   // what the editor may put into a role: what they hold, minus what only administrators may grant
-  const superOnly = useMemo(() => new Set(["settings:security", "system:backup", "system:database"]), []);
+  const superOnly = useMemo(() => new Set(["settings:security", "system:backup", "system:database", "auth:manage"]), []);
   const canGrant = useCallback(
     (key: string) => Boolean(me?.super || (can(key) && !superOnly.has(key))),
     [me?.super, can, superOnly],
@@ -579,7 +591,7 @@ function RoleEditorModal({ role, groups, onClose, onSaved }: { role: Role | null
   const save = async () => {
     setError("");
     setSaving(true);
-    const r = await rbacApi.saveRole(role?.id ?? null, { name, description, permissions: Array.from(value) });
+    const r = await rbacApi.saveRole(role?.id ?? null, { name, description, permissions: Array.from(value), requireMfa });
     setSaving(false);
     if (r.ok) {
       toast.success(t("rbac.roleSaved", { defaultValue: "Role saved" }));
@@ -629,6 +641,12 @@ function RoleEditorModal({ role, groups, onClose, onSaved }: { role: Role | null
             <Input value={description} disabled={readOnly} onChange={(e) => setDescription(e.target.value)} autoComplete="off" />
           </label>
         </div>
+        {!role?.isSystem ? (
+          <label className="flex items-center gap-3 text-sm text-[var(--fg-muted)]">
+            <Switch checked={requireMfa} disabled={readOnly} onChange={setRequireMfa} ariaLabel="require mfa" />
+            {t("rbac.requireMfaRole", { defaultValue: "Everybody with this role must use two-factor authentication" })}
+          </label>
+        ) : null}
         {isNew ? (
           <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--fg-muted)]">
             {t("rbac.presets", { defaultValue: "Start from" })}:

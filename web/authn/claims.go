@@ -33,6 +33,7 @@ type Identity struct {
 	Username      string
 	Groups        []string
 	Claims        map[string]any // the merged claims rules may look at; never persisted
+	RefreshToken  string         // when the provider issued one (offline access); the caller seals it before storing
 }
 
 // Lookup returns the value at a dotted path.
