@@ -104,7 +104,7 @@ func (m *AuthMethodsService) dependsOnMail() []string {
 // View returns the configuration for the admin UI.
 func (m *AuthMethodsService) View() MethodsView {
 	c := m.cfg()
-	v := MethodsView{MethodsConfig: c, Mail: Mail.Get(), NeedsMail: needsMail}
+	v := MethodsView{MethodsConfig: c, Mail: Mail.Get(), NeedsMail: needsMail, Blocked: []string{}}
 	if !v.Mail.Usable {
 		for name, on := range map[string]bool{"magicLink": c.MagicLink, "signup": c.Signup, "passwordReset": c.PasswordReset} {
 			if on {

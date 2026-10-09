@@ -63,7 +63,7 @@ export function MethodsTab() {
             "Choose how people can sign in. Password sign-in is always available to administrators. Methods that send e-mail need an SMTP server (the account of a mail server you already have): set it up and send a test message first.",
         })}
       </p>
-      <MailCard mail={view.mail} blocked={view.blocked} manage={manage} onChanged={() => void load()} />
+      <MailCard mail={view.mail} blocked={view.blocked ?? []} manage={manage} onChanged={() => void load()} />
       <MethodsCard view={view} roles={roles} manage={manage} onSaved={(v) => { setView(v); toast.success(t("rbac.methods.saved", { defaultValue: "Saved" })); }} />
     </div>
   );
@@ -232,8 +232,8 @@ function NeedsMail({ show }: { show: boolean }) {
 function MethodsCard({ view, roles, manage, onSaved }: { view: MethodsView; roles: Role[]; manage: boolean; onSaved: (v: MethodsView) => void }) {
   const { t } = useTranslation();
   const [c, setC] = useState<MethodsConfig>({ ...view });
-  const [domains, setDomains] = useState(view.signupDomains.join("\n"));
-  const [origins, setOrigins] = useState(view.origins.join("\n"));
+  const [domains, setDomains] = useState((view.signupDomains ?? []).join("\n"));
+  const [origins, setOrigins] = useState((view.origins ?? []).join("\n"));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const mailOk = view.mail.usable;
