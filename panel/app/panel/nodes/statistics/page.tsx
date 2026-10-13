@@ -1,10 +1,7 @@
-import { RequirePerm } from "@/components/panel/RequirePerm";
-import { NodesStatisticsPage } from "@/components/NodesStatisticsPage";
-
+"use client";
+import { useEffect } from "react";
+import { linkP } from "@/lib/paths";
 export default function Page() {
-  return (
-    <RequirePerm perm="nodes:read">
-      <NodesStatisticsPage />
-    </RequirePerm>
-  );
+  useEffect(() => { window.location.replace(linkP("panel/nodes")); }, []);
+  return null;
 }

@@ -661,7 +661,7 @@ type Host struct {
 	Customized        bool   `json:"customized" gorm:"column:customized"`                // edited by an operator: the sync stops overwriting it
 	RemarkSuffix      string `json:"remarkSuffix" gorm:"column:remark_suffix"`           // placement hosts: suffix added to the server name
 	ServerDescription string `json:"serverDescription" gorm:"column:server_description"` // placement hosts: server description
-	SortOrder         int    `json:"sortOrder" gorm:"column:sort_order"`                 // default position in lists
+	SortOrder         int    `json:"sortOrder" gorm:"column:sort_order;<-:create"`       // default position in lists
 	CreatedAt         int64  `json:"createdAt" gorm:"autoCreateTime"`                    // Creation timestamp
 	UpdatedAt         int64  `json:"updatedAt" gorm:"autoUpdateTime"`                    // Last update timestamp
 
@@ -706,7 +706,7 @@ type Bundle struct {
 	Auto             bool   `json:"auto" gorm:"column:auto"` // created by the API compatibility layer or the conversion
 	AutoKey          string `json:"autoKey,omitempty" gorm:"column:auto_key"`
 	FollowPlacements bool   `json:"followPlacements" gorm:"column:follow_placements"`
-	SortOrder        int    `json:"sortOrder" gorm:"column:sort_order"`
+	SortOrder        int    `json:"sortOrder" gorm:"column:sort_order;<-:create"`
 	CreatedAt        int64  `json:"createdAt" gorm:"column:created_at"`
 	UpdatedAt        int64  `json:"updatedAt" gorm:"column:updated_at"`
 
@@ -797,13 +797,13 @@ func (ClientBlockedSessionIP) TableName() string {
 
 // ClientGroup represents a group of clients for organization and bulk operations.
 type ClientGroup struct {
-	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"` // Unique identifier
-	UserId      int    `json:"userId" gorm:"index"`                // Associated user ID
-	Name        string `json:"name" form:"name"`                   // Group name
-	Description string `json:"description" form:"description"`     // Group description
+	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`   // Unique identifier
+	UserId      int    `json:"userId" gorm:"index"`                  // Associated user ID
+	Name        string `json:"name" form:"name"`                     // Group name
+	Description string `json:"description" form:"description"`       // Group description
 	OrgId       *int   `json:"orgId,omitempty" gorm:"column:org_id"` // Owning organization (nil: not owned by any)
-	CreatedAt   int64  `json:"createdAt" gorm:"autoCreateTime"`    // Creation timestamp
-	UpdatedAt   int64  `json:"updatedAt" gorm:"autoUpdateTime"`    // Last update timestamp
+	CreatedAt   int64  `json:"createdAt" gorm:"autoCreateTime"`      // Creation timestamp
+	UpdatedAt   int64  `json:"updatedAt" gorm:"autoUpdateTime"`      // Last update timestamp
 
 	// Relations (not stored in DB, loaded via queries)
 	ClientCount int `json:"clientCount,omitempty" form:"-" gorm:"-"` // Number of clients in this group (computed)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, FileText, Power, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, ChartNoAxesCombined, FileText, Power, RefreshCw, Trash2 } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { DragHandle } from "@/components/ui/drag-handle";
@@ -62,6 +62,7 @@ export type NodeListViewContext = {
   onRestartAmneziaWg: (r: NodeListRow) => void;
   amneziawgStoppingId: number | null;
   amneziawgRestartingId: number | null;
+  onTraffic: (r: NodeListRow) => void;
   onMetrics: (r: NodeListRow) => void;
   onLogs: (r: NodeListRow) => void;
   onDelete: (r: NodeListRow) => void;
@@ -118,6 +119,10 @@ function NodeOperateButtons({
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
     >
+      <Button type="button" variant="ghost" className="!p-1.5 text-[var(--fg-muted)] hover:text-[var(--accent)]"
+        title={t("pages.trafficHistory.open")} aria-label={t("pages.trafficHistory.open")} onClick={() => ctx.onTraffic(r)}>
+        <ChartNoAxesCombined size={16} />
+      </Button>
       <Button
         type="button"
         variant="ghost"

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -247,7 +246,7 @@ func (e *fakeEnv) Sleep(ctx context.Context, d time.Duration) error {
 	}
 	e.now = e.now.Add(d)
 	e.mu.Unlock()
-	runtime.Gosched()
+	time.Sleep(time.Millisecond) // let the fake nodes progress in real time; the fake clock alone would time out first
 	return nil
 }
 

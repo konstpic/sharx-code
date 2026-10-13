@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  ChartNoAxesCombined,
   Copy,
   FileText,
   Filter,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/nameFlag";
 import { NodeRegisterStep } from "@/components/NodeRegisterStep";
 import { NodeSSHProvisionSteps, type SSHProvisionStep } from "@/components/NodeSSHProvisionSteps";
+import { TrafficHistoryModal, type TrafficTarget } from "@/components/TrafficHistoryModal";
 import { NodeResourceDrawer } from "@/components/NodeResourceDrawer";
 import { ReadOnlyScope, useCan } from "@/lib/rbac";
 import { EntityLogsModal } from "@/components/EntityLogsModal";
@@ -263,6 +265,7 @@ export function NodesPage() {
   const [sshTaskError, setSshTaskError] = useState<string | null>(null);
   const sshPollAbort = useRef<{ cancelled: boolean } | null>(null);
 
+  const [trafficTarget, setTrafficTarget] = useState<TrafficTarget | null>(null);
   const [metricsNode, setMetricsNode] = useState<{ id: number; name: string } | null>(null);
   const [logsNode, setLogsNode] = useState<{ id: number; name: string } | null>(null);
   const [multiNode, setMultiNode] = useState<boolean | null>(null);
@@ -1426,6 +1429,7 @@ export function NodesPage() {
       onRestartAmneziaWg: (r: NodeRow) => void restartAmneziaWgOnRow(r),
       amneziawgStoppingId,
       amneziawgRestartingId,
+      onTraffic: (r: NodeRow) => setTrafficTarget({ kind: "node", id: r.id, name: r.name }),
       onMetrics: (r: NodeRow) => setMetricsNode({ id: r.id, name: r.name }),
       onLogs: (r: NodeRow) => setLogsNode({ id: r.id, name: r.name }),
       onDelete: (r: NodeRow) => setDeleteTarget(r),
@@ -2558,7 +2562,10 @@ export function NodesPage() {
       <Modal
         open={editOpen}
         onClose={closeEdit}
-        title={t("pages.nodes.editNode")}
+        closeOnEscape={trafficTarget == null}
+        title={<div className="flex items-center gap-3"><span>{t("pages.nodes.editNode")}</span>
+          {editId != null ? <IconButton label={t("pages.trafficHistory.open")} onClick={() => setTrafficTarget({ kind: "node", id: editId, name: joinNameFlag(editForm.nameFlag, editForm.name) })}><ChartNoAxesCombined size={18} /></IconButton> : null}
+        </div>}
         width={640}
         footer={
           <div className="flex flex-wrap justify-end gap-2">
@@ -2826,6 +2833,7 @@ export function NodesPage() {
         <p className="mt-1 text-xs text-[var(--fg-subtle)]">{hostKeyPrompt?.keyType}</p>
       </Modal>
 
+      <TrafficHistoryModal target={trafficTarget} onClose={() => setTrafficTarget(null)} nested={editOpen} />
       <NodeResourceDrawer
         open={metricsNode != null}
         nodeId={metricsNode?.id ?? null}

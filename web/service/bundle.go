@@ -337,7 +337,7 @@ func (s *BundleService) Get(id int) (*model.Bundle, error) {
 func (s *BundleService) List() ([]*model.Bundle, error) {
 	db := database.GetDB()
 	var out []*model.Bundle
-	if err := db.Order("auto ASC, sort_order ASC, id ASC").Find(&out).Error; err != nil {
+	if err := db.Order("sort_order ASC, id ASC").Find(&out).Error; err != nil {
 		return nil, err
 	}
 	for _, b := range out {

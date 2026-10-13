@@ -13,6 +13,8 @@ type Props = {
   allowScripts?: boolean;
   /** Height of the frame in px when scripts are allowed (0 = follow the content). */
   height?: number;
+  /** Fill the host tile instead of using document height. */
+  fill?: boolean;
   ctx: Ctx;
   lang: string;
   id: string;
@@ -36,7 +38,7 @@ function jsonForScript(v: unknown): string {
  * styles do not leak either way). With scripts it renders in a sandboxed iframe without same-origin access, so code
  * cannot touch the page, the panel session or the parent document.
  */
-export function HtmlEmbed({ html, css = "", js = "", allowScripts, height = 0, ctx, lang, id, className, style, dataProps, params, values, events }: Props) {
+export function HtmlEmbed({ html, css = "", js = "", allowScripts, height = 0, fill = false, ctx, lang, id, className, style, dataProps, params, values, events }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const pv = useMemo(() => {
     const v = paramValues(params, values);
@@ -74,7 +76,7 @@ export function HtmlEmbed({ html, css = "", js = "", allowScripts, height = 0, c
     if (!allowScripts) return "";
     const safeJs = js.replace(/<\/script/gi, "<\\/script");
     const data = jsonForScript(scope);
-    return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;padding:0;background:transparent;color:#c9d1d9;font-family:system-ui,sans-serif}${rootVars}${cleanCss(css)}</style></head><body>${rendered}<script>window.sub=${data};<\/script><script>${safeJs}<\/script><script>(function(){var post=function(){parent.postMessage({sublytHeight:document.documentElement.scrollHeight,frame:${jsonForScript(id)}},"*")};try{new ResizeObserver(post).observe(document.body)}catch(e){}window.addEventListener("load",post);post()})()<\/script></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;padding:0;background:transparent;color:#c9d1d9;font-family:system-ui,sans-serif}${rootVars}${cleanCss(css)}</style></head><body><script>window.sub=${data};<\/script>${rendered}<script>${safeJs}<\/script><script>(function(){var post=function(){parent.postMessage({sublytHeight:document.documentElement.scrollHeight,frame:${jsonForScript(id)}},"*")};try{new ResizeObserver(post).observe(document.body)}catch(e){}window.addEventListener("load",post);post()})()<\/script></body></html>`;
   }, [allowScripts, css, js, rendered, scope, id, rootVars]);
 
   if (allowScripts) {
@@ -85,7 +87,7 @@ export function HtmlEmbed({ html, css = "", js = "", allowScripts, height = 0, c
           sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
           referrerPolicy="no-referrer"
           srcDoc={srcDoc}
-          style={{ width: "100%", height: height > 0 ? height : frameHeight, border: 0, display: "block", background: "transparent" }}
+          style={{ width: "100%", height: fill ? "100%" : height > 0 ? height : frameHeight, border: 0, display: "block", background: "transparent" }}
         />
       </div>
     );

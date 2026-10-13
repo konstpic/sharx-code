@@ -26,6 +26,8 @@ func SetBundleConversionHook(convert func() (any, error)) { bundleConvertHook = 
 func NewBundleController(g *gin.RouterGroup) *BundleController {
 	a := &BundleController{}
 	g.GET("/list", a.list)
+	g.POST("/reorder", a.reorder)
+	g.POST("/hosts/reorder", a.reorderHosts)
 	g.GET("/get/:id", a.get)
 	g.POST("/add", a.add)
 	g.POST("/update/:id", a.update)
@@ -360,4 +362,21 @@ func (a *BundleController) convert(c *gin.Context) {
 		return
 	}
 	jsonObj(c, rep, nil)
+}
+
+func (a *BundleController) reorder(c *gin.Context) {
+	var form reorderForm
+	if err := c.ShouldBindJSON(&form); err != nil || len(form.IDs) == 0 {
+		jsonMsg(c, "Invalid bundle order", errors.New("ids are required"))
+		return
+	}
+	jsonMsg(c, "Bundles reordered", a.svc.ReorderBundles(form.IDs))
+}
+func (a *BundleController) reorderHosts(c *gin.Context) {
+	var form reorderForm
+	if err := c.ShouldBindJSON(&form); err != nil || len(form.IDs) == 0 {
+		jsonMsg(c, "Invalid host order", errors.New("ids are required"))
+		return
+	}
+	jsonMsg(c, "Hosts reordered", (&service.HostService{}).ReorderHosts(0, false, form.IDs))
 }

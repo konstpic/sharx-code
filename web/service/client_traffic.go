@@ -129,7 +129,7 @@ func MergePanelClientLiveSpeedInto(c *model.ClientEntity) {
 // clients were loaded at the start of the tick, and a full save would overwrite anything an admin changed since (HWID
 // and IP limits, expiry, comment, group ...) with the stale copy. status is written only when statusBefore says this
 // tick changed it (nil = never).
-func saveClientTrafficFields(tx *gorm.DB, clients []*model.ClientEntity, statusBefore map[int]string) error {
+func saveClientTrafficFields(tx *gorm.DB, clients []*model.ClientEntity, statusBefore map[int]string, history ...*trafficHistoryBatch) error {
 	for _, c := range clients {
 		if c == nil || c.Id == 0 {
 			continue
@@ -144,10 +144,13 @@ func saveClientTrafficFields(tx *gorm.DB, clients []*model.ClientEntity, statusB
 			return err
 		}
 	}
+	if len(history) > 0 {
+		return persistClientTrafficHistory(tx, history[0])
+	}
 	return nil
 }
 
-func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic, _ *InboundService) (map[string]string, map[int]bool, error) {
+func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic, _ *InboundService, history ...*trafficHistoryBatch) (map[string]string, map[int]bool, error) {
 	clientsToDisable := make(map[string]string) // map[email]tag
 	affectedInboundIds := make(map[int]bool)    // Track affected inbounds for traffic sync
 
@@ -155,6 +158,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 	// online is derived from positive deltas). Clear the panel list so clients do not stay
 	// "online" forever after disconnect; the UI debounces brief gaps via OFFLINE_STATUS_DELAY.
 	if len(traffics) == 0 {
+		recordIdleClientTrafficPoll(time.Now().UnixMilli())
 		setPanelOnlineClients(nil)
 		setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
 		return clientsToDisable, affectedInboundIds, nil
@@ -318,6 +322,10 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 
 	speedNow := time.Now().UnixMilli()
 	speedFrom := liveSpeedTracker.startTick(speedNow)
+	historyBatch := newTrafficHistoryBatch(speedNow)
+	if len(history) > 0 && history[0] != nil {
+		historyBatch = history[0]
+	}
 
 	// Update traffic for each client
 	// Statuses as loaded: only a status this tick changed may be written back (see saveClientTrafficFields).
@@ -387,6 +395,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 		}
 		// Client upload = xray downlink delta (newDown), client download = uplink delta (newUp).
 		liveSpeedTracker.observe(client.Id, speedFrom, speedNow, newDown, newUp)
+		historyBatch.Samples = append(historyBatch.Samples, accountedTrafficSample{ID: client.Id, BeforeUp: client.Up, BeforeDown: client.Down, Up: newDown, Down: newUp, RawUp: trafficData.Down, RawDown: trafficData.Up})
 
 		client.Up += newDown // Upload (client→server) goes to Up
 		client.Down += newUp // Download (server→client) goes to Down
@@ -481,7 +490,7 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 			time.Sleep(delay)
 		}
 
-		err = saveClientTrafficFields(tx, clientEntities, statusBefore)
+		err = saveClientTrafficFields(tx, clientEntities, statusBefore, historyBatch)
 		if err == nil {
 			break
 		}
@@ -751,6 +760,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 	}
 
 	nowMs := time.Now().UnixMilli()
+	historyBatch := newTrafficHistoryBatch(nowMs)
 	onlineSet := make(map[string]struct{})
 	onlineList := make([]string, 0)
 	speedFrom := liveSpeedTracker.startTick(nowMs)
@@ -778,6 +788,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 		// Fallback path also feeds the speed tracker, otherwise the Speed column stays empty
 		// when traffic is attributed only via hysteria inbound deltas.
 		liveSpeedTracker.observe(c.Id, speedFrom, nowMs, d.down, d.up)
+		historyBatch.Samples = append(historyBatch.Samples, accountedTrafficSample{ID: c.Id, BeforeUp: c.Up, BeforeDown: c.Down, Up: d.down, Down: d.up, RawUp: d.down, RawDown: d.up})
 
 		c.Up += d.down
 		c.Down += d.up
@@ -795,7 +806,7 @@ func (s *ClientService) applyHysteriaTagDeltas(tx *gorm.DB, tagDelta map[string]
 		setPanelOnlineClients(onlineList)
 	}
 	setPanelClientLiveSpeeds(liveSpeedTracker.snapshot(time.Now().UnixMilli()))
-	return saveClientTrafficFields(tx, clients, nil)
+	return saveClientTrafficFields(tx, clients, nil, historyBatch)
 }
 
 // syncInboundTrafficFromClients synchronizes inbound traffic as the sum of all its clients' traffic.

@@ -77,6 +77,7 @@ var routes = map[string][]string{
 	"POST /panel/api/inbounds/lastOnline":                    {ClientsRead},
 
 	// ----- clients -----
+	"GET /panel/client/traffic-history/:id":  {ClientsRead},
 	"GET /panel/client/list":                 {ClientsRead},
 	"GET /panel/client/get/:id":              {ClientsRead},
 	"GET /panel/client/links/:id":            {ClientsRead},
@@ -150,12 +151,16 @@ var routes = map[string][]string{
 	"POST /panel/bundle/hosts/del/:id":           {HostsDelete},
 	"GET /panel/host/list":                       {HostsRead},
 	"GET /panel/host/get/:id":                    {HostsRead},
+	"POST /panel/host/reorder":                   {HostsUpdate},
+	"POST /panel/bundle/reorder":                 {BundlesUpdate},
+	"POST /panel/bundle/hosts/reorder":           {HostsUpdate},
 	"POST /panel/host/add":                       {HostsCreate},
 	"POST /panel/host/update/:id":                {HostsUpdate},
 	"POST /panel/host/subscription-bindings/:id": {HostsUpdate},
 	"POST /panel/host/del/:id":                   {HostsDelete},
 
 	// ----- infrastructure: nodes, balancers -----
+	"GET /panel/node/traffic-history/:id":          {NodesRead},
 	"GET /panel/node/list":                         {NodesRead},
 	"GET /panel/node/get/:id":                      {NodesRead},
 	"GET /panel/node/status/:id":                   {NodesRead},

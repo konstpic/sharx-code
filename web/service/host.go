@@ -38,7 +38,7 @@ func normalizeHostSubscriptionOverrides(h *model.Host) {
 func (s *HostService) GetHosts(userId int) ([]*model.Host, error) {
 	db := database.GetDB()
 	var hosts []*model.Host
-	err := db.Where("user_id = ?", userId).Find(&hosts).Error
+	err := db.Where("user_id = ?", userId).Order("sort_order ASC, id ASC").Find(&hosts).Error
 	if err != nil {
 		return nil, err
 	}

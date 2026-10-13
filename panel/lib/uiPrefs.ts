@@ -8,6 +8,7 @@ type UiPrefKey =
   | "panelMenuStyle"
   | "panelLang"
   | "dashboardWidgets"
+  | "dashboardLayout"
   | "hideSecAlert"
   | "clientsTablePrefs";
 

@@ -29,6 +29,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/xray"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // NodeService provides business logic for managing nodes in multi-node mode.
@@ -1564,9 +1565,9 @@ SELECT ce.id
 FROM client_entities AS ce
 INNER JOIN client_inbound_mappings AS cim ON cim.client_id = ce.id
 INNER JOIN inbound_node_mappings AS inm ON inm.inbound_id = cim.inbound_id AND inm.node_id = ?
-WHERE LOWER(TRIM(ce.name)) = LOWER(TRIM(?))
+WHERE (LOWER(TRIM(ce.name)) = LOWER(TRIM(?)) OR LOWER(ce.password) = LOWER(?) OR LOWER(ce.uuid) = LOWER(?))
 LIMIT 1`
-	if err := db.Raw(q, nodeId, email).Scan(&id).Error; err != nil {
+	if err := db.Raw(q, nodeId, email, email, email).Scan(&id).Error; err != nil {
 		return 0, err
 	}
 	if id <= 0 {
@@ -1576,7 +1577,7 @@ LIMIT 1`
 }
 
 // applyClientNodeTrafficDeltas accumulates per-node client stats (multi-node) in the same transaction as AddClientTraffic.
-func applyClientNodeTrafficDeltas(tx *gorm.DB, deltas []perNodeClientDelta) error {
+func applyClientNodeTrafficDeltas(tx *gorm.DB, deltas []perNodeClientDelta, history *trafficHistoryBatch) error {
 	if len(deltas) == 0 {
 		return nil
 	}
@@ -1593,6 +1594,14 @@ func applyClientNodeTrafficDeltas(tx *gorm.DB, deltas []perNodeClientDelta) erro
 		err = tx.Where("client_id = ? AND node_id = ?", clientId, d.NodeId).First(&row).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if history != nil {
+			if history.Nodes[clientId] == nil {
+				history.Nodes[clientId] = make(map[int]TrafficHistoryBytes)
+			}
+			previous := history.Nodes[clientId][d.NodeId]
+			history.Nodes[clientId][d.NodeId] = trafficBytes(previous.Upload+d.Down, previous.Download+d.Up)
+			history.Origins = append(history.Origins, model.TrafficHistoryOrigin{Kind: "client", EntityID: clientId, NodeID: d.NodeId, Up: row.Down, Down: row.Up, StartedAt: history.At})
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			row = model.ClientNodeTraffic{
@@ -1978,44 +1987,29 @@ func (s *NodeService) PostDropIPsToNode(node *model.Node, ips []string) error {
 
 // UpdateNodeTraffic updates traffic statistics for a node and checks traffic limit.
 // Returns true if traffic limit is exceeded.
-func (s *NodeService) UpdateNodeTraffic(nodeId int, up int64, down int64) (bool, error) {
-	db := database.GetDB()
-
-	var node model.Node
-	if err := db.First(&node, nodeId).Error; err != nil {
-		return false, fmt.Errorf("failed to get node: %w", err)
-	}
-
-	// Update traffic
-	newUp := node.Up + up
-	newDown := node.Down + down
-	newAllTime := node.AllTime + up + down
-
-	// Check traffic limit (if TrafficLimitGB > 0)
+func (s *NodeService) UpdateNodeTraffic(nodeId int, up int64, down int64, sampleAt ...int64) (bool, error) {
 	trafficExceeded := false
-	if node.TrafficLimitGB > 0 {
-		trafficLimitBytes := int64(node.TrafficLimitGB * 1024 * 1024 * 1024)
-		currentTotal := newUp + newDown
-		if currentTotal >= trafficLimitBytes {
-			trafficExceeded = true
-			logger.Warningf("[Node: %s] Traffic limit exceeded: %d >= %d bytes (%.2f GB >= %.2f GB)",
-				node.Name, currentTotal, trafficLimitBytes,
-				float64(currentTotal)/(1024*1024*1024), node.TrafficLimitGB)
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var node model.Node
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&node, nodeId).Error; err != nil {
+			return fmt.Errorf("failed to get node: %w", err)
 		}
-	}
-
-	// Update node traffic in database
-	err := db.Model(&node).Updates(map[string]interface{}{
-		"up":       newUp,
-		"down":     newDown,
-		"all_time": newAllTime,
-	}).Error
-
-	if err != nil {
-		return false, fmt.Errorf("failed to update node traffic: %w", err)
-	}
-
-	return trafficExceeded, nil
+		beforeUp, beforeDown := node.Up, node.Down
+		newUp, newDown := node.Up+up, node.Down+down
+		if node.TrafficLimitGB > 0 && newUp+newDown >= int64(node.TrafficLimitGB*1024*1024*1024) {
+			trafficExceeded = true
+			logger.Warningf("[Node: %s] Traffic limit exceeded", node.Name)
+		}
+		if err := tx.Model(&node).Updates(map[string]interface{}{"up": newUp, "down": newDown, "all_time": node.AllTime + up + down}).Error; err != nil {
+			return fmt.Errorf("failed to update node traffic: %w", err)
+		}
+		at := time.Now().UnixMilli()
+		if len(sampleAt) > 0 {
+			at = sampleAt[0]
+		}
+		return saveHistoryRows(tx, []model.TrafficHistoryOrigin{{Kind: "node", EntityID: nodeId, NodeID: -1, Up: beforeUp, Down: beforeDown, StartedAt: at}}, trafficBuckets("node", nodeId, -1, at, up, down), []model.TrafficHistoryCoverage{{Kind: "node", EntityID: nodeId, Bucket: at / trafficHistoryMinute * trafficHistoryMinute}})
+	})
+	return trafficExceeded, err
 }
 
 // ResetNodeTraffic resets traffic statistics for a node.
@@ -2091,6 +2085,7 @@ func (s *NodeService) CollectNodeStats() error {
 	// Import services
 	inboundService := &InboundService{}
 	clientService := &ClientService{}
+	wireGuardNames := clientService.wireGuardPubKeyToClientMap()
 
 	// Collect stats from nodes with assigned inbounds concurrently
 	// Each node is processed independently - failures are isolated
@@ -2223,12 +2218,10 @@ func (s *NodeService) CollectNodeStats() error {
 		}
 
 		// Update node traffic
-		if nodeUp > 0 || nodeDown > 0 {
-			nodeTraffic := nodeTrafficMap[result.node.Id]
-			nodeTraffic.Up += nodeUp
-			nodeTraffic.Down += nodeDown
-			nodeTrafficMap[result.node.Id] = nodeTraffic
-		}
+		nodeTraffic := nodeTrafficMap[result.node.Id]
+		nodeTraffic.Up += nodeUp
+		nodeTraffic.Down += nodeDown
+		nodeTrafficMap[result.node.Id] = nodeTraffic
 
 		// Process client traffic: aggregate by email across all nodes
 		// API returns client traffic by email (sum of all inbounds on this node for that client)
@@ -2255,9 +2248,13 @@ func (s *NodeService) CollectNodeStats() error {
 			clientTrafficMap[email].Down += nct.Down
 
 			if nct.Up > 0 || nct.Down > 0 {
+				historyEmail := nct.Email
+				if name := wireGuardNames[strings.ToLower(strings.TrimSpace(historyEmail))]; name != "" {
+					historyEmail = name
+				}
 				perNodeDeltas = append(perNodeDeltas, perNodeClientDelta{
 					NodeId: result.node.Id,
-					Email:  nct.Email,
+					Email:  historyEmail,
 					Up:     nct.Up,
 					Down:   nct.Down,
 				})
@@ -2281,9 +2278,14 @@ func (s *NodeService) CollectNodeStats() error {
 		}
 	}
 
+	sampleAt := time.Now().UnixMilli()
 	// Update node traffic in database
 	for nodeId, traffic := range nodeTrafficMap {
-		trafficExceeded, err := s.UpdateNodeTraffic(nodeId, traffic.Up, traffic.Down)
+		if traffic.Up == 0 && traffic.Down == 0 {
+			recordIdleNodeTrafficPoll(nodeId, sampleAt)
+			continue
+		}
+		trafficExceeded, err := s.UpdateNodeTraffic(nodeId, traffic.Up, traffic.Down, sampleAt)
 		if err != nil {
 			logger.Warningf("Failed to update traffic for node %d: %v", nodeId, err)
 		} else if trafficExceeded {
@@ -2346,6 +2348,10 @@ func (s *NodeService) CollectNodeStats() error {
 		}
 	}
 
+	if successCount > 0 && len(allClientTraffics) == 0 {
+		recordIdleClientTrafficPoll(sampleAt)
+	}
+
 	// Update client traffic in database
 	if len(allClientTraffics) > 0 {
 		db := database.GetDB()
@@ -2356,11 +2362,12 @@ func (s *NodeService) CollectNodeStats() error {
 			}
 		}()
 
-		if err := applyClientNodeTrafficDeltas(tx, perNodeDeltas); err != nil {
+		historyBatch := newTrafficHistoryBatch(sampleAt)
+		if err := applyClientNodeTrafficDeltas(tx, perNodeDeltas, historyBatch); err != nil {
 			tx.Rollback()
 			logger.Warningf("Failed to apply per-node client traffic: %v", err)
 		} else {
-			clientsToDisable, _, err := clientService.AddClientTraffic(tx, allClientTraffics, inboundService)
+			clientsToDisable, _, err := clientService.AddClientTraffic(tx, allClientTraffics, inboundService, historyBatch)
 			if err != nil {
 				tx.Rollback()
 				logger.Warningf("Failed to add client traffic: %v", err)
@@ -2404,6 +2411,9 @@ func (s *NodeService) CollectNodeStats() error {
 			successCount, totalNodes, len(nodeTrafficMap), len(inboundTrafficMap), len(allClientTraffics), len(onlineClientsMap))
 	}
 
+	if trafficHistoryMinuteRetentionDays > 0 {
+		go pruneTrafficHistory()
+	}
 	return nil
 }
 

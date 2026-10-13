@@ -4,6 +4,7 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"strconv"
 
@@ -32,6 +33,7 @@ func NewHostController(g *gin.RouterGroup) *HostController {
 // initRouter initializes the routes for host-related operations.
 func (a *HostController) initRouter(g *gin.RouterGroup) {
 	g.GET("/list", a.getHosts)
+	g.POST("/reorder", a.reorderHosts)
 	g.GET("/get/:id", a.getHost)
 	g.POST("/add", a.addHost)
 	g.POST("/update/:id", a.updateHost)
@@ -282,4 +284,18 @@ func (a *HostController) deleteHost(c *gin.Context) {
 	}
 
 	jsonMsg(c, I18nWeb(c, "pages.hosts.toasts.hostDeleteSuccess"), nil)
+}
+
+func (a *HostController) reorderHosts(c *gin.Context) {
+	var form reorderForm
+	if err := c.ShouldBindJSON(&form); err != nil || len(form.IDs) == 0 {
+		jsonMsg(c, "Invalid host order", errors.New("ids are required"))
+		return
+	}
+	user := dataUser(c)
+	if user == nil {
+		jsonMsg(c, "Access denied", errors.New("access denied"))
+		return
+	}
+	jsonMsg(c, "Hosts reordered", a.hostService.ReorderHosts(user.Id, true, form.IDs))
 }

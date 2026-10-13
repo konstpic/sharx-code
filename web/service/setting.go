@@ -181,9 +181,10 @@ var defaultValueMap = map[string]string{
 	"panelTheme":        "web",
 	"panelMenuStyle":    "sidebar",
 	"panelLang":         "en",
-	"dashboardWidgets":  `["resources","xray","quick_actions","uptime","users_online","user_agent","database","network","panel_runtime"]`,
+	"dashboardWidgets":  `["resources","logs","core_versions","backup","uptime","users_online","user_agent","database","net_speed","net_traffic","net_sockets","server_ip","panel_runtime"]`,
 	"hideSecAlert":      "false",
 	"clientsTablePrefs": "",
+	"dashboardLayout":   "",
 }
 
 var allowedUIPreferenceKeys = map[string]bool{
@@ -193,11 +194,13 @@ var allowedUIPreferenceKeys = map[string]bool{
 	"dashboardWidgets":  true,
 	"hideSecAlert":      true,
 	"clientsTablePrefs": true,
+	"dashboardLayout":   true,
 }
 
 // userScopedUIPreferenceKeys are stored per panel user (settings key suffix :user:{id}).
 var userScopedUIPreferenceKeys = map[string]bool{
 	"clientsTablePrefs": true,
+	"dashboardLayout":   true,
 }
 
 func uiPreferenceStorageKey(logicalKey string, userId int) string {
@@ -695,7 +698,20 @@ func (s *SettingService) GetUIPreferenceForUser(userId int, key string) (string,
 		return "", common.NewErrorf("unsupported UI preference key: %s", key)
 	}
 	storageKey := uiPreferenceStorageKey(key, userId)
-	v, err := s.getString(storageKey)
+	var v string
+	var err error
+	if storageKey != key {
+		stored, readErr := s.getSetting(storageKey)
+		if database.IsNotFound(readErr) {
+			v, err = s.getString(key)
+		} else if readErr != nil {
+			err = readErr
+		} else {
+			v = stored.Value
+		}
+	} else {
+		v, err = s.getString(key)
+	}
 	if err != nil {
 		return "", err
 	}

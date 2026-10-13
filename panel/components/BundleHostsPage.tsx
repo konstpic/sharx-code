@@ -1,4 +1,6 @@
 "use client";
+import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
+import { DragHandle } from "@/components/ui/drag-handle";
 
 import { Pencil, Plus, RotateCcw, Server, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -119,18 +121,17 @@ export function BundleHostsPage() {
     setLoading(false);
   }, []);
 
+  const [reordering, setReordering] = useState(false);
+  const dnd = useReorderDnd({ ids: hosts.map(r => r.id), enabled: canUpdate && !reordering, orientation: "vertical", onReorder: next => {
+    setReordering(true); const previous = hosts; setHosts(applyOrder(hosts, next));
+    void postJson(panel("bundle/hosts/reorder"), {ids:next}, true).then(r => { if (!r.success) { setHosts(previous); toast.error(r.msg || t("fail")); } }).catch(() => { setHosts(previous); toast.error(t("fail")); }).finally(() => setReordering(false));
+  } });
+
   useEffect(() => {
     void load();
   }, [load]);
 
-  const grouped = useMemo(() => {
-    const m = new Map<number, FullHost[]>();
-    for (const h of hosts) {
-      const k = h.inboundId ?? 0;
-      m.set(k, [...(m.get(k) ?? []), h]);
-    }
-    return [...m.entries()];
-  }, [hosts]);
+  const grouped = useMemo<[number,FullHost[]][]>(() => [[0,applyOrder(hosts,dnd.order)]], [hosts,dnd.order]);
 
   const save = async () => {
     if (!form) return;
@@ -205,14 +206,16 @@ export function BundleHostsPage() {
             {grouped.map(([inboundId, list]) => (
               <Surface key={inboundId} padding="none" className="overflow-hidden">
                 <div className="border-b border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--fg)]">
-                  {list[0]?.inboundRemark || `#${inboundId}`}
+                  {t("menu.hosts")}
                 </div>
                 {list.map((h) => (
-                  <div key={h.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-0">
+                  <div {...dnd.itemProps(h.id)} key={h.id} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-0">
+                    <DragHandle label={t("pages.nodes.dndDrag")} enabled={dnd.enabled} {...dnd.handleProps(h.id)} />
                     <Switch size="sm" checked={h.enable} disabled={!canUpdate} onChange={(v) => void toggle(h, v)} ariaLabel="enable" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--fg)]">
                         {h.name}
+                        {h.inboundRemark ? <PillTag>{h.inboundRemark}</PillTag> : null}
                         <PillTag tone={h.kind === "address" ? "blue" : "neutral"}>{hostKindLabel(h.kind, t)}</PillTag>
                         {h.customized ? <PillTag tone="amber">{t("pages.bundleHosts.customized", { defaultValue: "edited" })}</PillTag> : null}
                       </div>

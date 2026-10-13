@@ -459,6 +459,8 @@ export type LayoutRendererProps = {
   doc: LayoutDoc;
   data: PublicSubPayload;
   config: SharxSubpageConfigV2 | null;
+  /** Optional domain context for other builders using the same layout engine. */
+  context?: Ctx;
   mode?: LayoutMode;
   interactive?: boolean;
   /** Designer: "mobile" | "tablet" | "desktop". */
@@ -470,7 +472,7 @@ export type LayoutRendererProps = {
   lang?: string;
 };
 
-export function LayoutRenderer({ doc, data, config, mode = "view", interactive = true, device = "", onCopy, onShowQr, fallbackTitle = "Subscription", lang: langProp }: LayoutRendererProps) {
+export function LayoutRenderer({ doc, data, config, mode = "view", interactive = true, device = "", onCopy, onShowQr, fallbackTitle = "Subscription", lang: langProp, context }: LayoutRendererProps) {
   const { t, i18n } = useTranslation();
   const lang = langProp ?? (i18n.language?.slice(0, 2) || "en");
 
@@ -488,7 +490,7 @@ export function LayoutRenderer({ doc, data, config, mode = "view", interactive =
   const addToAppBlock = useMemo(() => (config?.blocks ?? []).find((b) => b.kind === "add-to-app" && b.enabled !== false) as BlockAddToApp | undefined, [config?.blocks]);
   const ctx = useMemo(
     () =>
-      buildLayoutContext(data, {
+      ({...buildLayoutContext(data, {
         lang,
         preview: mode === "edit",
         device,
@@ -498,8 +500,8 @@ export function LayoutRenderer({ doc, data, config, mode = "view", interactive =
         addToApp: addToAppBlock,
         i18n: doc.i18n,
         bundledTr,
-      }),
-    [data, lang, mode, device, doc.vars, doc.i18n, bundledTr, branding, config?.deepLinks?.enabledApps, addToAppBlock],
+      }), ...context}),
+    [data, lang, mode, device, doc.vars, doc.i18n, bundledTr, branding, config?.deepLinks?.enabledApps, addToAppBlock, context],
   );
 
   const [pageState, setPageState] = useState<PageState>({});

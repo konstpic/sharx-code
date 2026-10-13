@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef, useState, type DragEvent, type HTMLAttributes } from "react";
+import {useEffect,useRef,type HTMLAttributes,type PointerEvent as ReactPointerEvent} from "react";
 
 export type DndOrientation = "vertical" | "horizontal";
 
@@ -23,7 +23,7 @@ export function applyOrder<T extends { id: number }>(rows: T[], order: number[] 
 
 export type ReorderDnd = {
   enabled: boolean;
-  /** Live order while dragging, so the other items move out of the way; null when idle. */
+  /** Reserved for non-native previews; native dragging keeps DOM order stable until drop. */
   order: number[] | null;
   draggingId: number | null;
   /** Props for the draggable row / card element. */
@@ -32,102 +32,41 @@ export type ReorderDnd = {
   handleProps: (id: number) => HTMLAttributes<HTMLElement>;
 };
 
-/**
- * Drag-and-drop reordering with native HTML5 events (works for table rows, list rows and grid tiles).
- * The list is only draggable from its grip handle, so buttons, switches and text stay usable.
- */
-export function useReorderDnd({
-  ids,
-  enabled,
-  orientation,
-  onReorder,
-}: {
-  ids: number[];
-  enabled: boolean;
-  orientation: DndOrientation;
-  onReorder: (nextIds: number[]) => void;
-}): ReorderDnd {
-  const [armedId, setArmedId] = useState<number | null>(null);
-  const [draggingId, setDraggingId] = useState<number | null>(null);
-  const [preview, setPreview] = useState<number[] | null>(null);
-  const rects = useRef(new Map<number, DOMRect>());
-
-  const reset = useCallback(() => {
-    setArmedId(null);
-    setDraggingId(null);
-    setPreview(null);
-  }, []);
-
-  // FLIP: remember where every item was, and slide the ones that moved from the old spot to the new one.
-  useLayoutEffect(() => {
-    const els = document.querySelectorAll<HTMLElement>("[data-dnd-item][data-dnd-id]");
-    const next = new Map<number, DOMRect>();
-    els.forEach((el) => {
-      const id = Number(el.dataset.dndId);
-      const r = el.getBoundingClientRect();
-      next.set(id, r);
-      const old = rects.current.get(id);
-      if (!old || preview == null) return;
-      const dx = old.left - r.left;
-      const dy = old.top - r.top;
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
-        duration: 200,
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
-      });
-    });
-    rects.current = next;
-  }, [preview, ids]);
-
-  const itemProps = useCallback(
-    (id: number) => {
-      return {
-        draggable: enabled && armedId === id,
-        "data-dnd-item": "" as const,
-        "data-dnd-id": String(id),
-        "data-dnd-dragging": draggingId === id ? "true" : undefined,
-        onDragStart: (e: DragEvent<HTMLElement>) => {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", String(id));
-          setDraggingId(id);
-          setPreview(ids);
-        },
-        onDragEnd: reset,
-        onDragOver: (e: DragEvent<HTMLElement>) => {
-          if (!enabled || draggingId == null) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          if (draggingId === id || !preview) return;
-          const r = e.currentTarget.getBoundingClientRect();
-          const frac =
-            orientation === "horizontal" ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
-          const from = preview.indexOf(draggingId);
-          const to = preview.indexOf(id);
-          // Swap only once the pointer is past the middle of the item it is entering: no flicker.
-          const pos = to > from ? (frac > 0.5 ? "after" : null) : frac < 0.5 ? "before" : null;
-          if (!pos) return;
-          const next = moveId(preview, draggingId, id, pos);
-          if (next.some((x, i) => x !== preview[i])) setPreview(next);
-        },
-        onDrop: (e: DragEvent<HTMLElement>) => {
-          e.preventDefault();
-          if (preview && preview.some((x, i) => x !== ids[i])) onReorder(preview);
-          reset();
-        },
-      } as HTMLAttributes<HTMLElement> & { draggable: boolean };
-    },
-    [armedId, draggingId, enabled, ids, onReorder, orientation, preview, reset],
-  );
-  const handleProps = useCallback(
-    (id: number): HTMLAttributes<HTMLElement> => ({
-      onPointerDown: () => {
-        if (enabled) setArmedId(id);
-      },
-      onPointerUp: () => setArmedId((cur) => (draggingId == null && cur === id ? null : cur)),
-      onPointerCancel: () => setArmedId(null),
-    }),
-    [draggingId, enabled],
-  );
-
-  return { enabled, order: preview, draggingId, itemProps, handleProps };
+/** Pointer-based ordering keeps the DOM stable throughout the gesture, including WebKit. */
+export function useReorderDnd({ids,enabled,orientation,onReorder}:{ids:number[];enabled:boolean;orientation:DndOrientation;onReorder:(ids:number[])=>void}):ReorderDnd {
+ const latest=useRef({ids,enabled,orientation,onReorder});latest.current={ids,enabled,orientation,onReorder};
+ const cancelRef=useRef<(()=>void)|null>(null);
+ useEffect(()=>()=>cancelRef.current?.(),[]);
+ const itemProps=(id:number)=>({draggable:false,"data-dnd-item":"","data-dnd-id":String(id)}) as HTMLAttributes<HTMLElement>&{draggable:boolean};
+ const handleProps=(id:number):HTMLAttributes<HTMLElement>=>({
+  onKeyDown:e=>{
+   const step=e.key==='ArrowDown'||e.key==='ArrowRight'?1:e.key==='ArrowUp'||e.key==='ArrowLeft'?-1:0;
+   if(!step||!latest.current.enabled)return;const current=latest.current.ids;const at=current.indexOf(id);const next=at+step;if(next<0||next>=current.length)return;
+   e.preventDefault();e.stopPropagation();latest.current.onReorder(moveId(current,id,current[next],step>0?'after':'before'));
+  },
+  onPointerDown:(event:ReactPointerEvent<HTMLElement>)=>{
+   if(!latest.current.enabled||event.button!==0)return;
+   event.preventDefault();event.stopPropagation();cancelRef.current?.();
+   const handle=event.currentTarget;const source=handle.closest<HTMLElement>('[data-dnd-item]');const container=source?.parentElement;
+   if(!source||!container)return;
+   handle.setPointerCapture(event.pointerId);
+   const startX=event.clientX,startY=event.clientY,startIds=[...latest.current.ids];let active=false;let order=startIds;let marked:HTMLElement|null=null;
+   const mark=(el:HTMLElement|null,pos?:string)=>{if(marked&&marked!==el)delete marked.dataset.dndDrop;marked=el;if(el&&pos)el.dataset.dndDrop=pos};
+   const update=(e:PointerEvent)=>{
+    const over=document.elementFromPoint(e.clientX,e.clientY)?.closest<HTMLElement>('[data-dnd-item]');
+    if(!over||!container.contains(over)||over===source)return;
+    const overId=Number(over.dataset.dndId);if(!startIds.includes(overId))return;
+    const r=over.getBoundingClientRect(),origin=source.getBoundingClientRect();
+    const vertical=latest.current.orientation==='vertical'||r.top>=origin.bottom-1||r.bottom<=origin.top+1;
+    const fraction=vertical?(e.clientY-r.top)/r.height:(e.clientX-r.left)/r.width;
+    const pos=fraction<0.5?'before':'after';order=moveId(startIds,id,overId,pos);mark(over,pos);
+   };
+   const move=(e:PointerEvent)=>{if(e.pointerId!==event.pointerId)return;if(!active&&Math.hypot(e.clientX-startX,e.clientY-startY)>=5){active=true;source.dataset.dndDragging='true'}if(active){e.preventDefault();update(e)}};
+   const clean=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);window.removeEventListener('pointercancel',cancel);delete source.dataset.dndDragging;mark(null);if(handle.hasPointerCapture(event.pointerId))handle.releasePointerCapture(event.pointerId);cancelRef.current=null};
+   const end=(e:PointerEvent)=>{if(e.pointerId!==event.pointerId)return;if(active)update(e);const result=order;clean();if(active&&result.some((n,i)=>n!==startIds[i]))latest.current.onReorder(result)};
+   const cancel=()=>clean();cancelRef.current=cancel;
+   window.addEventListener('pointermove',move,{passive:false});window.addEventListener('pointerup',end);window.addEventListener('pointercancel',cancel);
+  }
+ });
+ return {enabled,order:null,draggingId:null,itemProps,handleProps};
 }

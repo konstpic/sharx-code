@@ -1,30 +1,20 @@
 "use client";
+import {metricTileViews} from "@/components/dashboard/MetricTileViews";
+import {ResourceTileChart} from "@/components/dashboard/ResourceTileChart";
+import {DashboardBuilder,DashboardTile} from '@/components/dashboard/DashboardBuilder';
+import {defaultLayout,defaultTile,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
 
+import {DashboardComposer,type PanelDraft} from '@/components/dashboard/DashboardComposer';
+import {CustomMetricPanel} from '@/components/dashboard/CustomMetricPanel';
+import {CustomContentPanel} from '@/components/dashboard/CustomContentPanel';
+import {dashboardMetrics,type DashboardMetric,type MetricPoint} from '@/lib/dashboardMetrics';
 import { TelemtDcStatusCard } from "@/components/TelemtDcStatusCard";
 import {
-  Activity,
-  ArrowDown,
-  ArrowLeftRight,
-  ArrowUp,
-  Clock,
   CloudDownload,
-  CloudUpload,
-  Cpu,
-  Database,
-  Download,
-  Globe,
-  History,
   LayoutDashboard,
   LayoutGrid,
-  Network,
-  Power,
-  RefreshCw,
   Server,
-  SlidersHorizontal,
-  Users,
-  Wrench,
 } from "lucide-react";
-import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson, api } from "@/lib/api";
@@ -33,6 +23,8 @@ import { usePanelWebSocket } from "@/lib/panelWebSocket";
 import { linkP, panel, p } from "@/lib/paths";
 import { useCan } from "@/lib/rbac";
 import { usePanelAccentColor } from "@/lib/panelTheme";
+import { ResourcesOverview } from "@/components/dashboard/ResourcesOverview";
+import { BackupWidget, CoreVersionsWidget, DatabaseWidget, LogsWidget, NetSocketsWidget, NetSpeedWidget, NetTrafficWidget, RuntimeWidget, ServerIpWidget, UptimeWidget, UserAgentWidget, UsersOnlineWidget } from "@/components/dashboard/WidgetTiles";
 import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
 import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
 import {
@@ -40,26 +32,18 @@ import {
   Button,
   CheckboxField,
   ConfirmDialog,
-  IconButton,
-  IconTile,
-  LinearProgress,
   Modal,
-  PillTag,
   Reveal,
   SelectNative,
   Spinner,
-  Stagger,
-  StaggerItem,
   StatBlock,
   useToast,
 } from "@/components/ui";
-import { useCountUp } from "@/lib/useCountUp";
 import { EntityLogsModal } from "@/components/EntityLogsModal";
 import {
   DASHBOARD_WIDGET_I18N,
   DASHBOARD_WIDGET_ORDER,
   type DashboardWidgetId,
-  encodeDashboardWidgets,
   parseDashboardWidgets,
   toggleDashboardWidget,
 } from "@/lib/dashboardLayout";
@@ -101,25 +85,9 @@ type StatusData = {
 };
 
 
-function metricColor(percent: number, accent: string) {
-  if (percent < 80) return accent;
-  if (percent < 90) return "#f59e0b";
-  return "#ef4444";
-}
-
 function pct(cur: number, tot: number) {
   if (!tot) return 0;
   return Number(toFixed((cur / tot) * 100, 2));
-}
-
-function CountSize({ value }: { value: number }) {
-  const v = useCountUp(value, { duration: 700, decimals: 0 });
-  return <>{sizeFormat(v)}</>;
-}
-
-function CountNumber({ value }: { value: number }) {
-  const v = useCountUp(value, { duration: 700, decimals: 0 });
-  return <>{Math.round(v)}</>;
 }
 
 /** Picks the most common non-empty version across a set of nodes and flags whether they agree.
@@ -148,8 +116,6 @@ function installedVersionSummary(
   return { version: best, mismatch: counts.size > 1 };
 }
 
-const SPARK_W = 200;
-const SPARK_H = 36;
 const HISTORY_W = 840;
 const HISTORY_H = 220;
 const HISTORY_PAD_L = 40;
@@ -167,6 +133,7 @@ type DashboardClientHwid = {
 };
 
 type DashboardClientRow = {
+  enable?:boolean; up?:number; down?:number; allTime?:number;
   hwids?: DashboardClientHwid[];
 };
 
@@ -199,13 +166,13 @@ function panelOnlySeries(series: DashboardMetricSeries[]): DashboardMetricSeries
 }
 
 /** Parse `{ series: [...] }` CPU/mem history API; supports legacy bare point array from older panels. */
-function parseResourceHistoryEnvelope(obj: unknown, metric: "cpu" | "mem"): DashboardMetricSeries[] {
+function parseResourceHistoryEnvelope(obj: unknown, metric: "cpu" | "mem" | "disk"): DashboardMetricSeries[] {
   if (Array.isArray(obj)) {
-    const points: ResourceHistoryPoint[] = (obj as { t?: number; time?: number; cpu?: number; mem?: number }[]).map(
+    const points: ResourceHistoryPoint[] = (obj as { t?: number; time?: number; cpu?: number; mem?: number; disk?:number }[]).map(
       (raw) => {
         const ts = Number(raw?.t ?? raw?.time ?? 0);
         const vRaw =
-          metric === "cpu" ? Number(raw?.cpu ?? (raw as { v?: number }).v) : Number(raw?.mem ?? (raw as { v?: number }).v);
+          Number(raw?.[metric] ?? (raw as { v?: number }).v);
         const v = Number.isFinite(vRaw) ? Math.max(0, Math.min(100, vRaw)) : 0;
         return { value: v, ts: toUnixMs(ts) };
       }
@@ -228,10 +195,10 @@ function parseResourceHistoryEnvelope(obj: unknown, metric: "cpu" | "mem"): Dash
       const name = String(r.name ?? key);
       const ptsRaw = Array.isArray(r.points) ? r.points : [];
       const points: ResourceHistoryPoint[] = ptsRaw.map((p) => {
-        const raw = p as { t?: number; time?: number; cpu?: number; mem?: number; v?: number };
+        const raw = p as { t?: number; time?: number; cpu?: number; mem?: number; disk?:number; v?: number };
         const ts = Number(raw?.t ?? raw?.time ?? 0);
         const vRaw =
-          metric === "cpu" ? Number(raw?.cpu ?? raw?.v) : Number(raw?.mem ?? raw?.v);
+          Number(raw?.[metric] ?? raw?.v);
         const v = Number.isFinite(vRaw) ? Math.max(0, Math.min(100, vRaw)) : 0;
         return { value: v, ts: toUnixMs(ts) };
       });
@@ -243,73 +210,6 @@ function parseResourceHistoryEnvelope(obj: unknown, metric: "cpu" | "mem"): Dash
 function paletteStrokeForSeries(s: DashboardMetricSeries, accent: string, index: number) {
   if (s.key === "panel") return accent;
   return RESOURCE_CHART_COLORS[index % RESOURCE_CHART_COLORS.length];
-}
-
-/** Sparkline overlay: multiple metrics on one time scale (milliseconds). */
-function MultiResourceSparkline({
-  accent,
-  series,
-}: {
-  accent: string;
-  series: DashboardMetricSeries[];
-}) {
-  const trimmed = useMemo(() => series.map((s) => ({ ...s, points: s.points.slice(-48) })), [series]);
-  const bounds = useMemo(() => {
-    let tMin = Number.POSITIVE_INFINITY;
-    let tMax = Number.NEGATIVE_INFINITY;
-    for (const s of trimmed) {
-      for (const p of s.points) {
-        if (p.ts < tMin) tMin = p.ts;
-        if (p.ts > tMax) tMax = p.ts;
-      }
-    }
-    if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || tMin === tMax) {
-      return { tMin: 0, tMax: 1 };
-    }
-    return { tMin, tMax };
-  }, [trimmed]);
-
-  const empty = trimmed.every((s) => s.points.length < 2);
-  if (empty) {
-    return <div className="h-9 w-full rounded-md bg-[var(--border)]/20" aria-hidden />;
-  }
-
-  const { tMin, tMax } = bounds;
-  const span = Math.max(1, tMax - tMin);
-
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      className="h-9 w-full"
-      preserveAspectRatio="none"
-      aria-hidden
-    >
-      {trimmed.map((s, i) => {
-        const stroke = paletteStrokeForSeries(s, accent, i);
-        if (s.points.length < 2) return null;
-        const pts = s.points
-          .map((p0) => {
-            const nx = ((p0.ts - tMin) / span) * (SPARK_W - 2) + 1;
-            const ny = SPARK_H - 1 - (Math.max(0, Math.min(100, p0.value)) / 100) * (SPARK_H - 2);
-            return `${nx},${ny}`;
-          })
-          .join(" ");
-        return (
-          <polyline
-            key={s.key}
-            fill="none"
-            stroke={stroke}
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            points={pts}
-            vectorEffect="non-scaling-stroke"
-            opacity="0.92"
-          />
-        );
-      })}
-    </svg>
-  );
 }
 
 type MultiStrokeSeries = DashboardMetricSeries & { stroke: string };
@@ -506,6 +406,15 @@ export function DashboardPage() {
   const [nodes, setNodes] = useState<
     { id: number; name: string; enable?: boolean; xrayVersion?: string; telemtVersion?: string }[]
   >([]);
+  const [workspace,setWorkspace]=useState<DashboardWorkspace>(()=>parseWorkspace(null,[...DASHBOARD_WIDGET_ORDER]));
+  const [panelDraft,setPanelDraft]=useState<PanelDraft|null>(null);
+  const [resourceMetrics,setResourceMetrics]=useState<DashboardMetric[]>([]);
+  const [clientMetrics,setClientMetrics]=useState<DashboardMetric[]>([]);
+  const [samples,setSamples]=useState<Record<string,MetricPoint[]>>({});
+  const [layout, setLayout] = useState<DashboardLayout>(defaultLayout);
+  const [layoutReady, setLayoutReady] = useState(false);
+  const [layoutEditing, setLayoutEditing] = useState(false);
+  const [layoutSaved, setLayoutSaved] = useState(true);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [enabledWidgets, setEnabledWidgets] = useState<DashboardWidgetId[]>([...DASHBOARD_WIDGET_ORDER]);
   const [dashboardHwidUserAgentStats, setDashboardHwidUserAgentStats] = useState<
@@ -515,8 +424,11 @@ export function DashboardPage() {
   const ws = usePanelWebSocket();
 
   useEffect(() => {
-    void setUiPref("dashboardWidgets", encodeDashboardWidgets(enabledWidgets));
-  }, [enabledWidgets]);
+    if(!layoutReady) return;
+    setLayoutSaved(false);
+    const timer=setTimeout(()=>{void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout,enabledWidgets))).then(setLayoutSaved)},500);
+    return ()=>clearTimeout(timer);
+  }, [enabledWidgets,layout,layoutReady,workspace]);
 
   useEffect(() => {
     (async () => {
@@ -539,9 +451,12 @@ export function DashboardPage() {
     });
     const r = await getJson<DashboardClientRow[]>(panel("client/list"));
     if (!r.success || !r.obj) {
-      setDashboardHwidUserAgentStats([]);
+      setDashboardHwidUserAgentStats([]);setClientMetrics([]);
       return;
     }
+    const group=t('pages.builder.groupClients');
+    const observedAt=Date.now();
+    setClientMetrics([{id:'clients.total',label:t('pages.builder.clientsTotal'),group,value:r.obj.length,unit:'count'},{id:'clients.enabled',label:t('pages.builder.clientsEnabled'),group,value:r.obj.filter(c=>c.enable).length,unit:'count'},{id:'clients.traffic',label:t('pages.builder.clientsTraffic'),group,value:r.obj.reduce((sum,c)=>sum+Number(c.up??0)+Number(c.down??0),0),unit:'bytes'},{id:'clients.allTime',label:t('pages.builder.clientsLifetime'),group,value:r.obj.reduce((sum,c)=>sum+Number(c.allTime??0),0),unit:'bytes'}].map(metric=>({...metric,unit:metric.unit as DashboardMetric['unit'],updatedAt:observedAt})));
     const byUserAgent = new Map<string, number>();
     let total = 0;
     for (const client of r.obj) {
@@ -574,7 +489,14 @@ export function DashboardPage() {
           setIpv6Enabled(Boolean(settings.enableIPv6));
         }
         const widgetsRaw = await getUiPref("dashboardWidgets");
-        setEnabledWidgets(parseDashboardWidgets(widgetsRaw));
+        const storedLayout = await getUiPref("dashboardLayout");
+        let enabled=parseDashboardWidgets(widgetsRaw);
+        if(!storedLayout)enabled=[...new Set([...enabled,"telemt_dc" as DashboardWidgetId])];
+        const restored=parseWorkspace(storedLayout,enabled);
+        setWorkspace(restored);
+        const active=restored.boards.find(b=>b.id===restored.activeId)!;
+        setLayout(active.layout);setEnabledWidgets(active.enabled);
+        setLayoutReady(true);
       } catch {
         /* ignore */
       }
@@ -635,19 +557,19 @@ export function DashboardPage() {
 
   useEffect(() => {
     const load = async () => {
-      const r = await getJson<unknown>(panel("api/server/cpuHistory/2"));
-      if (r.success && r.obj) {
-        setCpuPreviewSeries(panelOnlySeries(parseResourceHistoryEnvelope(r.obj, "cpu")));
-      }
-      const mr = await getJson<unknown>(panel("api/server/memHistory/2"));
-      if (mr.success && mr.obj) {
-        setMemPreviewSeries(panelOnlySeries(parseResourceHistoryEnvelope(mr.obj, "mem")));
-      }
+      const responses=await Promise.allSettled(['cpu','mem','disk'].map(metric=>getJson<unknown>(panel(`api/server/${metric}History/2`))));
+      const metrics:DashboardMetric[]=[];
+      responses.forEach((response,i)=>{
+       if(response.status!=='fulfilled'||!response.value.success||!response.value.obj)return;
+       const metric=(['cpu','mem','disk'] as const)[i];const series=parseResourceHistoryEnvelope(response.value.obj,metric);
+       if(metric==='cpu')setCpuPreviewSeries(panelOnlySeries(series));if(metric==='mem')setMemPreviewSeries(panelOnlySeries(series));
+       for(const row of series){const last=row.points[row.points.length-1];metrics.push({id:row.key==='panel'?metric==='cpu'?'cpu':metric+'.percent':`node.${row.nodeId??row.key}.${metric}`,label:row.key==='panel'?t(metric==='cpu'?'pages.index.cpu':metric==='mem'?'pages.index.memory':'pages.index.storage'):`${row.name} · ${t(metric==='cpu'?'pages.index.cpu':metric==='mem'?'pages.index.memory':'pages.index.storage')}`,group:t(row.key==='panel'?'pages.builder.groupResources':'pages.builder.groupNodes'),value:last?.value??null,unit:'percent',history:'server',max:100,points:row.points,updatedAt:last?.ts})}
+      });setResourceMetrics(metrics);
     };
     void load();
     const id = window.setInterval(load, 8000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!cpuOpen) return;
@@ -726,24 +648,22 @@ export function DashboardPage() {
       })),
     [memHistorySeries, t]
   );
-  const cpuPreviewLegend = useMemo(
-    () =>
-      cpuPreviewSeries.map((s, i) => ({
-        key: s.key,
-        name: s.key === "panel" ? t("pages.index.resourceSeriesPanel") : s.name,
-        stroke: paletteStrokeForSeries(s, accent, i),
-      })),
-    [cpuPreviewSeries, accent, t]
-  );
-  const memPreviewLegend = useMemo(
-    () =>
-      memPreviewSeries.map((s, i) => ({
-        key: s.key,
-        name: s.key === "panel" ? t("pages.index.resourceSeriesPanel") : s.name,
-        stroke: paletteStrokeForSeries(s, dashboardRamStroke, i),
-      })),
-    [memPreviewSeries, t]
-  );
+  const needsClientMetrics=layout.panels.some(panel=>panel.metrics.some(id=>id.startsWith('clients.')&&id!=='clients.online'));
+  useEffect(()=>{if(!needsClientMetrics)return;void pullDashboardHwidUserAgentStats();const timer=window.setInterval(()=>void pullDashboardHwidUserAgentStats(),30000);return()=>window.clearInterval(timer)},[needsClientMetrics,pullDashboardHwidUserAgentStats]);
+  useEffect(()=>{if(!st)return;const now=Date.now();setSamples(prev=>{
+   const next={...prev};
+   for(const m of dashboardMetrics(st,t))if(m.value!=null){const old=prev[m.id]??[];if(!old.length||now-old[old.length-1].ts>=5000)next[m.id]=[...old.slice(-119),{ts:now,value:m.value}]}
+   for(const m of clientMetrics)if(m.value!=null&&m.updatedAt){const old=prev[m.id]??[];if(old.at(-1)?.ts!==m.updatedAt)next[m.id]=[...old.slice(-119),{ts:m.updatedAt,value:m.value}]}
+   return next;
+  })},[st,t,clientMetrics]);
+  const metrics=useMemo(()=>{
+   if(!st)return [];
+   const base:DashboardMetric[]=[...dashboardMetrics(st,t),...clientMetrics].map(m=>({...m,history:'session' as const,points:samples[m.id]??[],updatedAt:samples[m.id]?.at(-1)?.ts}));
+   for(const m of resourceMetrics){const index=base.findIndex(x=>x.id===m.id);if(index>=0)base[index]={...base[index],points:m.points,history:m.history,updatedAt:m.updatedAt};else base.push(m)}return base;
+  },[st,t,clientMetrics,samples,resourceMetrics]);
+  const selectBoard=(id:string)=>{const next=saveActiveBoard(workspace,layout,enabledWidgets);const board=next.boards.find(b=>b.id===id);if(!board)return;setWorkspace({...next,activeId:id});setLayout(board.layout);setEnabledWidgets(board.enabled)};
+  const addBoard=(board:DashboardWorkspace['boards'][number])=>{if(workspace.boards.length>=12)return;const next=saveActiveBoard(workspace,layout,enabledWidgets);setWorkspace({...next,activeId:board.id,boards:[...next.boards,board]});setLayout(board.layout);setEnabledWidgets(board.enabled)};
+  const savePanel=(draft:PanelDraft)=>{setLayout(l=>({...l,panels:draft.isNew?[...l.panels,draft.panel]:l.panels.map(p=>p.id===draft.panel.id?draft.panel:p),order:draft.isNew?[draft.panel.id,...l.order]:l.order,tiles:{...l.tiles,[draft.panel.id]:draft.settings}}));setPanelDraft(null)};
 
   if (loading) {
     return (
@@ -756,7 +676,7 @@ export function DashboardPage() {
           actions={
             <Button type="button" variant="secondary" className="!gap-2" disabled>
               <LayoutGrid size={16} />
-              {t("pages.index.dashboardCustomize")}
+              {t(layoutEditing?"pages.builder.done":"pages.index.dashboardCustomize")}
             </Button>
           }
         />
@@ -789,7 +709,6 @@ export function DashboardPage() {
   const swP = pct(st.swap.current, st.swap.total);
   const nOn = st.nodes?.online ?? 0;
   const nTot = st.nodes?.total ?? 0;
-  const nP = nTot ? Number(toFixed((nOn / nTot) * 100, 2)) : 0;
   const nx = st.nodesXray;
   // Installed core versions: multi-node reads what's actually recorded per node in the DB
   // (rolled out centrally), single-node keeps the live-detected panel host version.
@@ -803,13 +722,17 @@ export function DashboardPage() {
     : st.telemt?.version
       ? { version: st.telemt.version, mismatch: false }
       : null;
-  const trafficMax = Math.max(1, st.netIO.up, st.netIO.down, st.netTraffic.sent, st.netTraffic.recv);
   const ramSparkColor = dashboardRamStroke;
   const showResources = enabledWidgets.includes("resources");
-  const showQuickActions = enabledWidgets.includes("quick_actions");
+  const showLogs = enabledWidgets.includes("logs");
+  const showCoreVersions = enabledWidgets.includes("core_versions");
+  const showBackup = enabledWidgets.includes("backup");
   const showUptime = enabledWidgets.includes("uptime");
   const showDatabase = enabledWidgets.includes("database");
-  const showNetwork = enabledWidgets.includes("network");
+  const showNetSpeed = enabledWidgets.includes("net_speed");
+  const showNetTraffic = enabledWidgets.includes("net_traffic");
+  const showNetSockets = enabledWidgets.includes("net_sockets");
+  const showServerIp = enabledWidgets.includes("server_ip");
   const showPanelRuntime = enabledWidgets.includes("panel_runtime");
   const showUsersOnline = enabledWidgets.includes("users_online");
   const showUserAgent = enabledWidgets.includes("user_agent");
@@ -962,9 +885,9 @@ export function DashboardPage() {
         iconTone="accent"
         actions={
           <>
-            <Button type="button" variant="secondary" onClick={() => setCustomizeOpen(true)} className="!gap-2">
+            <Button type="button" variant="secondary" onClick={() => { if(layoutEditing) void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout,enabledWidgets))).then(setLayoutSaved); setLayoutEditing(v=>!v); }} className="!gap-2">
               <LayoutGrid size={16} />
-              {t("pages.index.dashboardCustomize")}
+              {t(layoutEditing?"pages.builder.done":"pages.index.dashboardCustomize")}
             </Button>
             <SectionHelpModal scene="welcome" titleKey="pages.index.welcomeTitle" paragraphKeys={["pages.index.welcomeText"]} />
           </>
@@ -1006,564 +929,183 @@ export function DashboardPage() {
           />
         )}
 
+        <DashboardComposer workspace={workspace} editing={layoutEditing} metrics={metrics} layout={layout} draft={panelDraft} onDraft={setPanelDraft} onSave={savePanel} onSwitch={selectBoard}
+         onNew={()=>addBoard({id:'board-'+crypto.randomUUID(),name:t('pages.builder.newDashboard'),layout:defaultLayout(),enabled:[]})}
+         onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[...enabledWidgets]})}
+         onRename={name=>setWorkspace(w=>({...w,boards:w.boards.map(b=>b.id===w.activeId?{...b,name}:b)}))}
+         onRemove={()=>{if(workspace.boards.length<2)return;const remaining=workspace.boards.filter(b=>b.id!==workspace.activeId);setWorkspace({...workspace,boards:remaining,activeId:remaining[0].id});setLayout(remaining[0].layout);setEnabledWidgets(remaining[0].enabled)}}
+         onTemplate={kind=>addBoard(dashboardTemplate(kind,t))} onBuiltins={()=>setCustomizeOpen(true)} saved={layoutSaved}/>
+        <DashboardBuilder layout={layout} setLayout={setLayout} editing={layoutEditing} hide={id=>{if(id.startsWith('custom-'))setLayout(l=>({...l,panels:l.panels.filter(p=>p.id!==id),order:l.order.filter(p=>p!==id),tiles:Object.fromEntries(Object.entries(l.tiles).filter(([key])=>key!==id))}));else setEnabledWidgets(prev=>toggleDashboardWidget(id as DashboardWidgetId,new Set(prev)))}}>
+        {layout.panels.map(custom=>{const selected=metrics.filter(m=>custom.metrics.includes(m.id));const settings=layout.tiles[custom.id]??defaultTile(custom.id);return <DashboardTile key={custom.id} id={custom.id} label={custom.title||selected[0]?.label||t('pages.builder.'+custom.kind)} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>{custom.kind==='metric'?<CustomMetricPanel metrics={selected} settings={settings}/>:<CustomContentPanel panel={custom} metrics={selected}/>}</DashboardTile>})}
         {showResources && (
-        <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-12" staggerChildren={0.06}>
-          <StaggerItem className="lg:col-span-12">
-            <Surface>
-              <div className="mb-3 flex items-center justify-center gap-2.5">
-                <IconTile icon={Activity} tone="accent" size="sm" />
-                <p className="text-center text-xs font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
-                  {t("pages.index.systemLoad")} · {t("pages.index.resources")}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm text-[var(--fg-muted)]">
-                <button
-                  type="button"
-                  onClick={openCpu}
-                  title={t("pages.index.cpuHistory")}
-                  className="group rounded-xl border border-[var(--border)]/80 bg-[var(--bg-elevated)]/50 p-2.5 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-                >
-                  <LinearProgress percent={cpuP} strokeColor={metricColor(cpuP, accent)} />
-                  <p className="mt-1.5 text-center text-xs">
-                    <span className="text-[var(--fg)]">{t("pages.index.cpu")}</span>{" "}
-                    {st.cpuCores} {t("pages.index.cores")} · {toFixed(cpuP, 0)}%
-                  </p>
-                  <div className="mt-2 opacity-90 transition group-hover:opacity-100">
-                    <MultiResourceSparkline accent={accent} series={cpuPreviewSeries} />
-                  </div>
-                  {cpuPreviewLegend.length > 1 ? (
-                    <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 px-1">
-                      {cpuPreviewLegend.map((s) => (
-                        <span
-                          key={s.key}
-                          className="inline-flex max-w-[9rem] items-center gap-1 text-[10px] text-[var(--fg-muted)]"
-                        >
-                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.stroke }} />
-                          <span className="truncate">{s.name}</span>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  onClick={openMem}
-                  title={t("pages.index.memoryHistory")}
-                  className="group rounded-xl border border-[var(--border)]/80 bg-[var(--bg-elevated)]/50 p-2.5 text-left transition hover:border-[var(--accent)]/40 hover:bg-[var(--surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/40"
-                >
-                  <LinearProgress percent={memP} strokeColor={metricColor(memP, accent)} />
-                  <p className="mt-1.5 text-center text-xs">
-                    {t("pages.index.memory")} · {toFixed(memP, 0)}%
-                  </p>
-                  <p className="text-center text-[10px] opacity-80">
-                    {sizeFormat(st.mem.current)} / {sizeFormat(st.mem.total)}
-                  </p>
-                  <div className="mt-1 opacity-90 transition group-hover:opacity-100">
-                    <MultiResourceSparkline accent={ramSparkColor} series={memPreviewSeries} />
-                  </div>
-                  {memPreviewLegend.length > 1 ? (
-                    <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1 px-1">
-                      {memPreviewLegend.map((s) => (
-                        <span
-                          key={s.key}
-                          className="inline-flex max-w-[9rem] items-center gap-1 text-[10px] text-[var(--fg-muted)]"
-                        >
-                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.stroke }} />
-                          <span className="truncate">{s.name}</span>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </button>
-                <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--bg-elevated)]/50 p-2.5 text-left">
-                  <LinearProgress percent={swP} strokeColor={metricColor(swP, accent)} />
-                  <p className="mt-1.5 text-center text-xs">
-                    {t("pages.index.swap")} · {toFixed(swP, 0)}%
-                  </p>
-                </div>
-                <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--bg-elevated)]/50 p-2.5 text-left">
-                  <LinearProgress percent={dskP} strokeColor={metricColor(dskP, accent)} />
-                  <p className="mt-1.5 text-center text-xs">
-                    {t("pages.index.storage")} · {toFixed(dskP, 0)}%
-                  </p>
-                </div>
-              </div>
-              {multi && nTot > 0 && (
-                <div className="mt-3 border-t border-[var(--border)] pt-3 text-center text-sm text-[var(--fg-muted)]">
-                  <LinearProgress
-                    percent={nP}
-                    strokeColor={metricColor(100 - nP, accent)}
-                  />
-                  <p className="mt-1">
-                    {t("pages.index.nodesAvailability")} {nOn} / {nTot}
-                  </p>
-                </div>
-              )}
-              <div className="mt-3 border-t border-[var(--border)] pt-3 text-center text-xs text-[var(--fg-muted)]">
-                <p className="font-medium text-[var(--fg-subtle)]">{t("pages.index.systemLoad")}</p>
-                <p className="mt-1 font-mono text-[var(--fg)]">
-                  {st.loads?.map((l) => toFixed(l, 2)).join(" · ")}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[var(--fg-subtle)]">{t("pages.index.systemLoadDesc")}</p>
-              </div>
-            </Surface>
-          </StaggerItem>
-        </Stagger>
+        <DashboardTile id="resources" views={{stat: <Surface><div className="grid grid-cols-2 gap-4"><StatBlock title="CPU" value={`${toFixed(cpuP,0)}%`} /><StatBlock title={t("pages.index.memory")} value={`${toFixed(memP,0)}%`} /><StatBlock title={t("pages.index.storage")} value={`${toFixed(dskP,0)}%`} /><StatBlock title={t("pages.index.swap")} value={`${toFixed(swP,0)}%`} /></div></Surface>}}>
+        <ResourcesOverview
+              accent={accent}
+              cpu={{ percent: cpuP, cores: st.cpuCores, series: (cpuPreviewSeries[0]?.points ?? []).map((q) => q.value), onOpen: openCpu, title: t("pages.index.cpuHistory") }}
+              mem={{ percent: memP, detail: `${sizeFormat(st.mem.current)} / ${sizeFormat(st.mem.total)}`, series: (memPreviewSeries[0]?.points ?? []).map((q) => q.value), color: ramSparkColor, onOpen: openMem, title: t("pages.index.memoryHistory") }}
+              disk={{ percent: dskP, detail: `${sizeFormat(st.disk.current)} / ${sizeFormat(st.disk.total)}` }}
+              swap={{ percent: swP, detail: `${sizeFormat(st.swap.current)} / ${sizeFormat(st.swap.total)}` }}
+              loads={st.loads}
+              nodes={multi && nTot > 0 ? { online: nOn, total: nTot } : null}
+            />
+
+        </DashboardTile>
         )}
 
-        {(showQuickActions || showUptime) && (
-        <Reveal className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {showQuickActions && canLogs && (
-          <Surface className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <IconTile icon={History} tone="info" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.logs")}</h3>
-            </div>
-            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
-              {t("pages.index.logsCardSubtitle", { defaultValue: "Panel actions and events (nodes and balancers have their own logs)" })}
-            </p>
-            <button
-              type="button"
-              onClick={openLogs}
-              className="mt-3 rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] py-2 text-center text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-strong)]"
-            >
-              {t("pages.index.logs")}
-            </button>
-          </Surface>
-          )}
-          {showQuickActions && (
-          <Surface className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <IconTile icon={Wrench} tone="accent" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">
-                {t("pages.index.coreVersionSwitch")}
-              </h3>
-            </div>
-            <div className="mt-3 flex-1 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                <span className="text-xs text-[var(--fg-muted)]">Xray</span>
-                <span className="flex items-center gap-1">
-                  {installedXray?.mismatch ? (
-                    <span
-                      className="size-1.5 shrink-0 rounded-full bg-amber-400"
-                      title={t("pages.index.coreVersionMismatch", {
-                        defaultValue: "Nodes are not all on the same version — check Nodes",
-                      })}
-                    />
-                  ) : null}
-                  <span className="whitespace-nowrap rounded border border-[var(--border)] bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--accent)]">
-                    {installedXray?.version || "—"}
-                  </span>
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                <span className="text-xs text-[var(--fg-muted)]">{t("pages.index.telemtShort")}</span>
-                <span className="flex items-center gap-1">
-                  {installedTelemt?.mismatch ? (
-                    <span
-                      className="size-1.5 shrink-0 rounded-full bg-amber-400"
-                      title={t("pages.index.coreVersionMismatch", {
-                        defaultValue: "Nodes are not all on the same version — check Nodes",
-                      })}
-                    />
-                  ) : null}
-                  <span className="whitespace-nowrap rounded border border-[var(--border)] bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-subtle)]">
-                    {installedTelemt?.version || "—"}
-                  </span>
-                </span>
-              </div>
-            </div>
-            {!multi && canXrayOperate ? (
-              <div className="mt-2 flex justify-end gap-0 border-t border-[var(--border)]/80 pt-2">
-                <IconButton
-                  label={t("pages.index.stopTelemt")}
-                  disabled={st.telemt?.state !== "running"}
-                  onClick={stopTelemtLocal}
-                >
-                  <Power size={14} />
-                </IconButton>
-                <IconButton label={t("pages.index.stopXray")} onClick={stopX}>
-                  <Power size={14} />
-                </IconButton>
-                <IconButton label={t("pages.index.restartXray")} onClick={restartX}>
-                  <RefreshCw size={14} />
-                </IconButton>
-              </div>
-            ) : null}
-            {canXrayOperate ? (
-              <button
-                type="button"
-                onClick={openVer}
-                className="mt-3 rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] py-2 text-center text-xs font-semibold text-[var(--fg)] transition-colors hover:bg-[var(--surface-strong)]"
-              >
-                {t("pages.index.coreVersionSwitch")}
-              </button>
-            ) : null}
-          </Surface>
-          )}
-          {showQuickActions && canBackup && (
-          <Surface className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <IconTile icon={Server} tone="success" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.backup")}</h3>
-            </div>
-            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
-              {t("pages.index.backupCardSubtitle", {
-                defaultValue: "Download or restore the database",
-              })}
-            </p>
-            <div className="mt-3 flex-1 space-y-2">
-              <button
-                type="button"
-                onClick={exportDb}
-                className="group flex w-full items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 transition-colors hover:border-[var(--accent)]/50"
-              >
-                <span className="text-[11px] font-medium text-[var(--fg-muted)] group-hover:text-[var(--fg)]">
-                  {t("pages.index.exportDatabase")}
-                </span>
-                <Download size={14} className="shrink-0 text-[var(--fg-subtle)]" />
-              </button>
-              <button
-                type="button"
-                onClick={importDb}
-                className="group flex w-full items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 transition-colors hover:border-[var(--accent)]/50"
-              >
-                <span className="text-[11px] font-medium text-[var(--fg-muted)] group-hover:text-[var(--fg)]">
-                  {t("pages.index.importDatabase")}
-                </span>
-                <CloudUpload size={14} className="shrink-0 text-[var(--fg-subtle)]" />
-              </button>
-            </div>
-            <div className="mt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={openConfig}
-                className="inline-flex items-center gap-1 text-[11px] text-[var(--fg-subtle)] transition-colors hover:text-[var(--fg)] hover:underline"
-              >
-                <SlidersHorizontal size={12} />
-                {t("pages.index.config")}
-              </button>
-            </div>
-          </Surface>
-          )}
-          {showUptime && (
-          <Surface>
-            <div className="mb-2 flex items-center gap-2">
-              <IconTile icon={Clock} tone="warning" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.operationHours")}</h3>
-            </div>
-            <div className="flex flex-col gap-2">
-              <PillTag tone="blue">
-                {t("pages.index.panelUptimeLabel")}: {formatSecond(st.panelUptime ?? 0)}
-              </PillTag>
-              <PillTag tone="blue">
-                {t("pages.index.osLabel")}: {formatSecond(st.uptime)}
-              </PillTag>
-              {!multi && (
-                <PillTag tone="green">
-                  {t("pages.index.xrayUptimeLabel")}: {formatSecond(st.appStats?.uptime || 0)}
-                </PillTag>
-              )}
-              {multi && nx && nx.total > 0 && (
-                <PillTag tone="green">
-                  {t("pages.index.nodesCoresRunningPill", { running: nx.running, total: nx.total })}
-                </PillTag>
-              )}
-            </div>
-          </Surface>
-          )}
-        </Reveal>
+        {showLogs && canLogs && (
+          <DashboardTile id="logs">
+            <LogsWidget onOpen={openLogs} />
+          </DashboardTile>
+        )}
+
+        {showCoreVersions && (
+          <DashboardTile id="core_versions">
+            <CoreVersionsWidget
+              xray={installedXray}
+              telemt={installedTelemt}
+              xrayRunning={multi ? undefined : st.xray?.state === "running"}
+              telemtRunning={multi ? undefined : st.telemt?.state === "running"}
+              canOperate={canXrayOperate}
+              local={!multi}
+              onStopTelemt={stopTelemtLocal}
+              onStopXray={stopX}
+              onRestartXray={restartX}
+              onSwitch={openVer}
+            />
+          </DashboardTile>
+        )}
+
+        {showBackup && canBackup && (
+          <DashboardTile id="backup">
+            <BackupWidget onExport={exportDb} onImport={importDb} onConfig={openConfig} />
+          </DashboardTile>
+        )}
+
+        {showUptime && (
+          <DashboardTile
+            id="uptime"
+            views={metricTileViews([
+              { label: t("pages.index.panelUptimeLabel"), value: formatSecond(st.panelUptime ?? 0) },
+              { label: t("pages.index.osLabel"), value: formatSecond(st.uptime) },
+            ])}
+          >
+            <UptimeWidget
+              panel={st.panelUptime ?? 0}
+              os={st.uptime}
+              xray={multi ? undefined : st.appStats?.uptime || 0}
+              nodes={multi && nx && nx.total > 0 ? { running: nx.running, total: nx.total } : undefined}
+            />
+          </DashboardTile>
         )}
 
         {showUsersOnline && (
-        <Reveal className="mt-4">
-          <Surface>
-            <div className="mb-2 flex items-center gap-2">
-              <IconTile icon={Users} tone="success" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.usersOnline")}</h3>
-            </div>
-            <p className="mb-3 text-xs text-[var(--fg-muted)]">{t("pages.index.usersOnlineHint")}</p>
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <StatBlock
-                title={t("pages.index.usersOnline")}
-                value={<CountNumber value={st.usersOnline ?? 0} />}
-                prefix={<Users size={16} className="text-emerald-400/90" />}
-              />
-              <Link
-                href={linkP("panel/clients/statistics")}
-                className="shrink-0 text-xs font-medium text-[var(--accent)] hover:underline"
-              >
-                {t("pages.index.openClientStats")} →
-              </Link>
-            </div>
-          </Surface>
-        </Reveal>
+          <DashboardTile id="users_online" views={metricTileViews([{ label: t("pages.index.usersOnline"), value: String(st.usersOnline ?? 0) }])}>
+            <UsersOnlineWidget value={st.usersOnline ?? 0} href={linkP("panel/clients")} />
+          </DashboardTile>
         )}
 
-        <Reveal className="mt-4">
+        {enabledWidgets.includes("telemt_dc") && <DashboardTile id="telemt_dc"><Reveal className="mt-4">
           <TelemtDcStatusCard />
-        </Reveal>
+        </Reveal></DashboardTile>}
 
         {showUserAgent && (
-        <Reveal className="mt-4">
-          <Surface>
-            <div className="mb-2 flex items-center gap-2">
-              <IconTile icon={Users} tone="info" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">
-                {t("pages.clients.hwidUserAgentShareTitle", {
-                  defaultValue: "User-Agent distribution by HWID",
-                })}
-              </h3>
-            </div>
-            <p className="mb-3 text-xs text-[var(--fg-muted)]">
-              {t("pages.index.hwidUserAgentDashboardHint", {
-                defaultValue: "Overall share of registered devices across all clients.",
-              })}
-            </p>
-            {dashboardHwidUserAgentPie.parts.length === 0 ? (
-              <p className="text-sm text-[var(--fg-muted)]">{t("noData")}</p>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-[auto,1fr] sm:items-start">
-                <div className="mx-auto w-fit">
-                  <div
-                    className="relative h-40 w-40 rounded-full border border-[var(--border)]"
-                    style={{ background: dashboardHwidUserAgentPie.gradient }}
-                    aria-label={t("pages.clients.hwidUserAgentShareTitle", {
-                      defaultValue: "User-Agent distribution by HWID",
-                    })}
-                  >
-                    <div className="absolute inset-[22%] rounded-full bg-[var(--bg-elevated)]" />
-                  </div>
-                </div>
-                <div className="max-h-48 space-y-2 overflow-auto pr-1">
-                  {dashboardHwidUserAgentPie.parts.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between gap-2 text-[11px]">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span
-                          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                          aria-hidden
-                        />
-                        <span className="min-w-0 truncate font-mono text-[var(--fg-muted)]">
-                          {item.label}
-                        </span>
-                      </span>
-                      <span className="shrink-0 font-semibold text-[var(--fg)]">
-                        {item.percentLabel}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </Surface>
-        </Reveal>
+          <DashboardTile
+            id="user_agent"
+            views={{
+              table: (
+                <Surface>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {dashboardHwidUserAgentStats.map((row) => (
+                        <tr key={row.label} className="border-b border-[var(--border)]">
+                          <td className="py-2">{row.label}</td>
+                          <td>{row.count}</td>
+                          <td>{row.percentLabel}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Surface>
+              ),
+            }}
+          >
+            <UserAgentWidget parts={dashboardHwidUserAgentPie.parts} />
+          </DashboardTile>
         )}
 
         {showDatabase && (
-        <Reveal className="mt-4">
-          <Surface>
-            <div className="mb-3 flex items-center gap-2">
-              <IconTile icon={Database} tone="neutral" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.database")}</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              <StatBlock title={t("pages.index.dbSize")} value={sizeFormat(st.database?.size ?? 0)} />
-              <StatBlock title={t("pages.index.dbTables")} value={String(st.database?.tables ?? 0)} />
-              <StatBlock title={t("pages.index.dbRows")} value={String(st.database?.totalRows ?? 0)} />
-              <StatBlock
-                title={t("pages.index.dbConnections")}
-                value={`${st.database?.openConns ?? 0} / ${st.database?.maxOpenConns ?? 0}`}
-              />
-            </div>
-          </Surface>
-        </Reveal>
+          <DashboardTile
+            id="database"
+            views={metricTileViews([
+              { label: t("pages.index.dbSize"), value: sizeFormat(st.database?.size ?? 0) },
+              { label: t("pages.index.dbTables"), value: String(st.database?.tables ?? 0) },
+              { label: t("pages.index.dbRows"), value: String(st.database?.totalRows ?? 0) },
+              { label: t("pages.index.dbConnections"), value: String(st.database?.openConns ?? 0) },
+            ])}
+          >
+            <DatabaseWidget db={st.database} />
+          </DashboardTile>
         )}
 
         {showPanelRuntime && (
-        <Reveal className="mt-4">
-          <Surface>
-            <div className="mb-3 flex items-center gap-2">
-              <IconTile icon={Cpu} tone="info" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.panelProcessTitle")}</h3>
-            </div>
-            <p className="mb-3 text-xs text-[var(--fg-muted)]">{t("pages.index.panelProcessDesc")}</p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <StatBlock
-                title={t("pages.index.logicalProcessors")}
-                value={String(st.logicalPro ?? st.cpuCores ?? "—")}
-              />
-              <StatBlock title={t("pages.index.frequency")} value={cpuGhz} />
-              <StatBlock
-                title={t("pages.index.threads")}
-                value={String(st.appStats?.threads ?? "—")}
-              />
-              <StatBlock
-                title={t("pages.index.panelProcessHeap")}
-                value={sizeFormat(st.appStats?.mem ?? 0)}
-              />
-            </div>
-          </Surface>
-        </Reveal>
+          <DashboardTile
+            id="panel_runtime"
+            views={metricTileViews([
+              { label: t("pages.index.logicalProcessors"), value: String(st.logicalPro ?? st.cpuCores ?? 0) },
+              { label: t("pages.index.frequency"), value: cpuGhz },
+              { label: t("pages.index.threads"), value: String(st.appStats?.threads ?? 0) },
+              { label: t("pages.index.panelProcessHeap"), value: sizeFormat(st.appStats?.mem ?? 0) },
+            ])}
+          >
+            <RuntimeWidget cores={String(st.logicalPro ?? st.cpuCores ?? "—")} freq={cpuGhz} threads={String(st.appStats?.threads ?? "—")} heap={st.appStats?.mem ?? 0} />
+          </DashboardTile>
         )}
 
-        {showNetwork && (
-        <Reveal className="mt-4">
-          <Surface>
-            <div className="mb-4 flex items-center gap-2">
-              <IconTile icon={Network} tone="info" size="sm" />
-              <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.networkGroupTitle")}</h3>
-            </div>
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--fg-subtle)]">
-              {t("pages.index.netCurrentRates")}
-            </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Surface
-                padding="sm"
-                className="group relative overflow-hidden border-[var(--border)]/80 bg-gradient-to-b from-[var(--bg-elevated)]/95 via-[var(--surface)]/60 to-[var(--bg)]/50 shadow-sm transition duration-200 hover:shadow-md hover:ring-1 hover:ring-[var(--accent)]/25"
-              >
-                <div
-                  className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-emerald-500/25 to-transparent opacity-0 blur-2xl transition group-hover:opacity-100"
-                  aria-hidden
-                />
-                <div className="relative">
-                  <StatBlock
-                    title={t("pages.index.upload")}
-                    value={<CountSize value={st.netIO.up} />}
-                    prefix={<ArrowUp size={16} className="text-emerald-400/90" />}
-                    suffix="/s"
-                  />
-                </div>
-                <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]/35">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-500/80 to-[var(--accent)] transition-[width] duration-700 ease-out"
-                    style={{ width: `${Math.max(4, (st.netIO.up / trafficMax) * 100)}%` }}
-                  />
-                </div>
-              </Surface>
-              <Surface
-                padding="sm"
-                className="group relative overflow-hidden border-[var(--border)]/80 bg-gradient-to-b from-[var(--bg-elevated)]/95 via-[var(--surface)]/60 to-[var(--bg)]/50 shadow-sm transition duration-200 hover:shadow-md hover:ring-1 hover:ring-sky-400/30"
-              >
-                <div
-                  className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-sky-500/25 to-transparent opacity-0 blur-2xl transition group-hover:opacity-100"
-                  aria-hidden
-                />
-                <div className="relative">
-                  <StatBlock
-                    title={t("pages.index.download")}
-                    value={<CountSize value={st.netIO.down} />}
-                    prefix={<ArrowDown size={16} className="text-sky-400/90" />}
-                    suffix="/s"
-                  />
-                </div>
-                <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]/35">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-sky-500/80 to-cyan-400/70 transition-[width] duration-700 ease-out"
-                    style={{ width: `${Math.max(4, (st.netIO.down / trafficMax) * 100)}%` }}
-                  />
-                </div>
-              </Surface>
-            </div>
-            <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-[var(--fg-subtle)]">
-              {t("pages.index.netCumulativeTraffic")}
-            </p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-2">
-              <Surface
-                padding="sm"
-                className="group relative overflow-hidden border-[var(--border)]/80 bg-gradient-to-b from-[var(--bg-elevated)]/95 via-[var(--surface)]/60 to-[var(--bg)]/50 shadow-sm transition duration-200 hover:shadow-md hover:ring-1 hover:ring-amber-400/25"
-              >
-                <div
-                  className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-amber-500/20 to-transparent opacity-0 blur-2xl transition group-hover:opacity-100"
-                  aria-hidden
-                />
-                <div className="relative">
-                  <StatBlock
-                    title={t("pages.index.sent")}
-                    value={<CountSize value={st.netTraffic.sent} />}
-                    prefix={<CloudUpload size={16} className="text-amber-400/90" />}
-                  />
-                </div>
-                <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]/35">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500/75 to-orange-500/60 transition-[width] duration-700 ease-out"
-                    style={{ width: `${Math.max(4, (st.netTraffic.sent / trafficMax) * 100)}%` }}
-                  />
-                </div>
-              </Surface>
-              <Surface
-                padding="sm"
-                className="group relative overflow-hidden border-[var(--border)]/80 bg-gradient-to-b from-[var(--bg-elevated)]/95 via-[var(--surface)]/60 to-[var(--bg)]/50 shadow-sm transition duration-200 hover:shadow-md hover:ring-1 hover:ring-violet-400/25"
-              >
-                <div
-                  className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-violet-500/20 to-transparent opacity-0 blur-2xl transition group-hover:opacity-100"
-                  aria-hidden
-                />
-                <div className="relative">
-                  <StatBlock
-                    title={t("pages.index.received")}
-                    value={<CountSize value={st.netTraffic.recv} />}
-                    prefix={<CloudDownload size={16} className="text-violet-400/90" />}
-                  />
-                </div>
-                <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--border)]/35">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-violet-500/75 to-fuchsia-500/55 transition-[width] duration-700 ease-out"
-                    style={{ width: `${Math.max(4, (st.netTraffic.recv / trafficMax) * 100)}%` }}
-                  />
-                </div>
-              </Surface>
-            </div>
-            <div className="mt-6 border-t border-[var(--border)] pt-5">
-              <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-[var(--fg-subtle)]">
-                {t("pages.index.netSocketsTitle")}
-              </p>
-              <div className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
-                <Surface padding="sm">
-                  <StatBlock
-                    title={t("pages.index.statTCP")}
-                    value={<CountNumber value={st.tcpCount} />}
-                    prefix={<ArrowLeftRight size={16} className="text-[var(--accent)]" />}
-                  />
-                </Surface>
-                <Surface padding="sm">
-                  <StatBlock
-                    title={t("pages.index.statUDP")}
-                    value={<CountNumber value={st.udpCount} />}
-                    prefix={<ArrowLeftRight size={16} className="text-[var(--accent)]" />}
-                  />
-                </Surface>
-              </div>
-            </div>
-            <div className="mt-6 border-t border-[var(--border)] pt-5">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <IconTile icon={Globe} tone="info" size="sm" />
-                  <h3 className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.ipAddresses")}</h3>
-                </div>
-                <IconButton
-                  label={t("pages.index.toggleIpVisibility")}
-                  onClick={() => setShowIp((v) => !v)}
-                >
-                  <Globe size={16} />
-                </IconButton>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <StatBlock
-                  title={t("pages.index.statIPv4")}
-                  value={showIp ? st.publicIP?.ipv4 : "****"}
-                />
-                {ipv6Enabled ? (
-                  <StatBlock
-                    title={t("pages.index.statIPv6")}
-                    value={showIp ? st.publicIP?.ipv6 : "****"}
-                  />
-                ) : null}
-              </div>
-            </div>
-          </Surface>
-        </Reveal>
+        {showNetSpeed && (
+          <DashboardTile
+            id="net_speed"
+            views={metricTileViews([
+              { label: t("pages.index.upload"), value: sizeFormat(st.netIO.up) + "/s" },
+              { label: t("pages.index.download"), value: sizeFormat(st.netIO.down) + "/s" },
+            ])}
+          >
+            <NetSpeedWidget up={st.netIO.up} down={st.netIO.down} />
+          </DashboardTile>
         )}
+
+        {showNetTraffic && (
+          <DashboardTile
+            id="net_traffic"
+            views={metricTileViews([
+              { label: t("pages.index.sent"), value: sizeFormat(st.netTraffic.sent) },
+              { label: t("pages.index.received"), value: sizeFormat(st.netTraffic.recv) },
+            ])}
+          >
+            <NetTrafficWidget sent={st.netTraffic.sent} recv={st.netTraffic.recv} />
+          </DashboardTile>
+        )}
+
+        {showNetSockets && (
+          <DashboardTile
+            id="net_sockets"
+            views={metricTileViews([
+              { label: t("pages.index.statTCP"), value: String(st.tcpCount) },
+              { label: t("pages.index.statUDP"), value: String(st.udpCount) },
+            ])}
+          >
+            <NetSocketsWidget tcp={st.tcpCount} udp={st.udpCount} />
+          </DashboardTile>
+        )}
+
+        {showServerIp && (
+          <DashboardTile id="server_ip">
+            <ServerIpWidget ipv4={st.publicIP?.ipv4} ipv6={st.publicIP?.ipv6} showV6={ipv6Enabled} revealed={showIp} onToggle={() => setShowIp((v) => !v)} />
+          </DashboardTile>
+        )}
+
+        {enabledWidgets.includes("cpu_history") && <DashboardTile id="cpu_history" views={{stat:<Surface><StatBlock title="CPU" value={`${toFixed(cpuP,0)}%`}/></Surface>, area:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries} kind="area"/></Surface>, bar:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries} kind="bar"/></Surface>}}><Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries}/></Surface></DashboardTile>}
+        {enabledWidgets.includes("memory_history") && <DashboardTile id="memory_history" views={{stat:<Surface><StatBlock title={t("pages.index.memory")} value={`${toFixed(memP,0)}%`}/></Surface>, area:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries} kind="area"/></Surface>, bar:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries} kind="bar"/></Surface>}}><Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries}/></Surface></DashboardTile>}
+        </DashboardBuilder>
 
       <Modal
         open={verOpen}
@@ -1767,7 +1309,7 @@ export function DashboardPage() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setEnabledWidgets([...DASHBOARD_WIDGET_ORDER])}
+            onClick={() => {setEnabledWidgets([...DASHBOARD_WIDGET_ORDER]);setLayout(defaultLayout());}}
           >
             {t("pages.index.dashboardResetLayout")}
           </Button>

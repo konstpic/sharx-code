@@ -9,6 +9,8 @@ import shell from "./subscription-shell.module.css";
 
 type Props = {
   children: ReactNode;
+  /** Embedded builder block, without full-page height. */
+  compact?: boolean;
   className?: string;
   /** Optional branding color overrides — injected as CSS vars on the root. */
   branding?: SharxBranding;
@@ -44,12 +46,13 @@ function resolveTheme(theme?: string): "dark" | "light" | undefined {
 
 export function SubPageShell({
   children,
+  compact = false,
   className = "",
   branding,
   theme,
   colorPreset,
 }: Props) {
-  const style = buildCssVars(branding);
+  const style = {...buildCssVars(branding),...(compact?{minHeight:0}: {})};
   const dataTheme = resolveTheme(theme);
   const palette = resolveSubPageColorPreset(colorPreset);
   const reduce = useReducedMotion();

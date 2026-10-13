@@ -1,9 +1,11 @@
 "use client";
+import {matchesColumnFilter,type FilterKind} from "@/lib/columnFilters";
 
 import type { TFunction } from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  ChartNoAxesCombined,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -32,6 +34,7 @@ import {
   User,
   Users,
 } from "lucide-react";
+import { TrafficHistoryModal, type TrafficTarget } from "@/components/TrafficHistoryModal";
 import { QRCodeSVG } from "qrcode.react";
 import type { Dispatch, ReactNode, SetStateAction, TextareaHTMLAttributes } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -502,15 +505,10 @@ const DATA_COLUMN_ORDER = [
 type DataColumnId = (typeof DATA_COLUMN_ORDER)[number];
 type ClientSortKey = DataColumnId;
 
-type ColumnFilterId = "name" | "comment" | "traffic" | "expiry" | "hwid";
-
-const DEFAULT_COLUMN_FILTERS: Record<ColumnFilterId, string> = {
-  name: "",
-  comment: "",
-  traffic: "",
-  expiry: "",
-  hwid: "",
-};
+type ColumnFilterId = Exclude<DataColumnId,"connection"|"state"|"inbounds"|"group">;
+const COLUMN_FILTER_IDS = DATA_COLUMN_ORDER.filter((id):id is ColumnFilterId => !["connection","state","inbounds","group"].includes(id));
+const DEFAULT_COLUMN_FILTERS = Object.fromEntries(COLUMN_FILTER_IDS.map(id=>[id,""])) as Record<ColumnFilterId,string>;
+const BASIC_FILTER_IDS = ["name","comment","traffic","expiry","hwid"];
 
 const DEFAULT_COLUMN_VISIBILITY: Record<DataColumnId, boolean> = {
   id: false,
@@ -786,7 +784,7 @@ function buildClientTextFilterHaystacks(
   t: TFunction,
   noExpiry: string,
   expired: string,
-): Record<ColumnFilterId, string> {
+): Record<"name"|"comment"|"traffic"|"expiry"|"hwid", string> {
   const up = r.up || 0;
   const down = r.down || 0;
   const used = up + down;
@@ -1229,18 +1227,21 @@ function ClientsColumnFilterInput({
   value,
   onChange,
   placeholder,
+  ariaLabel,
   className = "",
   prefix,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder: string;
+  ariaLabel?: string;
   className?: string;
   /** Shown before the field (e.g. &gt;, &lt;, =) when comparing numeric / date filters. */
   prefix?: string;
 }) {
   const input = (
     <Input
+      aria-label={ariaLabel}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onClick={(e) => e.stopPropagation()}
@@ -1469,6 +1470,7 @@ type ClientUnifiedCardProps = {
   onOpenKeys: () => void;
   onOpenHwid: () => void;
   onOpenSessions: () => void;
+  onOpenTraffic: () => void;
   onShowSubscriptionQr: (url: string) => void;
 };
 
@@ -1501,6 +1503,7 @@ function ClientUnifiedCard({
   onOpenKeys,
   onOpenHwid,
   onOpenSessions,
+  onOpenTraffic,
   onShowSubscriptionQr,
 }: ClientUnifiedCardProps) {
   const canCreate = useCan("clients:create");
@@ -1604,7 +1607,7 @@ function ClientUnifiedCard({
                 ) : null}
               </div>
             </div>
-            <div className="flex shrink-0 items-center justify-end gap-0.5 lg:pt-0.5">
+            <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5 lg:pt-0.5">
             <IconButton
               type="button"
               label={
@@ -1644,6 +1647,11 @@ function ClientUnifiedCard({
                   <QrCode size={18} />
                 </IconButton>
               </>
+            ) : null}
+            {showExistingChrome ? (
+              <IconButton label={t("pages.trafficHistory.open")} onClick={onOpenTraffic}>
+                <ChartNoAxesCombined size={18} />
+              </IconButton>
             ) : null}
             {showExistingChrome ? (
               <IconButton
@@ -2492,6 +2500,7 @@ export function ClientsPage() {
     Map<number, ReturnType<typeof setTimeout>>
   >(new Map());
   const [rows, setRows] = useState<ClientCard[]>([]);
+  const [trafficTarget, setTrafficTarget] = useState<TrafficTarget | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [sheetMode, setSheetMode] = useState<ClientSheetMode | null>(null);
@@ -3161,6 +3170,25 @@ export function ClientsPage() {
       } else if (filterGroupId !== "") {
         const gid = Number(filterGroupId);
         if (!Number.isFinite(gid) || r.groupId !== gid) return false;
+      }
+
+      for (const col of COLUMN_FILTER_IDS) {
+        const raw=columnFilters[col];if(!raw.trim()||BASIC_FILTER_IDS.includes(col))continue;
+        let value:string|number|null=null;let kind:FilterKind="text";let display="";
+        switch(col) {
+          case "id": value=r.id;kind="number";break;
+          case "up":case "down":value=r[col]??0;kind="bytes";display=sizeFormat(value);break;
+          case "allTime":value=r.allTime??0;kind="bytes";display=sizeFormat(value);break;
+          case "totalGb":value=r.totalGB??0;kind="number";display=value===0?"∞ безлимит unlimited":"";break;
+          case "speed":value=(r.upSpeed??0)+(r.downSpeed??0);kind="speed";display=speedMbpsFormat(value);break;
+          case "createdAt":case "updatedAt":case "lastOnline":value=r[col]?(panelTimestampToMs(r[col]!)??null):null;kind="date";display=formatCardDateTime(r[col],"—");break;
+          case "lastConnectedNode":value=r.lastConnectedNode??"";break;
+          case "uuid":value=r.uuid??"";break;
+          case "subId":value=r.subId??"";break;
+          case "tgId":value=r.tgId||null;kind="number";break;
+          case "reset":value=r.reset??0;kind="number";break;
+        }
+        if(!matchesColumnFilter(value,raw,kind,display))return false;
       }
 
       if (
@@ -4480,6 +4508,12 @@ export function ClientsPage() {
                             </th>
                           );
                         }
+                        if(COLUMN_FILTER_IDS.includes(col as ColumnFilterId)) {
+                          const field=col as ColumnFilterId;
+                          const numeric=["id","up","down","allTime","totalGb","speed","tgId","reset"].includes(col);
+                          const date=["createdAt","updatedAt","lastOnline"].includes(col);
+                          return <th key={col} className="p-2"><ClientsColumnFilterInput ariaLabel={t("pages.clients.filterColumn",{column:getDataColumnLabel(col,t)})} value={columnFilters[field]} onChange={v=>setColumnFilters(f=>({...f,[field]:v}))} placeholder={date?">= 2026-10-01":numeric?(["up","down","allTime"].includes(col)?"> 1 GB":col==="speed"?"> 1 Mbps":">= 1"):t("pages.clients.filterContains")} /></th>;
+                        }
                         return <th key={col} className="p-2" aria-hidden />;
                       })}
                     </tr>
@@ -4569,6 +4603,7 @@ export function ClientsPage() {
       </Reveal>
 
       <Modal
+        closeOnEscape={trafficTarget == null}
         open={sheetOpen}
         onClose={() => {
           if (!modalSubmitting && !fetchingClient) {
@@ -4652,6 +4687,9 @@ export function ClientsPage() {
             }}
             onOpenHwid={() => {
               if (sheetClient != null) void openHwidModal(sheetClient.id);
+            }}
+            onOpenTraffic={() => {
+              if (sheetClient) setTrafficTarget({ kind: "client", id: sheetClient.id, name: sheetClient.name });
             }}
             onOpenSessions={() => {
               if (sheetClient != null) void openSessionsModal(sheetClient.id);
@@ -5425,6 +5463,7 @@ export function ClientsPage() {
         onCancel={() => setClientsConfirmAction(null)}
         onConfirm={() => void executeClientsConfirm()}
       />
+      <TrafficHistoryModal target={trafficTarget} onClose={() => setTrafficTarget(null)} nested={sheetMode != null} />
     </PageScaffold>
   );
 }

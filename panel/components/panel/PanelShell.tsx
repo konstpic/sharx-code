@@ -303,10 +303,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
             href: linkP("panel/clients"),
             icon: Users,
             active: inClients,
-            children: [
-              child("manage", t("menu.clientsManage"), linkP("panel/clients"), u === clientsListHref),
-              child("stats", t("menu.clientsStatistics"), linkP("panel/clients/statistics"), u === clientsStatsHref || u.startsWith(`${clientsStatsHref}/`)),
-            ],
+            children: [],
           });
         } else if (item.kind === "access") {
           const accessHref = routePath(p("panel/access"));
@@ -333,7 +330,6 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
               ...(can("nodes:read")
                 ? [
                     child("manage", t("menu.nodesManage"), linkP("panel/nodes"), u === nodesListHref),
-                    child("stats", t("menu.nodesStatistics"), linkP("panel/nodes/statistics"), u === nodesStatsHref || u.startsWith(`${nodesStatsHref}/`)),
                     child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
                   ]
                 : []),

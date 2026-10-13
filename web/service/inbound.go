@@ -1576,7 +1576,13 @@ func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraff
 		if err != nil {
 			tx.Rollback()
 		} else {
-			tx.Commit()
+			if commitErr := tx.Commit().Error; commitErr == nil {
+				if trafficHistoryMinuteRetentionDays > 0 {
+					go pruneTrafficHistory()
+				}
+			} else {
+				logger.Warningf("Failed to commit traffic accounting: %v", commitErr)
+			}
 		}
 	}()
 	// Client traffic is now handled by ClientService

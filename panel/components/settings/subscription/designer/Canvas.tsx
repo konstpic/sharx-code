@@ -6,6 +6,7 @@ import { LayoutRenderer } from "@/components/sub/layout/LayoutRenderer";
 import type { PublicSubPayload } from "@/components/sub/types";
 import type { SharxSubpageConfigV2 } from "@/lib/sharxSubpageConfig";
 import { insertSubtree, isContainerType, moveNode, parentMap, parentOf, placeBeside, placeBesideSubtree, subtreeIds, updateNode, type Subtree } from "@/lib/subLayout/tree";
+import type { Ctx } from "@/lib/subLayout/template";
 import type { LNode, LayoutDoc, Style } from "@/lib/subLayout/types";
 import { GridOverlay, snapTo, type GridSettings } from "./GridControls";
 import type { D } from "./i18n";
@@ -43,6 +44,7 @@ type Drop =
   | { kind: "side"; targetId: string; side: "left" | "right"; line: R };
 
 type Props = {
+  context?: Ctx;
   doc: LayoutDoc;
   sel: string[];
   data: PublicSubPayload;
@@ -61,7 +63,7 @@ type Props = {
 const CE = (s: string) => (typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&"));
 const TEXT_KEY: Record<string, string> = { text: "text", button: "label", badge: "text" };
 
-export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas({ doc, sel, data, config, device, zoom, bp, ops, d, frameWidth, lang, grid }, ref) {
+export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas({ doc, sel, data, config, device, zoom, bp, ops, d, frameWidth, lang, grid, context }, ref) {
   const frameRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [rev, setRev] = useState(0);
@@ -605,8 +607,8 @@ export const Canvas = forwardRef<CanvasHandle, Props>(function Canvas({ doc, sel
     <div className="relative" style={{ width: width * zoom, minHeight: 100 }}>
       <div ref={frameRef} className="absolute left-0 top-0 origin-top-left overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] shadow-2xl" style={{ width, transform: `scale(${zoom})` }} data-designer-frame>
         <div ref={contentRef}>
-          <SubPageShell branding={config?.branding} theme={config?.theme} colorPreset={config?.colorPreset}>
-            <LayoutRenderer doc={doc} data={data} config={config} mode="edit" interactive={false} device={device} lang={lang} />
+          <SubPageShell compact={!!context} branding={config?.branding} theme={config?.theme} colorPreset={config?.colorPreset}>
+            <LayoutRenderer doc={doc} data={data} config={config} mode="edit" interactive={false} device={device} lang={lang} context={context} />
           </SubPageShell>
         </div>
 

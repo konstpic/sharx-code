@@ -45,6 +45,7 @@ func NewClientController(g *gin.RouterGroup) *ClientController {
 
 // initRouter initializes the routes for client-related operations.
 func (a *ClientController) initRouter(g *gin.RouterGroup) {
+	g.GET("/traffic-history/:id", a.getTrafficHistory)
 	g.GET("/list", a.getClients)
 	g.GET("/get/:id", a.getClient)
 	g.GET("/links/:id", a.getClientShareLinks)

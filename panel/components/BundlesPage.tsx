@@ -1,4 +1,6 @@
 "use client";
+import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
+import { DragHandle } from "@/components/ui/drag-handle";
 
 import { ArrowDown, ArrowUp, Eye, EyeOff, Package, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -121,6 +123,12 @@ export function BundlesPage() {
     if (h.success && Array.isArray(h.obj)) setHosts(h.obj);
     setLoading(false);
   }, []);
+
+  const [reordering, setReordering] = useState(false);
+  const dnd = useReorderDnd({ ids: bundles.map(r => r.id), enabled: canUpdate && !reordering, orientation: "vertical", onReorder: next => {
+    setReordering(true); const previous = bundles; setBundles(applyOrder(bundles, next));
+    void postJson(panel("bundle/reorder"), {ids:next}, true).then(r => { if (!r.success) { setBundles(previous); toast.error(r.msg || t("fail")); } }).catch(() => { setBundles(previous); toast.error(t("fail")); }).finally(() => setReordering(false));
+  } });
 
   useEffect(() => {
     void load();
@@ -337,13 +345,14 @@ export function BundlesPage() {
               </div>
             ) : null}
 
-            {bundles.map((b) => {
+            {applyOrder(bundles, dnd.order).map((b) => {
               const visible = (b.hosts ?? []).filter((x) => !x.hidden);
               return (
-                <article key={b.id} className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${b.enable ? "" : "opacity-[0.7]"}`}>
+                <article {...dnd.itemProps(b.id)} key={b.id} className={`rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 ${b.enable ? "" : "opacity-[0.7]"}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
+                        <DragHandle label={t("pages.nodes.dndDrag")} enabled={dnd.enabled} {...dnd.handleProps(b.id)} />
                         <h3 className="truncate text-base font-semibold text-[var(--fg)]">{b.name}</h3>
                         {b.auto ? <PillTag>{t("pages.bundles.auto", { defaultValue: "auto" })}</PillTag> : null}
                         {!b.enable ? <PillTag tone="amber">{t("pages.bundles.off", { defaultValue: "off" })}</PillTag> : null}

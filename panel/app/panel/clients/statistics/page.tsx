@@ -1,10 +1,7 @@
-import { RequirePerm } from "@/components/panel/RequirePerm";
-import { ClientsStatisticsPage } from "@/components/ClientsStatisticsPage";
-
+"use client";
+import { useEffect } from "react";
+import { linkP } from "@/lib/paths";
 export default function Page() {
-  return (
-    <RequirePerm perm="clients:read">
-      <ClientsStatisticsPage />
-    </RequirePerm>
-  );
+  useEffect(() => { window.location.replace(linkP("panel/clients")); }, []);
+  return null;
 }

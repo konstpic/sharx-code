@@ -24,7 +24,7 @@ type BundleHostView struct {
 func (s *BundleService) ListBundleHosts() ([]BundleHostView, error) {
 	db := database.GetDB()
 	var hosts []model.Host
-	if err := db.Where("kind <> ?", model.HostKindLegacy).Order("inbound_id ASC, id ASC").Find(&hosts).Error; err != nil {
+	if err := db.Where("kind <> ?", model.HostKindLegacy).Order("sort_order ASC, id ASC").Find(&hosts).Error; err != nil {
 		return nil, err
 	}
 	out := make([]BundleHostView, 0, len(hosts))

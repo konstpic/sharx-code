@@ -72,3 +72,49 @@ func (s *NodeService) ReorderNodes(ids []int) error {
 		return nil
 	})
 }
+
+// ReorderHosts stores UI order without changing bundle membership or subscription host order.
+func (s *HostService) ReorderHosts(userId int, legacy bool, ids []int) error {
+	if len(ids) == 0 {
+		return errors.New("ids are required")
+	}
+	db := database.GetDB()
+	q := db.Model(&model.Host{})
+	if legacy {
+		q = q.Where("user_id = ? AND kind = ?", userId, model.HostKindLegacy)
+	} else {
+		q = q.Where("kind <> ?", model.HostKindLegacy)
+	}
+	var current []int
+	if err := q.Order("sort_order ASC, id ASC").Pluck("id", &current).Error; err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		final := mergeOrder(current, ids)
+		for i, id := range final {
+			if err := tx.Exec("UPDATE hosts SET sort_order=? WHERE id=?", i-len(final), id).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+func (s *BundleService) ReorderBundles(ids []int) error {
+	if len(ids) == 0 {
+		return errors.New("ids are required")
+	}
+	db := database.GetDB()
+	var current []int
+	if err := db.Model(&model.Bundle{}).Order("sort_order ASC, id ASC").Pluck("id", &current).Error; err != nil {
+		return err
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		final := mergeOrder(current, ids)
+		for i, id := range final {
+			if err := tx.Exec("UPDATE bundles SET sort_order=? WHERE id=?", i-len(final), id).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

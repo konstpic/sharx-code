@@ -1,4 +1,6 @@
 "use client";
+import { applyOrder, useReorderDnd } from "@/lib/useReorderDnd";
+import { DragHandle } from "@/components/ui/drag-handle";
 
 import { ArrowDown, ArrowUp, List, Plus, Server, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -411,6 +413,12 @@ export function HostsPage() {
       }
     }
   }, [loadInbounds, t, toast]);
+
+  const [reordering, setReordering] = useState(false);
+  const dnd = useReorderDnd({ ids: rows.map(r => r.id), enabled: canUpdate && !reordering, orientation: "vertical", onReorder: next => {
+    setReordering(true); const previous = rows; setRows(applyOrder(rows, next));
+    void postJson(panel("host/reorder"), {ids:next}, true).then(r => { if (!r.success) { setRows(previous); toast.error(r.msg || t("fail")); } }).catch(() => { setRows(previous); toast.error(t("fail")); }).finally(() => setReordering(false));
+  } });
 
   useEffect(() => {
     void load();
@@ -867,9 +875,10 @@ export function HostsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {applyOrder(rows, dnd.order).map((r) => (
                   <tr
                     key={r.id}
+                    {...dnd.itemProps(r.id)}
                     role="button"
                     tabIndex={0}
                     className={`border-b border-[var(--border)] text-[var(--fg-muted)] hover:bg-[color-mix(in_oklab,var(--accent)_5%,transparent)] ${
@@ -887,6 +896,7 @@ export function HostsPage() {
                       className="p-3 w-14"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <DragHandle label={t("pages.nodes.dndDrag")} enabled={dnd.enabled} {...dnd.handleProps(r.id)} />
                       <Switch
                         size="sm"
                         checked={r.enable !== false}

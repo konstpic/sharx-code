@@ -39,6 +39,7 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
 
 // initRouter initializes the routes for node-related operations.
 func (a *NodeController) initRouter(g *gin.RouterGroup) {
+	g.GET("/traffic-history/:id", a.getTrafficHistory)
 	g.GET("/list", a.getNodes)
 	g.GET("/get/:id", a.getNode)
 	g.POST("/add", a.addNode)

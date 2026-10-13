@@ -1898,7 +1898,66 @@ section[id] {
 }
 
 
-/* Manual ordering: the dragged item stays in the list as a dimmed while the others slide around it. */
+/* Manual ordering keeps the source in place and marks the proposed drop edge. */
 [data-dnd-dragging="true"] {
   opacity: 0.5;
+}
+
+/* Pointer reorder keeps keyed DOM children stable until release. */
+[data-dnd-drop="before"] { box-shadow: inset 0 3px 0 var(--accent); }
+[data-dnd-drop="after"] { box-shadow: inset 0 -3px 0 var(--accent); }
+
+/* ---- Dashboard visual layer (tiles, gauges, charts) ---- */
+.dash-card {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--fg) 5%, transparent), transparent 55%),
+    color-mix(in oklab, var(--bg-elevated) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--fg) 6%, transparent);
+}
+.dashboard-tile {
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in oklab, var(--fg) 4%, transparent), transparent 40%),
+    var(--surface);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--fg) 7%, transparent),
+    0 18px 40px -26px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+}
+.dashboard-tile:not([data-editing="true"]):hover {
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--fg) 9%, transparent),
+    0 22px 48px -24px color-mix(in oklab, var(--accent) 30%, rgba(0, 0, 0, 0.7));
+}
+.dashboard-tile[data-editing="true"] {
+  border-style: dashed;
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--fg) 11%, transparent) 1px, transparent 0),
+    linear-gradient(180deg, color-mix(in oklab, var(--fg) 4%, transparent), transparent 40%);
+  background-size: 18px 18px, 100% 100%;
+  cursor: grab;
+}
+@keyframes dash-ping {
+  0% { transform: scale(1); opacity: 0.6; }
+  80%, 100% { transform: scale(2.4); opacity: 0; }
+}
+.dash-ping { animation: dash-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes dash-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(1.5); }
+}
+.dash-pulse { transform-box: fill-box; transform-origin: center; animation: dash-pulse 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dash-ping, .dash-pulse { animation: none; }
+}
+@keyframes dash-wave { to { background-position-x: 24px; } }
+.dash-wave { animation: dash-wave 2.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .dash-wave { animation: none; } }
+/* A card inside a tile is the tile itself: drop the second frame. */
+.dashboard-tile .panel-surface {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }

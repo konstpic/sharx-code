@@ -19,11 +19,12 @@ export function DragHandle({
   return (
     <span
       {...(enabled ? rest : {})}
-      role="img"
+      role={enabled ? "button" : "img"}
+      tabIndex={enabled ? 0 : undefined}
       aria-label={label}
       title={enabled ? label : disabledHint ?? label}
       onClick={(e) => e.stopPropagation()}
-      className={`inline-grid size-6 shrink-0 place-items-center rounded-md text-[var(--fg-subtle)] transition ${
+      className={`inline-grid size-6 touch-none select-none shrink-0 place-items-center rounded-md text-[var(--fg-subtle)] transition ${
         enabled ? "cursor-grab hover:bg-[color-mix(in_oklab,var(--fg)_9%,transparent)] hover:text-[var(--fg)] active:cursor-grabbing" : "cursor-not-allowed opacity-35"
       } ${className}`}
     >
