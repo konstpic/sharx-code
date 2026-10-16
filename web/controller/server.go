@@ -65,6 +65,7 @@ func NewServerController(g *gin.RouterGroup) *ServerController {
 func (a *ServerController) initRouter(g *gin.RouterGroup) {
 
 	g.GET("/status", a.status)
+	g.GET("/dashboardMetrics", a.dashboardMetrics)
 	g.GET("/updater", a.dockerUpdaterStatus)
 	g.GET("/updater/plan", a.dockerUpdaterPlan)
 	g.POST("/updater/workers/prep", a.dockerUpdaterWorkersPrep)
@@ -250,6 +251,14 @@ func (a *ServerController) startTask() {
 
 // status returns the current server status information.
 func (a *ServerController) status(c *gin.Context) { jsonObj(c, a.lastStatus, nil) }
+
+// dashboardMetrics returns per-node / per-balancer metric snapshots for the custom dashboard panels (cached a few
+// seconds). Sections follow the viewer's permissions: nodes:read, balancers:read, audit:read.
+func (a *ServerController) dashboardMetrics(c *gin.Context) {
+	a.pollWorkerHostMetricsIfDue() // keeps the per-node CPU/memory/disk samples fresh even when no history chart is open
+	snap := a.serverService.GetDashboardMetrics()
+	jsonObj(c, snap.Redacted(can(c, rbac.NodesRead), can(c, rbac.BalancersRead), can(c, rbac.AuditRead)), nil)
+}
 
 func (a *ServerController) dockerUpdaterStatus(c *gin.Context) {
 	jsonObj(c, gin.H{"enabled": service.DockerUpdaterConfigured()}, nil)

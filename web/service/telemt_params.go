@@ -36,11 +36,19 @@ type TelemtParam struct {
 	// Since is the first Telemt release that accepts this key ("" = every supported release).
 	Since string `json:"since,omitempty"`
 	// Kind is the value shape the panel edits and the backend validates:
-	// bool | int | float | string | strlist | enum | object.
+	// bool | int | float | string | strlist | enum | enumlist | object.
 	Kind    string   `json:"kind"`
 	Options []string `json:"options,omitempty"`
 	Min     *float64 `json:"min,omitempty"`
 	Max     *float64 `json:"max,omitempty"`
+	// Multi marks a multi-value enum (Kind "enumlist"): an array of unique Options values.
+	Multi bool `json:"multi,omitempty"`
+	// AllowFalse: the multi-enum also accepts the literal `false` ("feature off").
+	AllowFalse bool `json:"allowFalse,omitempty"`
+	// Ordered: the order of the array is semantic (try-order) and is preserved as given.
+	Ordered bool `json:"ordered,omitempty"`
+	// OptionsFrom names a sibling key of the same section whose enum Options this key reuses.
+	OptionsFrom string `json:"optionsFrom,omitempty"`
 }
 
 // ID is the "section.key" identifier used as the params map key ("" section = top level).
@@ -64,6 +72,8 @@ func classifyTelemtParam(p *TelemtParam) {
 	switch {
 	case p.Container:
 		p.Kind = "object"
+	case p.Multi:
+		p.Kind = "enumlist" // options are resolved from OptionsFrom after the whole catalog is classified
 	case t == "bool":
 		p.Kind = "bool"
 	case t == "f32" || t == "f64":
@@ -113,6 +123,19 @@ func TelemtParamCatalog() []TelemtParam {
 		telemtCatalogByID = make(map[string]*TelemtParam, len(telemtCatalog))
 		for i := range telemtCatalog {
 			classifyTelemtParam(&telemtCatalog[i])
+		}
+		for i := range telemtCatalog {
+			p := &telemtCatalog[i]
+			if p.Multi && p.OptionsFrom != "" {
+				for j := range telemtCatalog {
+					if q := &telemtCatalog[j]; q.Section == p.Section && q.Key == p.OptionsFrom {
+						p.Options = append([]string(nil), q.Options...)
+						break
+					}
+				}
+			}
+		}
+		for i := range telemtCatalog {
 			// The same key can appear under several array sections; keep the first per ID.
 			id := telemtCatalog[i].ID()
 			if _, ok := telemtCatalogByID[id]; !ok {
@@ -224,6 +247,40 @@ func telemtParamValue(p *TelemtParam, raw json.RawMessage) (any, error) {
 			}
 		}
 		return nil, fmt.Errorf("%s: %q is not one of %s", p.ID(), key, strings.Join(p.Options, ", "))
+	case "enumlist":
+		var anyv any
+		if err := json.Unmarshal(raw, &anyv); err != nil {
+			return nil, bad("array of allowed values")
+		}
+		switch t := anyv.(type) {
+		case bool:
+			if !t && p.AllowFalse {
+				return false, nil
+			}
+			return nil, bad("a non-empty array of unique values" + map[bool]string{true: " or false", false: ""}[p.AllowFalse])
+		case []any:
+			if len(t) == 0 {
+				return nil, fmt.Errorf("%s: array must not be empty (use false to disable)", p.ID())
+			}
+			seen := make(map[string]bool, len(t))
+			out := make([]any, 0, len(t))
+			for _, e := range t {
+				v, ok := e.(string)
+				if !ok {
+					return nil, bad("array of strings")
+				}
+				if !containsString(p.Options, v) {
+					return nil, fmt.Errorf("%s: %q is not one of %s", p.ID(), v, strings.Join(p.Options, ", "))
+				}
+				if seen[v] {
+					return nil, fmt.Errorf("%s: duplicate value %q", p.ID(), v)
+				}
+				seen[v] = true
+				out = append(out, v)
+			}
+			return out, nil
+		}
+		return nil, bad("array of allowed values")
 	default: // object: accepted as-is but must be a JSON object/array/string
 		var anyv any
 		if err := json.Unmarshal(raw, &anyv); err != nil {
@@ -231,6 +288,15 @@ func telemtParamValue(p *TelemtParam, raw json.RawMessage) (any, error) {
 		}
 		return normalizeJSONForTOML(anyv), nil
 	}
+}
+
+func containsString(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func isTelemtStringEnum(p *TelemtParam) bool {

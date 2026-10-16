@@ -36,7 +36,7 @@ func TestTelemtCatalogCoverage(t *testing.T) {
 		if cat[i].Kind == "" {
 			t.Errorf("%s has no kind (type %q)", cat[i].ID(), cat[i].Type)
 		}
-		if cat[i].Kind == "enum" && len(cat[i].Options) == 0 {
+		if (cat[i].Kind == "enum" || cat[i].Kind == "enumlist") && len(cat[i].Options) == 0 {
 			t.Errorf("%s: enum without options (type %q)", cat[i].ID(), cat[i].Type)
 		}
 	}
@@ -205,6 +205,8 @@ func sampleForParam(p *TelemtParam) string {
 			return o
 		}
 		return strconv.Quote(o)
+	case "enumlist":
+		return `[` + strconv.Quote(p.Options[0]) + `]`
 	case "object":
 		return `{"k":"v"}`
 	default:
@@ -323,5 +325,85 @@ func TestValidateTelemtParamsWithBinary(t *testing.T) {
 	}
 	if err := validateTelemtParamsWithBinary(rawParams(t, `{"general.rpc_proxy_req_every": 30, "web.timeouts.long_poll_secs": 30}`), nil); err != nil {
 		t.Errorf("valid values must pass: %v", err)
+	}
+}
+
+func TestTelemtCarriersIsMultiEnum(t *testing.T) {
+	TelemtParamCatalog()
+	p := telemtCatalogByID["web.carriers"]
+	if p == nil || p.Kind != "enumlist" || !p.Multi || !p.AllowFalse || !p.Ordered {
+		t.Fatalf("web.carriers not classified as ordered multi-enum: %+v", p)
+	}
+	want := []string{"https", "https-lanes", "websocket", "websocket-lanes"}
+	if strings.Join(p.Options, ",") != strings.Join(want, ",") {
+		t.Fatalf("options = %v, want %v", p.Options, want)
+	}
+}
+
+func TestTelemtMultiEnumValidateAndEmit(t *testing.T) {
+	webBase := "[web]\nenabled = true\ncarrier = \"https\"\n"
+	cases := []struct {
+		name, raw, want, errPart string
+	}{
+		{"one", `["websocket"]`, `carriers = ["websocket"]`, ""},
+		{"several keeps order", `["websocket","https","websocket-lanes"]`, `carriers = ["websocket", "https", "websocket-lanes"]`, ""},
+		{"all four", `["https","https-lanes","websocket","websocket-lanes"]`, `carriers = ["https", "https-lanes", "websocket", "websocket-lanes"]`, ""},
+		{"false", `false`, `carriers = false`, ""},
+		{"duplicate", `["https","https"]`, "", "duplicate"},
+		{"unknown", `["https","quic"]`, "", "not one of"},
+		{"empty", `[]`, "", "must not be empty"},
+		{"true", `true`, "", "expected"},
+		{"string", `"https"`, "", "expected"},
+		{"non-string item", `[1]`, "", "expected"},
+		{"wrong case", `["HTTPS"]`, "", "not one of"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			params := map[string]json.RawMessage{"web.carriers": json.RawMessage(c.raw)}
+			out, err := ApplyTelemtExtras(webBase, params, nil)
+			if c.errPart != "" {
+				if err == nil || !strings.Contains(err.Error(), c.errPart) {
+					t.Fatalf("want error containing %q, got %v", c.errPart, err)
+				}
+				if verr := ValidateTelemtParams(params); verr == nil {
+					t.Fatal("ValidateTelemtParams must reject too")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// go-toml emits literal ('x') strings; normalise quotes before comparing the line.
+			if !strings.Contains(strings.ReplaceAll(out, "'", "\""), c.want) {
+				t.Fatalf("output lacks %q:\n%s", c.want, out)
+			}
+			// Round-trip: the emitted TOML parses back to the same JSON-shaped value.
+			var tree map[string]map[string]any
+			if err := toml.Unmarshal([]byte(out), &tree); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := json.Marshal(tree["web"]["carriers"])
+			if string(got) != strings.Join(strings.Fields(c.raw), "") {
+				t.Fatalf("round-trip %s != %s", got, c.raw)
+			}
+		})
+	}
+}
+
+func TestTelemtMultiEnumDefaultIsOmitted(t *testing.T) {
+	// "Default" in the panel = key absent: nothing is written and the generated TOML is untouched.
+	base := "[web]\nenabled = true\ncarrier = \"https\"\n"
+	out, err := ApplyTelemtExtras(base, nil, nil)
+	if err != nil || out != base {
+		t.Fatalf("got %q %v", out, err)
+	}
+	out, err = ApplyTelemtExtras(base, map[string]json.RawMessage{"web.carriers": json.RawMessage("null")}, nil)
+	if err != nil || strings.Contains(out, "carriers") {
+		t.Fatalf("null must omit the key: %q %v", out, err)
+	}
+	// WEB mode off: web.* params are skipped even when set.
+	out, err = ApplyTelemtExtras("[general]\nlog_level = \"normal\"\n", rawParams(t, `{"web.carriers":["https"]}`), nil)
+	if err != nil || strings.Contains(out, "carriers") {
+		t.Fatalf("web params must be skipped without WEB: %q %v", out, err)
 	}
 }

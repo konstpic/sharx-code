@@ -1,7 +1,9 @@
 "use client";
 import {metricTileViews} from "@/components/dashboard/MetricTileViews";
+import { useDashboardMetricsData } from '@/lib/useDashboardMetricsData';
 import {ResourceTileChart} from "@/components/dashboard/ResourceTileChart";
-import {DashboardBuilder,DashboardTile} from '@/components/dashboard/DashboardBuilder';
+import {DashboardBuilder} from '@/components/dashboard/GridBoard';
+import {DashboardTile} from '@/components/dashboard/GridTile';
 import {defaultLayout,defaultTile,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
 
 import {DashboardComposer,type PanelDraft} from '@/components/dashboard/DashboardComposer';
@@ -366,6 +368,19 @@ function MultiSeriesResourceChart({
   );
 }
 
+/** Node / balancer lists for the overview templates, taken from the per-entity metrics (`node:<id>:status`, `balancer:<id>:...`). */
+function entityListsFromMetrics(metrics: DashboardMetric[]) {
+  const pick = (prefix: string) => {
+    const seen = new Map<number, string>();
+    for (const m of metrics) {
+      const hit = new RegExp("^" + prefix + ":(\\d+):").exec(m.id);
+      if (hit && !seen.has(Number(hit[1]))) seen.set(Number(hit[1]), String(m.label ?? "").split(" · ")[0] || hit[1]);
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  };
+  return { nodes: pick("node"), balancers: pick("balancer") };
+}
+
 export function DashboardPage() {
   const { t } = useTranslation();
   const canLogs = useCan("logs:read");
@@ -656,11 +671,13 @@ export function DashboardPage() {
    for(const m of clientMetrics)if(m.value!=null&&m.updatedAt){const old=prev[m.id]??[];if(old.at(-1)?.ts!==m.updatedAt)next[m.id]=[...old.slice(-119),{ts:m.updatedAt,value:m.value}]}
    return next;
   })},[st,t,clientMetrics]);
-  const metrics=useMemo(()=>{
+  const baseMetrics=useMemo(()=>{
    if(!st)return [];
    const base:DashboardMetric[]=[...dashboardMetrics(st,t),...clientMetrics].map(m=>({...m,history:'session' as const,points:samples[m.id]??[],updatedAt:samples[m.id]?.at(-1)?.ts}));
    for(const m of resourceMetrics){const index=base.findIndex(x=>x.id===m.id);if(index>=0)base[index]={...base[index],points:m.points,history:m.history,updatedAt:m.updatedAt};else base.push(m)}return base;
   },[st,t,clientMetrics,samples,resourceMetrics]);
+  const extraMetrics=useDashboardMetricsData(t,layout.panels.flatMap(p=>p.metrics),baseMetrics.map(m=>m.id));
+  const metrics=useMemo(()=>[...baseMetrics,...extraMetrics],[baseMetrics,extraMetrics]);
   const selectBoard=(id:string)=>{const next=saveActiveBoard(workspace,layout,enabledWidgets);const board=next.boards.find(b=>b.id===id);if(!board)return;setWorkspace({...next,activeId:id});setLayout(board.layout);setEnabledWidgets(board.enabled)};
   const addBoard=(board:DashboardWorkspace['boards'][number])=>{if(workspace.boards.length>=12)return;const next=saveActiveBoard(workspace,layout,enabledWidgets);setWorkspace({...next,activeId:board.id,boards:[...next.boards,board]});setLayout(board.layout);setEnabledWidgets(board.enabled)};
   const savePanel=(draft:PanelDraft)=>{setLayout(l=>({...l,panels:draft.isNew?[...l.panels,draft.panel]:l.panels.map(p=>p.id===draft.panel.id?draft.panel:p),order:draft.isNew?[draft.panel.id,...l.order]:l.order,tiles:{...l.tiles,[draft.panel.id]:draft.settings}}));setPanelDraft(null)};
@@ -934,7 +951,7 @@ export function DashboardPage() {
          onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[...enabledWidgets]})}
          onRename={name=>setWorkspace(w=>({...w,boards:w.boards.map(b=>b.id===w.activeId?{...b,name}:b)}))}
          onRemove={()=>{if(workspace.boards.length<2)return;const remaining=workspace.boards.filter(b=>b.id!==workspace.activeId);setWorkspace({...workspace,boards:remaining,activeId:remaining[0].id});setLayout(remaining[0].layout);setEnabledWidgets(remaining[0].enabled)}}
-         onTemplate={kind=>addBoard(dashboardTemplate(kind,t))} onBuiltins={()=>setCustomizeOpen(true)} saved={layoutSaved}/>
+         onTemplate={kind=>addBoard(dashboardTemplate(kind,t,entityListsFromMetrics(extraMetrics)))} onBuiltins={()=>setCustomizeOpen(true)} saved={layoutSaved}/>
         <DashboardBuilder layout={layout} setLayout={setLayout} editing={layoutEditing} hide={id=>{if(id.startsWith('custom-'))setLayout(l=>({...l,panels:l.panels.filter(p=>p.id!==id),order:l.order.filter(p=>p!==id),tiles:Object.fromEntries(Object.entries(l.tiles).filter(([key])=>key!==id))}));else setEnabledWidgets(prev=>toggleDashboardWidget(id as DashboardWidgetId,new Set(prev)))}}>
         {layout.panels.map(custom=>{const selected=metrics.filter(m=>custom.metrics.includes(m.id));const settings=layout.tiles[custom.id]??defaultTile(custom.id);return <DashboardTile key={custom.id} id={custom.id} label={custom.title||selected[0]?.label||t('pages.builder.'+custom.kind)} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>{custom.kind==='metric'?<CustomMetricPanel metrics={selected} settings={settings}/>:<CustomContentPanel panel={custom} metrics={selected}/>}</DashboardTile>})}
         {showResources && (

@@ -225,6 +225,9 @@ type ClientCard = {
   updatedAt?: number;
   lastOnline?: number;
   lastConnectedNode?: string;
+  /** Unix ms of the last observation on lastConnectedNode (persistent, per node). */
+  lastConnectedNodeAt?: number;
+  connectedNodes?: ConnectedNodeInfo[];
   upSpeed?: number;
   downSpeed?: number;
   /** Present from API: Xray session online (same as admin "online" list). */
@@ -285,6 +288,8 @@ function mergeClientWithEntity(row: ClientCard, e: WsClientEntity): ClientCard {
   if (typeof e.status === "string") next.status = e.status;
   if (typeof e.lastOnline === "number") next.lastOnline = e.lastOnline;
   if (typeof e.lastConnectedNode === "string") next.lastConnectedNode = e.lastConnectedNode;
+  if (typeof e.lastConnectedNodeAt === "number") next.lastConnectedNodeAt = e.lastConnectedNodeAt;
+  if (Array.isArray(e.connectedNodes)) next.connectedNodes = e.connectedNodes as ConnectedNodeInfo[];
   if (typeof e.upSpeed === "number") next.upSpeed = e.upSpeed;
   if (typeof e.downSpeed === "number") next.downSpeed = e.downSpeed;
   if (typeof e.enable === "boolean") next.enable = e.enable;
@@ -437,6 +442,52 @@ function ClientConnectionStatus({
  */
 function clientIsOnlineConsideringLastSeen(r: ClientCard): boolean {
   return r.isOnline === true;
+}
+
+export type ConnectedNodeInfo = {
+  nodeId: number;
+  nodeName: string;
+  lastSeenAt: number;
+  online?: boolean;
+};
+
+/** Short relative time ("3 h ago") for a unix-ms timestamp; empty when unknown. */
+function nodePresenceAgo(ms: number | undefined, t: TFunction): string {
+  if (!ms || ms <= 0) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) {
+    return t("pages.clients.nodePresence.justNow", { defaultValue: "just now" });
+  }
+  if (diffSec < 3600) {
+    return t("pages.clients.nodePresence.minutesAgo", {
+      defaultValue: "{{count}} min ago",
+      count: Math.floor(diffSec / 60),
+    });
+  }
+  if (diffSec < 86400) {
+    return t("pages.clients.nodePresence.hoursAgo", {
+      defaultValue: "{{count}} h ago",
+      count: Math.floor(diffSec / 3600),
+    });
+  }
+  return t("pages.clients.nodePresence.daysAgo", {
+    defaultValue: "{{count}} d ago",
+    count: Math.floor(diffSec / 86400),
+  });
+}
+
+/** Multi-line tooltip: every node the client was seen on; "●" marks nodes where it is online now. */
+function nodePresenceTitle(r: ClientCard, t: TFunction): string | undefined {
+  const list = r.connectedNodes ?? [];
+  if (list.length === 0) return r.lastConnectedNode || undefined;
+  return list
+    .map((n) => {
+      const when = n.online
+        ? t("pages.clients.nodePresence.onlineNow", { defaultValue: "online now" })
+        : nodePresenceAgo(n.lastSeenAt, t);
+      return `${n.online ? "●" : "○"} ${n.nodeName} — ${when}`;
+    })
+    .join("\n");
 }
 
 function connectionActivityText(
@@ -887,9 +938,13 @@ function compareClients(
       c = rowTsForSort(a, "lastOnline") - rowTsForSort(b, "lastOnline");
       break;
     case "lastConnectedNode":
-      c = (a.lastConnectedNode || "").localeCompare(b.lastConnectedNode || "", undefined, {
-        sensitivity: "base",
-      });
+      // Sort by last connection time (newest = largest); name only breaks ties.
+      c = (a.lastConnectedNodeAt ?? 0) - (b.lastConnectedNodeAt ?? 0);
+      if (c === 0) {
+        c = (a.lastConnectedNode || "").localeCompare(b.lastConnectedNode || "", undefined, {
+          sensitivity: "base",
+        });
+      }
       break;
     case "createdAt":
       c = rowTsForSort(a, "createdAt") - rowTsForSort(b, "createdAt");
@@ -1067,10 +1122,29 @@ function ClientDataCell({
     case "lastConnectedNode":
       return (
         <span
-          className="block max-w-[12rem] truncate text-[var(--fg)]"
-          title={r.lastConnectedNode || undefined}
+          className="block max-w-[14rem] truncate text-[var(--fg)]"
+          title={nodePresenceTitle(r, t)}
         >
-          {r.lastConnectedNode?.trim() ? r.lastConnectedNode : "—"}
+          {r.lastConnectedNode?.trim() ? (
+            <>
+              {r.connectedNodes?.some((n) => n.online) ? (
+                <span
+                  className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-green-500 align-middle"
+                  aria-hidden
+                />
+              ) : null}
+              {r.lastConnectedNode}
+              {r.lastConnectedNodeAt ? (
+                <span className="ml-1 text-xs text-[var(--fg-muted,inherit)] opacity-70">
+                  {r.connectedNodes?.[0]?.online
+                    ? t("pages.clients.nodePresence.onlineNow", { defaultValue: "online now" })
+                    : nodePresenceAgo(r.lastConnectedNodeAt, t)}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            "—"
+          )}
         </span>
       );
     case "createdAt":
@@ -3182,7 +3256,7 @@ export function ClientsPage() {
           case "totalGb":value=r.totalGB??0;kind="number";display=value===0?"∞ безлимит unlimited":"";break;
           case "speed":value=(r.upSpeed??0)+(r.downSpeed??0);kind="speed";display=speedMbpsFormat(value);break;
           case "createdAt":case "updatedAt":case "lastOnline":value=r[col]?(panelTimestampToMs(r[col]!)??null):null;kind="date";display=formatCardDateTime(r[col],"—");break;
-          case "lastConnectedNode":value=r.lastConnectedNode??"";break;
+          case "lastConnectedNode":value=[r.lastConnectedNode??"",...(r.connectedNodes??[]).map((n)=>n.nodeName),r.lastConnectedNodeAt?formatCardDateTime(r.lastConnectedNodeAt,""):""].join(" ").trim();break;
           case "uuid":value=r.uuid??"";break;
           case "subId":value=r.subId??"";break;
           case "tgId":value=r.tgId||null;kind="number";break;

@@ -34,6 +34,7 @@ import { sectionButtonLabel } from "@/components/xray/sectionButtonLabel";
 import { useRoutingTags } from "@/components/xray/routing/useRoutingTags";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { lintXrayConfig, type ConfigIssue } from "@/lib/xrayConfigLint";
+import { useXrayCoreVersion } from "@/lib/useXrayCoreVersion";
 import {
   XRAY_SECTION_BY_KEY,
   isRecord,
@@ -196,7 +197,8 @@ export const XrayConfigurator = forwardRef<XrayConfiguratorHandle, Props>(functi
   }, [sectionKey, sectionParseError, onErrorChange]);
 
   const routingTags = useRoutingTags(template, navId === GENERAL || navId === "routing" || navId === "observatory" || navId === "burstObservatory" || navId === "outbounds");
-  const issues = useMemo(() => lintXrayConfig(root), [root]);
+  const coreVersion = useXrayCoreVersion();
+  const issues = useMemo(() => lintXrayConfig(root, coreVersion), [root, coreVersion]);
   const sectionKeys = useMemo(() => orderedSectionKeys(root), [root]);
   const missingKeys = useMemo(() => missingSectionKeys(root), [root]);
 
@@ -366,6 +368,13 @@ export const XrayConfigurator = forwardRef<XrayConfiguratorHandle, Props>(functi
       unknownFallback: "Balancer “{{tag}}” falls back to “{{fallback}}”, which is not an outbound.",
       balancerNeedsObservatory: "Balancer “{{tag}}” uses a latency strategy but there is no Observatory or Burst Observatory section.",
       observatorySelectsNothing: "The selector matches no outbound.",
+      featureNeedsVersion: "“{{tag}}” uses {{feature}}, which needs Xray ≥ {{min}}; this panel runs {{have}}.",
+      masqueInvalid: "MASQUE “{{tag}}”: {{detail}}.",
+      masqueTransportMisuse: "“{{tag}}” uses the masque transport, which only the masque protocol can use.",
+      xdriveInvalid: "XDRIVE “{{tag}}”: {{detail}}.",
+      xdnsLegacyFields: "“{{tag}}”: XDNS uses the old field names; Xray ≥ 26.10.10 expects domains[].names and resolvers[].addrs.",
+      wireguardLocalDns: "WireGuard “{{tag}}”: remoteDNS \"local\" was removed in Xray 26.9.30; list DNS server IPs instead.",
+      wireguardDomainStrategy: "WireGuard “{{tag}}”: domainStrategy was removed in Xray 26.9.30 and is ignored.",
     };
     return tr(`lint.${i.code}`, fallback[i.code] ?? i.code, i.vars);
   };

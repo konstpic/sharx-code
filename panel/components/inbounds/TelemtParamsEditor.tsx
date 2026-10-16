@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { getJson } from "@/lib/api";
 import { panel } from "@/lib/paths";
 import { Button, IconButton, Input, SelectNative } from "@/components/ui";
+import { multiEnumPosition, multiEnumState, toggleMultiEnum } from "@/lib/telemtMultiEnum";
 
 /** One documented Telemt config.toml key (served by GET /panel/api/inbounds/telemtParams). */
 export type TelemtParam = {
@@ -21,8 +22,15 @@ export type TelemtParam = {
   managed: boolean;
   /** First Telemt release that accepts this key (empty = all supported releases). */
   since?: string;
-  kind: "bool" | "int" | "float" | "string" | "strlist" | "enum" | "object";
+  kind: "bool" | "int" | "float" | "string" | "strlist" | "enum" | "enumlist" | "object";
   options?: string[];
+  /** enumlist: array of unique options (order is meaningful when `ordered`). */
+  multi?: boolean;
+  /** enumlist: the literal `false` ("off") is also a valid value. */
+  allowFalse?: boolean;
+  ordered?: boolean;
+  /** enumlist: sibling key whose options this key reuses (and which is appended as last fallback). */
+  optionsFrom?: string;
   min?: number;
   max?: number;
 };
@@ -111,6 +119,8 @@ function ParamControl({
         </SelectNative>
       );
     }
+    case "enumlist":
+      return <MultiEnumField p={p} value={value} onChange={onChange} />;
     case "strlist":
       return (
         <textarea
@@ -137,6 +147,54 @@ function ParamControl({
         />
       );
   }
+}
+
+/** Checkbox-chip multi-select with explicit Default / Disabled (false) states. */
+function MultiEnumField({ p, value, onChange }: { p: TelemtParam; value: unknown; onChange: (v: unknown) => void }) {
+  const { t } = useTranslation();
+  const state = multiEnumState(value);
+  const stateBtn = (active: boolean) =>
+    `rounded-md border px-2 py-1 text-xs ${active ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--fg)]" : "border-[var(--border)] text-[var(--fg-muted)] hover:text-[var(--fg)]"}`;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap gap-1.5" role="group">
+        <button type="button" className={stateBtn(state === "default")} aria-pressed={state === "default"} onClick={() => onChange(undefined)}>
+          {t("pages.inbounds.telemtParamMultiDefault", { defaultValue: "Default" })}{p.default ? ` (${p.default})` : ""}
+        </button>
+        {p.allowFalse ? (
+          <button type="button" className={stateBtn(state === "disabled")} aria-pressed={state === "disabled"} onClick={() => onChange(false)}>
+            {t("pages.inbounds.telemtParamMultiDisabled", { defaultValue: "Disabled (false)" })}
+          </button>
+        ) : null}
+        <span className="mx-1 self-stretch border-l border-[var(--border)]" aria-hidden />
+        {(p.options ?? []).map((o) => {
+          const pos = multiEnumPosition(value, o);
+          return (
+            <button
+              key={o}
+              type="button"
+              className={`${stateBtn(pos > 0)} font-mono`}
+              aria-pressed={pos > 0}
+              onClick={() => onChange(toggleMultiEnum(value, o))}
+            >
+              {p.ordered && pos > 0 ? <span className="mr-1 text-[10px] text-[var(--accent)]">{pos}</span> : null}
+              {o}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] leading-snug text-[var(--fg-subtle)]">
+        {state === "custom"
+          ? [
+              p.ordered ? t("pages.inbounds.telemtParamMultiOrderHint", { defaultValue: "Order matters: values are tried in the order you select them (numbers show the order)." }) : "",
+              p.optionsFrom ? t("pages.inbounds.telemtParamMultiFallbackHint", { key: p.optionsFrom, defaultValue: "The fixed {{key}} value is appended automatically as the last fallback." }) : "",
+            ].filter(Boolean).join(" ")
+          : state === "disabled"
+            ? t("pages.inbounds.telemtParamMultiFalseHint", { defaultValue: "Written as false: the feature is off." })
+            : t("pages.inbounds.telemtParamMultiDefaultHint", { defaultValue: "Not written: Telemt uses its default." })}
+      </p>
+    </div>
+  );
 }
 
 /** Raw JSON editor for table/map-valued keys; commits only valid JSON. */

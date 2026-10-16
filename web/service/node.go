@@ -2130,7 +2130,8 @@ func (s *NodeService) CollectNodeStats() error {
 	clientTrafficMap := make(map[string]*xray.ClientTraffic)
 
 	onlineClientsMap := make(map[string]bool)
-	lastConnectedNodeByEmail := make(map[string]string)
+	onlineNodesByEmail := make(map[string][]int)
+	onlineByNode := make(map[int]map[string]struct{})
 
 	// Track success/failure counts for better logging
 	successCount := 0
@@ -2273,7 +2274,13 @@ func (s *NodeService) CollectNodeStats() error {
 					continue
 				}
 				onlineClientsMap[k] = true
-				lastConnectedNodeByEmail[k] = result.node.Name
+				if onlineByNode[result.node.Id] == nil {
+					onlineByNode[result.node.Id] = make(map[string]struct{})
+				}
+				if _, dup := onlineByNode[result.node.Id][k]; !dup {
+					onlineByNode[result.node.Id][k] = struct{}{}
+					onlineNodesByEmail[k] = append(onlineNodesByEmail[k], result.node.Id)
+				}
 			}
 		}
 	}
@@ -2399,7 +2406,10 @@ func (s *NodeService) CollectNodeStats() error {
 
 	// Same as AddClientTraffic: must work when p==nil (multi-node — no local Xray process).
 	setPanelOnlineClients(onlineClientsList)
-	setPanelClientLastConnectedNodes(lastConnectedNodeByEmail)
+	// Persist "client X was seen on node Y" (only nodes that answered this poll appear in onlineByNode;
+	// a failed node never erases anything), then expose the live per-node online set.
+	recordClientNodePresence(onlineByNode, sampleAt)
+	setPanelClientLastConnectedNodes(onlineNodesByEmail)
 
 	// Log summary with success/failure counts for better visibility
 	totalNodes := len(nodesWithInbounds)

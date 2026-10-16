@@ -1,4 +1,5 @@
 import type { MonacoJsonSchemaEntry } from "@/lib/monacoJson";
+import { luaScriptProperty } from "@/lib/xrayNewFeaturesMonacoSchema";
 import { buildXrayStreamSettingsSchema } from "@/lib/xrayStreamSettingsMonacoSchema";
 
 type TLike = (key: string, o?: { defaultValue: string }) => string;
@@ -358,6 +359,7 @@ function routingProperties(d: TLike): Record<string, object> {
         defaultValue: "Load balancers referenced by balancerTag in rules.",
       }),
     },
+    script: luaScriptProperty(d),
   };
 }
 
@@ -422,10 +424,10 @@ function inboundSettingsSchema(d: TLike): object {
     }),
     properties: {
       address: {
-        type: "string",
+        oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
         description: d("pages.xray.jsonSchema.inboundSettingsAddress", {
           defaultValue:
-            "dokodemo-door target or tunnel forward address (often 127.0.0.1 for local API).",
+            "dokodemo-door target or tunnel forward address (often 127.0.0.1 for local API). masque: tunnel prefixes, e.g. [\"10.77.0.1/24\"].",
         }),
       },
       port: {
@@ -538,10 +540,16 @@ function outboundSettingsSchema(d: TLike): object {
         }),
       },
       address: {
+        oneOf: [{ type: "array", items: { type: "string" } }, { type: "string" }],
+        description: d("pages.xray.jsonSchema.outWgAddress", {
+          defaultValue: "WireGuard tunnel interface IPs (CIDR); masque: server host (string).",
+        }),
+      },
+      remoteDNS: {
         type: "array",
         items: { type: "string" },
-        description: d("pages.xray.jsonSchema.outWgAddress", {
-          defaultValue: "WireGuard tunnel interface IPs (CIDR).",
+        description: d("pages.xray.jsonSchema.outRemoteDns", {
+          defaultValue: 'wireguard / masque: DNS server IPs inside the tunnel. wireguard "local" was removed in Xray 26.9.30.',
         }),
       },
       peers: {
@@ -572,7 +580,7 @@ const outboundObject = (d: TLike) => ({
       type: "string",
       description: d("pages.xray.jsonSchema.outboundProtocol", {
         defaultValue:
-          "Outbounds: vmess, vless, trojan, shadowsocks, shadowsocks-2022, socks, http, wireguard, freedom, blackhole, dns, loopback, hysteria, …",
+          "Outbounds: vmess, vless, trojan, shadowsocks, shadowsocks-2022, socks, http, wireguard, masque (Xray ≥ 26.9.30), freedom, blackhole, dns, loopback, hysteria, …",
       }),
     },
     sendThrough: {
@@ -615,7 +623,7 @@ const inboundObject = (d: TLike) => ({
       type: "string",
       description: d("pages.xray.jsonSchema.inboundProtocol", {
         defaultValue:
-          "Inbounds: vmess, vless, trojan, shadowsocks, shadowsocks-2022, socks, http, wireguard, dokodemo-door, tunnel (API), hysteria, …",
+          "Inbounds: vmess, vless, trojan, shadowsocks, shadowsocks-2022, socks, http, wireguard, masque (Xray ≥ 26.9.30), dokodemo-door, tunnel (API), hysteria, …",
       }),
     },
     settings: inboundSettingsSchema(d),
@@ -659,6 +667,7 @@ function fullTemplate(d: TLike): object {
         type: "object",
         description: d("pages.xray.jsonSchema.dns", { defaultValue: "dns servers, clientIp, queryStrategy" }),
         additionalProperties: true,
+        properties: { script: luaScriptProperty(d) },
       },
       fakedns: { type: "object" },
       inbounds: {
@@ -732,6 +741,7 @@ export function getXrayMonacoEntryForSection(section: string, d: TLike): { uri: 
           hosts: { type: "object" },
           clientIp: { type: "string" },
           queryStrategy: { type: "string" },
+          script: luaScriptProperty(d),
         },
       },
     };

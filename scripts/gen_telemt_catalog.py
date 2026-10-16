@@ -97,6 +97,20 @@ MANAGED = {
 # was run through `telemt run` with general.config_strict=true on Telemt 3.5.7; only these two were
 # reported as unknown (both first shipped in 3.5.9).
 SINCE = {"web.vhosts.base_path": "3.5.9", "web.debug.sideband": "3.5.9"}
+# Multi-value enums: the key takes `false` or a non-empty array of UNIQUE values drawn from the
+# options of a sibling enum key (optionsFrom). Order is semantic (try-order), so it is preserved.
+# Source: CONFIG_PARAMS.ru.md [web] section ("Если carriers отсутствует или равен false ...").
+MULTI = {
+    "web.carriers": {"optionsFrom": "carrier", "allowFalse": True, "ordered": True},
+}
+# Descriptions the docs keep in prose below the table instead of in a per-key block.
+DESC_EXTRA = {
+    "web.carrier": "Транспорт WEB. Если carriers отсутствует или равен false, carrier задаёт единственный режим. "
+                   "Native-клиент без метаданных (в т.ч. Telegram iOS) всегда использует именно carrier; текущий iOS поддерживает только https.",
+    "web.carriers": "false: auto-negotiation и обучение выключены, работает только carrier. Непустой массив включает стартовый перебор "
+                    "в заданном порядке; carrier автоматически добавляется последним fallback-вариантом (carrier не игнорируется). "
+                    "Пустой массив, дубликаты и true запрещены.",
+}
 CONTAINER_TYPES = {"Table", "Table[]", "Таблица", "таблица", "массив таблиц"}
 
 out = []
@@ -122,6 +136,9 @@ for s, rs in rows.items():
             valid = strip_md(mv.group(1)) if mv else ""
             desc = (strip_md(md.group(1)) if md else "") or desc
             example = me.group(1).strip() if me else ""
+        pid = s + "." + key if s else key
+        desc = desc or DESC_EXTRA.get(pid, "")
+        extra = MULTI.get(pid, {})
         out.append({
             "section": s,
             "key": key,
@@ -134,5 +151,6 @@ for s, rs in rows.items():
             "container": clean(typ) in CONTAINER_TYPES,
             "managed": (s + "." + key if s else key) in MANAGED,
             "since": SINCE.get(s + "." + key if s else key, ""),
+            **({"multi": True} | extra if extra else {}),
         })
 json.dump(out, sys.stdout, ensure_ascii=False, separators=(",", ":"))

@@ -1,4 +1,12 @@
 import { isRecord, stringList, tagsOfList } from "./xrayConfigSections";
+import { describeMasqueIssue, masqueTransportMisuse, validateMasqueInbound, validateMasqueOutbound } from "./xrayMasque";
+import {
+  XRAY_FEATURE_MIN_VERSION,
+  isXrayFeatureSupported,
+  wireguardLocalDnsRemoved,
+  type XrayFeatureId,
+} from "./xrayVersionFeatures";
+import { describeXdriveIssue, validateXdriveSettings } from "./xrayXdrive";
 
 export type ConfigIssue = {
   section: string;
@@ -18,7 +26,7 @@ function matchesSelector(tag: string, selector: string[]): boolean {
  * Cross-section checks: references between routing, balancers, outbounds and observatories.
  * Panel-managed inbounds are not part of the template, so inbound tags are not validated here.
  */
-export function lintXrayConfig(root: Record<string, unknown> | null): ConfigIssue[] {
+export function lintXrayConfig(root: Record<string, unknown> | null, coreVersion?: string | null): ConfigIssue[] {
   if (!root) return [];
   const issues: ConfigIssue[] = [];
   const outboundTags = tagsOfList(root.outbounds);
@@ -76,6 +84,108 @@ export function lintXrayConfig(root: Record<string, unknown> | null): ConfigIssu
     if (outboundTags.length > 0 && !outboundTags.some((t) => matchesSelector(t, selector))) {
       issues.push({ section: key, level: "warning", code: "observatorySelectsNothing" });
     }
+  }
+  issues.push(...lintNewXrayFeatures(root, coreVersion ?? null));
+  return issues;
+}
+
+const FEATURE_LABEL: Record<XrayFeatureId, string> = {
+  masque: "MASQUE",
+  masqueWarpPublicKey: "MASQUE WARP publicKey",
+  xdrive: "XDRIVE transport",
+  noiseExp: "Noise finalmask type \"exp\"",
+  xdnsNames: "XDNS names/addrs",
+  luaScript: "Lua script",
+};
+
+/** Checks for options added in Xray 26.9.30 / 26.10.10 and for the WireGuard breaking change. */
+function lintNewXrayFeatures(root: Record<string, unknown>, version: string | null): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+  const needs = (section: string, feature: XrayFeatureId, tag: string) => {
+    if (isXrayFeatureSupported(version, feature) === false) {
+      issues.push({
+        section,
+        level: "warning",
+        code: "featureNeedsVersion",
+        vars: { tag, feature: FEATURE_LABEL[feature], min: XRAY_FEATURE_MIN_VERSION[feature], have: version ?? "" },
+      });
+    }
+  };
+
+  const walk = (section: "inbounds" | "outbounds") => {
+    const list = Array.isArray(root[section]) ? (root[section] as unknown[]).filter(isRecord) : [];
+    for (const item of list) {
+      const tag = typeof item.tag === "string" && item.tag ? item.tag : String(item.protocol ?? section);
+      const stream = isRecord(item.streamSettings) ? item.streamSettings : null;
+
+      if (item.protocol === "masque") {
+        needs(section, "masque", tag);
+        const found = section === "outbounds" ? validateMasqueOutbound(item) : validateMasqueInbound(item);
+        for (const i of found) {
+          // WARP publicKey is only mandatory from 26.10.10; older cores just ignore it.
+          if (i.code === "warpPublicKeyMissing" && isXrayFeatureSupported(version, "masqueWarpPublicKey") !== true) continue;
+          issues.push({ section, level: "error", code: "masqueInvalid", vars: { tag, detail: describeMasqueIssue(i) } });
+        }
+      } else if (masqueTransportMisuse(item)) {
+        issues.push({ section, level: "error", code: "masqueTransportMisuse", vars: { tag } });
+      }
+
+      if (stream && stream.network === "xdrive") {
+        needs(section, "xdrive", tag);
+        for (const i of validateXdriveSettings(stream.xdriveSettings ?? {})) {
+          issues.push({ section, level: "error", code: "xdriveInvalid", vars: { tag, detail: describeXdriveIssue(i) } });
+        }
+      }
+
+      if (stream && isRecord(stream.finalmask)) {
+        const masks = [
+          ...(Array.isArray(stream.finalmask.udp) ? stream.finalmask.udp : []),
+          ...(Array.isArray(stream.finalmask.tcp) ? stream.finalmask.tcp : []),
+        ].filter(isRecord);
+        for (const m of masks) {
+          const st = isRecord(m.settings) ? m.settings : {};
+          if (m.type === "noise" && Array.isArray(st.noise) && st.noise.some((n) => isRecord(n) && String(n.type).toLowerCase() === "exp")) {
+            needs(section, "noiseExp", tag);
+          }
+          if (m.type === "xdns") {
+            const domains = Array.isArray(st.domains) ? st.domains : [];
+            const resolvers = Array.isArray(st.resolvers) ? st.resolvers : [];
+            const newForm =
+              domains.some((d) => isRecord(d) && "names" in d) || resolvers.some((r) => isRecord(r) && "addrs" in r);
+            const oldForm =
+              domains.some((d) => typeof d === "string" || (isRecord(d) && "name" in d)) ||
+              resolvers.some((r) => typeof r === "string" || (isRecord(r) && ("addr" in r || "type" in r)));
+            if (newForm) needs(section, "xdnsNames", tag);
+            if (oldForm && isXrayFeatureSupported(version, "xdnsNames") === true) {
+              issues.push({ section, level: "error", code: "xdnsLegacyFields", vars: { tag } });
+            }
+          }
+        }
+      }
+    }
+  };
+  walk("inbounds");
+  walk("outbounds");
+
+  // WireGuard outbound: `remoteDNS: ["local"]` and `domainStrategy` were removed in 26.9.30.
+  if (wireguardLocalDnsRemoved(version) && Array.isArray(root.outbounds)) {
+    for (const ob of root.outbounds.filter(isRecord)) {
+      if (ob.protocol !== "wireguard" || !isRecord(ob.settings)) continue;
+      const tag = typeof ob.tag === "string" && ob.tag ? ob.tag : "wireguard";
+      const dns = ob.settings.remoteDNS;
+      const list = Array.isArray(dns) ? dns : typeof dns === "string" ? [dns] : [];
+      if (list.some((v) => String(v).trim().toLowerCase() === "local")) {
+        issues.push({ section: "outbounds", level: "error", code: "wireguardLocalDns", vars: { tag } });
+      }
+      if (typeof ob.settings.domainStrategy === "string" && ob.settings.domainStrategy !== "") {
+        issues.push({ section: "outbounds", level: "warning", code: "wireguardDomainStrategy", vars: { tag } });
+      }
+    }
+  }
+
+  for (const key of ["dns", "routing"] as const) {
+    const sec = root[key];
+    if (isRecord(sec) && typeof sec.script === "string" && sec.script.trim() !== "") needs(key, "luaScript", key);
   }
   return issues;
 }

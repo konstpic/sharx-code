@@ -27,8 +27,6 @@ var (
 	// Merged into HTTP list/get and WebSocket client payloads so the Speed column is not always empty.
 	panelLiveSpeedMu     sync.RWMutex
 	panelLiveSpeed       map[int]bpsPair
-	panelLastNodeMu      sync.RWMutex
-	panelLastNodeByEmail map[string]string
 
 	hysteriaInboundCumulativeMap = make(map[string]struct {
 		up   int64
@@ -36,47 +34,6 @@ var (
 	})
 	hysteriaInboundCumulativeMu sync.Mutex
 )
-
-func setPanelClientLastConnectedNodes(m map[string]string) {
-	panelLastNodeMu.Lock()
-	defer panelLastNodeMu.Unlock()
-	if len(m) == 0 {
-		panelLastNodeByEmail = nil
-		return
-	}
-	panelLastNodeByEmail = make(map[string]string, len(m))
-	for email, nodeName := range m {
-		k := strings.ToLower(strings.TrimSpace(email))
-		v := strings.TrimSpace(nodeName)
-		if k == "" || v == "" {
-			continue
-		}
-		panelLastNodeByEmail[k] = v
-	}
-}
-
-func panelClientLastConnectedNode(email string) (string, bool) {
-	k := strings.ToLower(strings.TrimSpace(email))
-	if k == "" {
-		return "", false
-	}
-	panelLastNodeMu.RLock()
-	defer panelLastNodeMu.RUnlock()
-	if panelLastNodeByEmail == nil {
-		return "", false
-	}
-	v, ok := panelLastNodeByEmail[k]
-	return v, ok
-}
-
-func MergePanelClientLastConnectedNodeInto(c *model.ClientEntity) {
-	if c == nil {
-		return
-	}
-	if nodeName, ok := panelClientLastConnectedNode(c.Name); ok {
-		c.LastConnectedNode = nodeName
-	}
-}
 
 func setPanelClientLiveSpeeds(m map[int]bpsPair) {
 	panelLiveSpeedMu.Lock()

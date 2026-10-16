@@ -33,6 +33,7 @@ var routes = map[string][]string{
 
 	// ----- dashboard, logs -----
 	"GET /panel/api/server/status":                {DashboardRead},
+	"GET /panel/api/server/dashboardMetrics":      {DashboardRead}, // nodes / balancers / audit sections are redacted in the handler
 	"GET /panel/api/server/cpuHistory/:bucket":    {DashboardRead},
 	"GET /panel/api/server/memHistory/:bucket":    {DashboardRead},
 	"GET /panel/api/server/diskHistory/:bucket":   {DashboardRead},

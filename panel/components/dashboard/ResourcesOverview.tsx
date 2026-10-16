@@ -42,8 +42,8 @@ function GaugeCard({ icon, name, gauge, accent }: { icon: ReactNode; name: React
       <div className="mt-1 flex justify-center">
         <RingGauge value={gauge.percent} size={108} stroke={9} color={color} center={<Pct value={gauge.percent} />} />
       </div>
-      <p className="-mt-3 min-h-[1rem] text-center font-mono text-[11px] text-[var(--fg-muted)]">{gauge.detail ?? " "}</p>
-      {gauge.series && gauge.series.length > 1 ? <Sparkline points={gauge.series} color={color} height={34} className="mt-2" minSpan={20} /> : <div className="mt-2 h-[34px]" />}
+      <p className="dash-secondary -mt-3 min-h-[1rem] text-center font-mono text-[11px] text-[var(--fg-muted)]">{gauge.detail ?? " "}</p>
+      {gauge.series && gauge.series.length > 1 ? <Sparkline points={gauge.series} color={color} height={34} className="dash-secondary mt-2" minSpan={20} /> : <div className="dash-secondary mt-2 h-[34px]" />}
     </>
   );
   const cls =
@@ -80,20 +80,20 @@ export function ResourcesOverview({ accent, cpu, mem, disk, swap, loads, nodes }
           </span>
           <div className="leading-tight">
             <p className="text-sm font-semibold text-[var(--fg)]">{t("pages.index.systemLoad")}</p>
-            <p className="text-[11px] text-[var(--fg-subtle)]">{t("pages.index.resources")}</p>
+            <p className="dash-secondary text-[11px] text-[var(--fg-subtle)]">{t("pages.index.resources")}</p>
           </div>
         </div>
         <LiveDot label={t("pages.builder.live", { defaultValue: "live" })} />
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="dash-gauges grid min-h-0 flex-1 gap-3">
         <GaugeCard icon={<Cpu size={12} />} name={`${t("pages.index.cpu")} · ${cpu.cores}`} gauge={{ ...cpu, detail: cpu.detail ?? `${cpu.cores} ${t("pages.index.cores")}` }} accent={accent} />
         <GaugeCard icon={<MemoryStick size={12} />} name={t("pages.index.memory")} gauge={mem} accent={accent} />
         <GaugeCard icon={<HardDrive size={12} />} name={t("pages.index.storage")} gauge={disk} accent={accent} />
         <GaugeCard icon={<Layers size={12} />} name={t("pages.index.swap")} gauge={swap} accent={accent} />
       </div>
 
-      <div className={`grid gap-3 ${nodes && nodes.total > 0 ? "md:grid-cols-2" : ""}`}>
+      <div className={`dash-secondary grid gap-3 ${nodes && nodes.total > 0 ? "dash-pair" : ""}`}>
         {nodes && nodes.total > 0 ? (
           <div className="dash-card rounded-2xl border border-[var(--border)] p-3">
             <div className="mb-2 flex items-center justify-between text-[11px]">

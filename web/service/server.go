@@ -2826,40 +2826,27 @@ func (s *ServerService) GetNewEchCert(sni string) (any, error) {
 }
 
 func (s *ServerService) GetNewVlessEnc() (any, error) {
-	cmd := exec.Command(xray.GetBinaryPath(), "vlessenc")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(out.String(), "\n")
+	bin := xray.GetBinaryPath()
 	var auths []map[string]string
-	var current map[string]string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Authentication:") {
-			if current != nil {
-				auths = append(auths, current)
-			}
-			current = map[string]string{
-				"label": strings.TrimSpace(strings.TrimPrefix(line, "Authentication:")),
-			}
-		} else if strings.HasPrefix(line, `"decryption"`) || strings.HasPrefix(line, `"encryption"`) {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 && current != nil {
-				key := strings.Trim(parts[0], `" `)
-				val := strings.Trim(parts[1], `" `)
-				current[key] = val
-			}
+	if vlessEncBinaryMissing(bin) {
+		// Panel host without a local xray binary (e.g. node-only setups): generate natively.
+		var err error
+		auths, err = generateVlessEncNative()
+		if err != nil {
+			return nil, fmt.Errorf("xray binary not found at %s and native generation failed: %w", bin, err)
 		}
+	} else {
+		cmd := exec.Command(bin, "vlessenc")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			return nil, err
+		}
+		auths = parseVlessEncOutput(out.String())
 	}
-
-	if current != nil {
-		auths = append(auths, current)
+	if len(auths) == 0 {
+		return nil, common.NewError("xray vlessenc returned no keys")
 	}
-
 	return map[string]any{
 		"auths": auths,
 	}, nil

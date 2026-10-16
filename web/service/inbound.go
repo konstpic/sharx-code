@@ -661,6 +661,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	}
 
 	SanitizeVLESSFlowInInboundSettings(inbound)
+	if err := validateVLESSInboundEncryption(inbound); err != nil {
+		return inbound, false, err
+	}
 
 	if model.NormalizeProtocol(inbound.Protocol) == model.Shadowsocks {
 		sanitized, errSS := SanitizeShadowsocksInboundSettings(inbound.Settings)
@@ -1044,6 +1047,9 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	}
 
 	SanitizeVLESSFlowInInboundSettings(inbound)
+	if err := validateVLESSInboundEncryption(inbound); err != nil {
+		return inbound, false, err
+	}
 
 	// WireGuard / AmneziaWG: panel no longer posts peers; keep existing DB peers (from client assignment).
 	if model.NormalizeProtocol(inbound.Protocol) == model.WireGuard || model.NormalizeProtocol(inbound.Protocol) == model.AmneziaWG {

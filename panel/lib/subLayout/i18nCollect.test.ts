@@ -39,7 +39,7 @@ describe("collect mode", () => {
     const ru = renderTemplate(String(text.props.text), buildLayoutContext({}, { lang: "ru", i18n: doc.i18n })).out;
     expect(en).not.toBe(ru);
     expect(/[а-яё]/i.test(ru)).toBe(true);
-    expect(lintTemplate(String(text.props.text)).errors ?? []).toEqual([]);
+    expect(lintTemplate(String(text.props.text))).toEqual([]);
   });
 
   it("a language without its own texts falls back to English", () => {

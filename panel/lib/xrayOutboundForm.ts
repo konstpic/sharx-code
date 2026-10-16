@@ -3,6 +3,8 @@
  * Unknown/complex outbounds are preserved as raw objects (round-trip).
  */
 
+import { MASQUE_DEFAULT_PATH } from "./xrayMasque";
+
 function randomId(): string {
   if (typeof globalThis !== "undefined" && globalThis.crypto?.getRandomValues) {
     const a = new Uint8Array(8);
@@ -23,6 +25,7 @@ export const OUTBOUND_PROTOCOL_OPTIONS = [
   "vless",
   "trojan",
   "wireguard",
+  "masque",
   "loopback",
 ] as const;
 
@@ -54,6 +57,7 @@ export const OUTBOUND_STREAM_NETWORK_OPTIONS = [
   "xhttp",
   "httpupgrade",
   "splithttp",
+  "xdrive",
 ] as const;
 
 /** Xray `streamSettings.security` (outbound). */
@@ -87,7 +91,9 @@ export function newOutboundRow(protocol: string = "freedom"): OutboundFormRow {
         ? "direct"
         : `out-${randomId().slice(0, 6)}`;
   const base: Record<string, unknown> = { tag, protocol, settings: defaultSettingsFor(protocol) };
-  if (needsStreamSettings(protocol)) {
+  if (protocol === "masque") {
+    base.streamSettings = masqueStreamSettings();
+  } else if (needsStreamSettings(protocol)) {
     base.streamSettings = { network: "tcp", security: "none" };
   }
   return { id: randomId(), tag, protocol, raw: base };
@@ -129,11 +135,18 @@ function defaultSettingsFor(protocol: string): Record<string, unknown> {
         peers: [{ publicKey: "", endpoint: "127.0.0.1:51820" }],
         mtu: 1420,
       };
+    case "masque":
+      return { address: "", port: 443 };
     case "loopback":
       return { inboundTag: "api" };
     default:
       return {};
   }
+}
+
+/** The masque outbound requires the masque transport (Xray >= 26.9.30). */
+function masqueStreamSettings(): Record<string, unknown> {
+  return { network: "masque", security: "tls", masqueSettings: { path: MASQUE_DEFAULT_PATH } };
 }
 
 function needsStreamSettings(protocol: string): boolean {
@@ -193,9 +206,12 @@ export function updateRowProtocol(row: OutboundFormRow, protocol: string): Outbo
       settings: defaultSettingsFor(protocol),
     },
   };
-  if (needsStreamSettings(protocol)) {
+  if (protocol === "masque") {
+    next.raw.streamSettings = masqueStreamSettings();
+  } else if (needsStreamSettings(protocol)) {
     const prevStream = asRecord(row.raw.streamSettings) ?? {};
-    next.raw.streamSettings = Object.keys(prevStream).length
+    // the masque transport is only valid for the masque protocol
+    next.raw.streamSettings = Object.keys(prevStream).length && prevStream.network !== "masque"
       ? prevStream
       : { network: "tcp", security: "none" };
   } else {

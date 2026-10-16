@@ -30,14 +30,56 @@ type TelemtDCSource struct {
 	Name      string             `json:"name"`
 	Error     string             `json:"error,omitempty"`
 	Instances []TelemtDCInstance `json:"instances"`
+
+	// Optional extras (additive). LatencyMs is how long collecting this source took, FetchedAt the
+	// unix time of the last successful collection, Stale marks last-known data shown because
+	// the live fetch failed (Error then says why).
+	LatencyMs int64 `json:"latencyMs,omitempty"`
+	FetchedAt int64 `json:"fetchedAt,omitempty"`
+	Stale     bool  `json:"stale,omitempty"`
+}
+
+const (
+	// telemtDCNodeTimeout bounds one worker-node fetch so a slow node cannot stall the widget.
+	telemtDCNodeTimeout = 8 * time.Second
+	// telemtDCCacheTTL collapses concurrent dashboards / polls into one fan-out to the nodes.
+	telemtDCCacheTTL = 4 * time.Second
+	// telemtDCStaleMax is how long last-known node data may be served when a node stops answering.
+	telemtDCStaleMax = 10 * time.Minute
+)
+
+var telemtDCState struct {
+	mu   sync.Mutex // held for the whole fan-out so concurrent callers share one collection
+	at   time.Time
+	data []TelemtDCSource
+}
+
+var telemtDCLast struct {
+	mu sync.Mutex
+	ok map[int]TelemtDCSource // last successful source per node id
+}
+
+// applyStale keeps the last known instances of a node whose live fetch failed, flagged Stale,
+// so one flaky node does not blank the whole widget. prev may be a zero value (no history).
+func applyStale(fresh TelemtDCSource, prev TelemtDCSource, hasPrev bool, now time.Time) TelemtDCSource {
+	if fresh.Error == "" || !hasPrev || len(prev.Instances) == 0 {
+		return fresh
+	}
+	if now.Sub(time.Unix(prev.FetchedAt, 0)) > telemtDCStaleMax {
+		return fresh
+	}
+	fresh.Instances = prev.Instances
+	fresh.FetchedAt = prev.FetchedAt
+	fresh.Stale = true
+	return fresh
 }
 
 // FetchTelemtDCStatusFromNode calls GET /api/v1/telemt-dc-status on a worker node.
 func (s *NodeService) FetchTelemtDCStatusFromNode(node *model.Node) ([]telemt.InstanceDCStatus, error) {
 	u := fmt.Sprintf("%s/api/v1/telemt-dc-status", nodeRequestBaseURL(node))
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), telemtDCNodeTimeout)
 	defer cancel()
-	client, err := s.createHTTPClient(node, 12*time.Second)
+	client, err := s.createHTTPClient(node, telemtDCNodeTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +114,19 @@ func (s *NodeService) FetchTelemtDCStatusFromNode(node *model.Node) ([]telemt.In
 // CollectTelemtDCStatus gathers Telegram DC availability from the panel-local Telemt processes
 // (standalone mode) and from every enabled worker node (multi-node mode).
 func CollectTelemtDCStatus() ([]TelemtDCSource, error) {
+	telemtDCState.mu.Lock()
+	defer telemtDCState.mu.Unlock()
+	if telemtDCState.data != nil && time.Since(telemtDCState.at) < telemtDCCacheTTL {
+		return telemtDCState.data, nil
+	}
+	out, err := collectTelemtDCStatusUncached()
+	if err == nil {
+		telemtDCState.at, telemtDCState.data = time.Now(), out
+	}
+	return out, err
+}
+
+func collectTelemtDCStatusUncached() ([]TelemtDCSource, error) {
 	ss := SettingService{}
 	multi, _ := ss.GetMultiNodeMode()
 
@@ -103,7 +158,7 @@ func CollectTelemtDCStatus() ([]TelemtDCSource, error) {
 		if len(inst) == 0 {
 			return []TelemtDCSource{}, nil
 		}
-		return []TelemtDCSource{{Kind: "panel", Name: "panel", Instances: enrich(inst)}}, nil
+		return []TelemtDCSource{{Kind: "panel", Name: "panel", Instances: enrich(inst), FetchedAt: time.Now().Unix()}}, nil
 	}
 
 	ns := NodeService{}
@@ -121,12 +176,25 @@ func CollectTelemtDCStatus() ([]TelemtDCSource, error) {
 		go func(i int, n *model.Node) {
 			defer wg.Done()
 			src := &TelemtDCSource{Kind: "node", NodeId: n.Id, Name: n.Name, Instances: []TelemtDCInstance{}}
+			t0 := time.Now()
 			inst, err := ns.FetchTelemtDCStatusFromNode(n)
+			src.LatencyMs = time.Since(t0).Milliseconds()
 			if err != nil {
 				logger.Debugf("telemt dc status: node %s: %v", n.Name, err)
 				src.Error = err.Error()
+				telemtDCLast.mu.Lock()
+				prev, ok := telemtDCLast.ok[n.Id]
+				telemtDCLast.mu.Unlock()
+				*src = applyStale(*src, prev, ok, time.Now())
 			} else {
 				src.Instances = enrich(inst)
+				src.FetchedAt = time.Now().Unix()
+				telemtDCLast.mu.Lock()
+				if telemtDCLast.ok == nil {
+					telemtDCLast.ok = map[int]TelemtDCSource{}
+				}
+				telemtDCLast.ok[n.Id] = *src
+				telemtDCLast.mu.Unlock()
 			}
 			// Nodes without Telemt (and reachable) are not interesting; unreachable ones are
 			// only reported if they are known to host a Telemt inbound — keep the error row.

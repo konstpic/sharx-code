@@ -22,6 +22,8 @@ import {
   moveItem,
   type Tr,
 } from "@/components/xray/configurator/fields";
+import { MasqueOutboundFields } from "@/components/xray/outbound/MasqueOutboundFields";
+import { XdriveFields } from "@/components/xray/outbound/XdriveFields";
 import { getPath, isRec, listAt, setPath, strAt, type Path, type Rec } from "@/lib/jsonPath";
 import {
   OUTBOUND_STREAM_NETWORK_OPTIONS,
@@ -71,6 +73,7 @@ const NET_KEY: Record<string, string> = {
   h2: "httpSettings",
   http: "httpSettings",
   quic: "quicSettings",
+  xdrive: "xdriveSettings",
 };
 
 /** Where address / port / credentials live for the current protocol (nested vnext/servers or flat). */
@@ -202,6 +205,10 @@ export function OutboundEditor({ raw, onRaw, protocol, readOnly, t, otherOutboun
         />
       </Field>
     );
+  }
+
+  if (protocol === "masque") {
+    return <MasqueOutboundFields raw={raw} onRaw={onRaw} readOnly={readOnly} tr={tr} />;
   }
 
   if (protocol === "wireguard") {
@@ -526,6 +533,8 @@ function NetworkFields({
         </Field>
       </FieldGrid>
     );
+  } else if (net === "xdrive") {
+    body = <XdriveFields raw={raw} readOnly={readOnly} tr={tr} set={set} />;
   } else if (net === "tcp") {
     body = (
       <Field label={tr("obTcpHeader", "Header type")} hint={tr("obTcpHeaderHint", "\"http\" needs a request block — edit it in the JSON view below.")}>

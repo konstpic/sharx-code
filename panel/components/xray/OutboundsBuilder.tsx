@@ -27,6 +27,8 @@ import {
 } from "@/lib/xrayOutboundForm";
 import { OutboundEditor } from "@/components/xray/outbound/OutboundEditor";
 import { parseProxyLink } from "@/lib/parseProxyLink";
+import { useXrayCoreVersion } from "@/lib/useXrayCoreVersion";
+import { xrayFeatureMinVersion, xrayFeatureUnsupported } from "@/lib/xrayVersionFeatures";
 import { Button, Input, SelectNative } from "@/components/ui";
 
 type Props = {
@@ -95,6 +97,7 @@ function OutboundItem({
   onRemove: () => void;
 }) {
   const controls = useDragControls();
+  const coreVersion = useXrayCoreVersion();
   const summary = outboundSummary(row);
   const iconBtn =
     "rounded-lg p-1.5 text-[var(--fg-muted)] transition-colors hover:bg-[var(--surface)] hover:text-[var(--fg)] disabled:cursor-not-allowed disabled:opacity-30";
@@ -182,7 +185,9 @@ function OutboundItem({
                 )}
                 {OUTBOUND_PROTOCOL_OPTIONS.map((p) => (
                   <option key={p} value={p}>
-                    {p}
+                    {p === "masque" && xrayFeatureUnsupported(coreVersion, "masque")
+                      ? `${p} (Xray ≥ ${xrayFeatureMinVersion("masque")})`
+                      : p}
                   </option>
                 ))}
               </SelectNative>

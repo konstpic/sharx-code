@@ -3,6 +3,8 @@
  * and hover like VS Code (discriminated by `network` + `security` via if/then).
  */
 
+import { finalmaskSchema, masqueSettingsSchema, xdriveSettingsSchema } from "@/lib/xrayNewFeaturesMonacoSchema";
+
 type TLike = (key: string, o?: { defaultValue: string }) => string;
 
 function D(d: TLike, key: string, defaultValue: string) {
@@ -101,8 +103,9 @@ export function buildXrayStreamSettingsSchema(d: TLike): object {
           "pages.xray.jsonSchema.stream.network",
           "Transport layer. Suggestions and validation follow this value.",
         ),
-        enum: ["tcp", "kcp", "ws", "http", "quic", "grpc", "xhttp", "httpupgrade", "splithttp", "hysteria"],
+        enum: ["tcp", "kcp", "ws", "http", "quic", "grpc", "xhttp", "httpupgrade", "splithttp", "hysteria", "masque", "xdrive"],
       },
+      finalmask: finalmaskSchema(d),
       security: {
         type: "string",
         description: D(
@@ -216,6 +219,14 @@ export function buildXrayStreamSettingsSchema(d: TLike): object {
         then: {
           properties: { hysteriaSettings: { type: "object", additionalProperties: true } },
         },
+      },
+      {
+        if: { properties: { network: { const: "masque" } } },
+        then: { properties: { masqueSettings: masqueSettingsSchema(d) } },
+      },
+      {
+        if: { properties: { network: { const: "xdrive" } } },
+        then: { properties: { xdriveSettings: xdriveSettingsSchema(d) } },
       },
       {
         if: { properties: { security: { const: "reality" } } },

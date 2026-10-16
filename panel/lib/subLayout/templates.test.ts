@@ -33,7 +33,7 @@ describe("page templates", () => {
         expect(en[k], `${t.id} en ${k}`).toBeTypeOf("string");
         expect(ru[k], `${t.id} ru ${k}`).toBeTypeOf("string");
       }
-      for (const s of texts(doc)) expect(lintTemplate(s).errors ?? [], s).toEqual([]);
+      for (const s of texts(doc)) expect(lintTemplate(s), s).toEqual([]);
       // Russian rendering leaves no unresolved reference behind and no Latin-only sentence of the elements' own copy.
       const ctx = buildLayoutContext({ user: { daysLeft: 5, username: "alice" } }, { lang: "ru", i18n: doc.i18n });
       for (const s of texts(doc)) {

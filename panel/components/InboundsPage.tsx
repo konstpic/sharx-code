@@ -105,6 +105,7 @@ import {
 } from "@/components/inbounds/InboundListViews";
 import { InboundColumnFiltersBar } from "@/components/inbounds/InboundColumnFiltersBar";
 import { InboundTlsCertPinBlock } from "@/components/inbounds/InboundTlsCertPinBlock";
+import { VlessEncryptionSection } from "@/components/inbounds/VlessEncryptionSection";
 import {
   roundTripInboundCoreConfig,
   roundTripInboundSniffing,
@@ -5141,47 +5142,23 @@ export function InboundsPage() {
                   ) : null}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
-                      Encryption
-                    </label>
-                    <Input
-                      value={form.vlessEncryption}
-                      placeholder="none"
-                      onChange={(e) =>
-                        setForm((f) => {
-                          const vlessEncryption = e.target.value;
-                          const vlessFlow = effectiveVlessFlow(
-                            f.streamForm,
-                            f.vlessFlow,
-                            vlessEncryption,
-                          );
-                          return { ...f, vlessEncryption, vlessFlow };
-                        })
-                      }
-                      disabled={Boolean(form.vlessTrojanFallbacks.length != 0)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
-                      Decryption
-                    </label>
-                    <Input
-                      className="font-mono text-xs"
-                      placeholder="none"
-                      value={form.vlessDecryption}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          vlessDecryption: e.target.value,
-                        }))
-                      }
-                      disabled={Boolean(form.vlessTrojanFallbacks.length != 0)}
-                    />
-                  </div>
-                </div>
+                <VlessEncryptionSection
+                  decryption={form.vlessDecryption}
+                  encryption={form.vlessEncryption}
+                  network={form.streamForm.network}
+                  vlessFlow={form.vlessFlow}
+                  blockedByFallbacks={form.vlessTrojanFallbacks.length !== 0}
+                  onChange={(patch) =>
+                    setForm((f) => {
+                      const vlessEncryption = patch.vlessEncryption ?? f.vlessEncryption;
+                      return {
+                        ...f,
+                        ...patch,
+                        vlessFlow: effectiveVlessFlow(f.streamForm, f.vlessFlow, vlessEncryption),
+                      };
+                    })
+                  }
+                />
               </div>
             ) : null}
 

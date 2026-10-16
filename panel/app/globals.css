@@ -1936,7 +1936,6 @@ section[id] {
     radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--fg) 11%, transparent) 1px, transparent 0),
     linear-gradient(180deg, color-mix(in oklab, var(--fg) 4%, transparent), transparent 40%);
   background-size: 18px 18px, 100% 100%;
-  cursor: grab;
 }
 @keyframes dash-ping {
   0% { transform: scale(1); opacity: 0.6; }
@@ -1961,3 +1960,70 @@ section[id] {
   box-shadow: none;
   backdrop-filter: none;
 }
+
+/* ---- Dashboard grid (absolute 12-column board, Grafana style) ---- */
+.dashboard-grid { position: relative; width: 100%; }
+.dashboard-grid[data-editing="true"] {
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--fg) 14%, transparent) 1px, transparent 1.6px);
+  border-radius: 1rem;
+}
+.dashboard-tile[data-grid="true"] {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.25s,
+    box-shadow 0.25s;
+}
+.dashboard-tile[data-grid="true"][data-active="true"] {
+  transition: border-color 0.25s, box-shadow 0.25s;
+  border-color: var(--accent);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--accent);
+}
+.dashboard-tile[data-grid="true"][data-resizing="true"] { user-select: none; }
+.dashboard-tile[data-grid="true"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dashboard-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 1rem;
+  border: 2px dashed var(--accent);
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  pointer-events: none;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.18s, height 0.18s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-tile[data-grid="true"], .dashboard-ghost { transition: none; }
+}
+/* Tile content reflows with the tile, not with the viewport. */
+.dashboard-tile-body { container-type: inline-size; container-name: tile; overflow-x: hidden; overflow-y: auto; min-width: 0; }
+.dashboard-tile-body > * { min-width: 0; max-width: 100%; }
+.dashboard-tile-bar { container-type: inline-size; container-name: tilebar; }
+.dash-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container tile (min-width: 640px) { .dash-gauges { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container tile (max-width: 300px) { .dash-gauges { grid-template-columns: minmax(0, 1fr); } .dash-pair { grid-template-columns: minmax(0, 1fr); } }
+@container tile (max-width: 260px) { .dash-secondary { display: none !important; } }
+@container tile (max-width: 180px) { .dash-tertiary { display: none !important; } }
+@container tilebar (max-width: 210px) { .gt-bar-size { display: none; } }
+@container tilebar (max-width: 150px) { .gt-bar-title { display: none; } }
+.dashboard-resize-handle { position: absolute; z-index: 25; touch-action: none; }
+.dashboard-resize-handle > i {
+  position: absolute;
+  background: var(--accent);
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dashboard-tile:hover .dashboard-resize-handle > i,
+.dashboard-resize-handle:focus-visible > i,
+.dashboard-resize-handle[data-visible="true"] > i,
+.dashboard-tile[data-active="true"] .dashboard-resize-handle > i { opacity: 0.85; }
+.dashboard-resize-handle[data-visible="true"] > i { opacity: 0.5; }
+.dashboard-resize-handle:hover > i { opacity: 1 !important; }

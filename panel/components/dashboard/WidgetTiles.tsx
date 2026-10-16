@@ -69,7 +69,7 @@ function Head({ icon, color, title, sub, right }: { icon: ReactNode; color?: str
       <WidgetIcon icon={icon} color={color} />
       <div className="min-w-0 flex-1 leading-tight">
         <h3 className="truncate text-sm font-semibold text-[var(--fg)]">{title}</h3>
-        {sub ? <p className="mt-0.5 line-clamp-2 text-[11px] text-[var(--fg-subtle)]">{sub}</p> : null}
+        {sub ? <p className="dash-secondary mt-0.5 line-clamp-2 text-[11px] text-[var(--fg-subtle)]">{sub}</p> : null}
       </div>
       {right}
     </div>
@@ -84,7 +84,7 @@ function Cell({ icon, label, value, color = "var(--accent)", hint }: { icon: Rea
         <span className="truncate">{label}</span>
       </div>
       <p className="mt-2 break-words font-mono text-xl font-semibold leading-none tracking-tight tabular-nums text-[var(--fg)]">{value}</p>
-      {hint ? <p className="mt-1.5 text-[10px] text-[var(--fg-subtle)]">{hint}</p> : null}
+      {hint ? <p className="dash-secondary mt-1.5 text-[10px] text-[var(--fg-subtle)]">{hint}</p> : null}
     </div>
   );
 }

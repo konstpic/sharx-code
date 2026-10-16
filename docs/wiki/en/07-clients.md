@@ -216,3 +216,7 @@ In Happ / v2rayNG — **Add subscription** → paste URL.
 - [Groups](./08-groups.md)
 - [Subscription page](./09-subscription-page.md)
 - [HWID and limits](./11-hwid-and-limits.md)
+
+## Last connection node (multi-node)
+
+The **Last connection node** column remembers, per node, where each client was last seen online. Presence is stored in the `client_node_presence` table (client, node, first/last seen), so it survives panel restarts, node outages and offline periods. The column shows the node with the most recent activity and a relative time; hover it to see every node with its last-seen time (`●` = online now). Sorting uses the last connection time. The API adds `lastConnectedNodeAt` (unix ms) and `connectedNodes[]` (`nodeId`, `nodeName`, `lastSeenAt`, `online`) next to `lastConnectedNode`. Rows are removed only when the client or the node is deleted; `last_seen_at` is refreshed at most every 30 s per client and node.

@@ -242,6 +242,8 @@ export function DashboardComposer({
               <option value="monitoring">{t("pages.builder.monitoring")}</option>
               <option value="network">{t("pages.builder.groupNetwork")}</option>
               <option value="minimal">{t("pages.builder.minimal")}</option>
+              <option value="nodes">{t("pages.builder.templateNodes")}</option>
+              <option value="balancers">{t("pages.builder.templateBalancers")}</option>
             </SelectNative>
             <div className="mx-1 hidden h-6 w-px bg-[var(--border)] sm:block" />
             <Button variant="primary" className="!h-9 !rounded-xl !text-xs" onClick={() => setCatalog(true)} disabled={layout.panels.length >= 24}>
@@ -623,7 +625,8 @@ export function DashboardComposer({
                   />
                 </label>
               ) : null}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Size of an existing panel is changed on the board (drag / resize); these only set the initial size. */}
+              <div className={`grid grid-cols-2 gap-3 ${draft.isNew ? "" : "hidden"}`}>
                 <label className="space-y-2 text-xs text-[var(--fg-muted)]">
                   {t("pages.builder.width")}
                   <SelectNative
