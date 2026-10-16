@@ -33,6 +33,7 @@ import {
   legacyToGrid,
   moveItem,
   reconcile,
+  removeAndFill,
   resizeItem,
   resizeRect,
   tileKind,
@@ -177,15 +178,31 @@ export function DashboardBuilder({
     },
     [layout.panels, layout.tiles],
   );
-  /** Tall tiles stay compact on the phone: Telemt DC at most 6 rows, user agents 8. */
+  /** Tall tiles stay compact on the phone: Telemt DC at most 4 rows (summary + dots), user agents 8. */
   const maxRows = useCallback(
     (id: string) => {
       const w = layout.panels.find((x) => x.id === id)?.widget ?? id;
-      return w === "telemt_dc" ? 6 : w === "user_agent" ? 8 : undefined;
+      return w === "telemt_dc" ? 4 : w === "user_agent" ? 8 : undefined;
     },
     [layout.panels],
   );
-  const base = useMemo(() => (bp === "lg" ? desktop : deriveLayout(desktop, bp, constraintsOf, { boardWidth: width, capHeight, maxRows })), [desktop, bp, constraintsOf, width, capHeight, maxRows]);
+  // Tiles that have nothing to show right now (permissions, single / multi node mode) keep their stored place but must
+  // not leave a hole: for display only, their neighbours grow into the freed space. Nothing is written back, so a tile
+  // that reappears (data still loading, a mode switch) finds its place intact.
+  const shownDesktop = useMemo(() => {
+    const visible = new Set(keys);
+    const hidden = (layout.grid ?? []).filter((g) => !visible.has(g.id));
+    if (!hidden.length || !desktop.length) return desktop;
+    try {
+      let all: GridItem[] = [...desktop, ...hidden];
+      for (const h of hidden) all = removeAndFill(all, h.id, constraintsOf);
+      const out = all.filter((i) => visible.has(i.id));
+      return out.length === desktop.length ? out : desktop;
+    } catch {
+      return desktop;
+    }
+  }, [desktop, keys, layout.grid, constraintsOf]);
+  const base = useMemo(() => (bp === "lg" ? shownDesktop : deriveLayout(shownDesktop, bp, constraintsOf, { boardWidth: width, capHeight, maxRows })), [shownDesktop, bp, constraintsOf, width, capHeight, maxRows]);
   const shown = preview ?? base;
   const items = useMemo(() => new Map(shown.map((i) => [i.id, i])), [shown]);
 
