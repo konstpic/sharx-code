@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui";
+import { BrowserTabEditor } from "./BrowserTabEditor";
 import type { SharxBranding, SharxSubpageConfigV2 } from "@/lib/sharxSubpageConfig";
 
 type Props = {
@@ -82,6 +83,8 @@ export function BrandingEditor({ config, onChange }: Props) {
           placeholder="en, ru"
         />
       </Field>
+
+      <BrowserTabEditor config={config} onChange={onChange} />
     </div>
   );
 }

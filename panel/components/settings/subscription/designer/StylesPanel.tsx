@@ -6,6 +6,7 @@ import type { SharxSubpageConfigV2 } from "@/lib/sharxSubpageConfig";
 import { SUB_PAGE_COLOR_PRESET_IDS, resolveSubPageColorPreset } from "@/lib/subPageColorPreset";
 import type { D } from "./i18n";
 import { ColorInput, Row, Seg } from "./ui";
+import { BrowserTabEditor } from "../BrowserTabEditor";
 
 const NAMES: Record<string, [string, string]> = {
   web: ["SharX Web", "SharX Web"],
@@ -107,6 +108,7 @@ export function StylesPanel({ config, onChange, d, lang }: Props) {
           <ColorInput value={(branding.dangerColor as string) || undefined} onChange={(v) => setBranding({ dangerColor: v ?? "" })} placeholder={d("st.fromPalette", "from palette")} />
         </Row>
       </div>
+      <BrowserTabEditor config={config} onChange={onChange} />
     </div>
   );
 }

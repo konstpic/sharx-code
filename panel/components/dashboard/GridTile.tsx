@@ -1,13 +1,14 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowUpDown, Copy, GripVertical, Maximize2, MoreHorizontal, Pencil, RotateCcw, Trash2, type LucideIcon } from "lucide-react";
-import { Button, Drawer, Input, Modal, SelectNative } from "@/components/ui";
+import { BookmarkPlus, Copy, GripVertical, Maximize2, MoreHorizontal, Pencil, RotateCcw, Trash2, type LucideIcon } from "lucide-react";
+import { Button, CheckboxField, Drawer, Input, Modal, SelectNative } from "@/components/ui";
 import { defaultTile, type TileSettings } from "@/lib/dashboardBuilder";
 import { DASHBOARD_WIDGET_I18N, type DashboardWidgetId } from "@/lib/dashboardLayout";
-import { GRID_GAP, GRID_ROW_HEIGHT, type ResizeHandle } from "@/lib/dashboardGrid";
+import type { ResizeHandle } from "@/lib/dashboardGrid";
 import { useGrid } from "./gridContext";
+import { TileBoxContext, useElementBox } from "./useTileBox";
 
 /* ---------------------------------------------------------------- resize handles */
 
@@ -135,32 +136,65 @@ function TileMenu({ label, items }: { label: string; items: MenuItem[] }) {
   );
 }
 
+/* ---------------------------------------------------------------- tile body */
+
+/**
+ * The widget's box: a flex column with a definite width and height whose single child fills it. Publishes
+ * the measured size and the title state through TileBoxContext (see useTileBox.ts).
+ */
+function TileBody({ children, title, hideTitle, className = "", style }: { children: ReactNode; title: string; hideTitle: boolean; className?: string; style?: CSSProperties }) {
+  const { ref, width, height } = useElementBox();
+  const box = useMemo(() => ({ width, height, hideTitle, title }), [width, height, hideTitle, title]);
+  return (
+    <div ref={ref} className={`dashboard-tile-body ${className}`} style={style}>
+      <TileBoxContext.Provider value={box}>{children}</TileBoxContext.Provider>
+    </div>
+  );
+}
+
+/** A live miniature of a tile (catalog cards): the real tile content in a box of a fixed size, with the tile body contract. */
+export function TilePreview({ children, width, height, title }: { children: ReactNode; width: number; height: number; title: string }) {
+  return (
+    <div className="dashboard-tile pointer-events-none overflow-hidden rounded-xl border border-[var(--border)]" style={{ width, height }} aria-hidden>
+      <TileBody title={title} hideTitle={false} style={{ width, height }}>
+        {children}
+      </TileBody>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- tile */
 
 export function DashboardTile({
   id,
   children,
   views = {},
+  viewOptions,
+  renderView,
   label,
   onEdit,
 }: {
   id: string;
   children: ReactNode;
   views?: Record<string, ReactNode>;
+  /** Extra looks the user can pick (rendered by `renderView`); the default look is `children`. */
+  viewOptions?: readonly string[];
+  renderView?: (view: string) => ReactNode;
   label?: string;
   onEdit?: () => void;
 }) {
   const ctx = useGrid();
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const [properties, setProperties] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [draft, setDraft] = useState<TileSettings | null>(null);
   const config = ctx.layout.tiles[id] ?? defaultTile(id);
   const title = config.title || label || (DASHBOARD_WIDGET_I18N[id as DashboardWidgetId] ? t(DASHBOARD_WIDGET_I18N[id as DashboardWidgetId]) : id);
   const item = ctx.items.get(id);
-  const content = views[config.view] ?? children;
+  const optionKeys = [...new Set([...Object.keys(views), ...(viewOptions ?? [])])];
+  const viewFor = (v: string): ReactNode => (v !== "default" && views[v] ? views[v] : v !== "default" && renderView && viewOptions?.includes(v) ? renderView(v) : children);
+  const content = viewFor(config.view);
 
   const change = (patch: Partial<TileSettings>) =>
     ctx.setLayout((l) => ({ ...l, tiles: { ...l.tiles, [id]: { ...(l.tiles[id] ?? defaultTile(id)), ...patch } } }));
@@ -169,23 +203,6 @@ export function DashboardTile({
     if (onEdit) return onEdit();
     setDraft({ ...config });
     setProperties(true);
-  };
-
-  /** Measure the content at its natural height and size the tile to it (rounded up to whole rows). */
-  const fitHeight = () => {
-    const body = bodyRef.current;
-    const section = ref.current;
-    if (!body || !section) return;
-    const chrome = section.getBoundingClientRect().height - body.getBoundingClientRect().height;
-    const prev = { flex: body.style.flex, height: body.style.height, overflowY: body.style.overflowY };
-    body.style.flex = "none";
-    body.style.height = "auto";
-    body.style.overflowY = "visible";
-    const natural = body.scrollHeight;
-    body.style.flex = prev.flex;
-    body.style.height = prev.height;
-    body.style.overflowY = prev.overflowY;
-    ctx.setSize(id, { h: Math.ceil((chrome + natural + GRID_GAP) / (GRID_ROW_HEIGHT + GRID_GAP)) });
   };
 
   if (!item) return null;
@@ -203,13 +220,13 @@ export function DashboardTile({
   const menu: MenuItem[] = [
     { key: "edit", icon: Pencil, label: t("pages.builder.editPanel"), run: open },
     ...(ctx.canDuplicate(id) ? [{ key: "dup", icon: Copy, label: t("pages.builder.duplicate"), run: () => ctx.duplicate(id) }] : []),
+    ...(ctx.saveTile ? [{ key: "save", icon: BookmarkPlus, label: t("pages.builder.saveToCatalog"), run: () => ctx.saveTile!(id) }] : []),
     { key: "full", icon: Maximize2, label: t("pages.builder.fullscreen"), run: () => setFullscreen(true) },
-    { key: "fit", icon: ArrowUpDown, label: t("pages.builder.fitHeight"), run: fitHeight },
     { key: "reset", icon: RotateCcw, label: t("pages.builder.resetSize"), run: () => ctx.resetSize(id) },
     { key: "remove", icon: Trash2, label: t("pages.builder.remove"), run: () => ctx.hide(id), danger: true },
   ];
 
-  const showHeader = Boolean(label || config.title) && !ctx.editing;
+  const hideTitle = ctx.editing || config.showTitle === false;
 
   return (
     <section
@@ -246,15 +263,10 @@ export function DashboardTile({
           </div>
           <TileMenu label={t("pages.builder.tileMenu")} items={menu} />
         </div>
-      ) : showHeader ? (
-        <div className="flex min-h-10 shrink-0 items-center gap-2 px-4 pt-3">
-          <span className="h-3.5 w-1 rounded-full bg-[var(--accent)]" />
-          <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight text-[var(--fg)]">{title}</h2>
-        </div>
       ) : null}
-      <div ref={bodyRef} className="dashboard-tile-body min-h-0 flex-1 [&>div]:!mt-0 [&>div]:min-h-full">
+      <TileBody title={title} hideTitle={hideTitle} className="min-h-0 flex-1">
         {content}
-      </div>
+      </TileBody>
       {!ctx.editing ? (
         <button
           type="button"
@@ -281,7 +293,9 @@ export function DashboardTile({
       )}
 
       <Modal open={fullscreen} onClose={() => setFullscreen(false)} title={title} width={1180}>
-        <div className="dashboard-tile-body h-[min(72vh,760px)] rounded-xl [&>div]:!mt-0 [&>div]:min-h-full">{content}</div>
+        <TileBody title={title} hideTitle className="h-[min(72vh,760px)] rounded-xl">
+          {content}
+        </TileBody>
       </Modal>
 
       <Drawer
@@ -293,7 +307,7 @@ export function DashboardTile({
         footer={
           <Button
             onClick={() => {
-              if (draft) change({ title: draft.title, view: draft.view });
+              if (draft) change({ title: draft.title, view: draft.view, showTitle: draft.showTitle === false ? false : undefined });
               setProperties(false);
             }}
           >
@@ -309,16 +323,23 @@ export function DashboardTile({
             </label>
             <label className="block space-y-2 text-xs text-[var(--fg-muted)]">
               {t("pages.builder.view")}
-              <SelectNative value={views[draft.view] ? draft.view : "default"} onChange={(e) => setDraft({ ...draft, view: e.target.value })}>
+              <SelectNative value={optionKeys.includes(draft.view) ? draft.view : "default"} onChange={(e) => setDraft({ ...draft, view: e.target.value })}>
                 <option value="default">{t("pages.builder.default")}</option>
-                {Object.keys(views).map((v) => (
+                {optionKeys.map((v) => (
                   <option key={v} value={v}>
                     {t(`pages.builder.${v}`)}
                   </option>
                 ))}
               </SelectNative>
             </label>
-            <div className="h-64 overflow-auto rounded-xl border border-[var(--border)]">{views[draft.view] ?? children}</div>
+            <CheckboxField
+              label={t("pages.builder.showTitle")}
+              checked={draft.showTitle !== false}
+              onChange={(e) => setDraft({ ...draft, showTitle: e.target.checked ? undefined : false })}
+            />
+            <TileBody title={draft.title || title} hideTitle={draft.showTitle === false} className="h-64 rounded-xl border border-[var(--border)]">
+              {viewFor(draft.view)}
+            </TileBody>
           </div>
         ) : null}
       </Drawer>

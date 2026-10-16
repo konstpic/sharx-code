@@ -24,6 +24,7 @@ import {
   sparklinePath,
   summarize,
   viewModeFor,
+  pickTelemtMode,
   EMPTY_FILTER,
   type DCRow,
   type DCState,
@@ -282,5 +283,36 @@ describe("buildGroups", () => {
     expect(g[0].state).toBe("down");
     expect(g[1].state).toBe("up");
     expect(g[0].rows).toHaveLength(2);
+  });
+});
+
+describe("pickTelemtMode", () => {
+  it("thresholds", () => {
+    expect(pickTelemtMode(400, 600)).toBe("compact");
+    expect(pickTelemtMode(900, 220)).toBe("compact");
+    expect(pickTelemtMode(1553, 156)).toBe("compact");
+    expect(pickTelemtMode(420, 230)).toBe("medium");
+    expect(pickTelemtMode(1553, 324)).toBe("medium");
+    expect(pickTelemtMode(700, 400)).toBe("medium");
+    expect(pickTelemtMode(900, 419)).toBe("medium");
+    expect(pickTelemtMode(800, 520)).toBe("large");
+    expect(pickTelemtMode(1100, 616)).toBe("large");
+    expect(pickTelemtMode(1553, 500)).toBe("wide");
+    expect(pickTelemtMode(1494, 618)).toBe("wide");
+  });
+  it("unmeasured box keeps previous or medium", () => {
+    expect(pickTelemtMode(0, 0)).toBe("medium");
+    expect(pickTelemtMode(0, 500, "large")).toBe("large");
+  });
+  it("hysteresis", () => {
+    expect(pickTelemtMode(410, 300, "medium")).toBe("medium");
+    expect(pickTelemtMode(410, 300, "compact")).toBe("compact");
+    expect(pickTelemtMode(900, 410, "large")).toBe("large");
+    expect(pickTelemtMode(900, 410, "medium")).toBe("medium");
+    expect(pickTelemtMode(1090, 500, "wide")).toBe("wide");
+    expect(pickTelemtMode(1090, 500, "large")).toBe("large");
+    expect(pickTelemtMode(900, 380, "large")).toBe("medium");
+    expect(pickTelemtMode(900, 215, "medium")).toBe("medium");
+    expect(pickTelemtMode(900, 215, "compact")).toBe("compact");
   });
 });

@@ -16,6 +16,16 @@ export const brandingSchema = z.object({
   logoUrl: z.string(),
   brandText: z.string(),
   supportUrl: z.string(),
+  /** Browser-tab title of the public page; placeholders {title} {username} {status}. Empty = title. */
+  pageTitle: z.string().optional(),
+  /** Per-language override of `pageTitle` (key = "ru" or "ru-RU"). */
+  pageTitleByLocale: z.record(z.string(), z.string()).optional(),
+  /** Favicon: http(s) URL, same-origin path or data:image/... URL. Empty = panel default. */
+  faviconUrl: z.string().optional(),
+  /** Optional favicon for the dark color scheme of the browser. */
+  faviconDark: z.string().optional(),
+  /** Optional apple-touch-icon (home-screen icon). */
+  appleTouchIconUrl: z.string().optional(),
   /** Optional theme palette overrides (hex, e.g. "#22d3ee"). */
   /** Page background: the palette's animated atmosphere (default) or a plain flat color. */
   background: z.enum(["animated", "plain"]).optional(),

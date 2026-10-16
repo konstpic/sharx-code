@@ -1,16 +1,17 @@
 "use client";
-import {metricTileViews} from "@/components/dashboard/MetricTileViews";
 import { useDashboardMetricsData } from '@/lib/useDashboardMetricsData';
-import {ResourceTileChart} from "@/components/dashboard/ResourceTileChart";
 import {DashboardBuilder} from '@/components/dashboard/GridBoard';
 import {DashboardTile} from '@/components/dashboard/GridTile';
-import {defaultLayout,defaultTile,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
+import {MetricContent,WidgetContent,isAtomVisible,type AtomEnv,type StatusData} from '@/components/dashboard/BuiltinAtoms';
+import {atomDef} from '@/lib/dashboardLayout';
+import {insertBundle,panelDefaultSize,resetToDefault,type TileBundle} from '@/lib/dashboardModel';
+import {makeMyEntry,type MyEntry} from '@/lib/dashboardCatalog';
+import {defaultLayout,emptyLayout,defaultTile,layoutConstraints,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
 
 import {DashboardComposer,type PanelDraft} from '@/components/dashboard/DashboardComposer';
-import {CustomMetricPanel} from '@/components/dashboard/CustomMetricPanel';
 import {CustomContentPanel} from '@/components/dashboard/CustomContentPanel';
 import {dashboardMetrics,type DashboardMetric,type MetricPoint} from '@/lib/dashboardMetrics';
-import { TelemtDcStatusCard } from "@/components/TelemtDcStatusCard";
+import {autoArrange,removeAndFill,GRID_VERSION} from '@/lib/dashboardGrid';
 import {
   CloudDownload,
   LayoutDashboard,
@@ -20,77 +21,29 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson, api } from "@/lib/api";
-import { formatSecond, sizeFormat, toFixed } from "@/lib/format";
+import { toFixed } from "@/lib/format";
 import { usePanelWebSocket } from "@/lib/panelWebSocket";
-import { linkP, panel, p } from "@/lib/paths";
+import { panel, p } from "@/lib/paths";
 import { useCan } from "@/lib/rbac";
 import { usePanelAccentColor } from "@/lib/panelTheme";
-import { ResourcesOverview } from "@/components/dashboard/ResourcesOverview";
-import { BackupWidget, CoreVersionsWidget, DatabaseWidget, LogsWidget, NetSocketsWidget, NetSpeedWidget, NetTrafficWidget, RuntimeWidget, ServerIpWidget, UptimeWidget, UserAgentWidget, UsersOnlineWidget } from "@/components/dashboard/WidgetTiles";
 import { CoreVersionCards } from "@/components/dashboard/CoreVersionCards";
-import { PageScaffold, PageHeader, SectionHelpModal, Surface } from "@/components/panel";
+import { PageScaffold, PageHeader, SectionHelpModal } from "@/components/panel";
 import {
   AlertBanner,
   Button,
   CheckboxField,
   ConfirmDialog,
   Modal,
-  Reveal,
   SelectNative,
   Spinner,
-  StatBlock,
   useToast,
 } from "@/components/ui";
 import { EntityLogsModal } from "@/components/EntityLogsModal";
 import {
-  DASHBOARD_WIDGET_I18N,
   DASHBOARD_WIDGET_ORDER,
-  type DashboardWidgetId,
   parseDashboardWidgets,
-  toggleDashboardWidget,
 } from "@/lib/dashboardLayout";
 import { getUiPref, setUiPref } from "@/lib/uiPrefs";
-
-type StatusData = {
-  cpu: number;
-  cpuCores: number;
-  logicalPro?: number;
-  cpuSpeedMhz?: number;
-  mem: { current: number; total: number };
-  disk: { current: number; total: number };
-  swap: { current: number; total: number };
-  loads: number[];
-  netIO: { up: number; down: number };
-  netTraffic: { sent: number; recv: number };
-  publicIP: { ipv4: string; ipv6: string };
-  tcpCount: number;
-  udpCount: number;
-  uptime: number;
-  appStats: { threads: number; mem: number; uptime: number };
-  panelUptime: number;
-  panelVersion?: string;
-  xray: { state: string; errorMsg: string; version: string };
-  nodes?: { online: number; total: number };
-  nodesXray?: { total: number; running: number; stopped: number; error: number; unknown: number };
-  telemt?: { state: string; count: number; errorMsg?: string; version?: string };
-  nodesTelemt?: { total: number; running: number; stopped: number; unknown: number };
-  database: {
-    size: number;
-    tables: number;
-    totalRows: number;
-    openConns: number;
-    idleConns: number;
-    maxOpenConns: number;
-    maxIdleConns: number;
-  };
-  usersOnline?: number;
-};
-
-
-function pct(cur: number, tot: number) {
-  if (!tot) return 0;
-  return Number(toFixed((cur / tot) * 100, 2));
-}
 
 /** Picks the most common non-empty version across a set of nodes and flags whether they agree.
  * Cores are rolled out centrally (install/installOnNodes push one version to the whole fleet),
@@ -393,7 +346,24 @@ export function DashboardPage() {
   const [st, setSt] = useState<StatusData | null>(null);
   const [showSec, setShowSec] = useState(false);
   const [dontSec, setDontSec] = useState(false);
-  const [showIp, setShowIp] = useState(false);
+  /** Server IP tile: shown by default; hiding is remembered per browser. */
+  const [showIp, setShowIp] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("dashboardHideIp") === "1") setShowIp(false);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+  const toggleIp = () =>
+    setShowIp((v) => {
+      try {
+        window.localStorage.setItem("dashboardHideIp", v ? "1" : "0");
+      } catch {
+        /* storage unavailable */
+      }
+      return !v;
+    });
   const [multi, setMulti] = useState(false);
   const [ipv6Enabled, setIpv6Enabled] = useState(false);
   const [verOpen, setVerOpen] = useState(false);
@@ -430,8 +400,6 @@ export function DashboardPage() {
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
   const [layoutSaved, setLayoutSaved] = useState(true);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [enabledWidgets, setEnabledWidgets] = useState<DashboardWidgetId[]>([...DASHBOARD_WIDGET_ORDER]);
   const [dashboardHwidUserAgentStats, setDashboardHwidUserAgentStats] = useState<
     { label: string; count: number; percentRaw: number; percentLabel: string }[]
   >([]);
@@ -441,9 +409,9 @@ export function DashboardPage() {
   useEffect(() => {
     if(!layoutReady) return;
     setLayoutSaved(false);
-    const timer=setTimeout(()=>{void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout,enabledWidgets))).then(setLayoutSaved)},500);
+    const timer=setTimeout(()=>{void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout))).then(setLayoutSaved)},500);
     return ()=>clearTimeout(timer);
-  }, [enabledWidgets,layout,layoutReady,workspace]);
+  }, [layout,layoutReady,workspace]);
 
   useEffect(() => {
     (async () => {
@@ -505,12 +473,12 @@ export function DashboardPage() {
         }
         const widgetsRaw = await getUiPref("dashboardWidgets");
         const storedLayout = await getUiPref("dashboardLayout");
-        let enabled=parseDashboardWidgets(widgetsRaw);
-        if(!storedLayout)enabled=[...new Set([...enabled,"telemt_dc" as DashboardWidgetId])];
+        let enabled:string[]=parseDashboardWidgets(widgetsRaw);
+        if(!storedLayout)enabled=[...new Set([...enabled,"telemt_dc"])];
         const restored=parseWorkspace(storedLayout,enabled);
         setWorkspace(restored);
         const active=restored.boards.find(b=>b.id===restored.activeId)!;
-        setLayout(active.layout);setEnabledWidgets(active.enabled);
+        setLayout(active.layout);
         setLayoutReady(true);
       } catch {
         /* ignore */
@@ -678,9 +646,19 @@ export function DashboardPage() {
   },[st,t,clientMetrics,samples,resourceMetrics]);
   const extraMetrics=useDashboardMetricsData(t,layout.panels.flatMap(p=>p.metrics),baseMetrics.map(m=>m.id));
   const metrics=useMemo(()=>[...baseMetrics,...extraMetrics],[baseMetrics,extraMetrics]);
-  const selectBoard=(id:string)=>{const next=saveActiveBoard(workspace,layout,enabledWidgets);const board=next.boards.find(b=>b.id===id);if(!board)return;setWorkspace({...next,activeId:id});setLayout(board.layout);setEnabledWidgets(board.enabled)};
-  const addBoard=(board:DashboardWorkspace['boards'][number])=>{if(workspace.boards.length>=12)return;const next=saveActiveBoard(workspace,layout,enabledWidgets);setWorkspace({...next,activeId:board.id,boards:[...next.boards,board]});setLayout(board.layout);setEnabledWidgets(board.enabled)};
-  const savePanel=(draft:PanelDraft)=>{setLayout(l=>({...l,panels:draft.isNew?[...l.panels,draft.panel]:l.panels.map(p=>p.id===draft.panel.id?draft.panel:p),order:draft.isNew?[draft.panel.id,...l.order]:l.order,tiles:{...l.tiles,[draft.panel.id]:draft.settings}}));setPanelDraft(null)};
+  const selectBoard=(id:string)=>{const next=saveActiveBoard(workspace,layout);const board=next.boards.find(b=>b.id===id);if(!board)return;setWorkspace({...next,activeId:id});setLayout(board.layout)};
+  const addBoard=(board:DashboardWorkspace['boards'][number])=>{if(workspace.boards.length>=12)return;const next=saveActiveBoard(workspace,layout);setWorkspace({...next,activeId:board.id,boards:[...next.boards,board]});setLayout(board.layout)};
+  const newTileId=()=>'custom-'+crypto.randomUUID().slice(0,8);
+  const savePanel=(draft:PanelDraft)=>{
+   setLayout(l=>{
+    if(!draft.isNew)return {...l,panels:l.panels.map(p=>p.id===draft.panel.id?draft.panel:p),tiles:{...l.tiles,[draft.panel.id]:draft.settings}};
+    const size=panelDefaultSize(draft.panel,draft.settings);
+    return insertBundle(l,{panels:[draft.panel],tiles:{[draft.panel.id]:draft.settings},rects:[{id:draft.panel.id,x:0,y:0,w:size.w,h:size.h}]},()=>draft.panel.id,layoutConstraints(l));
+   });
+   setPanelDraft(null);
+  };
+  const addBundle=(bundle:TileBundle)=>setLayout(l=>insertBundle(l,bundle,newTileId,layoutConstraints(l)));
+  const saveMine=(entry:MyEntry|null)=>{if(entry)setWorkspace(w=>({...w,mine:[...(w.mine??[]),entry].slice(-50)}))};
 
   if (loading) {
     return (
@@ -720,13 +698,6 @@ export function DashboardPage() {
     );
   }
 
-  const cpuP = st.cpu;
-  const memP = pct(st.mem.current, st.mem.total);
-  const dskP = pct(st.disk.current, st.disk.total);
-  const swP = pct(st.swap.current, st.swap.total);
-  const nOn = st.nodes?.online ?? 0;
-  const nTot = st.nodes?.total ?? 0;
-  const nx = st.nodesXray;
   // Installed core versions: multi-node reads what's actually recorded per node in the DB
   // (rolled out centrally), single-node keeps the live-detected panel host version.
   const installedXray = multi
@@ -739,20 +710,6 @@ export function DashboardPage() {
     : st.telemt?.version
       ? { version: st.telemt.version, mismatch: false }
       : null;
-  const ramSparkColor = dashboardRamStroke;
-  const showResources = enabledWidgets.includes("resources");
-  const showLogs = enabledWidgets.includes("logs");
-  const showCoreVersions = enabledWidgets.includes("core_versions");
-  const showBackup = enabledWidgets.includes("backup");
-  const showUptime = enabledWidgets.includes("uptime");
-  const showDatabase = enabledWidgets.includes("database");
-  const showNetSpeed = enabledWidgets.includes("net_speed");
-  const showNetTraffic = enabledWidgets.includes("net_traffic");
-  const showNetSockets = enabledWidgets.includes("net_sockets");
-  const showServerIp = enabledWidgets.includes("server_ip");
-  const showPanelRuntime = enabledWidgets.includes("panel_runtime");
-  const showUsersOnline = enabledWidgets.includes("users_online");
-  const showUserAgent = enabledWidgets.includes("user_agent");
   const cpuGhz = st.cpuSpeedMhz
     ? st.cpuSpeedMhz >= 1000
       ? `${toFixed(st.cpuSpeedMhz / 1000, 2)} GHz`
@@ -893,6 +850,62 @@ export function DashboardPage() {
     inp.click();
   };
 
+  const atomEnv: AtomEnv = {
+    metrics,
+    st,
+    multi,
+    ipv6Enabled,
+    revealIp: showIp,
+    toggleIp,
+    can: { logs: canLogs, xrayOperate: canXrayOperate, backup: canBackup },
+    installedXray,
+    installedTelemt,
+    cpuGhz,
+    cpuSeries: cpuPreviewSeries,
+    memSeries: memPreviewSeries,
+    userAgents: dashboardHwidUserAgentPie.parts,
+    act: { openLogs, openVersions: openVer, stopXray: stopX, restartXray: restartX, stopTelemt: stopTelemtLocal, exportDb, importDb, openConfig, openCpu, openMem },
+  };
+  /** Tiles that have something to show now (permissions, single / multi node mode); a hidden tile takes no slot. */
+  const visiblePanels = layout.panels.filter((p) => p.kind !== "widget" || isAtomVisible(p.widget ?? "", atomEnv));
+  const visibleIds = new Set(visiblePanels.map((p) => p.id));
+  /** Restore the default places and sizes of the tiles (default dashboard tiles as a hole-free block). */
+  const resetLayout = () =>
+    setLayout((l) => {
+      const cons = layoutConstraints(l);
+      const panels = l.panels.filter((p) => visibleIds.has(p.id));
+      return { ...l, gridVersion: GRID_VERSION, grid: resetToDefault(panels, l.tiles, l.grid ?? [], cons) };
+    });
+  /** Auto-arrange: same sizes, reading order, holes filled. */
+  const arrangeLayout = () =>
+    setLayout((l) => {
+      const cons = layoutConstraints(l);
+      return { ...l, gridVersion: GRID_VERSION, grid: autoArrange((l.grid ?? []).filter((i) => visibleIds.has(i.id)), cons) };
+    });
+  /** Remove a tile; neighbours in its row grow into the freed space so no hole is left. */
+  const removeTile = (id: string) =>
+    setLayout((l) => {
+      const cons = layoutConstraints(l);
+      return {
+        ...l,
+        panels: l.panels.filter((p) => p.id !== id),
+        order: l.order.filter((p) => p !== id),
+        tiles: Object.fromEntries(Object.entries(l.tiles).filter(([key]) => key !== id)),
+        grid: removeAndFill((l.grid ?? []).filter((i) => visibleIds.has(i.id) || i.id === id), id, cons),
+      };
+    });
+  const saveTileToMine = (id: string) => {
+    const p = layout.panels.find((x) => x.id === id);
+    if (!p) return;
+    const def = atomDef(p.widget ?? p.preset ?? "");
+    saveMine(makeMyEntry('my-' + crypto.randomUUID().slice(0, 8), p.title || (def ? t(def.title) : t('pages.builder.' + p.kind)), { panels: layout.panels, tiles: layout.tiles, grid: layout.grid ?? [] }, [id]));
+    toast.success(t('pages.builder.savedToCatalog'));
+  };
+  const saveBoardToMine = (name: string) => {
+    saveMine(makeMyEntry('my-' + crypto.randomUUID().slice(0, 8), name, { panels: visiblePanels, tiles: layout.tiles, grid: layout.grid ?? [] }));
+    toast.success(t('pages.builder.savedToCatalog'));
+  };
+
   return (
     <PageScaffold>
       <PageHeader
@@ -902,7 +915,7 @@ export function DashboardPage() {
         iconTone="accent"
         actions={
           <>
-            <Button type="button" variant="secondary" onClick={() => { if(layoutEditing) void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout,enabledWidgets))).then(setLayoutSaved); setLayoutEditing(v=>!v); }} className="!gap-2">
+            <Button type="button" variant="secondary" onClick={() => { if(layoutEditing) void setUiPref("dashboardLayout",JSON.stringify(saveActiveBoard(workspace,layout))).then(setLayoutSaved); setLayoutEditing(v=>!v); }} className="!gap-2">
               <LayoutGrid size={16} />
               {t(layoutEditing?"pages.builder.done":"pages.index.dashboardCustomize")}
             </Button>
@@ -947,181 +960,21 @@ export function DashboardPage() {
         )}
 
         <DashboardComposer workspace={workspace} editing={layoutEditing} metrics={metrics} layout={layout} draft={panelDraft} onDraft={setPanelDraft} onSave={savePanel} onSwitch={selectBoard}
-         onNew={()=>addBoard({id:'board-'+crypto.randomUUID(),name:t('pages.builder.newDashboard'),layout:defaultLayout(),enabled:[]})}
-         onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[...enabledWidgets]})}
+         onNew={()=>addBoard({id:'board-'+crypto.randomUUID(),name:t('pages.builder.newDashboard'),layout:emptyLayout(),enabled:[]})}
+         onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[]})}
          onRename={name=>setWorkspace(w=>({...w,boards:w.boards.map(b=>b.id===w.activeId?{...b,name}:b)}))}
-         onRemove={()=>{if(workspace.boards.length<2)return;const remaining=workspace.boards.filter(b=>b.id!==workspace.activeId);setWorkspace({...workspace,boards:remaining,activeId:remaining[0].id});setLayout(remaining[0].layout);setEnabledWidgets(remaining[0].enabled)}}
-         onTemplate={kind=>addBoard(dashboardTemplate(kind,t,entityListsFromMetrics(extraMetrics)))} onBuiltins={()=>setCustomizeOpen(true)} saved={layoutSaved}/>
-        <DashboardBuilder layout={layout} setLayout={setLayout} editing={layoutEditing} hide={id=>{if(id.startsWith('custom-'))setLayout(l=>({...l,panels:l.panels.filter(p=>p.id!==id),order:l.order.filter(p=>p!==id),tiles:Object.fromEntries(Object.entries(l.tiles).filter(([key])=>key!==id))}));else setEnabledWidgets(prev=>toggleDashboardWidget(id as DashboardWidgetId,new Set(prev)))}}>
-        {layout.panels.map(custom=>{const selected=metrics.filter(m=>custom.metrics.includes(m.id));const settings=layout.tiles[custom.id]??defaultTile(custom.id);return <DashboardTile key={custom.id} id={custom.id} label={custom.title||selected[0]?.label||t('pages.builder.'+custom.kind)} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>{custom.kind==='metric'?<CustomMetricPanel metrics={selected} settings={settings}/>:<CustomContentPanel panel={custom} metrics={selected}/>}</DashboardTile>})}
-        {showResources && (
-        <DashboardTile id="resources" views={{stat: <Surface><div className="grid grid-cols-2 gap-4"><StatBlock title="CPU" value={`${toFixed(cpuP,0)}%`} /><StatBlock title={t("pages.index.memory")} value={`${toFixed(memP,0)}%`} /><StatBlock title={t("pages.index.storage")} value={`${toFixed(dskP,0)}%`} /><StatBlock title={t("pages.index.swap")} value={`${toFixed(swP,0)}%`} /></div></Surface>}}>
-        <ResourcesOverview
-              accent={accent}
-              cpu={{ percent: cpuP, cores: st.cpuCores, series: (cpuPreviewSeries[0]?.points ?? []).map((q) => q.value), onOpen: openCpu, title: t("pages.index.cpuHistory") }}
-              mem={{ percent: memP, detail: `${sizeFormat(st.mem.current)} / ${sizeFormat(st.mem.total)}`, series: (memPreviewSeries[0]?.points ?? []).map((q) => q.value), color: ramSparkColor, onOpen: openMem, title: t("pages.index.memoryHistory") }}
-              disk={{ percent: dskP, detail: `${sizeFormat(st.disk.current)} / ${sizeFormat(st.disk.total)}` }}
-              swap={{ percent: swP, detail: `${sizeFormat(st.swap.current)} / ${sizeFormat(st.swap.total)}` }}
-              loads={st.loads}
-              nodes={multi && nTot > 0 ? { online: nOn, total: nTot } : null}
-            />
-
-        </DashboardTile>
-        )}
-
-        {showLogs && canLogs && (
-          <DashboardTile id="logs">
-            <LogsWidget onOpen={openLogs} />
-          </DashboardTile>
-        )}
-
-        {showCoreVersions && (
-          <DashboardTile id="core_versions">
-            <CoreVersionsWidget
-              xray={installedXray}
-              telemt={installedTelemt}
-              xrayRunning={multi ? undefined : st.xray?.state === "running"}
-              telemtRunning={multi ? undefined : st.telemt?.state === "running"}
-              canOperate={canXrayOperate}
-              local={!multi}
-              onStopTelemt={stopTelemtLocal}
-              onStopXray={stopX}
-              onRestartXray={restartX}
-              onSwitch={openVer}
-            />
-          </DashboardTile>
-        )}
-
-        {showBackup && canBackup && (
-          <DashboardTile id="backup">
-            <BackupWidget onExport={exportDb} onImport={importDb} onConfig={openConfig} />
-          </DashboardTile>
-        )}
-
-        {showUptime && (
-          <DashboardTile
-            id="uptime"
-            views={metricTileViews([
-              { label: t("pages.index.panelUptimeLabel"), value: formatSecond(st.panelUptime ?? 0) },
-              { label: t("pages.index.osLabel"), value: formatSecond(st.uptime) },
-            ])}
-          >
-            <UptimeWidget
-              panel={st.panelUptime ?? 0}
-              os={st.uptime}
-              xray={multi ? undefined : st.appStats?.uptime || 0}
-              nodes={multi && nx && nx.total > 0 ? { running: nx.running, total: nx.total } : undefined}
-            />
-          </DashboardTile>
-        )}
-
-        {showUsersOnline && (
-          <DashboardTile id="users_online" views={metricTileViews([{ label: t("pages.index.usersOnline"), value: String(st.usersOnline ?? 0) }])}>
-            <UsersOnlineWidget value={st.usersOnline ?? 0} href={linkP("panel/clients")} />
-          </DashboardTile>
-        )}
-
-        {enabledWidgets.includes("telemt_dc") && <DashboardTile id="telemt_dc"><Reveal className="mt-4">
-          <TelemtDcStatusCard />
-        </Reveal></DashboardTile>}
-
-        {showUserAgent && (
-          <DashboardTile
-            id="user_agent"
-            views={{
-              table: (
-                <Surface>
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {dashboardHwidUserAgentStats.map((row) => (
-                        <tr key={row.label} className="border-b border-[var(--border)]">
-                          <td className="py-2">{row.label}</td>
-                          <td>{row.count}</td>
-                          <td>{row.percentLabel}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Surface>
-              ),
-            }}
-          >
-            <UserAgentWidget parts={dashboardHwidUserAgentPie.parts} />
-          </DashboardTile>
-        )}
-
-        {showDatabase && (
-          <DashboardTile
-            id="database"
-            views={metricTileViews([
-              { label: t("pages.index.dbSize"), value: sizeFormat(st.database?.size ?? 0) },
-              { label: t("pages.index.dbTables"), value: String(st.database?.tables ?? 0) },
-              { label: t("pages.index.dbRows"), value: String(st.database?.totalRows ?? 0) },
-              { label: t("pages.index.dbConnections"), value: String(st.database?.openConns ?? 0) },
-            ])}
-          >
-            <DatabaseWidget db={st.database} />
-          </DashboardTile>
-        )}
-
-        {showPanelRuntime && (
-          <DashboardTile
-            id="panel_runtime"
-            views={metricTileViews([
-              { label: t("pages.index.logicalProcessors"), value: String(st.logicalPro ?? st.cpuCores ?? 0) },
-              { label: t("pages.index.frequency"), value: cpuGhz },
-              { label: t("pages.index.threads"), value: String(st.appStats?.threads ?? 0) },
-              { label: t("pages.index.panelProcessHeap"), value: sizeFormat(st.appStats?.mem ?? 0) },
-            ])}
-          >
-            <RuntimeWidget cores={String(st.logicalPro ?? st.cpuCores ?? "—")} freq={cpuGhz} threads={String(st.appStats?.threads ?? "—")} heap={st.appStats?.mem ?? 0} />
-          </DashboardTile>
-        )}
-
-        {showNetSpeed && (
-          <DashboardTile
-            id="net_speed"
-            views={metricTileViews([
-              { label: t("pages.index.upload"), value: sizeFormat(st.netIO.up) + "/s" },
-              { label: t("pages.index.download"), value: sizeFormat(st.netIO.down) + "/s" },
-            ])}
-          >
-            <NetSpeedWidget up={st.netIO.up} down={st.netIO.down} />
-          </DashboardTile>
-        )}
-
-        {showNetTraffic && (
-          <DashboardTile
-            id="net_traffic"
-            views={metricTileViews([
-              { label: t("pages.index.sent"), value: sizeFormat(st.netTraffic.sent) },
-              { label: t("pages.index.received"), value: sizeFormat(st.netTraffic.recv) },
-            ])}
-          >
-            <NetTrafficWidget sent={st.netTraffic.sent} recv={st.netTraffic.recv} />
-          </DashboardTile>
-        )}
-
-        {showNetSockets && (
-          <DashboardTile
-            id="net_sockets"
-            views={metricTileViews([
-              { label: t("pages.index.statTCP"), value: String(st.tcpCount) },
-              { label: t("pages.index.statUDP"), value: String(st.udpCount) },
-            ])}
-          >
-            <NetSocketsWidget tcp={st.tcpCount} udp={st.udpCount} />
-          </DashboardTile>
-        )}
-
-        {showServerIp && (
-          <DashboardTile id="server_ip">
-            <ServerIpWidget ipv4={st.publicIP?.ipv4} ipv6={st.publicIP?.ipv6} showV6={ipv6Enabled} revealed={showIp} onToggle={() => setShowIp((v) => !v)} />
-          </DashboardTile>
-        )}
-
-        {enabledWidgets.includes("cpu_history") && <DashboardTile id="cpu_history" views={{stat:<Surface><StatBlock title="CPU" value={`${toFixed(cpuP,0)}%`}/></Surface>, area:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries} kind="area"/></Surface>, bar:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries} kind="bar"/></Surface>}}><Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.cpuHistory")}</h3><ResourceTileChart series={cpuPreviewSeries}/></Surface></DashboardTile>}
-        {enabledWidgets.includes("memory_history") && <DashboardTile id="memory_history" views={{stat:<Surface><StatBlock title={t("pages.index.memory")} value={`${toFixed(memP,0)}%`}/></Surface>, area:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries} kind="area"/></Surface>, bar:<Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries} kind="bar"/></Surface>}}><Surface className="flex h-full flex-col"><h3 className="mb-3 text-sm font-semibold">{t("pages.index.memoryHistory")}</h3><ResourceTileChart series={memPreviewSeries}/></Surface></DashboardTile>}
+         onRemove={()=>{if(workspace.boards.length<2)return;const remaining=workspace.boards.filter(b=>b.id!==workspace.activeId);setWorkspace({...workspace,boards:remaining,activeId:remaining[0].id});setLayout(remaining[0].layout)}}
+         onReset={resetLayout} onArrange={arrangeLayout} onTemplate={kind=>addBoard(dashboardTemplate(kind,t,entityListsFromMetrics(extraMetrics)))} saved={layoutSaved}
+         env={atomEnv} mine={workspace.mine??[]} nodeLists={entityListsFromMetrics(extraMetrics)} onAdd={addBundle} onSaveBoard={saveBoardToMine} onDeleteMine={id=>setWorkspace(w=>({...w,mine:(w.mine??[]).filter(m=>m.id!==id)}))}/>
+        <DashboardBuilder layout={layout} setLayout={setLayout} editing={layoutEditing} hide={removeTile} onSaveTile={saveTileToMine}>
+        {visiblePanels.map(custom=>{
+          const selected=metrics.filter(m=>custom.metrics.includes(m.id));
+          const settings=layout.tiles[custom.id]??defaultTile(custom.id);
+          const def=atomDef(custom.widget??custom.preset??'');
+          const label=custom.title||(def?t(def.title):selected[0]?.label)||t('pages.builder.'+custom.kind);
+          return <DashboardTile key={custom.id} id={custom.id} label={label} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>
+            {custom.kind==='metric'?<MetricContent panel={custom} settings={settings} env={atomEnv}/>:custom.kind==='widget'&&custom.widget?<WidgetContent widget={custom.widget} env={atomEnv}/>:<CustomContentPanel panel={custom} metrics={selected}/>}
+          </DashboardTile>})}
         </DashboardBuilder>
 
       <Modal
@@ -1290,47 +1143,6 @@ export function DashboardPage() {
           onHoverT={setMemHoverT}
           onLeave={() => setMemHoverT(null)}
         />
-      </Modal>
-
-      <Modal
-        open={customizeOpen}
-        onClose={() => setCustomizeOpen(false)}
-        title={t("pages.index.dashboardCustomize")}
-        width={480}
-      >
-        <p className="mb-4 text-sm leading-relaxed text-[var(--fg-muted)]">
-          {t("pages.index.dashboardCustomizeDesc")}
-        </p>
-        <ul className="list-none space-y-3">
-          {DASHBOARD_WIDGET_ORDER.map((id) => (
-            <li key={id}>
-              <CheckboxField
-                id={`dash-widget-${id}`}
-                label={t(DASHBOARD_WIDGET_I18N[id])}
-                checked={enabledWidgets.includes(id)}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    setEnabledWidgets((prev) => {
-                      const next = new Set([...prev, id]);
-                      return DASHBOARD_WIDGET_ORDER.filter((w) => next.has(w));
-                    });
-                  } else {
-                    setEnabledWidgets((prev) => toggleDashboardWidget(id, new Set(prev)));
-                  }
-                }}
-              />
-            </li>
-          ))}
-        </ul>
-        <div className="mt-5 border-t border-[var(--border)] pt-4">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {setEnabledWidgets([...DASHBOARD_WIDGET_ORDER]);setLayout(defaultLayout());}}
-          >
-            {t("pages.index.dashboardResetLayout")}
-          </Button>
-        </div>
       </Modal>
 
       <ConfirmDialog

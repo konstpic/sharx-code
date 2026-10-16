@@ -82,16 +82,18 @@ describe("existing metrics stay stable", () => {
 });
 
 describe("entity templates", () => {
-  it("builds per-node cards referencing stable ids and respects the 24 panel cap", () => {
+  const tiles = (tpl: ReturnType<typeof entityTemplate>) => tpl.rows.flatMap((r) => r.tiles);
+  it("builds one row of six atomic tiles per node, titled \"name · metric\", capped by the tile limit", () => {
     const nodes = Array.from({length: 40}, (_, i) => ({id: i + 1, name: "n" + i}));
     const tpl = entityTemplate("nodes", t, {nodes});
-    expect(tpl.panels.length).toBe(24);
-    expect(tpl.panels.every((p) => /^custom-[a-zA-Z0-9-]+$/.test(p.id) && p.metrics.length <= 8)).toBe(true);
-    expect(tpl.panels.find((p) => p.id === "custom-nodes-1")?.metrics).toContain("node:1:cpu");
-    expect(Object.keys(tpl.tiles).length).toBe(24);
+    expect(tiles(tpl).length).toBeLessThanOrEqual(120);
+    const first = tpl.rows.find((r) => r.tiles[0].metrics[0] === "node:1:status")!;
+    expect(first.tiles.map((x) => x.metrics[0])).toEqual(["node:1:status", "node:1:cpu", "node:1:mem", "node:1:disk", "node:1:clients.online", "node:1:latency"]);
+    expect(first.tiles[1].title).toBe("n0 · pages.builder.metric.cpu");
+    expect(tpl.rows.every((r) => r.tiles.reduce((n, x) => n + x.w, 0) === 12)).toBe(true);
   });
   it("falls back to aggregates without a node list", () => {
     const tpl = entityTemplate("balancers", t);
-    expect(tpl.panels.map((p) => p.metrics[0])).toContain("balancers.connections");
+    expect(tiles(tpl).map((p) => p.metrics[0])).toContain("balancers.connections");
   });
 });

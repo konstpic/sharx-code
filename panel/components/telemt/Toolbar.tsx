@@ -140,7 +140,7 @@ export function Controls(p: ControlsProps) {
 
 export function FilterBar({ td, filter, setFilter, sort, setSort, groupBy, setGroupBy, sources }: { td: Td; filter: Filter; setFilter: (f: Filter) => void; sort: SortMode; setSort: (s: SortMode) => void; groupBy: GroupBy; setGroupBy: (g: GroupBy) => void; sources: Source[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap [&>*]:shrink-0">
       <label className="relative">
         <Search aria-hidden className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--fg-subtle)]" />
         <input

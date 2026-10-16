@@ -153,9 +153,9 @@ export function ChipsView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
 
 /* ------------------------------------------------------------------ large: table */
 
-export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
+export function TableView({ groups, ctx, inlineDetail = true }: { groups: Group[]; ctx: ViewCtx; inlineDetail?: boolean }) {
   const { td } = ctx;
-  const th = "px-2 py-1.5 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--fg-subtle)]";
+  const th = "sticky top-0 z-[1] bg-[var(--bg-elevated)] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--fg-subtle)]";
   return (
     <div className="space-y-3">
       {groups.map((g) => (
@@ -181,7 +181,7 @@ export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-xs">
+              <table className="w-full min-w-[760px] border-collapse text-xs">
                 <thead>
                   <tr>
                     <th className={th}>{g.inst ? "DC" : td("instance", "Instance")}</th>
@@ -189,6 +189,7 @@ export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
                     <th className={th}>RTT</th>
                     <th className={th}>{td("endpoints", "Endpoints")}</th>
                     <th className={th}>{td("writers", "ME writers")}</th>
+                    <th className={th}>{td("coverage", "Coverage")}</th>
                     <th className={th}>{td("load", "Sessions")}</th>
                     <th className={th}>{td("ipPref", "IP family")}</th>
                     <th className={th}>{td("source.label", "Source")}</th>
@@ -202,8 +203,8 @@ export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
                     const flashing = ctx.flash.has(fr.key);
                     return (
                       <Fragment key={fr.key}>
-                        <tr className={`border-t border-[var(--border)]/40 hover:bg-[var(--bg-elevated)]/60 ${flashing ? flashCls : ""}`}>
-                          <td className="px-2 py-1.5">
+                        <tr className={`border-t border-[var(--border)]/40 hover:bg-[var(--bg-elevated)]/60 ${open && !inlineDetail ? "bg-[var(--bg-elevated)]/70" : ""} ${flashing ? flashCls : ""}`}>
+                          <td className="px-2 py-1">
                             <button
                               type="button"
                               onClick={() => ctx.onSelect(open ? null : fr.key)}
@@ -212,27 +213,28 @@ export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
                               title={dcKindText(td, r.dc).tip}
                             >
                               {g.inst ? dcLabel(r.dc) : fr.inst.remark}
+                              {g.inst ? <span className="ml-1.5 text-[10px] font-normal text-[var(--fg-subtle)]">{dcKindText(td, r.dc).label}</span> : null}
                             </button>
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="px-2 py-1">
                             <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${stateBox[r.state]}`}>
                               <StateIcon state={r.state} className="h-3 w-3" />
                               {stateText(td, r.state)}
                             </span>
                             {since ? <span className="ml-1.5 text-[10px] text-[var(--fg-subtle)]">{formatAge((ctx.now - since) / 1000)}</span> : null}
                           </td>
-                          <td className="px-2 py-1.5">
+                          <td className="px-2 py-1">
                             <div className="flex items-center gap-2">
                               <span className="w-14 font-mono">{typeof r.rttMs === "number" ? `${Math.round(r.rttMs)} ms` : "-"}</span>
-                              <Sparkline values={rttSeries(ctx.history[fr.key])} state={r.state} width={72} height={18} />
+                              <Sparkline values={rttSeries(ctx.history[fr.key])} state={r.state} width={72} height={16} />
                             </div>
                           </td>
-                          <td className="px-2 py-1.5 font-mono">{r.endpoints > 0 ? `${r.availableEndpoints}/${r.endpoints}` : "-"}</td>
+                          <td className="px-2 py-1 font-mono">{r.endpoints > 0 ? `${r.availableEndpoints}/${r.endpoints}` : "-"}</td>
                           <td className="min-w-[96px] px-2 py-1.5">
                             {r.requiredWriters > 0 ? (
                               <div>
                                 <span className="font-mono">
-                                  {r.aliveWriters}/{r.requiredWriters} · {Math.round(r.coveragePct)}%
+                                  {r.aliveWriters}/{r.requiredWriters}
                                 </span>
                                 <Bar value={r.aliveWriters} max={r.requiredWriters} state={r.state} label={td("writers", "ME writers")} />
                               </div>
@@ -240,13 +242,14 @@ export function TableView({ groups, ctx }: { groups: Group[]; ctx: ViewCtx }) {
                               "-"
                             )}
                           </td>
-                          <td className="px-2 py-1.5 font-mono">{r.load}</td>
-                          <td className="px-2 py-1.5">{r.ipPreference && r.ipPreference !== "unknown" ? ipText(td, r.ipPreference) : "-"}</td>
-                          <td className="px-2 py-1.5">{r.source === "me" ? "ME" : r.source === "upstream" ? td("source.upstreamShort", "upstream") : "-"}</td>
+                          <td className="px-2 py-1 font-mono">{r.requiredWriters > 0 ? `${Math.round(r.coveragePct)}%` : "-"}</td>
+                          <td className="px-2 py-1 font-mono">{r.load}</td>
+                          <td className="px-2 py-1">{r.ipPreference && r.ipPreference !== "unknown" ? ipText(td, r.ipPreference) : "-"}</td>
+                          <td className="px-2 py-1">{r.source === "me" ? "ME" : r.source === "upstream" ? td("source.upstreamShort", "upstream") : "-"}</td>
                         </tr>
-                        {open ? (
+                        {open && inlineDetail ? (
                           <tr>
-                            <td colSpan={8} className="px-2 pb-2">
+                            <td colSpan={9} className="px-2 pb-2">
                               <DcDetail row={r} inst={fr.inst} samples={ctx.history[fr.key]} since={since} now={ctx.now} td={td} />
                             </td>
                           </tr>

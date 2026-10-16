@@ -246,3 +246,13 @@ Sub ID is unique per client and shown in the edit form.
 
 - [Routing](./10-routing.md)
 - [HWID and limits](./11-hwid-and-limits.md)
+
+## Browser tab title and favicon
+
+The public page (`/panel/sub/?id=...`) can have its own browser-tab title and icon. Set them in **Settings > Subscription > Branding > Browser tab** or in the visual designer (**Styles > Browser tab**); both edit the same `branding` fields of the page config:
+
+- `pageTitle` - tab title; placeholders `{title}` (page title), `{username}`, `{status}`. Empty = the page title.
+- `pageTitleByLocale` - optional per-language title (`ru`, `ru-RU`).
+- `faviconUrl`, `faviconDark` (dark browser theme), `appleTouchIconUrl` - an http(s) URL, a path starting with `/`, or an uploaded image stored as a `data:image/...` URL (PNG, SVG, ICO, WebP, JPG, up to 100 KB; 32x32 or 64x64 PNG/SVG recommended).
+
+Applied in the browser when the page loads; empty fields keep the defaults. The admin panel's own tab is never changed. Other URL schemes (e.g. `javascript:`) are rejected on save.

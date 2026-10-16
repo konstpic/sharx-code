@@ -601,13 +601,42 @@ export function reasonInfo(reason: string | undefined): ReasonInfo {
 /* ------------------------------------------------------------------ view mode */
 
 export type ViewMode = "compact" | "medium" | "large";
+export type TelemtMode = ViewMode | "wide";
 
+/** @deprecated kept for old callers; the card uses pickTelemtMode (tile box, with hysteresis). */
 export function viewModeFor(width: number, height: number): ViewMode {
-  // Height only forces "compact" for very short tiles: a content-sized (auto height) container
-  // would otherwise lock itself into a smaller mode after the first re-render.
   if (width < 360 || (height > 0 && height < 130)) return "compact";
   if (width < 760) return "medium";
   return "large";
+}
+
+/** Tile-box thresholds (px). A mode is entered at the value and kept until value - TELEMT_HYST. */
+export const TELEMT_MODE_MIN = {
+  medium: { w: 420, h: 230 },
+  large: { w: 760, h: 420 },
+  wide: { w: 1101, h: 420 },
+} as const;
+export const TELEMT_HYST = 24;
+const MODE_ORDER: TelemtMode[] = ["compact", "medium", "large", "wide"];
+
+/**
+ * Layout mode from the TILE BODY box (never from the card's own size, which would feed back).
+ * compact: w<420 or h<230 | medium: grid of chips | large: table + details | wide: w>1100, two columns.
+ * `prev` enables hysteresis so the card does not flap when the tile sits on a threshold.
+ * An unmeasured box (0) keeps `prev` or falls back to "medium".
+ */
+export function pickTelemtMode(width: number, height: number, prev?: TelemtMode): TelemtMode {
+  if (!(width > 0) || !(height > 0)) return prev ?? "medium";
+  const p = prev ? MODE_ORDER.indexOf(prev) : -1;
+  const ok = (lvl: 1 | 2 | 3) => {
+    const t = TELEMT_MODE_MIN[(["medium", "large", "wide"] as const)[lvl - 1]];
+    const m = p >= lvl ? TELEMT_HYST : 0;
+    return width >= t.w - m && height >= t.h - m;
+  };
+  if (!ok(1)) return "compact";
+  if (!ok(2)) return "medium";
+  if (!ok(3)) return "large";
+  return "wide";
 }
 
 /* ------------------------------------------------------------------ settings */

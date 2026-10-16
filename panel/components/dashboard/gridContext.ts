@@ -27,6 +27,8 @@ export type GridCtx = {
   resetSize: (id: string) => void;
   duplicate: (id: string) => void;
   canDuplicate: (id: string) => boolean;
+  /** Save the tile to "Mine" in the catalog (absent when the host does not support it). */
+  saveTile?: (id: string) => void;
 };
 
 export const GridContext = createContext<GridCtx | null>(null);

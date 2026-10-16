@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -202,6 +204,12 @@ type SharxSubpageConfigV2 struct {
 		BorderColor        string `json:"borderColor,omitempty"`
 		SuccessColor       string `json:"successColor,omitempty"`
 		DangerColor        string `json:"dangerColor,omitempty"`
+		// Browser tab of the public page (title with {title}/{username}/{status}, icons).
+		PageTitle         string            `json:"pageTitle,omitempty"`
+		PageTitleByLocale map[string]string `json:"pageTitleByLocale,omitempty"`
+		FaviconURL        string            `json:"faviconUrl,omitempty"`
+		FaviconDark       string            `json:"faviconDark,omitempty"`
+		AppleTouchIconURL string            `json:"appleTouchIconUrl,omitempty"`
 	} `json:"branding"`
 	Theme string `json:"theme"`
 	// ColorPreset matches panel theme ids (default, midnight, ember, boreal, web). Empty means web.
@@ -291,6 +299,15 @@ func validateV2(raw string) error {
 	}
 	if strings.TrimSpace(cfg.Branding.Title) == "" {
 		return errors.New("branding.title is required")
+	}
+	for name, v := range map[string]string{
+		"branding.faviconUrl":        cfg.Branding.FaviconURL,
+		"branding.faviconDark":       cfg.Branding.FaviconDark,
+		"branding.appleTouchIconUrl": cfg.Branding.AppleTouchIconURL,
+	} {
+		if !isSafeIconURL(v) {
+			return errors.New(name + " must be an http(s) URL, a path starting with / or an image data URL")
+		}
 	}
 	seenIDs := map[string]bool{}
 	for i, rawBlock := range cfg.Blocks {
@@ -441,4 +458,30 @@ func validateResponseHeaderDelivery(path, delivery string) error {
 		return nil
 	}
 	return errors.New(path + " is invalid: " + delivery)
+}
+
+var iconDataURLRe = regexp.MustCompile(`(?i)^data:image/(png|svg\+xml|x-icon|vnd\.microsoft\.icon|webp|jpeg);(base64,[A-Za-z0-9+/]*={0,2}|utf8,\S*|charset=utf-8,\S*)$`)
+
+// isSafeIconURL mirrors panel/lib/publicPageMeta.ts sanitizeFaviconUrl; empty is allowed (default icon).
+func isSafeIconURL(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return true
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(v), "data:") {
+		return iconDataURLRe.MatchString(v)
+	}
+	if strings.HasPrefix(v, "/") {
+		return !strings.HasPrefix(v, "//") && !strings.ContainsAny(v, "\\ \t")
+	}
+	if strings.ContainsAny(v, " \t") {
+		return false
+	}
+	u, err := url.Parse(v)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }

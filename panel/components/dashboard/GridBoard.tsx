@@ -16,6 +16,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { layoutConstraints, type DashboardLayout } from "@/lib/dashboardBuilder";
+import { atomDef } from "@/lib/dashboardLayout";
+import { MAX_PANELS } from "@/lib/dashboardModel";
 import {
   GRID_COLS,
   GRID_GAP,
@@ -43,7 +45,8 @@ const EDGE_ZONE = 72;
 const MAX_SCROLL_STEP = 24;
 
 /** Size a tile gets on "Reset size" / when first added, by what it shows. */
-function resetSizeFor(id: string, view: string | undefined, panelKind: string | undefined): { w: number; h: number } {
+function resetSizeFor(id: string, view: string | undefined, panelKind: string | undefined, preset?: string): { w: number; h: number } {
+  if (preset && atomDef(preset)) return defaultGridSize(preset);
   if (!id.startsWith("custom-")) return defaultGridSize(id);
   switch (tileKind(id, view, panelKind)) {
     case "stat":
@@ -98,12 +101,14 @@ export function DashboardBuilder({
   setLayout,
   editing,
   hide,
+  onSaveTile,
   children,
 }: {
   layout: DashboardLayout;
   setLayout: Dispatch<SetStateAction<DashboardLayout>>;
   editing: boolean;
   hide: (id: string) => void;
+  onSaveTile?: (id: string) => void;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -140,12 +145,15 @@ export function DashboardBuilder({
   }, [layout]);
 
   const resetOf = useCallback(
-    (id: string) => resetSizeFor(id, layout.tiles[id]?.view, layout.panels.find((p) => p.id === id)?.kind),
+    (id: string) => {
+      const p = layout.panels.find((x) => x.id === id);
+      return resetSizeFor(id, layout.tiles[id]?.view, p?.kind, p?.widget ?? p?.preset);
+    },
     [layout.tiles, layout.panels],
   );
   // A tile without a stored position takes the size from its legacy settings (the composer's initial size).
   const defaultSize = useCallback(
-    (id: string) => (layout.tiles[id] ? legacyToGrid({ order: [id], tiles: layout.tiles }, [id])[0] : resetOf(id)),
+    (id: string) => (id.startsWith("custom-") && layout.tiles[id] ? legacyToGrid({ order: [id], tiles: layout.tiles }, [id])[0] : resetOf(id)),
     [layout.tiles, resetOf],
   );
 
@@ -158,12 +166,46 @@ export function DashboardBuilder({
   }, [width, cols]);
 
   const desktop = useMemo(
-    () => reconcile(layout.grid, keys, { defaultSize, constraints: constraintsOf, top: (id) => id.startsWith("custom-") }),
+    () => reconcile(layout.grid, keys, { defaultSize, constraints: constraintsOf }),
     [layout.grid, keys, defaultSize, constraintsOf],
   );
-  const base = useMemo(() => (bp === "lg" ? desktop : deriveLayout(desktop, bp, constraintsOf)), [desktop, bp, constraintsOf]);
+  const capHeight = useCallback(
+    (id: string) => {
+      const p = layout.panels.find((x) => x.id === id);
+      const k = tileKind(id, layout.tiles[id]?.view, p?.kind, p?.widget);
+      return k === "stat" || k === "viz" || k === "action";
+    },
+    [layout.panels, layout.tiles],
+  );
+  /** Tall tiles stay compact on the phone: Telemt DC at most 6 rows, user agents 8. */
+  const maxRows = useCallback(
+    (id: string) => {
+      const w = layout.panels.find((x) => x.id === id)?.widget ?? id;
+      return w === "telemt_dc" ? 6 : w === "user_agent" ? 8 : undefined;
+    },
+    [layout.panels],
+  );
+  const base = useMemo(() => (bp === "lg" ? desktop : deriveLayout(desktop, bp, constraintsOf, { boardWidth: width, capHeight, maxRows })), [desktop, bp, constraintsOf, width, capHeight, maxRows]);
   const shown = preview ?? base;
   const items = useMemo(() => new Map(shown.map((i) => [i.id, i])), [shown]);
+
+  // The layout actually shown is always normalised (clamp, no overlaps, vertically compact). Write it back
+  // once after a load / board switch / widget toggle so the saved JSON matches what the user sees.
+  useEffect(() => {
+    if (width <= 0 || interaction.current || keys.length === 0) return;
+    const stored = new Map((layout.grid ?? []).map((i) => [i.id, i]));
+    const differs = desktop.some((d) => {
+      const s = stored.get(d.id);
+      return !s || s.x !== d.x || s.y !== d.y || s.w !== d.w || s.h !== d.h;
+    });
+    if (differs || layout.gridVersion !== GRID_VERSION) {
+      setLayout((l) => {
+        const visible = new Set(desktop.map((d) => d.id));
+        const hidden = (l.grid ?? []).filter((g) => !visible.has(g.id));
+        return { ...l, gridVersion: GRID_VERSION, grid: [...desktop.map(({ id, x, y, w, h }) => ({ id, x, y, w, h })), ...hidden] };
+      });
+    }
+  }, [desktop, width, keys, layout.grid, layout.gridVersion, setLayout]);
 
   // Latest values for window-level listeners.
   const live = useRef({ geo, base, constraintsOf, canEdit });
@@ -429,14 +471,14 @@ export function DashboardBuilder({
     [resetOf, setSize],
   );
 
-  const canDuplicate = useCallback((id: string) => id.startsWith("custom-") && layout.panels.length < 24 && layout.panels.some((p) => p.id === id), [layout.panels]);
+  const canDuplicate = useCallback((id: string) => layout.panels.length < MAX_PANELS && layout.panels.some((p) => p.id === id), [layout.panels]);
 
   const duplicate = useCallback(
     (id: string) => {
       const { base: current } = live.current;
       const src = layout.panels.find((p) => p.id === id);
       const cur = current.find((i) => i.id === id);
-      if (!src || !cur || layout.panels.length >= 24) return;
+      if (!src || !cur || layout.panels.length >= MAX_PANELS) return;
       const newId = `custom-${crypto.randomUUID().slice(0, 8)}`;
       const slot = firstFit(current, cur.w, cur.h);
       const copy = structuredClone(src);
@@ -474,8 +516,9 @@ export function DashboardBuilder({
       resetSize,
       duplicate,
       canDuplicate,
+      saveTile: onSaveTile,
     }),
-    [layout, setLayout, canEdit, bp, geo, items, active, keys, hide, constraintsOf, startDrag, startResize, onKeyboard, setSize, resetSize, duplicate, canDuplicate],
+    [layout, setLayout, canEdit, bp, geo, items, active, keys, hide, constraintsOf, startDrag, startResize, onKeyboard, setSize, resetSize, duplicate, canDuplicate, onSaveTile],
   );
 
   const rows = bottomOf(shown) + (active ? 4 : 0);

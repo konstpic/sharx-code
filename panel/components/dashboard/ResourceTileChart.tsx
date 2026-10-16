@@ -2,6 +2,7 @@
 import { useId } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChartLegend, ChartTooltip } from "@/components/dashboard/viz";
+import { useTileBox } from "@/components/dashboard/useTileBox";
 
 const PALETTE = ["#22c55e", "#f59e0b", "#38bdf8", "#a78bfa", "#f472b6"];
 
@@ -19,6 +20,9 @@ export function ResourceTileChart({
   }[];
 }) {
   const uid = useId().replace(/:/g, "");
+  const { width, height } = useTileBox();
+  // Small tiles: no time axis / legend, narrower value axis (nothing may be squeezed or clipped).
+  const small = (height > 0 && height < 190) || (width > 0 && width < 260);
   const points = new Map<number, Record<string, number>>();
   for (const s of series)
     for (const p of s.points) {
@@ -45,21 +49,26 @@ export function ResourceTileChart({
         ))}
       </defs>
       <CartesianGrid vertical={false} stroke="color-mix(in oklab, var(--fg) 9%, transparent)" strokeDasharray="2 6" />
-      <XAxis
-        dataKey="t"
-        type="number"
-        domain={["dataMin", "dataMax"]}
-        tickFormatter={(n) => new Date(n).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-        minTickGap={48}
-        {...axis}
-      />
-      <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(n) => `${n}%`} width={38} {...axis} />
+      {small ? (
+        <XAxis dataKey="t" type="number" domain={["dataMin", "dataMax"]} hide />
+      ) : (
+        <XAxis
+          dataKey="t"
+          type="number"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={(n) => new Date(n).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+          minTickGap={48}
+          {...axis}
+        />
+      )}
+      <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(n) => `${n}%`} width={small ? 32 : 38} {...axis} />
       <Tooltip cursor={{ stroke: "color-mix(in oklab, var(--fg) 25%, transparent)", strokeDasharray: "3 4" }} content={<ChartTooltip format={(v: number) => `${Number(v).toFixed(1)}%`} />} />
     </>
   );
   return (
-    <div className="flex min-h-[140px] min-w-0 flex-1 flex-col" role="img" aria-label="Resource history">
-      <div className="min-h-0 flex-1">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" role="img" aria-label="Resource history">
+      <div className="relative min-h-0 flex-1">
+        <div className="absolute inset-0">
         <ResponsiveContainer width="100%" height="100%">
           {kind === "bar" ? (
             <BarChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
@@ -89,8 +98,9 @@ export function ResourceTileChart({
             </AreaChart>
           )}
         </ResponsiveContainer>
+        </div>
       </div>
-      <ChartLegend items={series.map((s, i) => ({ name: s.name, color: colorOf(s, i) }))} />
+      {small ? null : <ChartLegend items={series.map((s, i) => ({ name: s.name, color: colorOf(s, i) }))} />}
     </div>
   );
 }

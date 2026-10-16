@@ -2002,8 +2002,11 @@ section[id] {
   .dashboard-tile[data-grid="true"], .dashboard-ghost { transition: none; }
 }
 /* Tile content reflows with the tile, not with the viewport. */
-.dashboard-tile-body { container-type: inline-size; container-name: tile; overflow-x: hidden; overflow-y: auto; min-width: 0; }
-.dashboard-tile-body > * { min-width: 0; max-width: 100%; }
+/* Tile body contract: a flex column with a DEFINITE width and height (container-type: size), its single child
+   fills it. Atoms (data-atom) scale themselves and never clip; any other content scrolls inside the tile. */
+.dashboard-tile-body { container-type: size; container-name: tile; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.dashboard-tile-body > * { flex: 1 1 0; min-width: 0; min-height: 0; max-width: 100%; }
+.dashboard-tile-body > *:not([data-atom]) { overflow: auto; }
 .dashboard-tile-bar { container-type: inline-size; container-name: tilebar; }
 .dash-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dash-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }

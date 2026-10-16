@@ -7,13 +7,15 @@ import {
   collides,
   compact,
   constraintsForKind,
-  defaultBuiltinGrid,
+  isLegacyDefaultGrid,
+  LEGACY_V1_ORDER,
   defaultGrid,
   deriveLayout,
   effectiveConstraints,
   fitItem,
   firstFit,
   hasOverlap,
+  emptyCellCount,
   legacyHeightToRows,
   legacyToGrid,
   moveItem,
@@ -30,7 +32,6 @@ import {
   type GridConstraints,
   type GridItem,
 } from "./dashboardGrid";
-import { DASHBOARD_WIDGET_ORDER } from "./dashboardLayout";
 
 const it0 = (id: string, x: number, y: number, w: number, h: number): GridItem => ({ id, x, y, w, h });
 const byId = (items: GridItem[], id: string) => items.find((i) => i.id === id)!;
@@ -267,13 +268,24 @@ describe("breakpoints", () => {
     expect(breakpointForWidth(900)).toBe("lg");
   });
 
-  it("phone: one column of full-width tiles ordered by y then x", () => {
+  it("phone: narrow tiles (<= 4 of 12) two per row, the rest full width, no holes, reading order kept", () => {
     const out = deriveLayout(desk, "sm");
-    expect(out.every((i) => i.x === 0 && i.w === 12)).toBe(true);
+    expect(out.every((i) => (i.w === 6 && (i.x === 0 || i.x === 6)) || (i.w === 12 && i.x === 0))).toBe(true);
     expect(hasOverlap(out)).toBe(false);
-    const order = [...out].sort((p, q) => p.y - q.y).map((i) => i.id);
+    expect(emptyCellCount(out)).toBe(0);
+    const order = [...out].sort((p, q) => p.y - q.y || p.x - q.x).map((i) => i.id);
     expect(order).toEqual(["a", "b", "c", "d", "e"]);
     expect(deriveLayout(desk, "sm")).toEqual(out);
+  });
+
+  it("phone: stat-like tiles are not taller than 0.6 x their width", () => {
+    const tall = [it0("s", 0, 0, 3, 12), it0("w", 3, 0, 9, 12)];
+    const out = deriveLayout(tall, "sm", undefined, { boardWidth: 360, capHeight: (id) => id === "s" });
+    const s = out.find((i) => i.id === "s")!;
+    const colW = (360 - 12 * 11) / 12;
+    const px = s.w * colW + (s.w - 1) * 12;
+    expect(s.h * 30 + (s.h - 1) * 12).toBeLessThanOrEqual(Math.max(px * 0.6 + 42, 3 * 30 + 2 * 12));
+    expect(out.find((i) => i.id === "w")!.h).toBe(12);
   });
 
   it("tablet: 6 columns, no overlap, in bounds, stable", () => {
@@ -296,7 +308,7 @@ describe("breakpoints", () => {
       expect(validateGrid(deriveLayout(lay, "md"), 6)).toBe(true);
       const sm = deriveLayout(lay, "sm");
       expect(hasOverlap(sm)).toBe(false);
-      expect(sm.every((x) => x.w === 12 && x.x === 0)).toBe(true);
+      expect(sm.every((x) => (x.w === 6 && (x.x === 0 || x.x === 6)) || (x.w === 12 && x.x === 0))).toBe(true);
     }
   });
 });
@@ -305,17 +317,17 @@ describe("serialize / parse / validate", () => {
   it("round-trips through JSON with an explicit gridVersion", () => {
     const g = [it0("a", 0, 0, 6, 4), it0("b", 6, 0, 6, 4)];
     const s = serializeGrid(g);
-    expect(s.gridVersion).toBe(1);
+    expect(s.gridVersion).toBe(4);
     expect(parseGridState(JSON.parse(JSON.stringify(s)))).toEqual(g);
   });
 
   it("rejects a missing or foreign gridVersion", () => {
     expect(parseGridState({ grid: [it0("a", 0, 0, 2, 2)] })).toBeNull();
-    expect(parseGridState({ gridVersion: 2, grid: [it0("a", 0, 0, 2, 2)] })).toBeNull();
+    expect(parseGridState({ gridVersion: 1, grid: [it0("a", 0, 0, 2, 2)] })).toBeNull();
   });
 
   it("survives corrupt input without throwing", () => {
-    const bad: unknown[] = [null, undefined, 5, "x", {}, [], [null, 1, "a", [], {}], [{ id: 1 }], [{ id: "a", x: "1", y: 0, w: 2, h: 2 }], [{ id: "a", x: 0, y: 0, w: 0, h: 2 }], [{ id: "a", x: NaN, y: 0, w: 2, h: 2 }], { gridVersion: 1, grid: "nope" }, { gridVersion: 1, grid: [{}] }];
+    const bad: unknown[] = [null, undefined, 5, "x", {}, [], [null, 1, "a", [], {}], [{ id: 1 }], [{ id: "a", x: "1", y: 0, w: 2, h: 2 }], [{ id: "a", x: 0, y: 0, w: 0, h: 2 }], [{ id: "a", x: NaN, y: 0, w: 2, h: 2 }], { gridVersion: 4, grid: "nope" }, { gridVersion: 4, grid: [{}] }];
     for (const raw of bad) {
       expect(() => parseGrid(raw)).not.toThrow();
       expect(parseGrid(raw)).toBeNull();
@@ -353,7 +365,7 @@ describe("serialize / parse / validate", () => {
 });
 
 describe("legacy conversion", () => {
-  const ids = [...DASHBOARD_WIDGET_ORDER];
+  const ids = [...LEGACY_V1_ORDER];
 
   it("heights convert by pixel height", () => {
     expect(legacyHeightToRows(3)).toBe(4);
@@ -369,7 +381,7 @@ describe("legacy conversion", () => {
     expect(row.map((i) => i.x)).toEqual([0, 4, 8]);
     expect(new Set(row.map((i) => i.y)).size).toBe(1);
     expect(validateGrid(g)).toBe(true);
-    expect(g).toEqual(defaultBuiltinGrid());
+    expect(isLegacyDefaultGrid(g)).toBe(true);
   });
 
   it("keeps the old order and the old widths of customised tiles", () => {
@@ -423,14 +435,17 @@ describe("legacy conversion", () => {
 
 describe("tile kinds", () => {
   it("assigns the documented minimum sizes", () => {
-    expect(constraintsForKind(tileKind("custom-1", "stat", "metric"))).toMatchObject({ minW: 2, minH: 2 });
+    expect(constraintsForKind(tileKind("custom-1", "stat", "metric"))).toMatchObject({ minW: 2, minH: 3 });
     expect(constraintsForKind(tileKind("custom-1", "area", "metric"))).toMatchObject({ minW: 4, minH: 4 });
-    expect(constraintsForKind(tileKind("custom-1", "table", "metric"))).toMatchObject({ minW: 4, minH: 3 });
+    expect(constraintsForKind(tileKind("custom-1", "table", "metric"))).toMatchObject({ minW: 4, minH: 4 });
     expect(tileKind("custom-1", "default", "html")).toBe("content");
     expect(tileKind("cpu_history")).toBe("chart");
     expect(tileKind("cpu_history", "stat")).toBe("stat");
-    expect(tileKind("resources")).toBe("resources");
-    expect(tileKind("logs")).toBe("widget");
+    expect(tileKind("cpu_gauge")).toBe("viz");
+    expect(tileKind("net_up")).toBe("stat");
+    expect(tileKind("user_agent")).toBe("table");
+    expect(tileKind("logs")).toBe("action");
+    expect(tileKind("resources")).toBe("widget");
   });
 });
 

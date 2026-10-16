@@ -626,3 +626,7 @@
 | Shift+клик | Добавить в выделение |
 | Двойной клик по тексту | Правка на месте |
 | Esc | Снять выделение; повторно — закрыть дизайнер |
+
+## Browser tab (title and favicon)
+
+The **Styles** tab has a **Browser tab** section (the same component as in Settings > Subscription > Branding). It edits `config.branding.pageTitle`, `pageTitleByLocale`, `faviconUrl`, `faviconDark`, `appleTouchIconUrl`. The designer preview never changes the real document head; only the public page (`app/panel/sub/page.tsx`, `usePublicPageMeta` with `applyToDocument`) applies them. Uploads are limited to 100 KB and stored as data URLs; the editor warns when icons push the config over 150 KB.

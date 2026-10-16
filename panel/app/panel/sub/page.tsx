@@ -1,8 +1,9 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { usePublicPageMeta } from "@/components/sub/usePublicPageMeta";
 import { SubPageShell } from "@/components/sub/SubPageShell";
 import {
   SubPageCenterMessage,
@@ -47,7 +48,7 @@ function extractShellProps(data: PublicSubPayload | null): {
 }
 
 function PublicSubPageInner() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const searchParams = useSearchParams();
   const sp = searchParams.get("id")?.trim() ?? "";
   const [loading, setLoading] = useState(true);
@@ -107,6 +108,16 @@ function PublicSubPageInner() {
   useEffect(() => {
     void load(sp);
   }, [load, sp]);
+
+  // Browser-tab title / favicon from the page config (defaults while loading / on errors).
+  const metaBranding = useMemo(() => extractShellProps(data).branding, [data]);
+  usePublicPageMeta(metaBranding, {
+    lang: i18n.language,
+    username: data?.user?.username,
+    status: data?.user?.userStatus,
+    fallbackTitle: t("pages.publicSub.title", { defaultValue: "Subscription" }),
+    applyToDocument: true,
+  });
 
   if (loading) {
     return (

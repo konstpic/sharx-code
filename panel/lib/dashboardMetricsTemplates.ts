@@ -1,31 +1,56 @@
-// Ready-made "Nodes overview" / "Balancers overview" boards. Per-entity cards need the live node/balancer list, so the
-// caller passes it in; without it the board falls back to the aggregate tiles only.
-import type {CustomPanel, TileSettings} from "./dashboardBuilder";
+// Ready-made "Nodes overview" / "Balancers overview" boards. They are made of ordinary atomic tiles: a row of aggregates on
+// top, then for every node (balancer) ONE row of six tiles ("ES-1 · CPU"), each row exactly 12 columns wide, so the board
+// has no holes for any number of entities. Per-entity tiles need the live node / balancer list, so the caller passes it in.
+import {BALANCER_DEFS, NODE_DEFS} from "./dashboardMetricsNodes";
 
 export type TemplateEntity = {id: number; name: string};
 export type EntityTemplateContext = {nodes?: TemplateEntity[]; balancers?: TemplateEntity[]};
-export type EntityTemplate = {name: string; panels: CustomPanel[]; tiles: Record<string, TileSettings>};
+/** One tile of a template row; `w` columns wide, the row defines the height. */
+export type TemplateTile = {metrics: string[]; view: string; title: string; w: number; color: string; min?: number; max?: number};
+export type TemplateRow = {h: number; tiles: TemplateTile[]};
+export type EntityTemplate = {name: string; rows: TemplateRow[]};
 
-const COLORS = ["#38bdf8", "#a78bfa", "#22c55e", "#f59e0b"];
-const MAX_PANELS = 24; // parseLayout keeps at most 24 panels
-const panel = (id: string, title: string, metrics: string[]): CustomPanel => ({id, title, kind: "metric", metrics, code: "", url: "", text: ""});
+const COLORS = ["#38bdf8", "#a78bfa", "#22c55e", "#f59e0b", "#f472b6", "#14b8a6"];
+/** Most tiles one board can hold (see MAX_PANELS in dashboardModel). */
+const MAX_TILES = 120;
 
+const NODE_ROW = [["status", "status"], ["cpu", "gauge"], ["mem", "gauge"], ["disk", "gauge"], ["clients.online", "stat"], ["latency", "spark"]] as const;
+const BALANCER_ROW = [["status", "status"], ["connections", "spark"], ["healthy", "gauge"], ["rate.in", "spark"], ["rate.out", "spark"], ["errors", "stat"]] as const;
+const NODE_SUMMARY = [
+  ["nodes.online", "stat"], ["nodes.availability", "gauge"], ["nodes.cpu.avg", "gauge"], ["nodes.cpu.max", "gauge"],
+  ["nodes.mem.avg", "gauge"], ["nodes.rate.up", "spark"], ["nodes.rate.down", "spark"], ["nodes.clients.online", "stat"],
+] as const;
+const BALANCER_SUMMARY = [
+  ["balancers.online", "stat"], ["balancers.healthy", "gauge"], ["balancers.connections", "spark"], ["balancers.pools.unhealthy", "stat"],
+  ["balancers.rate.in", "spark"], ["balancers.rate.out", "spark"],
+] as const;
+
+const percentLike = (id: string) => id.includes("percent") || id.endsWith("cpu.avg") || id.endsWith("cpu.max") || id.endsWith("mem.avg") || id.endsWith("availability") || id.endsWith(".healthy") || /:(cpu|mem|disk|healthy)$/.test(id);
+
+function row(h: number, specs: readonly (readonly [string, string])[], titleOf: (key: string) => string, i0 = 0): TemplateRow {
+  const w = 12 / specs.length;
+  return {h, tiles: specs.map(([m, view], i) => ({metrics: [m], view, title: titleOf(m), w, color: COLORS[(i0 + i) % COLORS.length], ...(percentLike(m) ? {min: 0, max: 100} : {})}))};
+}
+
+/** Summary rows (4 tiles each for nodes, one row of six for balancers) followed by one row per entity. */
 export function entityTemplate(kind: "nodes" | "balancers", t: (key: string) => string, ctx: EntityTemplateContext = {}): EntityTemplate {
   const isNodes = kind === "nodes";
-  const summary = isNodes
-    ? ["nodes.online", "nodes.availability", "nodes.cpu.avg", "nodes.cpu.max", "nodes.mem.avg", "nodes.rate.up", "nodes.rate.down", "nodes.clients.online"]
-    : ["balancers.online", "balancers.healthy", "balancers.connections", "balancers.pools.unhealthy", "balancers.rate.in", "balancers.rate.out"];
-  const panels: CustomPanel[] = summary.map((m, i) => panel(`custom-${kind}-sum-${i}`, "", [m]));
-  const tiles: Record<string, TileSettings> = {};
-  panels.forEach((p, i) => {
-    tiles[p.id] = {width: 3, height: 4, view: "stat", title: "", color: COLORS[i % 4], precision: 1, ...(p.metrics[0].includes("percent") || p.metrics[0] === "nodes.availability" || p.metrics[0].endsWith("cpu.avg") || p.metrics[0].endsWith("cpu.max") || p.metrics[0].endsWith("mem.avg") || p.metrics[0] === "balancers.healthy" ? {min: 0, max: 100} : {})};
-  });
+  const rows: TemplateRow[] = [];
+  const sum = isNodes ? NODE_SUMMARY : BALANCER_SUMMARY;
+  const per = isNodes ? 4 : 6;
+  for (let i = 0; i < sum.length; i += per) rows.push(row(4, sum.slice(i, i + per), () => ""));
   const list = (isNodes ? ctx.nodes : ctx.balancers) ?? [];
-  const keys = isNodes ? ["status", "cpu", "mem", "traffic.total", "clients.online"] : ["status", "connections", "healthy", "rate.in", "rate.out", "errors"];
-  list.slice(0, MAX_PANELS - panels.length).forEach((e, i) => {
-    const id = `custom-${kind}-${e.id}`;
-    panels.push(panel(id, e.name, keys.map((k) => `${isNodes ? "node" : "balancer"}:${e.id}:${k}`)));
-    tiles[id] = {width: 4, height: 6, view: "stat", title: "", color: COLORS[i % 4], precision: 1};
+  const defs = isNodes ? NODE_DEFS : BALANCER_DEFS;
+  const keys = isNodes ? NODE_ROW : BALANCER_ROW;
+  const room = Math.max(0, Math.floor((MAX_TILES - rows.reduce((n, r) => n + r.tiles.length, 0)) / 6));
+  list.slice(0, room).forEach((e, ei) => {
+    const prefix = isNodes ? "node" : "balancer";
+    const r = row(4, keys.map(([k, v]) => [`${prefix}:${e.id}:${k}`, v] as const), (m) => {
+      const key = m.slice(`${prefix}:${e.id}:`.length);
+      const def = (defs as readonly {key: string; label: string}[]).find((d) => d.key === key);
+      return `${e.name} · ${t("pages.builder.metric." + (def?.label ?? key))}`;
+    }, ei);
+    rows.push(r);
   });
-  return {name: t(isNodes ? "pages.builder.templateNodes" : "pages.builder.templateBalancers"), panels, tiles};
+  return {name: t(isNodes ? "pages.builder.templateNodes" : "pages.builder.templateBalancers"), rows};
 }
