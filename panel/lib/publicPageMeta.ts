@@ -241,3 +241,23 @@ export function resolvePageMeta(
     appleTouchIconUrl: sanitizeFaviconUrl(b.appleTouchIconUrl),
   };
 }
+
+/**
+ * Apple home-screen icon: iOS takes PNG (JPEG works too) and ignores SVG, ICO and WebP. Looks at the data: MIME
+ * type or the URL extension only; the pixel checks live in the editor (they need the decoded image).
+ */
+export function appleIconFormatOk(value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+  const mime = faviconMime(v);
+  return mime === undefined || mime === "image/png" || mime === "image/jpeg";
+}
+
+/** Notes about a decoded home-screen icon: apple-touch-icon should be a 180x180 (at least) opaque square. */
+export function appleIconPixelIssues(w: number, h: number, hasAlpha: boolean): ("square" | "size" | "alpha")[] {
+  const out: ("square" | "size" | "alpha")[] = [];
+  if (w !== h) out.push("square");
+  if (Math.min(w, h) < 180) out.push("size");
+  if (hasAlpha) out.push("alpha");
+  return out;
+}

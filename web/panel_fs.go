@@ -14,6 +14,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/secretpath"
+	"github.com/konstpic/sharx-code/v2/web/service"
 )
 
 //go:embed all:panel
@@ -119,6 +120,24 @@ func servePanelFile(c *gin.Context, name string) bool {
 	}
 	basePath := normalizeWebBase(c)
 	lower := strings.ToLower(name)
+	if lower == "panel/sub/index.html" || lower == "panel/sub.html" {
+		if data, err := io.ReadAll(f); err == nil {
+			out := string(data)
+			// public subscription page: tab title and icons from the page config, in the first byte of HTML
+			var ss service.SettingService
+			lang, _ := ss.GetUIPreference("panelLang")
+			if meta, ok := service.ResolvePublicPageMeta(strings.TrimSpace(lang), strings.TrimSpace(c.Query("id"))); ok {
+				out = service.InjectPublicPageMeta(out, meta, basePath)
+			}
+			if secretpath.HidesBareRoot(basePath) {
+				out = rewritePanelHTML(out, basePath)
+			}
+			c.Header("Cache-Control", "no-cache")
+			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(out))
+			return true
+		}
+		return false
+	}
 	if secretpath.HidesBareRoot(basePath) && (strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".txt")) {
 		data, err := io.ReadAll(f)
 		if err != nil {

@@ -4011,7 +4011,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "Không đọc được tệp."
   "tab.errUrl" = "Chỉ cho phép URL http(s), đường dẫn bắt đầu bằng / và data URL ảnh PNG/SVG/ICO/WebP/JPG."
   "tab.warnBig" = "Các biểu tượng nhúng làm cấu hình trang quá lớn (trên 150 KB). Hãy dùng ảnh nhỏ hơn hoặc URL bên ngoài."
-  "tab.sizeHint" = "Khuyến nghị: PNG 32x32 hoặc 64x64, hoặc SVG. Tối đa 100 KB. Định dạng: PNG, SVG, ICO, WebP, JPG."
   "tab.mock" = "Xem trước"
   "tab.fallbackTitle" = "Đăng ký"
   "tab.sampleUser" = "khách hàng"

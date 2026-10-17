@@ -309,6 +309,9 @@ func validateV2(raw string) error {
 			return errors.New(name + " must be an http(s) URL, a path starting with / or an image data URL")
 		}
 	}
+	if !isAppleIconFormatOK(cfg.Branding.AppleTouchIconURL) {
+		return errors.New("branding.appleTouchIconUrl must be a PNG or JPEG (iOS ignores SVG, ICO and WebP)")
+	}
 	seenIDs := map[string]bool{}
 	for i, rawBlock := range cfg.Blocks {
 		var head struct {
@@ -484,4 +487,22 @@ func isSafeIconURL(v string) bool {
 	}
 	u, err := url.Parse(v)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+// isAppleIconFormatOK: iOS draws the home-screen icon only from PNG (JPEG also works); SVG, ICO and WebP are ignored.
+func isAppleIconFormatOK(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return true
+	}
+	if strings.HasPrefix(v, "data:") {
+		return strings.HasPrefix(v, "data:image/png") || strings.HasPrefix(v, "data:image/jpeg")
+	}
+	p := strings.SplitN(strings.SplitN(v, "#", 2)[0], "?", 2)[0]
+	for _, ext := range []string{".svg", ".ico", ".webp"} {
+		if strings.HasSuffix(p, ext) {
+			return false
+		}
+	}
+	return true
 }

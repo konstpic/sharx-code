@@ -4011,7 +4011,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "ファイルを読み込めませんでした。"
   "tab.errUrl" = "http(s) の URL、/ で始まるパス、PNG/SVG/ICO/WebP/JPG の data URL のみ使用できます。"
   "tab.warnBig" = "埋め込みアイコンによりページ設定が大きくなっています(150 KB 超)。より小さい画像か外部 URL を使用してください。"
-  "tab.sizeHint" = "推奨: 32x32 または 64x64 の PNG、もしくは SVG。100 KB まで。形式: PNG、SVG、ICO、WebP、JPG。"
   "tab.mock" = "プレビュー"
   "tab.fallbackTitle" = "サブスクリプション"
   "tab.sampleUser" = "クライアント"

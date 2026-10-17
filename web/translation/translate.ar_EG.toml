@@ -4009,7 +4009,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "تعذّرت قراءة الملف."
   "tab.errUrl" = "يُسمح فقط بروابط http(s) والمسارات التي تبدأ بـ / وروابط data للصور PNG/SVG/ICO/WebP/JPG."
   "tab.warnBig" = "الأيقونات المضمّنة تجعل إعدادات الصفحة كبيرة (أكثر من 150 كيلوبايت). يُفضّل استخدام صورة أصغر أو رابط خارجي."
-  "tab.sizeHint" = "الموصى به: PNG بحجم 32x32 أو 64x64، أو SVG. حتى 100 كيلوبايت. الصيغ: PNG وSVG وICO وWebP وJPG."
   "tab.mock" = "معاينة"
   "tab.fallbackTitle" = "اشتراك"
   "tab.sampleUser" = "عميل"

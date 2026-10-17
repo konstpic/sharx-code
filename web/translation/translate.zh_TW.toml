@@ -4011,7 +4011,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "無法讀取檔案。"
   "tab.errUrl" = "僅允許 http(s) 連結、以 / 開頭的路徑,以及 PNG/SVG/ICO/WebP/JPG 的 data URL。"
   "tab.warnBig" = "內嵌圖示使頁面設定過大(超過 150 KB)。建議使用較小的圖片或外部連結。"
-  "tab.sizeHint" = "建議:32x32 或 64x64 的 PNG,或 SVG。最大 100 KB。格式:PNG、SVG、ICO、WebP、JPG。"
   "tab.mock" = "預覽"
   "tab.fallbackTitle" = "訂閱"
   "tab.sampleUser" = "客戶"

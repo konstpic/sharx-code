@@ -77,6 +77,26 @@ func registerPublicSubscriptionRoutes(g *gin.RouterGroup, ss *service.SettingSer
 	pub.Use(publicSubscriptionRateLimit())
 	pub.GET("/subscription", publicSubscriptionGet(ss))
 	pub.GET("/appMeta", publicAppMeta(ss))
+	pub.GET("/pageIcon", publicPageIcon())
+}
+
+// publicPageIcon serves an icon of the public page that is stored as a data: URL in the page config
+// (k = favicon | dark | apple), with its real Content-Type so browsers, link previews and iOS can use it.
+func publicPageIcon() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mime, body, ok := service.PublicPageIcon(c.Query("k"))
+		if !ok || len(body) == 0 {
+			c.AbortWithStatus(http.StatusNotFound)
+			return
+		}
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Header("X-Content-Type-Options", "nosniff")
+		if mime == "image/svg+xml" {
+			// an SVG opened directly must not run anything
+			c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+		}
+		c.Data(http.StatusOK, mime, body)
+	}
 }
 
 func publicAppMeta(ss *service.SettingService) gin.HandlerFunc {
@@ -157,14 +177,7 @@ func publicSubscriptionGet(ss *service.SettingService) gin.HandlerFunc {
 		trafficExceeded := client.TotalGB > 0 && used >= totalLimit
 		timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= nowMs
 
-		userStatus := "ACTIVE"
-		if !client.Enable {
-			userStatus = "DISABLED"
-		} else if timeExpired {
-			userStatus = "EXPIRED"
-		} else if trafficExceeded {
-			userStatus = "LIMITED"
-		}
+		userStatus := service.PublicClientUserStatus(client, nowMs)
 
 		isActive := client.Enable && !timeExpired && !trafficExceeded
 

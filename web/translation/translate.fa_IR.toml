@@ -4013,7 +4013,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "خواندن فایل ممکن نشد."
   "tab.errUrl" = "فقط نشانی‌های http(s)، مسیرهای شروع‌شده با / و data URL تصاویر PNG/SVG/ICO/WebP/JPG مجاز است."
   "tab.warnBig" = "آیکون‌های جاسازی‌شده پیکربندی صفحه را بزرگ می‌کنند (بیش از ۱۵۰ کیلوبایت). تصویر کوچک‌تر یا نشانی خارجی را ترجیح دهید."
-  "tab.sizeHint" = "پیشنهاد: PNG با اندازه 32x32 یا 64x64 یا SVG. تا ۱۰۰ کیلوبایت. قالب‌ها: PNG، SVG، ICO، WebP، JPG."
   "tab.mock" = "پیش‌نمایش"
   "tab.fallbackTitle" = "اشتراک"
   "tab.sampleUser" = "مشتری"

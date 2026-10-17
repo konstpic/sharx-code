@@ -4021,7 +4021,6 @@ cap5 = "Los clientes la abren desde su enlace de suscripción, en cualquier disp
   "tab.errRead" = "No se pudo leer el archivo."
   "tab.errUrl" = "Solo se permiten URL http(s), rutas que empiecen por / y URL de datos de imágenes PNG/SVG/ICO/WebP/JPG."
   "tab.warnBig" = "Los iconos incrustados hacen que la configuración de la página sea grande (más de 150 KB). Usa una imagen más pequeña o una URL externa."
-  "tab.sizeHint" = "Recomendado: PNG de 32x32 o 64x64, o SVG. Hasta 100 KB. Formatos: PNG, SVG, ICO, WebP, JPG."
   "tab.mock" = "Vista previa"
   "tab.fallbackTitle" = "Suscripción"
   "tab.sampleUser" = "cliente"

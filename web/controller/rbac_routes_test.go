@@ -41,7 +41,7 @@ var publicRoutes = map[string]bool{
 	"GET /auth/methods": true, "POST /auth/magic/request": true, "POST /auth/magic/verify": true, "POST /auth/register": true, "POST /auth/register/confirm": true,
 	"POST /auth/password/forgot": true, "POST /auth/password/reset": true, "POST /auth/passkey/login/begin": true, "POST /auth/passkey/login/finish": true,
 	"POST /panel/api/node/push-logs": true, "POST /panel/api/node/push-geo": true, "POST /panel/api/node/pull-xray-config": true,
-	"GET /panel/api/public/appMeta": true, "GET /panel/api/public/subscription": true,
+	"GET /panel/api/public/appMeta": true, "GET /panel/api/public/pageIcon": true, "GET /panel/api/public/subscription": true,
 }
 
 // TestEveryAuthenticatedRouteHasAPermissionEntry is the guard against an unprotected endpoint: a route added without a

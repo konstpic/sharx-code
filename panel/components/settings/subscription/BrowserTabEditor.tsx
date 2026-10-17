@@ -6,6 +6,8 @@ import type { SharxSubpageConfigV2 } from "@/lib/sharxSubpageConfig";
 import {
   FAVICON_ACCEPT,
   FAVICON_CONFIG_WARN_CHARS,
+  appleIconFormatOk,
+  appleIconPixelIssues,
   checkFaviconFile,
   dataUrlBytes,
   normalizeDataUrlMime,
@@ -27,6 +29,44 @@ const labelCls = "mb-1 text-[10.5px] font-semibold uppercase tracking-wider text
  * Edits config.branding.{pageTitle,pageTitleByLocale,faviconUrl,faviconDark,appleTouchIconUrl}.
  * Shared by the Branding tab and the designer's Styles tab.
  */
+/** Decodes the picked home-screen icon and reports what iOS will not like (not square, small, transparent). */
+async function inspectAppleIcon(src: string, d: (key: string, fallback: string) => string): Promise<string> {
+  try {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const w = img.naturalWidth;
+    const h = img.naturalHeight;
+    let alpha = false;
+    const cv = document.createElement("canvas");
+    cv.width = Math.min(w, 64);
+    cv.height = Math.min(h, 64);
+    const cx = cv.getContext("2d");
+    if (cx) {
+      cx.drawImage(img, 0, 0, cv.width, cv.height);
+      const px = cx.getImageData(0, 0, cv.width, cv.height).data;
+      for (let i = 3; i < px.length; i += 4) {
+        if (px[i] < 255) {
+          alpha = true;
+          break;
+        }
+      }
+    }
+    const issues = appleIconPixelIssues(w, h, alpha);
+    if (!issues.length) return "";
+    const parts = issues.map((i) =>
+      i === "square"
+        ? d("tab.appleSquare", "the icon is not square")
+        : i === "size"
+          ? d("tab.appleSmall", "it is smaller than 180x180")
+          : d("tab.appleAlpha", "it has transparency (iOS will draw black behind it)"),
+    );
+    return `${d("tab.appleWarn", "Home-screen icon")} ${w}x${h}: ${parts.join("; ")}.`;
+  } catch {
+    return "";
+  }
+}
+
 export function BrowserTabEditor({
   config,
   onChange,
@@ -39,6 +79,7 @@ export function BrowserTabEditor({
   const setBranding = (patch: Branding) =>
     onChange({ ...config, branding: { ...branding, ...patch } } as SharxSubpageConfigV2);
   const [err, setErr] = useState("");
+  const [appleNote, setAppleNote] = useState("");
 
   const pageTitle = typeof branding.pageTitle === "string" ? branding.pageTitle : "";
   const byLocale = (branding.pageTitleByLocale ?? {}) as Record<string, string>;
@@ -76,6 +117,10 @@ export function BrowserTabEditor({
       r.onerror = () => resolve("");
       r.readAsDataURL(file);
     });
+    if (key === "appleTouchIconUrl" && !appleIconFormatOk(normalizeDataUrlMime(url, chk.mime))) {
+      setErr(d("tab.errApple", "iOS does not use SVG, ICO or WebP for the home-screen icon. Upload a PNG (180x180, no transparency)."));
+      return;
+    }
     const fixed = sanitizeFaviconUrl(normalizeDataUrlMime(url, chk.mime));
     if (!fixed) {
       setErr(d("tab.errRead", "Could not read the file."));
@@ -83,6 +128,8 @@ export function BrowserTabEditor({
     }
     setErr("");
     setBranding({ [key]: fixed });
+    if (key === "appleTouchIconUrl") setAppleNote(await inspectAppleIcon(fixed, d));
+    else setAppleNote("");
   };
 
   const iconChars = (["faviconUrl", "faviconDark", "appleTouchIconUrl"] as IconKey[]).reduce(
@@ -139,6 +186,7 @@ export function BrowserTabEditor({
         onFile={(f) => void onFile("faviconUrl", f)}
         d={d}
         showSizes
+        hint={d("tab.hintFavicon", "Tab icon: PNG 32x32 or 64x64, or SVG. Up to 100 KB. Formats: PNG, SVG, ICO, WebP, JPG.")}
       />
       <IconField
         label={d("tab.faviconDark", "Favicon for dark browser theme (optional)")}
@@ -146,6 +194,7 @@ export function BrowserTabEditor({
         onUrl={(v) => setBranding({ faviconDark: v || undefined })}
         onFile={(f) => void onFile("faviconDark", f)}
         d={d}
+        hint={d("tab.hintDark", "Same formats as the tab icon. Shown when the browser uses a dark theme (Chrome, Edge, Firefox); Safari shows the ordinary icon.")}
       />
       <IconField
         label={d("tab.apple", "Home-screen icon, apple-touch-icon (optional)")}
@@ -153,7 +202,13 @@ export function BrowserTabEditor({
         onUrl={(v) => setBranding({ appleTouchIconUrl: v || undefined })}
         onFile={(f) => void onFile("appleTouchIconUrl", f)}
         d={d}
+        showSizes
+        sizes={[60]}
+        caption={d("tab.appleCaption", "How it looks on the home screen")}
+        rounded
+        hint={d("tab.hintApple", "Only for iPhone / iPad home screen: PNG 180x180, square, no transparency (iOS fills it with black). SVG, ICO and WebP are ignored by iOS. Up to 100 KB.")}
       />
+      {appleNote ? <p className="text-[11.5px] text-[var(--warning,#fbbf24)]">{appleNote}</p> : null}
 
       {err ? <p className="text-[11.5px] text-[var(--danger,#f87171)]">{err}</p> : null}
       {warnBig ? (
@@ -161,9 +216,6 @@ export function BrowserTabEditor({
           {d("tab.warnBig", "The embedded icons make the page config large (over 150 KB). Prefer a smaller image or an external URL.")}
         </p>
       ) : null}
-      <p className="text-[11px] text-[var(--fg-subtle)]">
-        {d("tab.sizeHint", "Recommended: 32x32 or 64x64 PNG, or SVG. Up to 100 KB. Formats: PNG, SVG, ICO, WebP, JPG.")}
-      </p>
 
       <div>
         <div className={labelCls}>{d("tab.mock", "Preview")}</div>
@@ -189,6 +241,10 @@ function IconField({
   onFile,
   d,
   showSizes,
+  sizes,
+  rounded,
+  hint,
+  caption,
 }: {
   label: string;
   value: string;
@@ -196,6 +252,14 @@ function IconField({
   onFile: (f: File | undefined) => void;
   d: ReturnType<typeof useD>;
   showSizes?: boolean;
+  /** Preview sizes in px (default 16 / 32 / 64). */
+  sizes?: number[];
+  /** Rounded preview, like an iOS home-screen icon. */
+  rounded?: boolean;
+  /** Requirements of this particular icon, shown right under the field. */
+  hint?: string;
+  /** Replaces the pixel size under the preview (one preview only). */
+  caption?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const isData = value.toLowerCase().startsWith("data:");
@@ -232,6 +296,7 @@ function IconField({
           </button>
         ) : null}
       </div>
+      {hint ? <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">{hint}</p> : null}
       {invalid ? (
         <p className="mt-1 text-[11.5px] text-[var(--danger,#f87171)]">
           {d("tab.errUrl", "Only http(s) URLs, paths starting with / and PNG/SVG/ICO/WebP/JPG data URLs are allowed.")}
@@ -239,11 +304,11 @@ function IconField({
       ) : null}
       {safe && showSizes ? (
         <div className="mt-1.5 flex items-end gap-3">
-          {[16, 32, 64].map((px) => (
+          {(sizes ?? [16, 32, 64]).map((px) => (
             <div key={px} className="text-center text-[10px] text-[var(--fg-subtle)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={safe} alt="" width={px} height={px} style={{ width: px, height: px }} className="mx-auto object-contain" />
-              {px}
+              <img src={safe} alt="" width={px} height={px} style={{ width: px, height: px }} className={`mx-auto object-contain ${rounded ? "rounded-[22%]" : ""}`} />
+              {caption ?? px}
             </div>
           ))}
         </div>

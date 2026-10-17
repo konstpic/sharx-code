@@ -4011,7 +4011,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "Tidak dapat membaca berkas."
   "tab.errUrl" = "Hanya URL http(s), path yang diawali / , dan data URL gambar PNG/SVG/ICO/WebP/JPG yang diizinkan."
   "tab.warnBig" = "Ikon yang disematkan membuat konfigurasi halaman besar (lebih dari 150 KB). Gunakan gambar yang lebih kecil atau URL eksternal."
-  "tab.sizeHint" = "Disarankan: PNG 32x32 atau 64x64, atau SVG. Hingga 100 KB. Format: PNG, SVG, ICO, WebP, JPG."
   "tab.mock" = "Pratinjau"
   "tab.fallbackTitle" = "Langganan"
   "tab.sampleUser" = "klien"

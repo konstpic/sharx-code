@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  appleIconFormatOk,
+  appleIconPixelIssues,
   checkFaviconFile,
   dataUrlBytes,
   normalizeFaviconInput,
@@ -144,5 +146,23 @@ describe("normalizeFaviconInput (svg)", () => {
     expect(r("<svg>" + "a".repeat(101 * 1024) + "</svg>")).toBe("size");
     expect(normalizeFaviconInput("data:image/svg+xml;foo=1," + svg)).toEqual({ ok: false, reason: "mime" });
     expect(normalizeFaviconInput("data:image/svg+xml;base64," + btoa("<svg><script/></svg>"))).toEqual({ ok: false, reason: "svgScript" });
+  });
+});
+
+describe("apple home-screen icon", () => {
+  it("accepts PNG / JPEG and unknown extensions, refuses what iOS ignores", () => {
+    expect(appleIconFormatOk("")).toBe(true);
+    expect(appleIconFormatOk("data:image/png;base64,AAAA")).toBe(true);
+    expect(appleIconFormatOk("https://a.test/touch.png?v=2")).toBe(true);
+    expect(appleIconFormatOk("https://a.test/touch")).toBe(true);
+    expect(appleIconFormatOk("data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E")).toBe(false);
+    expect(appleIconFormatOk("/touch.ico")).toBe(false);
+    expect(appleIconFormatOk("https://a.test/touch.webp")).toBe(false);
+  });
+  it("reports non-square, small and transparent icons", () => {
+    expect(appleIconPixelIssues(180, 180, false)).toEqual([]);
+    expect(appleIconPixelIssues(512, 512, false)).toEqual([]);
+    expect(appleIconPixelIssues(64, 64, true)).toEqual(["size", "alpha"]);
+    expect(appleIconPixelIssues(200, 180, false)).toEqual(["square"]);
   });
 });

@@ -4012,7 +4012,6 @@ subProviderId = "A unique identifier sent to client apps to identify this provid
   "tab.errRead" = "Não foi possível ler o arquivo."
   "tab.errUrl" = "Somente URLs http(s), caminhos iniciados por / e data URLs de imagens PNG/SVG/ICO/WebP/JPG são permitidos."
   "tab.warnBig" = "Os ícones incorporados deixam a configuração da página grande (mais de 150 KB). Prefira uma imagem menor ou uma URL externa."
-  "tab.sizeHint" = "Recomendado: PNG de 32x32 ou 64x64, ou SVG. Até 100 KB. Formatos: PNG, SVG, ICO, WebP, JPG."
   "tab.mock" = "Pré-visualização"
   "tab.fallbackTitle" = "Assinatura"
   "tab.sampleUser" = "cliente"

@@ -13,6 +13,8 @@ func TestValidateV2BrowserTabIcons(t *testing.T) {
 		``,
 		`,"pageTitle":"{title} - {username}","pageTitleByLocale":{"ru":"x"}`,
 		`,"faviconUrl":"https://a.com/i.png"`,
+		`,"appleTouchIconUrl":"https://a.com/touch.png"`,
+		`,"appleTouchIconUrl":"data:image/png;base64,iVBORw0KGgo="`,
 		`,"faviconUrl":"/fav.svg","faviconDark":"data:image/png;base64,iVBORw0KGgo="`,
 		// ~140 KB of base64 (100 KB file) must pass
 		`,"faviconUrl":"data:image/png;base64,` + strings.Repeat("QUJD", 35000) + `"`,
@@ -27,6 +29,9 @@ func TestValidateV2BrowserTabIcons(t *testing.T) {
 		`,"faviconDark":"data:text/html;base64,AAAA"`,
 		`,"appleTouchIconUrl":"//evil.com/x.png"`,
 		`,"faviconUrl":"ftp://a.com/x.png"`,
+		`,"appleTouchIconUrl":"data:image/svg+xml;base64,AAAA"`,
+		`,"appleTouchIconUrl":"https://a.com/touch.webp?x=1"`,
+		`,"appleTouchIconUrl":"/touch.ico"`,
 	}
 	for _, e := range bad {
 		if err := validateV2(mk(e)); err == nil {
