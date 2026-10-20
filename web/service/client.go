@@ -525,6 +525,7 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 		"total_gb", "expiry_time", "enable", "status",
 		"tg_id", "sub_id", "comment", "reset", "created_at", "updated_at",
 		"up", "down", "all_time", "last_online", "hwid_enabled", "max_hwid",
+		"ip_limit_enabled", "max_ips",
 		"announce", "traffic_reset_cadence", "traffic_reset_day",
 	}
 	// Add group_id only if it's not nil
