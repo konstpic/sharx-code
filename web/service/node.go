@@ -959,17 +959,100 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 	return nil
 }
 
+func normCoreVersion(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+
+// newNodeCoreWindow is how long after creation a node without pins is considered "new" and is
+// brought to the panel-wide core versions. Older nodes are never touched implicitly.
+const newNodeCoreWindow = 6 * time.Hour
+
+// effectiveNodePins returns the Xray/Telemt versions to enforce on a node: its own pin or, for a
+// node just created and still without one (it runs the cores its image bundles), the version
+// recorded on the panel (settings xrayPinnedVersion/telemtPinnedVersion).
+func effectiveNodePins(node *model.Node, ss SettingService, now time.Time) (xray, telemt string) {
+	xray, telemt = normCoreVersion(node.XrayPinnedVersion), normCoreVersion(node.TelemtPinnedVersion)
+	if node.CreatedAt == 0 || now.Sub(time.Unix(node.CreatedAt, 0)) > newNodeCoreWindow {
+		return xray, telemt
+	}
+	if xray == "" {
+		if v, err := ss.GetXrayPinnedVersion(); err == nil {
+			xray = normCoreVersion(v)
+		}
+		if xray == "" {
+			xray = fleetPinnedVersion("xray_pinned_version", node.Id)
+		}
+	}
+	if telemt == "" {
+		if v, err := ss.GetTelemtPinnedVersion(); err == nil {
+			telemt = normCoreVersion(v)
+		}
+		if telemt == "" {
+			telemt = fleetPinnedVersion("telemt_pinned_version", node.Id)
+		}
+	}
+	return xray, telemt
+}
+
+// coreVersionLess compares dotted numeric versions ("26.9.9" < "26.10.1"); non-numeric parts count as 0.
+func coreVersionLess(a, b string) bool {
+	pa, pb := strings.Split(normCoreVersion(a), "."), strings.Split(normCoreVersion(b), ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
+
+// fleetPinnedVersion is the version most existing nodes are pinned to (ties: the higher one),
+// used when the panel itself has no recorded version. Empty when no other node has a pin.
+func fleetPinnedVersion(column string, exceptNodeID int) string {
+	var vs []string
+	if err := database.GetDB().Model(&model.Node{}).
+		Where("id <> ? AND "+column+" <> ''", exceptNodeID).Pluck(column, &vs).Error; err != nil {
+		return ""
+	}
+	count, best := map[string]int{}, ""
+	for _, v := range vs {
+		v = normCoreVersion(v)
+		count[v]++
+		if best == "" || count[v] > count[best] || (count[v] == count[best] && coreVersionLess(best, v)) {
+			best = v
+		}
+	}
+	return best
+}
+
+// adoptReportedCoreVersions records the versions an existing node already runs as its pins, so
+// nothing is ever reinstalled (and no node restarts) just because a pin was missing.
+func (s *NodeService) adoptReportedCoreVersions(node *model.Node, xrayPin, telemtPin string) {
+	if node.XrayPinnedVersion == "" && xrayPin == "" && node.XrayVersion != "" {
+		_ = s.SetNodeXrayPinnedVersion(node.Id, normCoreVersion(node.XrayVersion))
+	}
+	if node.TelemtPinnedVersion == "" && telemtPin == "" && node.TelemtVersion != "" {
+		_ = s.SetNodeTelemtPinnedVersion(node.Id, normCoreVersion(node.TelemtVersion))
+	}
+}
+
 // MaybeReinstallPinnedCoreVersions re-asserts an admin-pinned Xray/Telemt version when the
 // worker is reporting something else — e.g. a Docker image update recreated the container
 // without its persistent bin volume, or the volume was lost/recreated. A node the admin never
-// explicitly pinned a version on (xray_pinned_version/telemt_pinned_version both empty) is left
-// alone: it keeps whatever version its own bin volume/image already has.
+// explicitly pinned a version on follows the panel-wide pin (see effectiveNodePins); with no pin
+// anywhere it keeps whatever version its own bin volume/image already has.
 func (s *NodeService) MaybeReinstallPinnedCoreVersions(node *model.Node) {
 	if node == nil || !node.Enable || node.Status != "online" {
 		return
 	}
-	xrayMismatch := node.XrayPinnedVersion != "" && node.XrayVersion != "" && node.XrayVersion != node.XrayPinnedVersion
-	telemtMismatch := node.TelemtPinnedVersion != "" && node.TelemtVersion != "" && node.TelemtVersion != node.TelemtPinnedVersion
+	xrayPin, telemtPin := effectiveNodePins(node, SettingService{}, time.Now())
+	xrayMismatch := xrayPin != "" && node.XrayVersion != "" && normCoreVersion(node.XrayVersion) != normCoreVersion(xrayPin)
+	telemtMismatch := telemtPin != "" && node.TelemtVersion != "" && normCoreVersion(node.TelemtVersion) != normCoreVersion(telemtPin)
+	s.adoptReportedCoreVersions(node, xrayPin, telemtPin)
 	if !xrayMismatch && !telemtMismatch {
 		return
 	}
@@ -983,15 +1066,15 @@ func (s *NodeService) MaybeReinstallPinnedCoreVersions(node *model.Node) {
 	pinnedVersionRecoverMu.Unlock()
 
 	if xrayMismatch {
-		logger.Warningf("[Node: %s] Xray pinned to %s but worker reports %s; reinstalling pinned version", node.Name, node.XrayPinnedVersion, node.XrayVersion)
-		if err := s.InstallXrayVersion(node, node.XrayPinnedVersion); err != nil {
+		logger.Warningf("[Node: %s] Xray pinned to %s but worker reports %s; reinstalling pinned version", node.Name, xrayPin, node.XrayVersion)
+		if err := s.InstallXrayVersion(node, xrayPin); err != nil {
 			logger.Warningf("[Node: %s] Failed to re-assert pinned Xray version %s: %v", node.Name, node.XrayPinnedVersion, err)
 		}
 	}
 	if telemtMismatch {
-		logger.Warningf("[Node: %s] Telemt pinned to %s but worker reports %s; reinstalling pinned version", node.Name, node.TelemtPinnedVersion, node.TelemtVersion)
-		if err := s.InstallTelemtVersion(node, node.TelemtPinnedVersion); err != nil {
-			logger.Warningf("[Node: %s] Failed to re-assert pinned Telemt version %s: %v", node.Name, node.TelemtPinnedVersion, err)
+		logger.Warningf("[Node: %s] Telemt pinned to %s but worker reports %s; reinstalling pinned version", node.Name, telemtPin, node.TelemtVersion)
+		if err := s.InstallTelemtVersion(node, telemtPin); err != nil {
+			logger.Warningf("[Node: %s] Failed to re-assert pinned Telemt version %s: %v", node.Name, telemtPin, err)
 		}
 	}
 }

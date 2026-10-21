@@ -28,6 +28,8 @@ import { tileKind } from "@/lib/dashboardGrid";
 const COLORS = ["#38bdf8", "#a78bfa", "#22c55e", "#f59e0b"];
 const CONTENT_ICONS: Record<string, LucideIcon> = { LayoutGrid, Code2, Globe, Text };
 const HEAVY = new Set(["telemt_dc", "telemt_dc_summary", "telemt_dc_dots"]);
+/** Classic v2.6 / v2.7.1 cards are whole sections: the catalog shows their icon instead of a (clipped) live miniature. */
+const isHeavy = (widget: string) => HEAVY.has(widget) || widget.startsWith("classic_") || widget.startsWith("v271_");
 const PREVIEW_W = 250;
 const PREVIEW_H = 140;
 
@@ -134,7 +136,7 @@ export function TileCatalog({ open, onClose, metrics, env, mine, nodeLists, onAd
     const bundle = x.atom ? atomBundle(x.atom) : null;
     const panel = bundle?.panels[0];
     const live =
-      panel && !HEAVY.has(panel.widget ?? "") ? (
+      panel && !isHeavy(panel.widget ?? "") ? (
         <TilePreview width={PREVIEW_W} height={PREVIEW_H} title={t(x.title)}>
           {panel.kind === "metric" ? <MetricContent panel={panel} settings={bundle!.tiles[panel.id]} env={env} preview /> : <WidgetContent widget={panel.widget!} env={env} />}
         </TilePreview>

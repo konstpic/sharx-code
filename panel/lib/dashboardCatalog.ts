@@ -11,9 +11,11 @@ import { ATOMS, atomDef } from "./dashboardLayout";
 import { entityTemplate, type EntityTemplateContext } from "./dashboardMetricsTemplates";
 import { MAX_PANELS, atomPanel, sanitizePanel, sanitizeTile, type TileBundle, type TileRect } from "./dashboardModel";
 
-export type CatalogCategory = "resources" | "clients" | "network" | "system" | "database" | "cores" | "telemt" | "nodes" | "balancers" | "content" | "mine";
+export type CatalogCategory = "classic" | "v271" | "resources" | "clients" | "network" | "system" | "database" | "cores" | "telemt" | "nodes" | "balancers" | "content" | "mine";
 
 export const CATALOG_CATEGORIES: readonly { id: CatalogCategory; title: string }[] = [
+  { id: "classic", title: "pages.builder.cat_classic" },
+  { id: "v271", title: "pages.builder.cat_v271" },
   { id: "resources", title: "pages.builder.cat_resources" },
   { id: "clients", title: "pages.builder.cat_clients" },
   { id: "network", title: "pages.builder.cat_network" },
@@ -102,10 +104,35 @@ const setDef = (id: string, category: CatalogCategory, icon: string, color: stri
 });
 
 const RES_ROWS = [r4(["cpu_gauge", "ram_gauge", "disk_gauge", "swap_gauge"]), { h: 4, tiles: [{ atom: "nodes_availability", w: 4 }, { atom: "load_average", w: 8 }] }, r4(["cpu_history", "memory_history"], 6, 6)];
+/** Rows of the classic v2.6 dashboard (see CLASSIC_ATOM_RECTS in dashboardGrid.ts): every row is 12 columns wide. */
+export const CLASSIC_ROWS: SetRow[] = [
+  { h: 11, tiles: [{ atom: "classic_resources", w: 12 }] },
+  r4(["classic_logs", "classic_cores", "classic_backup", "classic_uptime"], 3, 6),
+  { h: 5, tiles: [{ atom: "classic_users_online", w: 12 }] },
+  { h: 12, tiles: [{ atom: "telemt_dc", w: 12 }] },
+  { h: 7, tiles: [{ atom: "classic_user_agent", w: 12 }] },
+  { h: 4, tiles: [{ atom: "classic_database", w: 12 }] },
+  { h: 5, tiles: [{ atom: "classic_runtime", w: 12 }] },
+  { h: 16, tiles: [{ atom: "classic_network", w: 12 }] },
+];
+/** Rows of the v2.7.1 dashboard (see V271_ATOM_RECTS in dashboardGrid.ts): every row is 12 columns wide. */
+export const V271_ROWS: SetRow[] = [
+  { h: 10, tiles: [{ atom: "v271_resources", w: 12 }] },
+  { h: 7, tiles: [{ atom: "v271_logs", w: 4 }, { atom: "v271_core_versions", w: 4 }, { atom: "v271_backup", w: 4 }] },
+  { h: 7, tiles: [{ atom: "v271_uptime", w: 6 }, { atom: "v271_users_online", w: 6 }] },
+  { h: 7, tiles: [{ atom: "v271_user_agent", w: 6 }, { atom: "v271_database", w: 6 }] },
+  { h: 6, tiles: [{ atom: "v271_net_speed", w: 6 }, { atom: "v271_net_traffic", w: 6 }] },
+  { h: 7, tiles: [{ atom: "v271_net_sockets", w: 6 }, { atom: "v271_server_ip", w: 6 }] },
+  { h: 7, tiles: [{ atom: "v271_panel_runtime", w: 6 }, { atom: "v271_cpu_history", w: 6 }] },
+  { h: 12, tiles: [{ atom: "telemt_dc", w: 12 }] },
+  { h: 6, tiles: [{ atom: "v271_memory_history", w: 12 }] },
+];
 const NET_ROWS = [r4(["net_up", "net_down", "net_total_sent", "net_total_received"]), r4(["net_tcp", "net_udp"], 6)];
 
 /** Ready-made sets ("ready-made widgets"). They become ordinary independent tiles. */
 export const CATALOG_SETS: readonly CatalogSet[] = [
+  setDef("classic", "classic", "LayoutDashboard", "#38bdf8", CLASSIC_ROWS),
+  setDef("v271", "v271", "LayoutDashboard", "#a78bfa", V271_ROWS),
   setDef("resources", "resources", "Activity", "#38bdf8", RES_ROWS),
   setDef("network", "network", "ArrowLeftRight", "#14b8a6", NET_ROWS),
   setDef("database", "database", "Database", "#a78bfa", [r4(["db_pool", "db_size", "db_tables", "db_rows"])]),
@@ -123,7 +150,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [...CATALOG_TILES, ...CA
 
 /* ------------------------------------------------------------------ building bundles */
 
-function metricPanel(id: string, t: SetTile): { panel: CustomPanel; tile: TileSettings } {
+export function metricPanel(id: string, t: SetTile): { panel: CustomPanel; tile: TileSettings } {
   const panel: CustomPanel = { id, title: t.title ?? "", kind: "metric", metrics: [...(t.metrics ?? [])], code: "", url: "", text: "" };
   const tile = sanitizeTile(
     { width: Math.min(12, t.w), height: 4, view: t.view ?? "stat", title: t.title ?? "", color: t.color, ...(t.min !== undefined ? { min: t.min } : {}), ...(t.max !== undefined ? { max: t.max } : {}), precision: 1 },

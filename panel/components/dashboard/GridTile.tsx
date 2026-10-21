@@ -2,12 +2,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { BookmarkPlus, Copy, GripVertical, Maximize2, MoreHorizontal, Pencil, RotateCcw, Trash2, type LucideIcon } from "lucide-react";
+import { BookmarkPlus, ClipboardPaste, Copy, GripVertical, Maximize2, MoreHorizontal, Paintbrush, Pencil, RotateCcw, Trash2, type LucideIcon } from "lucide-react";
 import { Button, CheckboxField, Drawer, Input, Modal, SelectNative } from "@/components/ui";
 import { defaultTile, type TileSettings } from "@/lib/dashboardBuilder";
 import { DASHBOARD_WIDGET_I18N, type DashboardWidgetId } from "@/lib/dashboardLayout";
 import type { ResizeHandle } from "@/lib/dashboardGrid";
+import { applyAppearance, resetAppearance } from "@/lib/dashboardStyle";
 import { useGrid } from "./gridContext";
+import { frameProps } from "./frameProps";
+import { copyStyle, toggleTileSelection, useStyleClip, useTileSelection } from "./editor/styleStore";
 import { TileBoxContext, useElementBox } from "./useTileBox";
 
 /* ---------------------------------------------------------------- resize handles */
@@ -152,10 +155,14 @@ function TileBody({ children, title, hideTitle, className = "", style }: { child
   );
 }
 
-/** A live miniature of a tile (catalog cards): the real tile content in a box of a fixed size, with the tile body contract. */
-export function TilePreview({ children, width, height, title }: { children: ReactNode; width: number; height: number; title: string }) {
+/**
+ * A live miniature of a tile (catalog cards, the tile editor preview): the real tile content in a box of a fixed size,
+ * with the tile body contract. `frame` applies a tile style to the frame exactly like a tile on the board.
+ */
+export function TilePreview({ children, width, height, title, frame }: { children: ReactNode; width: number; height: number; title: string; frame?: { style?: TileSettings["style"]; color?: string } }) {
+  const f = frame ? frameProps(frame.style, frame.color) : null;
   return (
-    <div className="dashboard-tile pointer-events-none overflow-hidden rounded-xl border border-[var(--border)]" style={{ width, height }} aria-hidden>
+    <div {...(f?.attrs ?? {})} className={`dashboard-tile pointer-events-none overflow-hidden border border-[var(--border)] ${frame ? "rounded-2xl" : "rounded-xl"}`} style={{ ...(f?.vars ?? {}), width, height }} aria-hidden>
       <TileBody title={title} hideTitle={false} style={{ width, height }}>
         {children}
       </TileBody>
@@ -172,6 +179,7 @@ export function DashboardTile({
   viewOptions,
   renderView,
   label,
+  classic = false,
   onEdit,
 }: {
   id: string;
@@ -181,6 +189,8 @@ export function DashboardTile({
   viewOptions?: readonly string[];
   renderView?: (view: string) => ReactNode;
   label?: string;
+  /** A classic v2.6 card: the tile takes the look of the v2.6 `Surface` (see `[data-classic]` in globals.css). */
+  classic?: boolean;
   onEdit?: () => void;
 }) {
   const ctx = useGrid();
@@ -190,6 +200,9 @@ export function DashboardTile({
   const [fullscreen, setFullscreen] = useState(false);
   const [draft, setDraft] = useState<TileSettings | null>(null);
   const config = ctx.layout.tiles[id] ?? defaultTile(id);
+  const frame = useMemo(() => frameProps(config.style, config.color), [config.style, config.color]);
+  const styleClip = useStyleClip();
+  const selected = useTileSelection().has(id) && ctx.editing;
   const title = config.title || label || (DASHBOARD_WIDGET_I18N[id as DashboardWidgetId] ? t(DASHBOARD_WIDGET_I18N[id as DashboardWidgetId]) : id);
   const item = ctx.items.get(id);
   const optionKeys = [...new Set([...Object.keys(views), ...(viewOptions ?? [])])];
@@ -198,6 +211,8 @@ export function DashboardTile({
 
   const change = (patch: Partial<TileSettings>) =>
     ctx.setLayout((l) => ({ ...l, tiles: { ...l.tiles, [id]: { ...(l.tiles[id] ?? defaultTile(id)), ...patch } } }));
+
+  const patchTile = (fn: (t: TileSettings) => TileSettings) => ctx.setLayout((l) => ({ ...l, tiles: { ...l.tiles, [id]: fn(l.tiles[id] ?? defaultTile(id)) } }));
 
   const open = () => {
     if (onEdit) return onEdit();
@@ -221,6 +236,9 @@ export function DashboardTile({
     { key: "edit", icon: Pencil, label: t("pages.builder.editPanel"), run: open },
     ...(ctx.canDuplicate(id) ? [{ key: "dup", icon: Copy, label: t("pages.builder.duplicate"), run: () => ctx.duplicate(id) }] : []),
     ...(ctx.saveTile ? [{ key: "save", icon: BookmarkPlus, label: t("pages.builder.saveToCatalog"), run: () => ctx.saveTile!(id) }] : []),
+    { key: "copyStyle", icon: Paintbrush, label: t("pages.builder.style.copy"), run: () => copyStyle(config.style) },
+    ...(styleClip ? [{ key: "pasteStyle", icon: ClipboardPaste, label: t("pages.builder.style.paste"), run: () => patchTile((tl) => applyAppearance(tl, styleClip)) }] : []),
+    ...(config.style ? [{ key: "resetStyle", icon: RotateCcw, label: t("pages.builder.style.reset"), run: () => patchTile(resetAppearance) }] : []),
     { key: "full", icon: Maximize2, label: t("pages.builder.fullscreen"), run: () => setFullscreen(true) },
     { key: "reset", icon: RotateCcw, label: t("pages.builder.resetSize"), run: () => ctx.resetSize(id) },
     { key: "remove", icon: Trash2, label: t("pages.builder.remove"), run: () => ctx.hide(id), danger: true },
@@ -234,29 +252,46 @@ export function DashboardTile({
       data-dashboard-tile={id}
       data-grid="true"
       data-editing={ctx.editing ? "true" : "false"}
+      data-classic={classic ? "true" : undefined}
       data-active={active ? "true" : "false"}
+      data-selected={selected ? "true" : undefined}
+      {...frame.attrs}
       data-resizing={resizing ? "true" : "false"}
       tabIndex={ctx.editing ? 0 : undefined}
       aria-label={title}
-      aria-keyshortcuts={ctx.editing ? "Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight" : undefined}
+      aria-keyshortcuts={ctx.editing ? "Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight Space" : undefined}
       aria-roledescription={ctx.editing ? t("pages.builder.movableTile") : undefined}
       onKeyDown={(e) => {
+        if (ctx.editing && e.key === " " && e.target === e.currentTarget) {
+          e.preventDefault();
+          toggleTileSelection(id);
+          return;
+        }
         ctx.onKeyboard(id, title, e);
       }}
       className={`dashboard-tile group/tile flex min-w-0 flex-col overflow-hidden rounded-2xl border ${ctx.editing ? "border-[color-mix(in_oklab,var(--accent)_55%,var(--border))]" : "border-[var(--border)]"}`}
-      style={{ width, height, transform: `translate3d(${left}px, ${top}px, 0)`, zIndex: dragging ? 40 : resizing ? 30 : undefined }}
+      style={{ ...frame.vars, width, height, transform: `translate3d(${left}px, ${top}px, 0)`, zIndex: dragging ? 40 : resizing ? 30 : undefined }}
     >
       {ctx.editing ? (
         <div className="dashboard-tile-bar flex h-9 shrink-0 items-center gap-1 border-b border-[color-mix(in_oklab,var(--accent)_25%,var(--border))] bg-[color-mix(in_oklab,var(--bg-elevated)_80%,transparent)] pl-1 pr-1">
           <div
             className="flex h-full min-w-0 flex-1 cursor-grab touch-none select-none items-center gap-1 active:cursor-grabbing"
-            onPointerDown={(e) => ctx.startDrag(id, e)}
+            onPointerDown={(e) => {
+              // Shift / Ctrl / Cmd + click selects the tile (for "apply style to selected") instead of dragging it.
+              if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                toggleTileSelection(id);
+                return;
+              }
+              ctx.startDrag(id, e);
+            }}
             title={t("pages.builder.move")}
           >
             <span className="grid size-6 shrink-0 place-items-center text-[var(--fg-subtle)]" aria-hidden>
               <GripVertical size={15} />
             </span>
             <span className="gt-bar-title min-w-0 flex-1 truncate text-[12px] font-medium text-[var(--fg)]">{title}</span>
+            {selected ? <span className="sr-only">{t("pages.builder.style.selected")}</span> : null}
             <span className="gt-bar-size shrink-0 rounded-md bg-[color-mix(in_oklab,var(--accent)_16%,transparent)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[var(--accent)]">
               {item.w}×{item.h}
             </span>

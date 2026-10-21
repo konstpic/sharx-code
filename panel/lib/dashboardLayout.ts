@@ -31,6 +31,8 @@ export type AtomDef = {
   view?: string;
   /** Not part of the default dashboard (variants offered by the catalog only). */
   extra?: boolean;
+  /** Rows the tile takes on the phone layout (content is stacked there and is taller than on the desktop). */
+  phoneRows?: number;
 };
 
 const k = (id: string) => `pages.index.dashAtom_${id}`;
@@ -43,7 +45,7 @@ const a = (
   kind: AtomKind,
   w: number,
   h: number,
-  extra: { metric?: string; metrics?: string[]; view?: string; extra?: boolean } = {},
+  extra: { metric?: string; metrics?: string[]; view?: string; extra?: boolean; phoneRows?: number } = {},
 ): AtomDef => ({ id, title: k(id), desc: kd(id), icon, color, group, kind, w, h, ...extra });
 
 /** Atoms in their canonical order (this is also the default dashboard reading order). */
@@ -88,6 +90,34 @@ export const ATOMS: readonly AtomDef[] = [
   a("telemt_dc", "Radio", "#a78bfa", "telemt", "widget", 12, 12),
   a("telemt_dc_summary", "Radio", "#a78bfa", "telemt", "stat", 4, 4, { extra: true }),
   a("telemt_dc_dots", "Radio", "#a78bfa", "telemt", "widget", 6, 4, { extra: true }),
+  // The v2.6 dashboard cards, one tile each (group "classic", see components/dashboard/classic). Sizes fit the content at 1600 px.
+  a("classic_resources", "Activity", "#38bdf8", "classic", "widget", 12, 11, { extra: true, phoneRows: 12 }),
+  a("classic_logs", "History", "#38bdf8", "classic", "widget", 3, 6, { extra: true, phoneRows: 4 }),
+  a("classic_cores", "Wrench", "#38bdf8", "classic", "widget", 3, 6, { extra: true, phoneRows: 6 }),
+  a("classic_backup", "Server", "#22c55e", "classic", "widget", 3, 6, { extra: true, phoneRows: 6 }),
+  a("classic_uptime", "Clock", "#f59e0b", "classic", "widget", 3, 6, { extra: true, phoneRows: 5 }),
+  a("classic_users_online", "Users", "#22c55e", "classic", "widget", 12, 5, { extra: true, phoneRows: 5 }),
+  a("classic_user_agent", "Users", "#3b82f6", "classic", "widget", 12, 7, { extra: true, phoneRows: 12 }),
+  a("classic_database", "Database", "#a78bfa", "classic", "widget", 12, 4, { extra: true, phoneRows: 6 }),
+  a("classic_runtime", "Cpu", "#38bdf8", "classic", "widget", 12, 5, { extra: true, phoneRows: 6 }),
+  a("classic_network", "Network", "#38bdf8", "classic", "widget", 12, 16, { extra: true, phoneRows: 25 }),
+  // The v2.7.1 dashboard tiles (group "v271", see components/dashboard/v271). Heights are the content height of the tile at 1600 px
+  // (about 42 px per row incl. the gap), `phoneRows` the height of the stacked content on a phone.
+  a("v271_resources", "Activity", "#38bdf8", "v271", "widget", 12, 10, { extra: true, phoneRows: 17 }),
+  a("v271_logs", "History", "#38bdf8", "v271", "widget", 4, 4, { extra: true, phoneRows: 4 }),
+  a("v271_core_versions", "Wrench", "#38bdf8", "v271", "widget", 4, 7, { extra: true, phoneRows: 7 }),
+  a("v271_backup", "Server", "#22c55e", "v271", "widget", 4, 6, { extra: true, phoneRows: 6 }),
+  a("v271_uptime", "Clock", "#f59e0b", "v271", "widget", 6, 7, { extra: true, phoneRows: 8 }),
+  a("v271_users_online", "Users", "#22c55e", "v271", "widget", 6, 7, { extra: true, phoneRows: 7 }),
+  a("v271_user_agent", "Users", "#3b82f6", "v271", "widget", 6, 7, { extra: true, phoneRows: 12 }),
+  a("v271_database", "Database", "#a78bfa", "v271", "widget", 6, 6, { extra: true, phoneRows: 8 }),
+  a("v271_net_speed", "ArrowLeftRight", "#38bdf8", "v271", "widget", 6, 6, { extra: true, phoneRows: 10 }),
+  a("v271_net_traffic", "CloudDownload", "#a78bfa", "v271", "widget", 6, 6, { extra: true, phoneRows: 6 }),
+  a("v271_net_sockets", "ArrowLeftRight", "#14b8a6", "v271", "widget", 6, 7, { extra: true, phoneRows: 7 }),
+  a("v271_server_ip", "Globe", "#38bdf8", "v271", "widget", 6, 5, { extra: true, phoneRows: 5 }),
+  a("v271_panel_runtime", "Cpu", "#38bdf8", "v271", "widget", 6, 7, { extra: true, phoneRows: 7 }),
+  a("v271_cpu_history", "Cpu", "#38bdf8", "v271", "widget", 6, 6, { extra: true, phoneRows: 6 }),
+  a("v271_memory_history", "MemoryStick", "#a78bfa", "v271", "widget", 6, 6, { extra: true, phoneRows: 6 }),
 ];
 
 /** Atoms of the default dashboard (variants marked `extra` are catalog-only). */

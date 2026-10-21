@@ -10,10 +10,12 @@ export function loadColor(percent: number, accent = "var(--accent)") {
   return "#ef4444";
 }
 
-/** Smooth (monotone-ish) SVG path through the points, plus the closed area path under it. */
-function curve(points: number[], w: number, h: number, pad = 2, minSpan = 0) {
+export type SparkOptions = { curve?: "smooth" | "linear" | "step"; fill?: boolean; strokeWidth?: number; markers?: boolean };
+
+/** Path through the points ('smooth' = monotone-ish bezier, the default look), plus the closed area path under it. */
+function curve(points: number[], w: number, h: number, pad = 2, minSpan = 0, mode: "smooth" | "linear" | "step" = "smooth") {
   const n = points.length;
-  if (n < 2) return { line: "", area: "", last: null as null | [number, number] };
+  if (n < 2) return { line: "", area: "", last: null as null | [number, number], dots: [] as [number, number][] };
   let lo = Math.min(...points);
   let hi = Math.max(...points);
   // A nearly flat series should look flat, not like a mountain range: keep a minimum visible range.
@@ -27,11 +29,17 @@ function curve(points: number[], w: number, h: number, pad = 2, minSpan = 0) {
   const y = (v: number) => pad + (1 - (v - lo) / span) * (h - pad * 2);
   let d = `M${x(0).toFixed(2)},${y(points[0]).toFixed(2)}`;
   for (let i = 1; i < n; i++) {
-    const cx = (x(i - 1) + x(i)) / 2;
-    d += ` C${cx.toFixed(2)},${y(points[i - 1]).toFixed(2)} ${cx.toFixed(2)},${y(points[i]).toFixed(2)} ${x(i).toFixed(2)},${y(points[i]).toFixed(2)}`;
+    if (mode === "linear") d += ` L${x(i).toFixed(2)},${y(points[i]).toFixed(2)}`;
+    else if (mode === "step") d += ` H${x(i).toFixed(2)} V${y(points[i]).toFixed(2)}`;
+    else {
+      const cx = (x(i - 1) + x(i)) / 2;
+      d += ` C${cx.toFixed(2)},${y(points[i - 1]).toFixed(2)} ${cx.toFixed(2)},${y(points[i]).toFixed(2)} ${x(i).toFixed(2)},${y(points[i]).toFixed(2)}`;
+    }
   }
   const area = `${d} L${w},${h} L0,${h} Z`;
-  return { line: d, area, last: [x(n - 1), y(points[n - 1])] as [number, number] };
+  const stride = Math.max(1, Math.ceil(n / 40));
+  const dots = points.map((v, i) => [x(i), y(v)] as [number, number]).filter((_, i) => i % stride === 0);
+  return { line: d, area, last: [x(n - 1), y(points[n - 1])] as [number, number], dots };
 }
 
 /** Compact area sparkline with a gradient fill and a live end dot. */
@@ -42,6 +50,10 @@ export function Sparkline({
   className = "",
   live = true,
   minSpan = 0,
+  curve: mode = "smooth",
+  fill = true,
+  strokeWidth = 1.8,
+  markers = false,
 }: {
   points: number[];
   color?: string;
@@ -49,10 +61,10 @@ export function Sparkline({
   className?: string;
   live?: boolean;
   minSpan?: number;
-}) {
+} & SparkOptions) {
   const id = useId().replace(/:/g, "");
   const W = 200;
-  const { line, area, last } = curve(points, W, height, 2, minSpan);
+  const { line, area, last, dots } = curve(points, W, height, 2, minSpan, mode);
   if (!line) {
     // Not enough samples yet: a faint dashed baseline instead of an empty hole.
     return (
@@ -69,8 +81,11 @@ export function Sparkline({
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={area} fill={`url(#g${id})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {fill ? <path d={area} fill={`url(#g${id})`} /> : null}
+      <path d={line} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {markers
+        ? dots.map(([cx, cy], i) => <path key={i} d={`M${cx.toFixed(2)},${cy.toFixed(2)}h0`} stroke={color} strokeWidth={strokeWidth + 3} strokeLinecap="round" vectorEffect="non-scaling-stroke" />)
+        : null}
       {live && last ? (
         <g>
           <circle cx={last[0]} cy={last[1]} r="3.2" fill={color} opacity="0.25" className="dash-pulse" />
@@ -91,6 +106,9 @@ export function RingGauge({
   center,
   caption,
   sweep = 270,
+  roundCaps = true,
+  ticks = false,
+  track,
 }: {
   value: number;
   max?: number;
@@ -99,19 +117,34 @@ export function RingGauge({
   color?: string;
   center?: ReactNode;
   caption?: ReactNode;
-  /** 270 = speedometer dial, 360 = full ring. */
-  sweep?: 270 | 360;
+  /** 270 = speedometer dial, 360 = full ring; 180 / 240 are available through the tile style. */
+  sweep?: number;
+  roundCaps?: boolean;
+  /** Tick marks (0 / 25 / 50 / 75 / 100 %) just inside the ring. */
+  ticks?: boolean;
+  /** Track colour override (tile style). */
+  track?: string;
 }) {
   const id = useId().replace(/:/g, "");
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const frac = Math.max(0, Math.min(1, max > 0 ? value / max : 0));
   // 270° dial with the opening at the bottom, so the value reads like a speedometer (or a full ring).
-  const arc = sweep === 360 ? c : c * 0.75;
+  const arc = c * (sweep / 360);
   const dash = arc * frac;
+  const cap = roundCaps ? "round" : "butt";
+  // The classic dials keep their CSS rotation; other arcs are rotated so the opening sits at the bottom.
+  const classic = sweep === 270 || sweep === 360;
+  const rot = sweep === 360 ? -90 : 90 + (360 - sweep) / 2;
+  const tickAt = (f: number) => {
+    const a = (f * sweep * Math.PI) / 180;
+    const r1 = r - stroke / 2 - 2;
+    const r2 = r1 - 4;
+    return { x1: size / 2 + r1 * Math.cos(a), y1: size / 2 + r1 * Math.sin(a), x2: size / 2 + r2 * Math.cos(a), y2: size / 2 + r2 * Math.sin(a) };
+  };
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={sweep === 360 ? "-rotate-90" : "-rotate-[225deg]"} aria-hidden>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className={classic ? (sweep === 360 ? "-rotate-90" : "-rotate-[225deg]") : undefined} style={classic ? undefined : { transform: `rotate(${rot}deg)` }} aria-hidden>
         <defs>
           <linearGradient id={`rg${id}`} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor={color} />
@@ -125,7 +158,10 @@ export function RingGauge({
             </feMerge>
           </filter>
         </defs>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="color-mix(in oklab, var(--fg) 9%, transparent)" strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${arc} ${c}`} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track ?? "var(--tile-track, color-mix(in oklab, var(--fg) 9%, transparent))"} strokeWidth={stroke} strokeLinecap={cap} strokeDasharray={`${arc} ${c}`} />
+        {ticks
+          ? [0, 0.25, 0.5, 0.75, 1].filter((f) => sweep < 360 || f < 1).map((f) => <line key={f} {...tickAt(f)} stroke="var(--fg-subtle)" strokeWidth={1.5} strokeLinecap="round" />)
+          : null}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -133,7 +169,7 @@ export function RingGauge({
           fill="none"
           stroke={`url(#rg${id})`}
           strokeWidth={stroke}
-          strokeLinecap="round"
+          strokeLinecap={cap}
           strokeDasharray={`${dash} ${c}`}
           filter={`url(#gl${id})`}
           style={{ transition: "stroke-dasharray 0.9s cubic-bezier(.22,1,.36,1), stroke 0.4s" }}
@@ -241,7 +277,7 @@ export function ChartLegend({ items }: { items: { name: string; color: string }[
 }
 
 /** Half-ring gauge (180°): value in the centre, ends labelled by the caller. */
-export function SemiGauge({ value, max = 100, width = 200, stroke = 14, color = "var(--accent)", center }: { value: number; max?: number; width?: number; stroke?: number; color?: string; center?: ReactNode }) {
+export function SemiGauge({ value, max = 100, width = 200, stroke = 14, color = "var(--accent)", center, roundCaps = true, track }: { value: number; max?: number; width?: number; stroke?: number; color?: string; center?: ReactNode; roundCaps?: boolean; track?: string }) {
   const id = useId().replace(/:/g, "");
   const r = (width - stroke) / 2;
   const c = Math.PI * r;
@@ -257,13 +293,13 @@ export function SemiGauge({ value, max = 100, width = 200, stroke = 14, color = 
             <stop offset="100%" stopColor={`color-mix(in oklab, ${color} 55%, white)`} />
           </linearGradient>
         </defs>
-        <path d={d} fill="none" stroke="color-mix(in oklab, var(--fg) 9%, transparent)" strokeWidth={stroke} strokeLinecap="round" />
+        <path d={d} fill="none" stroke={track ?? "var(--tile-track, color-mix(in oklab, var(--fg) 9%, transparent))"} strokeWidth={stroke} strokeLinecap={roundCaps ? "round" : "butt"} />
         <path
           d={d}
           fill="none"
           stroke={`url(#sg${id})`}
           strokeWidth={stroke}
-          strokeLinecap="round"
+          strokeLinecap={roundCaps ? "round" : "butt"}
           strokeDasharray={`${c * frac} ${c}`}
           style={{ transition: "stroke-dasharray 0.9s cubic-bezier(.22,1,.36,1)", filter: `drop-shadow(0 0 6px color-mix(in oklab, ${color} 55%, transparent))` }}
         />
@@ -281,7 +317,7 @@ export function Segments({ fraction, count = 20, color = "var(--accent)" }: { fr
       {Array.from({ length: count }, (_, i) => {
         const lit = i < on;
         const col = loadColor((i / count) * 100, color);
-        return <span key={i} className="flex-1 rounded-[3px] transition-all duration-500" style={{ height: `${40 + (i / count) * 60}%`, background: lit ? col : "color-mix(in oklab, var(--fg) 9%, transparent)", boxShadow: lit ? `0 0 8px -1px ${col}` : "none", opacity: lit ? 1 : 0.7 }} />;
+        return <span key={i} className="flex-1 rounded-[3px] transition-all duration-500" style={{ height: `${40 + (i / count) * 60}%`, background: lit ? col : "var(--tile-track, color-mix(in oklab, var(--fg) 9%, transparent))", boxShadow: lit ? `0 0 8px -1px ${col}` : "none", opacity: lit ? 1 : 0.7 }} />;
       })}
     </div>
   );
@@ -312,6 +348,21 @@ export function StatusPill({ state, label }: { state: "ok" | "warn" | "crit" | "
         <span className="relative inline-flex size-2.5 rounded-full" style={{ background: col }} />
       </span>
       {label}
+    </span>
+  );
+}
+
+/** "Change vs the previous sample" badge: a triangle and the absolute change (tile style `showDelta`). */
+export function DeltaBadge({ delta, text, label }: { delta: number; text: string; label?: string }) {
+  const flat = delta === 0;
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-[color-mix(in_oklab,var(--fg)_8%,transparent)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-[var(--fg-muted)]"
+      title={label}
+      aria-label={label ? `${label}: ${flat ? "" : delta > 0 ? "+" : "-"}${text}` : undefined}
+    >
+      <span aria-hidden>{flat ? "–" : delta > 0 ? "▲" : "▼"}</span>
+      {text}
     </span>
   );
 }

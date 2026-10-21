@@ -7,16 +7,18 @@
  */
 import {
   ArrowLeftRight, ArrowDown, ArrowUp, ArrowUpRight, Activity, Clock, Cpu, CloudDownload, CloudUpload, Database, Download, Eye, EyeOff,
-  AlertTriangle, Copy, Gauge, Globe, HardDrive, History, Layers, MemoryStick, Power, Radio, RefreshCw, Server, SlidersHorizontal, Users, Wrench,
+  AlertTriangle, Copy, Gauge, Globe, HardDrive, History, Layers, MemoryStick, Network, Power, Radio, RefreshCw, Server, SlidersHorizontal, Users, Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { TelemtDcStatusCard } from "@/components/TelemtDcStatusCard";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { useToast } from "@/components/ui";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CustomMetricPanel } from "@/components/dashboard/CustomMetricPanel";
 import { TelemtDcDots, TelemtDcSummary } from "@/components/telemt/Atoms";
+import { ClassicWidget } from "@/components/dashboard/classic";
+import { V271Widget } from "@/components/dashboard/v271";
 import { ResourceTileChart } from "@/components/dashboard/ResourceTileChart";
 import { AtomFrame, FitText, TileHeader, useRoom } from "@/components/dashboard/AtomParts";
 import { SegmentBar } from "@/components/dashboard/viz";
@@ -24,6 +26,8 @@ import { useElementBox, useTileBox } from "@/components/dashboard/useTileBox";
 import type { CustomPanel, TileSettings } from "@/lib/dashboardBuilder";
 import type { DashboardMetric } from "@/lib/dashboardMetrics";
 import { atomDef } from "@/lib/dashboardLayout";
+import { safeLinkUrl } from "@/lib/dashboardStyle";
+import { GridContext } from "./gridContext";
 import { sizeFormat } from "@/lib/format";
 
 export type StatusData = {
@@ -101,7 +105,11 @@ export function isAtomVisible(id: string, env: AtomEnv): boolean {
     case "core_controls":
       return !multi && can.xrayOperate;
     case "logs":
+    case "classic_logs":
+    case "v271_logs":
       return can.logs;
+    case "classic_backup":
+    case "v271_backup":
     case "backup_export":
     case "backup_import":
     case "backup_config":
@@ -123,7 +131,7 @@ const synthetic = (id: string, label: string, text: string, extra: Partial<Dashb
 
 const ICONS: Record<string, LucideIcon> = {
   Activity, ArrowDown, ArrowLeftRight, ArrowUp, Clock, Cpu, CloudDownload, CloudUpload, Database, Download, Gauge, Globe, HardDrive, History,
-  Layers, MemoryStick, Power, Radio, RefreshCw, Server, SlidersHorizontal, Users, Wrench,
+  Layers, MemoryStick, Network, Power, Radio, RefreshCw, Server, SlidersHorizontal, Users, Wrench,
 };
 export function atomIcon(name: string): LucideIcon {
   return ICONS[name] ?? Gauge;
@@ -416,19 +424,38 @@ export function metricDetail(metricId: string | undefined, st: StatusData, t: (k
 /** The metric tile: the panel's metrics in the look chosen in its settings. Same renderer for presets and custom tiles. */
 export function MetricContent({ panel, settings, env, preview = false }: { panel: CustomPanel; settings: TileSettings; env: AtomEnv; preview?: boolean }) {
   const { t } = useTranslation();
-  void preview;
+  const editing = useContext(GridContext)?.editing ?? false;
   const selected = panel.metrics
     .map((id) => env.metrics.find((m) => m.id === id))
     .filter((m): m is DashboardMetric => m != null)
     .map((m) => (MIN_LABEL_IDS[m.id] ? { ...m, label: `${MIN_LABEL_IDS[m.id]} ${t("pages.builder.minShort")}` } : m));
   const def = panel.preset ? atomDef(panel.preset) : undefined;
   const Icon = def ? atomIcon(def.icon) : undefined;
+  // Tile style "click action": open the CPU / memory history, or follow a same-origin / http(s) link. Off in previews.
+  const style = settings.style;
+  const first = panel.metrics[0] ?? "";
+  const onActivate = preview || editing
+    ? undefined
+    : style?.onClick === "link" && style.url
+      ? () => {
+          const url = safeLinkUrl(style.url ?? "");
+          if (!url) return;
+          if (url.startsWith("/")) window.location.assign(url);
+          else window.open(url, "_blank", "noopener,noreferrer");
+        }
+      : style?.onClick === "history" && (first.startsWith("cpu") || first.startsWith("mem"))
+        ? first.startsWith("cpu")
+          ? env.act.openCpu
+          : env.act.openMem
+        : undefined;
   return (
     <CustomMetricPanel
       metrics={selected}
       settings={{ ...settings, color: settings.color ?? def?.color }}
       detail={panel.metrics.length === 1 ? metricDetail(panel.metrics[0], env.st, t) : undefined}
       icon={Icon ? <Icon size={13} /> : undefined}
+      onActivate={onActivate}
+      activateLabel={style?.onClick === "history" ? t("pages.builder.style.openHistory") : style?.url}
     />
   );
 }
@@ -439,6 +466,8 @@ export function WidgetContent({ widget, env }: { widget: string; env: AtomEnv })
   const def = atomDef(widget);
   const { st } = env;
   if (!def) return null;
+  if (def.group === "classic") return <ClassicWidget widget={widget} env={env} />;
+  if (def.group === "v271") return <V271Widget widget={widget} env={env} />;
   const Icon = atomIcon(def.icon);
   const icon = <Icon size={13} />;
   const stat = (id: string, value: number, unit: DashboardMetric["unit"], text: string, color: string, extra: Partial<DashboardMetric> = {}) => (

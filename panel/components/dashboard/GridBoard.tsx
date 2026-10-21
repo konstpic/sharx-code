@@ -131,8 +131,15 @@ export function DashboardBuilder({
     return () => ro.disconnect();
   }, []);
 
+  // Tiles whose style says "hide on mobile" are left out below the desktop breakpoint (never while editing), so they leave no hole.
+  const narrow = breakpointForWidth(width) !== "lg" && !editing;
+  const shownChildren = Children.toArray(children).filter((c) => {
+    if (!narrow || !isValidElement(c)) return true;
+    const id = (c.props as { id?: unknown }).id;
+    return !(typeof id === "string" && layout.tiles[id]?.style?.hideOnMobile);
+  });
   const ids: string[] = [];
-  for (const c of Children.toArray(children)) {
+  for (const c of shownChildren) {
     if (!isValidElement(c)) continue;
     const id = (c.props as { id?: unknown }).id;
     if (typeof id === "string") ids.push(id);
@@ -186,6 +193,14 @@ export function DashboardBuilder({
     },
     [layout.panels],
   );
+  /** Classic v2.6 / v2.7.1 cards stack their own content: one column on the phone, with the rows their stacked content needs. */
+  const phone = useCallback(
+    (id: string) => {
+      const def = atomDef(layout.panels.find((x) => x.id === id)?.widget ?? "");
+      return def?.group === "classic" || def?.group === "v271" ? { full: true, rows: def.phoneRows } : undefined;
+    },
+    [layout.panels],
+  );
   // Tiles that have nothing to show right now (permissions, single / multi node mode) keep their stored place but must
   // not leave a hole: for display only, their neighbours grow into the freed space. Nothing is written back, so a tile
   // that reappears (data still loading, a mode switch) finds its place intact.
@@ -202,7 +217,7 @@ export function DashboardBuilder({
       return desktop;
     }
   }, [desktop, keys, layout.grid, constraintsOf]);
-  const base = useMemo(() => (bp === "lg" ? shownDesktop : deriveLayout(shownDesktop, bp, constraintsOf, { boardWidth: width, capHeight, maxRows })), [shownDesktop, bp, constraintsOf, width, capHeight, maxRows]);
+  const base = useMemo(() => (bp === "lg" ? shownDesktop : deriveLayout(shownDesktop, bp, constraintsOf, { boardWidth: width, capHeight, maxRows, phone })), [shownDesktop, bp, constraintsOf, width, capHeight, maxRows, phone]);
   const shown = preview ?? base;
   const items = useMemo(() => new Map(shown.map((i) => [i.id, i])), [shown]);
 
@@ -562,7 +577,7 @@ export function DashboardBuilder({
           backgroundImage: canEdit ? undefined : "none",
         }}
       >
-        {width > 0 ? children : null}
+        {width > 0 ? shownChildren : null}
         {ghost && width > 0 ? (
           <div
             className="dashboard-ghost"

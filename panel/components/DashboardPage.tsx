@@ -4,14 +4,17 @@ import {DashboardBuilder} from '@/components/dashboard/GridBoard';
 import {DashboardTile} from '@/components/dashboard/GridTile';
 import {MetricContent,WidgetContent,isAtomVisible,type AtomEnv,type StatusData} from '@/components/dashboard/BuiltinAtoms';
 import {atomDef} from '@/lib/dashboardLayout';
-import {insertBundle,panelDefaultSize,resetToDefault,type TileBundle} from '@/lib/dashboardModel';
+import {applyClassicPreset,applyV271Preset,insertBundle,panelDefaultSize,type TileBundle} from '@/lib/dashboardModel';
+import {MY_PRESETS_LIMIT,addMyPreset,applyPresetStyle,makeMyPreset,myPresetBoard,presetBoard,replaceWithMyPreset,replaceWithPreset,resetBoardToPreset,type PresetCtx} from '@/lib/dashboardPresets';
+import type {PresetSource} from '@/components/dashboard/presets/PresetGallery';
 import {makeMyEntry,type MyEntry} from '@/lib/dashboardCatalog';
-import {defaultLayout,emptyLayout,defaultTile,layoutConstraints,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
+import {presetLayout,emptyLayout,defaultTile,layoutConstraints,parseWorkspace,saveActiveBoard,dashboardTemplate,type DashboardWorkspace,type DashboardLayout} from '@/lib/dashboardBuilder';
 
 import {DashboardComposer,type PanelDraft} from '@/components/dashboard/DashboardComposer';
+import {applyAppearanceToTiles,MY_STYLES_LIMIT} from '@/lib/dashboardStyle';
 import {CustomContentPanel} from '@/components/dashboard/CustomContentPanel';
 import {dashboardMetrics,type DashboardMetric,type MetricPoint} from '@/lib/dashboardMetrics';
-import {autoArrange,removeAndFill,GRID_VERSION} from '@/lib/dashboardGrid';
+import {autoArrange,removeAndFill,DEFAULT_DASHBOARD_PRESET,GRID_VERSION} from '@/lib/dashboardGrid';
 import {
   CloudDownload,
   LayoutDashboard,
@@ -396,7 +399,7 @@ export function DashboardPage() {
   const [resourceMetrics,setResourceMetrics]=useState<DashboardMetric[]>([]);
   const [clientMetrics,setClientMetrics]=useState<DashboardMetric[]>([]);
   const [samples,setSamples]=useState<Record<string,MetricPoint[]>>({});
-  const [layout, setLayout] = useState<DashboardLayout>(defaultLayout);
+  const [layout, setLayout] = useState<DashboardLayout>(()=>presetLayout(DEFAULT_DASHBOARD_PRESET));
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
   const [layoutSaved, setLayoutSaved] = useState(true);
@@ -869,13 +872,41 @@ export function DashboardPage() {
   /** Tiles that have something to show now (permissions, single / multi node mode); a hidden tile takes no slot. */
   const visiblePanels = layout.panels.filter((p) => p.kind !== "widget" || isAtomVisible(p.widget ?? "", atomEnv));
   const visibleIds = new Set(visiblePanels.map((p) => p.id));
+  /** What the board presets are built from: live node / balancer lists, permissions, the translator. */
+  const presetCtx: PresetCtx = { ...entityListsFromMetrics(extraMetrics), t, can: { logs: canLogs, backup: canBackup, xrayOperate: canXrayOperate } };
   /** Restore the default places and sizes of the tiles (default dashboard tiles as a hole-free block). */
+  const activePreset = workspace.boards.find((b) => b.id === workspace.activeId)?.preset;
   const resetLayout = () =>
     setLayout((l) => {
       const cons = layoutConstraints(l);
       const panels = l.panels.filter((p) => visibleIds.has(p.id));
-      return { ...l, gridVersion: GRID_VERSION, grid: resetToDefault(panels, l.tiles, l.grid ?? [], cons) };
+      return { ...l, gridVersion: GRID_VERSION, grid: resetBoardToPreset(activePreset, panels, l.tiles, l.grid ?? [], presetCtx, cons) };
     });
+  /** "Classic view 2.6": the catalog tiles of this board become the classic v2.6 set, the user's own tiles stay below it. */
+  const classicView = () => {
+    setLayout((l) => applyClassicPreset(l, layoutConstraints));
+    setWorkspace((w) => ({ ...w, boards: w.boards.map((b) => (b.id === w.activeId ? { ...b, preset: "classic" as const } : b)) }));
+  };
+  /** "View 2.7.1": the catalog tiles of this board become the v2.7.1 dashboard, the user's own tiles stay below it. */
+  const v271View = () => {
+    setLayout((l) => applyV271Preset(l, layoutConstraints));
+    setWorkspace((w) => ({ ...w, boards: w.boards.map((b) => (b.id === w.activeId ? { ...b, preset: "v271" as const } : b)) }));
+  };
+  /** Gallery: a new board from a preset (registry or "Mine"). */
+  const presetCreate = (src: PresetSource) =>
+    addBoard(src.kind === "preset" ? presetBoard(src.entry, presetCtx, t(src.entry.nameKey), 'board-' + crypto.randomUUID()) : myPresetBoard(src.preset, presetCtx, 'board-' + crypto.randomUUID()));
+  /** Gallery: the catalog / preset tiles of the current board become the preset; the user's own tiles stay below it. */
+  const presetReplace = (src: PresetSource) => {
+    setLayout((l) => (src.kind === "preset" ? replaceWithPreset(l, src.entry, presetCtx) : replaceWithMyPreset(l, src.preset, presetCtx)));
+    setWorkspace((w) => ({ ...w, boards: w.boards.map((b) => { if (b.id !== w.activeId) return b; const { preset: _old, ...rest } = b; void _old; return src.kind === "preset" ? { ...rest, preset: src.entry.marker } : rest; }) }));
+  };
+  /** Save the board that is on screen as a preset of the user (per-node rows become templates). */
+  const saveCurrentPreset = (name: string, desc: string): boolean => {
+    const mp = makeMyPreset('mp-' + crypto.randomUUID().slice(0, 8), name, desc, { panels: visiblePanels, tiles: layout.tiles, grid: layout.grid ?? [] }, presetCtx);
+    if (!mp || (workspace.myPresets?.length ?? 0) >= MY_PRESETS_LIMIT) return false;
+    setWorkspace((w) => ({ ...w, myPresets: addMyPreset(w.myPresets ?? [], mp) }));
+    return true;
+  };
   /** Auto-arrange: same sizes, reading order, holes filled. */
   const arrangeLayout = () =>
     setLayout((l) => {
@@ -961,18 +992,22 @@ export function DashboardPage() {
 
         <DashboardComposer workspace={workspace} editing={layoutEditing} metrics={metrics} layout={layout} draft={panelDraft} onDraft={setPanelDraft} onSave={savePanel} onSwitch={selectBoard}
          onNew={()=>addBoard({id:'board-'+crypto.randomUUID(),name:t('pages.builder.newDashboard'),layout:emptyLayout(),enabled:[]})}
-         onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[]})}
+         onDuplicate={()=>addBoard({id:'board-'+crypto.randomUUID(),name:(workspace.boards.find(b=>b.id===workspace.activeId)?.name??'Dashboard')+' · '+t('pages.builder.copy'),layout:structuredClone(layout),enabled:[],...(activePreset?{preset:activePreset}:{})})}
          onRename={name=>setWorkspace(w=>({...w,boards:w.boards.map(b=>b.id===w.activeId?{...b,name}:b)}))}
          onRemove={()=>{if(workspace.boards.length<2)return;const remaining=workspace.boards.filter(b=>b.id!==workspace.activeId);setWorkspace({...workspace,boards:remaining,activeId:remaining[0].id});setLayout(remaining[0].layout)}}
-         onReset={resetLayout} onArrange={arrangeLayout} onTemplate={kind=>addBoard(dashboardTemplate(kind,t,entityListsFromMetrics(extraMetrics)))} saved={layoutSaved}
-         env={atomEnv} mine={workspace.mine??[]} nodeLists={entityListsFromMetrics(extraMetrics)} onAdd={addBundle} onSaveBoard={saveBoardToMine} onDeleteMine={id=>setWorkspace(w=>({...w,mine:(w.mine??[]).filter(m=>m.id!==id)}))}/>
+         onReset={resetLayout} onClassic={classicView} onV271={v271View} onArrange={arrangeLayout} onTemplate={kind=>addBoard(dashboardTemplate(kind,t,entityListsFromMetrics(extraMetrics)))} saved={layoutSaved}
+         env={atomEnv} mine={workspace.mine??[]} nodeLists={entityListsFromMetrics(extraMetrics)} onAdd={addBundle} onSaveBoard={saveBoardToMine} onDeleteMine={id=>setWorkspace(w=>({...w,mine:(w.mine??[]).filter(m=>m.id!==id)}))}
+         myStyles={workspace.myStyles??[]} onMyStyles={list=>setWorkspace(w=>({...w,myStyles:list.slice(0,MY_STYLES_LIMIT)}))}
+         onApplyStyle={(ids,style)=>setLayout(l=>({...l,tiles:applyAppearanceToTiles(l.tiles,style,ids??undefined)}))}
+         presetCtx={presetCtx} myPresets={workspace.myPresets??[]} onMyPresets={list=>setWorkspace(w=>({...w,myPresets:list.slice(0,MY_PRESETS_LIMIT)}))}
+         onPresetCreate={presetCreate} onPresetReplace={presetReplace} onPresetLook={entry=>setLayout(l=>applyPresetStyle(l,entry))} onSaveCurrentPreset={saveCurrentPreset}/>
         <DashboardBuilder layout={layout} setLayout={setLayout} editing={layoutEditing} hide={removeTile} onSaveTile={saveTileToMine}>
         {visiblePanels.map(custom=>{
           const selected=metrics.filter(m=>custom.metrics.includes(m.id));
           const settings=layout.tiles[custom.id]??defaultTile(custom.id);
           const def=atomDef(custom.widget??custom.preset??'');
           const label=custom.title||(def?t(def.title):selected[0]?.label)||t('pages.builder.'+custom.kind);
-          return <DashboardTile key={custom.id} id={custom.id} label={label} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>
+          return <DashboardTile key={custom.id} id={custom.id} label={label} classic={def?.group==='classic'} onEdit={()=>setPanelDraft({panel:structuredClone(custom),settings:{...settings},isNew:false})}>
             {custom.kind==='metric'?<MetricContent panel={custom} settings={settings} env={atomEnv}/>:custom.kind==='widget'&&custom.widget?<WidgetContent widget={custom.widget} env={atomEnv}/>:<CustomContentPanel panel={custom} metrics={selected}/>}
           </DashboardTile>})}
         </DashboardBuilder>

@@ -9,8 +9,12 @@
  */
 import type { CustomPanel, TileSettings } from "./dashboardBuilder";
 import { normalizeDoc } from "./subLayout/tree";
+import { normalizeStyle } from "./dashboardStyle";
 import { DASHBOARD_WIDGET_ORDER, atomDef, expandLegacyWidgetIds } from "./dashboardLayout";
-import { GRID_COLS, autoArrange, bottomOf, compact, defaultAtomGrid, firstFit, tileKind, type ConstraintsOf, type GridItem } from "./dashboardGrid";
+import {
+  CLASSIC_ATOM_ORDER, GRID_COLS, V271_ATOM_ORDER, autoArrange, bottomOf, classicAtomGrid, compact, defaultAtomGrid, firstFit, tileKind, v271AtomGrid,
+  type ConstraintsOf, type DashboardPreset, type GridItem,
+} from "./dashboardGrid";
 
 /** Upper bound of tiles on one board (templates for many nodes need room). */
 export const MAX_PANELS = 120;
@@ -84,6 +88,7 @@ export function sanitizeTile(p: unknown, base: TileSettings): TileSettings {
     ...(r.showTitle === false ? { showTitle: false } : {}),
     ...(th(r.warn) !== undefined ? { warn: th(r.warn) } : {}),
     ...(th(r.crit) !== undefined ? { crit: th(r.crit) } : {}),
+    ...(normalizeStyle(r.style) ? { style: normalizeStyle(r.style) } : {}),
   };
 }
 
@@ -105,6 +110,42 @@ export function defaultPanelSet(): PanelSet {
 /** Grid of the default dashboard expressed in panel ids. */
 export function defaultPanelGrid(atomIds?: readonly string[]): GridItem[] {
   return defaultAtomGrid(atomIds).map((g) => ({ ...g, id: panelIdForAtom(g.id) }));
+}
+
+/** Panels and settings of the classic v2.6 dashboard (stable ids, like the default one). */
+export function classicPanelSet(): PanelSet {
+  const panels: CustomPanel[] = [];
+  const tiles: Record<string, TileSettings> = {};
+  for (const id of CLASSIC_ATOM_ORDER) {
+    const a = atomPanel(id);
+    if (!a) continue;
+    panels.push(a.panel);
+    tiles[a.panel.id] = a.tile;
+  }
+  return { panels, tiles };
+}
+
+/** Grid of the classic dashboard expressed in panel ids. */
+export function classicPanelGrid(atomIds?: readonly string[]): GridItem[] {
+  return classicAtomGrid(atomIds).map((g) => ({ ...g, id: panelIdForAtom(g.id) }));
+}
+
+/** Panels and settings of the v2.7.1 dashboard (stable ids, like the default one). */
+export function v271PanelSet(): PanelSet {
+  const panels: CustomPanel[] = [];
+  const tiles: Record<string, TileSettings> = {};
+  for (const id of V271_ATOM_ORDER) {
+    const a = atomPanel(id);
+    if (!a) continue;
+    panels.push(a.panel);
+    tiles[a.panel.id] = a.tile;
+  }
+  return { panels, tiles };
+}
+
+/** Grid of the v2.7.1 dashboard expressed in panel ids. */
+export function v271PanelGrid(atomIds?: readonly string[]): GridItem[] {
+  return v271AtomGrid(atomIds).map((g) => ({ ...g, id: panelIdForAtom(g.id) }));
 }
 
 const KEEP_FROM_OLD: (keyof TileSettings)[] = ["title", "showTitle", "color", "min", "max", "precision", "fixedScale"];
@@ -254,4 +295,116 @@ export function resetToDefault(
   } catch {
     return [...current];
   }
+}
+
+/** Tiles of the classic dashboard that are on the board: the first panel of every classic atom (found by its `preset`). */
+function classicPresent(panels: readonly CustomPanel[], order: readonly string[] = CLASSIC_ATOM_ORDER): Map<string, CustomPanel> {
+  const found = new Map<string, CustomPanel>();
+  for (const p of panels) {
+    const atom = p.widget ?? p.preset;
+    if (atom && order.includes(atom) && p.preset === atom && !found.has(atom)) found.set(atom, p);
+  }
+  return found;
+}
+
+/**
+ * "Reset layout" of a board made from the classic preset: the classic tiles return to the v2.6 arrangement (a hole-free
+ * block when some are missing), every other tile gets its default size and is arranged below. Pure, never throws.
+ */
+export function resetToClassic(
+  panels: readonly CustomPanel[],
+  tiles: Readonly<Record<string, TileSettings>>,
+  current: readonly GridItem[],
+  cons?: ConstraintsOf,
+): GridItem[] {
+  try {
+    const present = classicPresent(panels);
+    const idOf = new Map([...present].map(([atom, p]) => [atom, p.id]));
+    const base = present.size ? classicAtomGrid([...present.keys()]).map((g) => ({ ...g, id: idOf.get(g.id)! })) : [];
+    const used = new Set(idOf.values());
+    const rest = panels.filter((p) => !used.has(p.id));
+    return placeBelow(base, rest, tiles, current, cons);
+  } catch {
+    return [...current];
+  }
+}
+
+/**
+ * "Reset layout" of a board made from the v2.7.1 preset: the v2.7.1 tiles return to their arrangement (a hole-free block
+ * when some are missing), every other tile gets its default size and is arranged below. Pure, never throws.
+ */
+export function resetToV271(
+  panels: readonly CustomPanel[],
+  tiles: Readonly<Record<string, TileSettings>>,
+  current: readonly GridItem[],
+  cons?: ConstraintsOf,
+): GridItem[] {
+  try {
+    const present = classicPresent(panels, V271_ATOM_ORDER);
+    const idOf = new Map([...present].map(([atom, p]) => [atom, p.id]));
+    const base = present.size ? v271AtomGrid([...present.keys()]).map((g) => ({ ...g, id: idOf.get(g.id)! })) : [];
+    const used = new Set(idOf.values());
+    const rest = panels.filter((p) => !used.has(p.id));
+    return placeBelow(base, rest, tiles, current, cons);
+  } catch {
+    return [...current];
+  }
+}
+
+/** Reset to the arrangement a board was made from (`preset`); a board without a marker keeps the modern default. */
+export function resetToPreset(
+  preset: DashboardPreset | undefined,
+  panels: readonly CustomPanel[],
+  tiles: Readonly<Record<string, TileSettings>>,
+  current: readonly GridItem[],
+  cons?: ConstraintsOf,
+): GridItem[] {
+  if (preset === "classic") return resetToClassic(panels, tiles, current, cons);
+  if (preset === "v271") return resetToV271(panels, tiles, current, cons);
+  return resetToDefault(panels, tiles, current, cons);
+}
+
+/** Tiles of a board turned into the classic preset: the classic set, the user's own tiles are kept below it. */
+export function applyClassicPreset<L extends { panels: CustomPanel[]; tiles: Record<string, TileSettings>; order: string[]; grid?: GridItem[] }>(layout: L, cons?: (l: Pick<L, "panels" | "tiles">) => ConstraintsOf): L {
+  const set = classicPanelSet();
+  // Catalog tiles (they carry a `preset`) are replaced by the classic set; the tiles the user composed himself stay.
+  const kept = layout.panels.filter((p) => !p.preset && !set.panels.some((c) => c.id === p.id)).slice(0, Math.max(0, MAX_PANELS - set.panels.length));
+  const panels = [...set.panels, ...kept];
+  const tiles: Record<string, TileSettings> = { ...set.tiles };
+  for (const p of kept) if (layout.tiles[p.id]) tiles[p.id] = layout.tiles[p.id];
+  const c = cons?.({ panels, tiles });
+  const grid = placeBelow(classicPanelGrid(), kept, tiles, layout.grid ?? [], c);
+  return { ...layout, panels, tiles, order: panels.map((p) => p.id), grid };
+}
+
+/** Tiles of a board turned into the v2.7.1 preset: the v2.7.1 set, the user's own tiles are kept below it. */
+export function applyV271Preset<L extends { panels: CustomPanel[]; tiles: Record<string, TileSettings>; order: string[]; grid?: GridItem[] }>(layout: L, cons?: (l: Pick<L, "panels" | "tiles">) => ConstraintsOf): L {
+  const set = v271PanelSet();
+  const kept = layout.panels.filter((p) => !p.preset && !set.panels.some((c) => c.id === p.id)).slice(0, Math.max(0, MAX_PANELS - set.panels.length));
+  const panels = [...set.panels, ...kept];
+  const tiles: Record<string, TileSettings> = { ...set.tiles };
+  for (const p of kept) if (layout.tiles[p.id]) tiles[p.id] = layout.tiles[p.id];
+  const c = cons?.({ panels, tiles });
+  const grid = placeBelow(v271PanelGrid(), kept, tiles, layout.grid ?? [], c);
+  return { ...layout, panels, tiles, order: panels.map((p) => p.id), grid };
+}
+
+/** `base` stays where it is, `rest` (default size each, in the order of `current`) is arranged without holes below it. */
+export function placeBelow(
+  base: readonly GridItem[],
+  rest: readonly CustomPanel[],
+  tiles: Readonly<Record<string, TileSettings>>,
+  current: readonly GridItem[],
+  cons?: ConstraintsOf,
+): GridItem[] {
+  const order = new Map(current.map((g, i) => [g.id, i]));
+  const others = [...rest].sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9));
+  const extras: GridItem[] = [];
+  for (const p of others) {
+    const { w, h } = panelDefaultSize(p, tiles[p.id]);
+    extras.push({ id: p.id, w, h, ...firstFit(extras, w, h) });
+  }
+  const offset = bottomOf(base);
+  const arranged = autoArrange(extras, cons).map((i) => ({ ...i, y: i.y + offset }));
+  return compact([...base, ...arranged], GRID_COLS, cons);
 }

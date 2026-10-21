@@ -367,7 +367,14 @@ export function deriveLayout(
   items: readonly GridItem[],
   bp: Breakpoint,
   cons?: ConstraintsOf,
-  opts: { boardWidth?: number; capHeight?: (id: string) => boolean; /** hard row limit of tall tiles on the phone layout (may go below the minimum height) */ maxRows?: (id: string) => number | undefined } = {},
+  opts: {
+    boardWidth?: number;
+    capHeight?: (id: string) => boolean;
+    /** hard row limit of tall tiles on the phone layout (may go below the minimum height) */
+    maxRows?: (id: string) => number | undefined;
+    /** Phone layout of tiles that stack their own content (classic v2.6 cards): always one column, `rows` high. */
+    phone?: (id: string) => { full?: boolean; rows?: number } | undefined;
+  } = {},
 ): GridItem[] {
   if (bp === "lg") return items.map((i) => ({ ...i }));
   const order = sortItems(items);
@@ -382,8 +389,9 @@ export function deriveLayout(
     };
     const narrow = order.map((i) => {
       const k = phoneCons(i.id);
-      const w = i.w <= 4 ? GRID_COLS / 2 : GRID_COLS;
-      let h = clamp(i.h, k.minH, k.maxH);
+      const ph = opts.phone?.(i.id);
+      const w = ph?.full || i.w > 4 ? GRID_COLS : GRID_COLS / 2;
+      let h = clamp(ph?.rows ?? i.h, k.minH, k.maxH);
       if (colW > 0 && opts.capHeight?.(i.id)) {
         const px = w * colW + (w - 1) * GRID_GAP;
         h = clamp(h, k.minH, Math.max(k.minH, Math.floor((px * 0.6 + GRID_GAP) / (GRID_ROW_HEIGHT + GRID_GAP))));
@@ -705,6 +713,74 @@ function atomConstraints(id: string): GridConstraints {
  */
 export function defaultAtomGrid(ids?: readonly string[]): GridItem[] {
   const all = DEFAULT_ATOM_RECTS.map(([id, x, y, w, h]) => ({ id, x, y, w, h }));
+  const want = ids ? new Set(ids) : null;
+  if (!want || all.every((i) => want.has(i.id))) return compact(all, GRID_COLS, atomConstraints);
+  const subset = all.filter((i) => want.has(i.id));
+  return compact(reflow(compact(subset, GRID_COLS, atomConstraints), GRID_COLS, atomConstraints, GRID_COLS), GRID_COLS, atomConstraints);
+}
+
+/** Which ready-made arrangement a board is built from: the v2.6 look ('classic'), the v2.7.1 dashboard ('v271') or the tile grid of v2.8+ ('modern'). */
+export type DashboardPreset = "classic" | "v271" | "modern" | BoardPresetId;
+/** Ready-made board presets besides the three above (registry: dashboardPresets.ts). Kept here so the marker union and its guard stay in one low-level module. */
+export const BOARD_PRESET_IDS = ["noc", "minimal", "network", "infra", "clients", "telemt", "neon", "soft", "phone"] as const;
+export type BoardPresetId = (typeof BOARD_PRESET_IDS)[number];
+/**
+ * Arrangement used when the user has NO saved dashboard (fresh install / never customised) and by "Reset layout"
+ * of a board without a marker of its own. Saved boards are never changed by this constant.
+ */
+export const DEFAULT_DASHBOARD_PRESET: DashboardPreset = "classic";
+export const isDashboardPreset = (v: unknown): v is DashboardPreset => v === "classic" || v === "v271" || v === "modern" || (typeof v === "string" && (BOARD_PRESET_IDS as readonly string[]).includes(v));
+
+/**
+ * The classic v2.6 dashboard: [atom id, x, y, w, h]. Resources full width; the four cards of the v2.6
+ * `lg:grid-cols-4` row (logs, cores, backup, uptime) 3 columns each with equal heights; then users online, the Telemt DC
+ * card, user agents, database, panel process and network, each full width, in the order of the v2.6 page.
+ */
+export const CLASSIC_ATOM_RECTS: readonly (readonly [string, number, number, number, number])[] = [
+  ["classic_resources", 0, 0, 12, 11],
+  ["classic_logs", 0, 11, 3, 6], ["classic_cores", 3, 11, 3, 6], ["classic_backup", 6, 11, 3, 6], ["classic_uptime", 9, 11, 3, 6],
+  ["classic_users_online", 0, 17, 12, 5],
+  ["telemt_dc", 0, 22, 12, 12],
+  ["classic_user_agent", 0, 34, 12, 7],
+  ["classic_database", 0, 41, 12, 4],
+  ["classic_runtime", 0, 45, 12, 5],
+  ["classic_network", 0, 50, 12, 16],
+];
+export const CLASSIC_ATOM_ORDER: readonly string[] = CLASSIC_ATOM_RECTS.map((r) => r[0]);
+
+/** Positions of the classic tiles (atom ids). A subset (permissions, node mode) is re-flowed in the same reading order without holes. */
+export function classicAtomGrid(ids?: readonly string[]): GridItem[] {
+  const all = CLASSIC_ATOM_RECTS.map(([id, x, y, w, h]) => ({ id, x, y, w, h }));
+  const want = ids ? new Set(ids) : null;
+  if (!want || all.every((i) => want.has(i.id))) return compact(all, GRID_COLS, atomConstraints);
+  const subset = all.filter((i) => want.has(i.id));
+  return compact(reflow(compact(subset, GRID_COLS, atomConstraints), GRID_COLS, atomConstraints, GRID_COLS), GRID_COLS, atomConstraints);
+}
+
+/**
+ * The v2.7.1 dashboard: [atom id, x, y, w, h]. It is the result of the CSS grid of 2.7.1 (`repeat(12, 1fr)`, `grid-auto-flow: row dense`,
+ * tile widths resources / telemt_dc 12, logs / core versions / backup 4, the rest 6) filled in the order of its widgets:
+ * resources; logs | core versions | backup; uptime | users online; user agents | database; net speed | net traffic;
+ * sockets | server IP; panel runtime | CPU history (dense flow fills the half row left by the 12 wide Telemt DC card);
+ * Telemt DC; memory history. In 2.7.1 the memory history stood alone in a half row; here it takes the full width so
+ * that the board has no hole. Heights are the content heights of the tiles (see the atoms in dashboardLayout.ts).
+ */
+export const V271_ATOM_RECTS: readonly (readonly [string, number, number, number, number])[] = [
+  ["v271_resources", 0, 0, 12, 10],
+  ["v271_logs", 0, 10, 4, 7], ["v271_core_versions", 4, 10, 4, 7], ["v271_backup", 8, 10, 4, 7],
+  ["v271_uptime", 0, 17, 6, 7], ["v271_users_online", 6, 17, 6, 7],
+  ["v271_user_agent", 0, 24, 6, 7], ["v271_database", 6, 24, 6, 7],
+  ["v271_net_speed", 0, 31, 6, 6], ["v271_net_traffic", 6, 31, 6, 6],
+  ["v271_net_sockets", 0, 37, 6, 7], ["v271_server_ip", 6, 37, 6, 7],
+  ["v271_panel_runtime", 0, 44, 6, 7], ["v271_cpu_history", 6, 44, 6, 7],
+  ["telemt_dc", 0, 51, 12, 12],
+  ["v271_memory_history", 0, 63, 12, 6],
+];
+export const V271_ATOM_ORDER: readonly string[] = V271_ATOM_RECTS.map((r) => r[0]);
+
+/** Positions of the v2.7.1 tiles (atom ids). A subset (permissions, node mode) is re-flowed in the same reading order without holes. */
+export function v271AtomGrid(ids?: readonly string[]): GridItem[] {
+  const all = V271_ATOM_RECTS.map(([id, x, y, w, h]) => ({ id, x, y, w, h }));
   const want = ids ? new Set(ids) : null;
   if (!want || all.every((i) => want.has(i.id))) return compact(all, GRID_COLS, atomConstraints);
   const subset = all.filter((i) => want.has(i.id));

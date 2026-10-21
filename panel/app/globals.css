@@ -2001,6 +2001,31 @@ section[id] {
 @media (prefers-reduced-motion: reduce) {
   .dashboard-tile[data-grid="true"], .dashboard-ghost { transition: none; }
 }
+/* ---- Tile styling (lib/dashboardStyle.ts) ----
+   Only tiles with a non-default style carry `data-ts` (feature tokens) and CSS variables, so every other tile keeps the
+   look above untouched. Variables: --tile-bg --tile-blur --tile-border-w/-style/-c --tile-radius --tile-shadow
+   --tile-glow --tile-pad-k --tile-hue --tile-accent2 --tile-label-color/-scale --tile-track. */
+body { --theme-accent: var(--accent); }
+.dashboard-tile[data-ts~="bg"] { background: var(--tile-bg); }
+.dashboard-tile[data-ts~="blur"] { -webkit-backdrop-filter: blur(var(--tile-blur)); backdrop-filter: blur(var(--tile-blur)); }
+.dashboard-tile[data-ts~="radius"] { border-radius: var(--tile-radius); }
+.dashboard-tile[data-ts~="border"] { border-width: var(--tile-border-w, 1px); }
+.dashboard-tile[data-ts~="border"]:not([data-editing="true"]) { border-style: var(--tile-border-style, solid); border-color: var(--tile-border-c, var(--border)); }
+.dashboard-tile[data-ts~="shadow"]:not([data-active="true"]) { box-shadow: var(--tile-shadow); }
+.dashboard-tile[data-ts~="glow"]:not([data-ts~="shadow"]):not([data-active="true"]) {
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--fg) 7%, transparent), 0 18px 40px -26px rgba(0, 0, 0, 0.7), var(--tile-glow);
+}
+.dashboard-tile[data-ts~="glow"][data-ts~="shadow"]:not([data-active="true"]) { box-shadow: var(--tile-shadow), var(--tile-glow); }
+@supports (color: hsl(from red h s l)) {
+  .dashboard-tile[data-ts~="hue"] { --accent: hsl(from var(--theme-accent) calc(h + var(--tile-hue)) s l); }
+}
+.dashboard-tile[data-ts~="upper"] .tile-header h3 { text-transform: uppercase; letter-spacing: 0.05em; }
+.dashboard-tile[data-label-pos="bottom"] .tile-header { order: 99; }
+.dashboard-tile[data-label-pos="hidden"] .tile-header { display: none; }
+.dashboard-tile[data-selected="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes dash-crit { 0%, 100% { box-shadow: inset 0 0 0 1px transparent; } 50% { box-shadow: inset 0 0 0 2px #ef4444, inset 0 0 26px -6px #ef4444; } }
+@media (prefers-reduced-motion: no-preference) { [data-atom].dash-crit-pulse { animation: dash-crit 1.6s ease-in-out infinite; } }
+@media (prefers-reduced-motion: reduce) { [data-atom].dash-crit-pulse { box-shadow: inset 0 0 0 2px #ef4444; } }
 /* Tile content reflows with the tile, not with the viewport. */
 /* Tile body contract: a flex column with a DEFINITE width and height (container-type: size), its single child
    fills it. Atoms (data-atom) scale themselves and never clip; any other content scrolls inside the tile. */
@@ -2008,6 +2033,41 @@ section[id] {
 .dashboard-tile-body > * { flex: 1 1 0; min-width: 0; min-height: 0; max-width: 100%; }
 .dashboard-tile-body > *:not([data-atom]) { overflow: auto; }
 .dashboard-tile-bar { container-type: inline-size; container-name: tilebar; }
+/* ---- Classic v2.6 cards (components/dashboard/classic): the tile is the v2.6 `Surface`, its grids follow the tile width ---- */
+.dashboard-tile[data-classic="true"] {
+  background: color-mix(in oklab, var(--bg-elevated) 90%, transparent);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+.dashboard-tile[data-classic="true"][data-editing="true"] {
+  background-color: color-mix(in oklab, var(--bg-elevated) 90%, transparent);
+}
+/* mini cards of the network card keep their v2.6 border (the generic rule above strips nested surfaces) */
+.dashboard-tile .classic-tile .panel-surface {
+  border: 1px solid color-mix(in oklab, var(--fg-muted) 18%, transparent);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+.dashboard-tile .classic-tile .panel-surface:hover { transform: none; }
+.cl-res { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cl-db { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cl-rt { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cl-pair { grid-template-columns: minmax(0, 1fr); }
+.cl-ua { grid-template-columns: minmax(0, 1fr); }
+@container tile (max-width: 339px) { .cl-res { grid-template-columns: minmax(0, 1fr); } }
+@container tile (min-width: 480px) {
+  .cl-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cl-ua { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+}
+@container tile (min-width: 560px) {
+  .cl-db { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cl-rt { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container tile (min-width: 900px) { .cl-db { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+/* ---- v2.7.1 tiles (components/dashboard/v271): ring + details side by side once the tile is wide enough ---- */
+.v271-split { grid-template-columns: minmax(0, 1fr); }
+@container tile (min-width: 480px) { .v271-split { grid-template-columns: auto minmax(0, 1fr); } }
+
 .dash-gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dash-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container tile (min-width: 640px) { .dash-gauges { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
