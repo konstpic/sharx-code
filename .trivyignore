@@ -1,0 +1,5 @@
+# Trivy exceptions for the release image scan (.github/actions/trivy-scan). One CVE id per line, with the reason and an end date
+# as a comment above it; an exception is a decision of the owner, not a way to get a green build.
+# Example:
+#   # reachable only through X, we do not use it; revisit after 2026-12-01
+#   CVE-2026-00000

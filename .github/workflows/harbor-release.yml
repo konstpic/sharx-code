@@ -190,6 +190,28 @@ jobs:
           echo "SHARX_TAG_VERSION=$SHARX_TAG_VERSION" >> $GITHUB_ENV
           echo "SHARX_TAG_LATEST=$SHARX_TAG_LATEST" >> $GITHUB_ENV
 
+      - name: Build sharx image (local, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: sharx-scan:ci
+          # Build only for amd64 by default for faster builds
+          # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
+          platforms: linux/amd64
+          cache-from: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharx:buildcache
+            type=gha
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      - name: Scan the sharx image (Trivy)
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: sharx-scan:ci
+
       - name: Build and push sharx image
         uses: docker/build-push-action@v6
         with:
@@ -254,6 +276,28 @@ jobs:
           echo "SHARXNODE_TAG_VERSION=$SHARXNODE_TAG_VERSION" >> $GITHUB_ENV
           echo "SHARXNODE_TAG_LATEST=$SHARXNODE_TAG_LATEST" >> $GITHUB_ENV
 
+      - name: Build sharxnode image (local, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./node/Dockerfile
+          push: false
+          load: true
+          tags: sharxnode-scan:ci
+          # Build only for amd64 by default for faster builds
+          # Change to "linux/amd64,linux/arm64,linux/arm/v7" for multi-arch
+          platforms: linux/amd64
+          cache-from: |
+            type=registry,ref=${{ secrets.HARBOR_HOST }}/${{ secrets.HARBOR_PROJECT }}/sharxnode:buildcache
+            type=gha
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      - name: Scan the sharxnode image (Trivy)
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: sharxnode-scan:ci
+
       - name: Build and push sharxnode image
         uses: docker/build-push-action@v6
         with:
@@ -306,6 +350,22 @@ jobs:
             dev)  echo "SHARXBALANCER_TAG_LATEST=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:latest-dev" >> $GITHUB_ENV ;;
             *)    echo "SHARXBALANCER_TAG_LATEST=$HARBOR_HOST/$HARBOR_PROJECT/sharxbalancer:latest" >> $GITHUB_ENV ;;
           esac
+
+      - name: Build sharxbalancer image (local, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./balancer/Dockerfile
+          push: false
+          load: true
+          tags: sharxbalancer-scan:ci
+          platforms: linux/amd64
+          cache-from: type=gha
+
+      - name: Scan the sharxbalancer image (Trivy)
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: sharxbalancer-scan:ci
 
       - name: Build and push sharxbalancer image
         uses: docker/build-push-action@v6
