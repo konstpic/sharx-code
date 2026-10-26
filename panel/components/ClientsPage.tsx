@@ -50,7 +50,7 @@ import {
   speedMbpsFormat,
 } from "@/lib/format";
 import { panel } from "@/lib/paths";
-import { ReadOnlyScope, useCan } from "@/lib/rbac";
+import { ReadOnlyScope, useCan, useRbac } from "@/lib/rbac";
 import {
   isWgQuickConfProtocol,
   wgQuickConfFromPanelText,
@@ -1584,6 +1584,8 @@ function ClientUnifiedCard({
   const canUpdate = useCan("clients:update");
   const canOperate = useCan("clients:operate");
   const canDelete = useCan("clients:delete");
+  // an organization's account cannot pick inbounds: a client gets the access its group's clients have (the server decides)
+  const orgScoped = !!useRbac().me?.scoped;
   // what the card may change: a new client needs create, an existing one needs update
   const readOnly = variant === "existing" || isEdit ? !canUpdate : !canCreate;
   const id = (s: string) => `${fieldIdPrefix}-${s}`;
@@ -2308,7 +2310,7 @@ function ClientUnifiedCard({
             ) : null}
 
             {/* --- Inbounds section --- */}
-            {!bundleMode ? (
+            {!bundleMode && !orgScoped ? (
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
               <SectionLabel icon={Layers}>
                 {t("pages.clients.selectInbounds")}

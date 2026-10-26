@@ -120,14 +120,22 @@ far as the account can tell) on `get`, links, sessions, HWID list, delete, reset
 the group's clients; `GET client/list` and `GET group/list` are **filtered** to the organization before they leave the server; the
 WebSocket delivers **no** live data to a limited account (it is panel-wide and not filtered per organization).
 
-Deliberately *not* available to a limited account because it would reach outside the organization: creating or editing clients (they
-carry inbound and bundle ids that are shared), creating or deleting groups, assigning or removing a group's clients, assigning inbounds
-or bundles to a group, nodes, inbounds, settings, access control, other organizations. Administrators do those for the organization.
-A group created through the API cannot claim an organization by itself. Extending the table (for example per-organization inbound
-allow-lists, so that limited accounts may create clients) is the next step and needs those allow-lists first.
+**Creating and editing clients (v2.9.1).** A limited account with `clients:create` / `clients:update` may create and edit clients, and the
+handler (`web/controller/client_org.go`) keeps this inside the organization. The client must land in one of the organization's groups
+(`groupId` is taken from the request, or the organization's only group when none is named; any other group is refused). A limited
+account cannot see or choose inbounds and bundles, so the request's `inboundIds` and `bundleIds` are ignored: a new client gets the
+union of the inbounds and named bundles of the clients already in that group (`service.OrgClientTemplate`; the organization's other
+groups when the group is empty; nothing when the organization has no clients yet, then an administrator assigns access). An edit changes
+the client's own fields only: inbounds and bundles stay as they are and the client cannot be moved out of the organization (`groupId`
+outside the organization or null is refused). Editing a client outside the organization answers 404.
+
+Deliberately *not* available to a limited account because it would reach outside the organization: creating or deleting groups,
+assigning or removing a group's clients, assigning inbounds or bundles to a group, nodes, inbounds, settings, access control, other
+organizations. Administrators do those for the organization. A group created through the API cannot claim an organization by itself.
+The panel hides the inbound picker for a limited account.
 
 Tests: `web/controller/org_scope_test.go` (lists filtered, every id route 404 outside, bulk operations cannot reach foreign clients,
-deny-by-default matrix, WebSocket, administrators never limited, role-escalation guard, group creation cannot claim an organization).
+deny-by-default matrix, WebSocket, administrators never limited, role-escalation guard, group creation cannot claim an organization, creating and editing clients inside the organization).
 
 ## Known limits
 

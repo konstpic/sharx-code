@@ -21,14 +21,16 @@ import (
 //	kindClientParam - :clientId is a client, same rule
 //	kindListClients / kindListGroups - the answer is filtered to the organization's clients / groups
 //
-// What is deliberately *not* here, because it would reach outside the organization: creating or editing a client (it carries
-// inbound and bundle ids that are shared), creating or deleting groups, assigning or removing clients of a group, assigning
+// Creating and editing a client is allowed, but the handler confines it (client_org.go): the client lands in a group of the
+// organization and gets only the inbounds and bundles the group's clients already have; an edit cannot change them or move the
+// client out. What is deliberately *not* here, because it would reach outside the organization: creating or deleting groups, assigning or removing clients of a group, assigning
 // inbounds or bundles to a group, anything on nodes, inbounds, settings, access control. Administrators do those for the
 // organization.
 const (
 	kindGroupID     = "group"
 	kindClientID    = "client"
 	kindClientParam = "clientParam"
+	kindClientAdd   = "clientAdd" // handler puts the client into one of the organization's groups, see confineNewClientToOrg
 	kindListClients = "listClients"
 	kindListGroups  = "listGroups"
 	kindOwn         = "own" // the account's own pages and data: no resource check needed
@@ -41,6 +43,8 @@ var scopedRoutes = map[string]string{
 	"GET /panel/client/sessions/:id":        kindClientID,
 	"GET /panel/client/hwid/list/:clientId": kindClientParam,
 	"POST /panel/client/del/:id":            kindClientID,
+	"POST /panel/client/add":                kindClientAdd,
+	"POST /panel/client/update/:id":         kindClientID,
 	"POST /panel/client/resetTraffic/:id":   kindClientID,
 	"POST /panel/client/clearHwid/:id":      kindClientID,
 	"POST /panel/client/sessions/drop/:id":  kindClientID,

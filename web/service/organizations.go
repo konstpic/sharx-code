@@ -147,3 +147,34 @@ func GroupInOrg(orgID, groupID int) bool {
 	database.GetDB().Model(&model.ClientGroup{}).Where("id = ? AND org_id = ?", groupID, orgID).Count(&n)
 	return n > 0
 }
+
+// OrgClientTemplate is what a client created by an organization's own account gets for inbounds and named bundles: the
+// accounts of an organization cannot see or pick panel-wide inbounds, so the access is copied from the clients already in
+// the group (their union), or from the organization's other groups when the group is still empty. Nothing outside what an
+// administrator already handed to the organization's clients can be reached this way.
+func OrgClientTemplate(orgID int, groupID int) (inboundIDs, bundleIDs []int) {
+	db := database.GetDB()
+	query := func(sql string, args ...any) []int {
+		var ids []int
+		db.Raw(sql, args...).Scan(&ids)
+		return ids
+	}
+	inboundsSQL := `SELECT DISTINCT m.inbound_id FROM client_inbound_mappings m JOIN client_entities c ON c.id = m.client_id
+		JOIN client_groups g ON g.id = c.group_id WHERE g.org_id = ?`
+	bundlesSQL := `SELECT DISTINCT cb.bundle_id FROM client_bundles cb JOIN bundles b ON b.id = cb.bundle_id AND b.auto = FALSE
+		JOIN client_entities c ON c.id = cb.client_id JOIN client_groups g ON g.id = c.group_id WHERE g.org_id = ?`
+	for _, scoped := range []bool{true, false} {
+		in, bu := inboundsSQL+` ORDER BY 1`, bundlesSQL+` ORDER BY 1`
+		args := []any{orgID}
+		if scoped {
+			in = strings.Replace(inboundsSQL, "g.org_id = ?", "g.org_id = ? AND g.id = ?", 1) + ` ORDER BY 1`
+			bu = strings.Replace(bundlesSQL, "g.org_id = ?", "g.org_id = ? AND g.id = ?", 1) + ` ORDER BY 1`
+			args = append(args, groupID)
+		}
+		inboundIDs, bundleIDs = query(in, args...), query(bu, args...)
+		if len(inboundIDs) > 0 || len(bundleIDs) > 0 {
+			return inboundIDs, bundleIDs
+		}
+	}
+	return nil, nil
+}

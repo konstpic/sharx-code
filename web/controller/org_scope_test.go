@@ -46,7 +46,7 @@ func newOrgEnv(t *testing.T) *orgEnv {
 	}
 	e.cA, e.cB, e.cNone = e.client("ca", &e.gA), e.client("cb", &e.gB), e.client("cn", nil)
 	// the role is generous on purpose: the scope, not the role, must be what stops this account
-	e.scopedRole = e.role(rbac.ClientsRead, rbac.ClientsUpdate, rbac.ClientsDelete, rbac.ClientsOperate, rbac.GroupsRead, rbac.GroupsUpdate, rbac.GroupsCreate,
+	e.scopedRole = e.role(rbac.ClientsRead, rbac.ClientsCreate, rbac.ClientsUpdate, rbac.ClientsDelete, rbac.ClientsOperate, rbac.GroupsRead, rbac.GroupsUpdate, rbac.GroupsCreate,
 		rbac.InboundsRead, rbac.NodesRead, rbac.DashboardRead, rbac.UsersRead)
 	e.scopedA = e.user("acme-admin", e.scopedRole.Id)
 	if _, err := e.svc.UpdateUser(e.admin, e.scopedA, service.UserPatch{OrgId: &e.orgA}); err != nil {
@@ -147,7 +147,7 @@ func TestOrganizationScopeIsDenyByDefault(t *testing.T) {
 	// functions that would reach outside the organization are closed whatever the role says
 	closed := [][2]string{
 		{"GET", "/panel/api/inbounds/list"}, {"GET", "/panel/node/list"}, {"GET", "/panel/rbac/users"}, {"GET", "/panel/rbac/roles"}, {"GET", "/panel/rbac/orgs"},
-		{"POST", "/panel/client/add"}, {"POST", fmt.Sprintf("/panel/client/update/%d", e.cA)}, {"POST", "/panel/client/bulk/delete"}, {"POST", "/panel/client/resetAllTraffics"},
+		{"POST", "/panel/client/bulk/delete"}, {"POST", "/panel/client/resetAllTraffics"},
 		{"POST", "/panel/group/add"}, {"POST", fmt.Sprintf("/panel/group/del/%d", e.gA)}, {"POST", fmt.Sprintf("/panel/group/%d/assignClients", e.gA)},
 		{"POST", fmt.Sprintf("/panel/group/%d/bulk/assignInbounds", e.gA)}, {"POST", fmt.Sprintf("/panel/group/%d/org", e.gA)},
 		{"GET", "/panel/api/server/status"}, {"POST", "/panel/setting/update"}, {"GET", "/panel/auth/providers"},
@@ -249,4 +249,79 @@ func TestOrganizationManagementRulesAndAdministratorsAreNeverLimited(t *testing.
 		t.Fatal("a group is handed to an organization only through the dedicated endpoint (orgs:update)")
 	}
 	_ = strings.ToLower
+}
+
+func TestOrganizationAccountCreatesAndEditsClientsOnlyInsideItsGroups(t *testing.T) {
+	e := newOrgEnv(t)
+	db := database.GetDB()
+	// the organization's existing client has access to inbound 7; another organization's client has inbound 8
+	mkIn := func(port int) int {
+		ib := &model.Inbound{UserId: 1, Enable: true, Port: port, Protocol: model.VLESS, Remark: fmt.Sprint("ib", port), Tag: fmt.Sprint("inbound-", port),
+			Settings: "{}", StreamSettings: `{"network":"tcp","security":"none"}`, Sniffing: "{}"}
+		if err := db.Create(ib).Error; err != nil {
+			t.Fatal(err)
+		}
+		return ib.Id
+	}
+	in7, in8 := mkIn(7001), mkIn(7002)
+	db.Exec("INSERT INTO client_inbound_mappings (client_id, inbound_id) VALUES (?, ?), (?, ?)", e.cA, in7, e.cB, in8)
+	db.Model(&model.ClientEntity{}).Where("id = ?", e.cA).Update("uuid", "6f1c5a52-1b1e-4c6f-9d0a-2c2d6f4b7a11")
+	c := e.as(e.scopedA)
+
+	// no group named: the organization has one, the client goes there; the access asked for is ignored, the group's is used
+	code, r := c.do("POST", "/panel/client/add", map[string]any{"name": "newbie", "inboundIds": []int{in8, 99}, "bundleIds": []int{5}})
+	if code != 200 || r["success"] != true {
+		t.Fatalf("an organization account can create a client: %d %v", code, r)
+	}
+	var made model.ClientEntity
+	if err := db.Where("name = ?", "newbie").First(&made).Error; err != nil {
+		t.Fatal(err)
+	}
+	if made.GroupId == nil || *made.GroupId != e.gA {
+		t.Fatalf("the new client must be in the organization's group, got %v", made.GroupId)
+	}
+	var in []int
+	db.Raw("SELECT inbound_id FROM client_inbound_mappings WHERE client_id = ? ORDER BY 1", made.Id).Scan(&in)
+	if len(in) != 1 || in[0] != in7 {
+		t.Fatalf("inbounds must come from the group's clients (own inbound), not from the request: %v", in)
+	}
+
+	// another organization's group, or no group at all when it is ambiguous, is refused
+	if _, r := c.do("POST", "/panel/client/add", map[string]any{"name": "intruder", "groupId": e.gB}); r["success"] == true {
+		t.Fatal("a client must not be created in another organization's group")
+	}
+	var n int64
+	db.Model(&model.ClientEntity{}).Where("name = ?", "intruder").Count(&n)
+	if n != 0 {
+		t.Fatal("refused client was created")
+	}
+
+	// editing: own client yes, fields change, access and group stay
+	code, r = c.do("POST", fmt.Sprintf("/panel/client/update/%d", e.cA), map[string]any{"comment": "hello", "inboundIds": []int{in8}})
+	if code != 200 || r["success"] != true {
+		t.Fatalf("edit own client: %d %v", code, r)
+	}
+	var edited model.ClientEntity
+	db.First(&edited, e.cA)
+	if edited.Comment != "hello" || edited.GroupId == nil || *edited.GroupId != e.gA {
+		t.Fatalf("edit not applied or group changed: %+v", edited)
+	}
+	db.Raw("SELECT inbound_id FROM client_inbound_mappings WHERE client_id = ? ORDER BY 1", e.cA).Scan(&in)
+	if len(in) != 1 || in[0] != in7 {
+		t.Fatalf("an organization account must not change a client's inbounds: %v", in)
+	}
+	for _, body := range []map[string]any{{"groupId": e.gB}, {"groupId": nil}} {
+		if _, r := c.do("POST", fmt.Sprintf("/panel/client/update/%d", e.cA), body); r["success"] == true {
+			t.Fatalf("moving a client out of the organization must be refused: %v", body)
+		}
+	}
+	db.First(&edited, e.cA)
+	if edited.GroupId == nil || *edited.GroupId != e.gA {
+		t.Fatal("client left the organization")
+	}
+	for _, id := range []int{e.cB, e.cNone} {
+		if code, _ := c.do("POST", fmt.Sprintf("/panel/client/update/%d", id), map[string]any{"comment": "x"}); code != 404 {
+			t.Fatalf("editing a client outside the organization: %d", code)
+		}
+	}
 }

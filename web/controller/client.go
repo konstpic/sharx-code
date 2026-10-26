@@ -364,6 +364,14 @@ func (a *ClientController) addClient(c *gin.Context) {
 		}
 	}
 
+	if org := scopeOrgID(c); org != nil {
+		bundles, err := confineNewClientToOrg(*org, client)
+		if err != nil {
+			jsonMsg(c, err.Error(), err)
+			return
+		}
+		bundleIdsFromJSON, hasBundleIdsInJSON = bundles, len(bundles) > 0
+	}
 	if hasBundleIdsInJSON && len(bundleIdsFromJSON) > 0 && !(&service.BundleService{}).BundlesActive() {
 		jsonMsg(c, "bundleIds requires the bundle scheme", errors.New("bundles are not active"))
 		return
@@ -756,6 +764,13 @@ func (a *ClientController) updateClient(c *gin.Context) {
 
 	client.Id = id
 	logger.Debugf("UpdateClient: client.InboundIds = %v", client.InboundIds)
+	if org := scopeOrgID(c); org != nil {
+		if err := confineClientUpdateToOrg(*org, client); err != nil {
+			jsonMsg(c, err.Error(), err)
+			return
+		}
+		hasBundleIdsInJSON = false
+	}
 	if hasBundleIdsInJSON && !(&service.BundleService{}).BundlesActive() {
 		jsonMsg(c, "bundleIds requires the bundle scheme", errors.New("bundles are not active"))
 		return
