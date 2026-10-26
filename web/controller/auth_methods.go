@@ -266,7 +266,7 @@ func (a *IndexController) passkeyLoginFinish(c *gin.Context) {
 		loginFailed(ip, "passkey")
 		pureJsonMsg(c, http.StatusOK, false, "The security key could not be verified.")
 	}
-	if !passkeyRL.Allow(ip) || !service.Methods.Config().Passkeys || loginIPFails.Over(ip) {
+	if !passkeyRL.Allow(ip) || !service.Methods.Config().Passkeys || loginIPBlocked(ip) {
 		fail()
 		return
 	}

@@ -196,6 +196,7 @@ func (a *XrayCoreConfigProfileController) assignNodes(c *gin.Context) {
 
 	// Get node IDs from request
 	var nodeIds []int
+	addOnly := c.PostForm("mode") == "add"
 	if nodeIdsStr := c.PostForm("nodeIds"); nodeIdsStr != "" {
 		// Handle as array from form
 		nodeIdsArray := c.PostFormArray("nodeIds")
@@ -208,6 +209,7 @@ func (a *XrayCoreConfigProfileController) assignNodes(c *gin.Context) {
 		// Try to get from JSON body
 		var jsonData map[string]interface{}
 		if err := c.ShouldBindJSON(&jsonData); err == nil {
+			addOnly = jsonData["mode"] == "add"
 			if nodeIdsVal, ok := jsonData["nodeIds"].([]interface{}); ok {
 				for _, nodeIdVal := range nodeIdsVal {
 					if nodeId, ok := nodeIdVal.(float64); ok {
@@ -219,6 +221,11 @@ func (a *XrayCoreConfigProfileController) assignNodes(c *gin.Context) {
 	}
 
 	prevNodes, _ := a.profileService.GetNodesForProfile(id)
+	if addOnly {
+		// "add" keeps the profile's current nodes (default is to replace the whole list): the node wizard binds only
+		// the node it just created and must not unbind the others.
+		nodeIds = service.MergeUniquePositiveInts(prevNodes, nodeIds)
+	}
 	err = a.profileService.AssignProfileToNodes(id, nodeIds)
 	if err != nil {
 		jsonMsg(c, "Failed to assign nodes to profile", err)

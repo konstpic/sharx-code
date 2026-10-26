@@ -2,7 +2,7 @@
 
 [← HWID and Limits](./11-hwid-and-limits.md) | [Contents](./README.md)
 
-The **Panel Settings** section (`/panel/settings/`) has six tabs: “Panel & general”, “Security”, “Telegram”, “Subscription & JSON”, “LDAP”, “Grafana” (the same menu also has the “DB Inspector” page).
+The **Panel Settings** section (`/panel/settings/`) has five tabs: “Panel & general”, “Security”, “Telegram”, “Subscription & JSON”, “Grafana” (the same menu also has the “DB Inspector” page).
 
 > Accurate for panel v1.10 (checked against the source code). The exact names and location of every setting are in the UI map used by the assistant bot.
 
@@ -105,25 +105,6 @@ Builder tabs:
 - JSON templates
 - Raw JSON
 - Subscription remarks
-
----
-
-## LDAP
-
-`/panel/settings/ldap/`
-
-External panel administrator authentication via LDAP / Active Directory.
-
-| Parameter | Description |
-|-----------|-------------|
-| **Enable LDAP** | Activate |
-| **Server address** | host:port |
-| **Base DN** | Base DN for search |
-| **Bind DN / Password** | Connection credentials |
-| **User filter** | LDAP filter |
-| **Name attribute** | Username field |
-
-With LDAP enabled, local password is used as fallback.
 
 ---
 

@@ -2680,6 +2680,15 @@ func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings [
 		return err
 	}
 
+	// A plain "move" (one node replaced by one other, no explicit subscription fields): the description, remark suffix and
+	// inclusion flag follow the inbound. The published address/port belong to the old server and are not carried over.
+	var moveFrom *model.InboundNodeMapping
+	if len(oldMappings) == 1 && len(bindings) == 1 {
+		if _, stays := oldByNode[bindings[0].NodeId]; !stays {
+			moveFrom = &oldMappings[0]
+		}
+	}
+
 	for i, b := range bindings {
 		if b.NodeId <= 0 {
 			continue
@@ -2707,6 +2716,11 @@ func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings [
 			m.SubscriptionRemarkSuffix = prev.SubscriptionRemarkSuffix
 			m.ServerDescription = prev.ServerDescription
 			m.IncludeInSubscription = prev.IncludeInSubscription
+		}
+		if moveFrom != nil && legacyRow {
+			m.SubscriptionRemarkSuffix = moveFrom.SubscriptionRemarkSuffix
+			m.ServerDescription = moveFrom.ServerDescription
+			m.IncludeInSubscription = moveFrom.IncludeInSubscription
 		}
 		if err := db.Create(&m).Error; err != nil {
 			return err

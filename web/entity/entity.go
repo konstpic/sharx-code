@@ -54,6 +54,11 @@ type AllSetting struct {
 	TwoFactorToken    string `json:"twoFactorToken" form:"twoFactorToken"`       // Two-factor authentication TOTP secret (base32)
 	TwoFactorTelegram bool   `json:"twoFactorTelegram" form:"twoFactorTelegram"` // Send current TOTP to admin Telegram chats on login (password step)
 	TgTwoFactorEnable bool   `json:"tgTwoFactorEnable" form:"tgTwoFactorEnable"` // Login 2FA via one-time code sent by the Telegram bot (no TOTP secret)
+	// Sign-in brute-force protection
+	LoginProtectEnable bool `json:"loginProtectEnable" form:"loginProtectEnable"` // Ban an address after too many failed sign-ins
+	LoginMaxFails      int  `json:"loginMaxFails" form:"loginMaxFails"`           // Failed sign-ins per address and account within the window before the ban (3..100)
+	LoginFailWindowSec int  `json:"loginFailWindowSec" form:"loginFailWindowSec"` // Window the failures are counted in, seconds (60..86400)
+	LoginBanSec        int  `json:"loginBanSec" form:"loginBanSec"`               // How long the ban lasts, seconds (10..2592000)
 	// Subscription server settings
 	SubEnable                   bool   `json:"subEnable" form:"subEnable"`                                     // Enable subscription server
 	SubJsonEnable               bool   `json:"subJsonEnable" form:"subJsonEnable"`                             // Enable JSON subscription endpoint
@@ -85,29 +90,6 @@ type AllSetting struct {
 	SubPageBrandText            string `json:"subPageBrandText" form:"subPageBrandText"`                       // Brand text for subscription page
 	SubPageBackgroundUrl        string `json:"subPageBackgroundUrl" form:"subPageBackgroundUrl"`               // Background image URL for subscription card (overrides theme gradient)
 
-	// LDAP settings
-	LdapEnable     bool   `json:"ldapEnable" form:"ldapEnable"`
-	LdapHost       string `json:"ldapHost" form:"ldapHost"`
-	LdapPort       int    `json:"ldapPort" form:"ldapPort"`
-	LdapUseTLS     bool   `json:"ldapUseTLS" form:"ldapUseTLS"`
-	LdapBindDN     string `json:"ldapBindDN" form:"ldapBindDN"`
-	LdapPassword   string `json:"ldapPassword" form:"ldapPassword"`
-	LdapBaseDN     string `json:"ldapBaseDN" form:"ldapBaseDN"`
-	LdapUserFilter string `json:"ldapUserFilter" form:"ldapUserFilter"`
-	LdapUserAttr   string `json:"ldapUserAttr" form:"ldapUserAttr"` // e.g., mail or uid
-	LdapVlessField string `json:"ldapVlessField" form:"ldapVlessField"`
-	LdapSyncCron   string `json:"ldapSyncCron" form:"ldapSyncCron"`
-	// Generic flag configuration
-	LdapFlagField         string `json:"ldapFlagField" form:"ldapFlagField"`
-	LdapTruthyValues      string `json:"ldapTruthyValues" form:"ldapTruthyValues"`
-	LdapInvertFlag        bool   `json:"ldapInvertFlag" form:"ldapInvertFlag"`
-	LdapInboundTags       string `json:"ldapInboundTags" form:"ldapInboundTags"`
-	LdapAutoCreate        bool   `json:"ldapAutoCreate" form:"ldapAutoCreate"`
-	LdapAutoDelete        bool   `json:"ldapAutoDelete" form:"ldapAutoDelete"`
-	LdapDefaultTotalGB    int    `json:"ldapDefaultTotalGB" form:"ldapDefaultTotalGB"`
-	LdapDefaultExpiryDays int    `json:"ldapDefaultExpiryDays" form:"ldapDefaultExpiryDays"`
-	LdapDefaultLimitIP    int    `json:"ldapDefaultLimitIP" form:"ldapDefaultLimitIP"`
-
 	// Multi-node mode setting
 	MultiNodeMode bool `json:"multiNodeMode" form:"multiNodeMode"` // Enable multi-node architecture mode
 	// Dashboard public IPv6 detection
@@ -124,11 +106,11 @@ type AllSetting struct {
 	HwidMode string `json:"hwidMode" form:"hwidMode"` // HWID tracking mode
 
 	// Client IP limit (concurrent unique source IPs per client with ip_limit_enabled)
-	IPLimitGlobalEnable       bool   `json:"ipLimitGlobalEnable" form:"ipLimitGlobalEnable"`             // Run IP limit enforcement job
-	IPLimitCheckIntervalSec   int    `json:"ipLimitCheckIntervalSec" form:"ipLimitCheckIntervalSec"`     // Seconds between checks (5–600)
-	IPLimitBanDurationSec     int    `json:"ipLimitBanDurationSec" form:"ipLimitBanDurationSec"`           // Session block TTL; 0 = permanent until manual unblock
-	IPLimitEnforcement        string `json:"ipLimitEnforcement" form:"ipLimitEnforcement"`               // drop | block | drop_and_block
-	IPLimitExcessPolicy       string `json:"ipLimitExcessPolicy" form:"ipLimitExcessPolicy"`             // newest | oldest — which excess IPs to target
+	IPLimitGlobalEnable     bool   `json:"ipLimitGlobalEnable" form:"ipLimitGlobalEnable"`         // Run IP limit enforcement job
+	IPLimitCheckIntervalSec int    `json:"ipLimitCheckIntervalSec" form:"ipLimitCheckIntervalSec"` // Seconds between checks (5–600)
+	IPLimitBanDurationSec   int    `json:"ipLimitBanDurationSec" form:"ipLimitBanDurationSec"`     // Session block TTL; 0 = permanent until manual unblock
+	IPLimitEnforcement      string `json:"ipLimitEnforcement" form:"ipLimitEnforcement"`           // drop | block | drop_and_block
+	IPLimitExcessPolicy     string `json:"ipLimitExcessPolicy" form:"ipLimitExcessPolicy"`         // newest | oldest — which excess IPs to target
 
 	// Grafana integration settings
 	GrafanaLokiUrl            string `json:"grafanaLokiUrl" form:"grafanaLokiUrl"`                       // Loki API URL (e.g., http://localhost:3100/loki/api/v1/push)
@@ -146,8 +128,8 @@ type AllSetting struct {
 	LogRotateCompress   bool `json:"logRotateCompress" form:"logRotateCompress"`
 
 	// Geofile library auto-update (active assets with source URL)
-	GeofileAutoUpdateEnable         bool `json:"geofileAutoUpdateEnable" form:"geofileAutoUpdateEnable"`
-	GeofileAutoUpdateIntervalHours  int  `json:"geofileAutoUpdateIntervalHours" form:"geofileAutoUpdateIntervalHours"`
+	GeofileAutoUpdateEnable        bool `json:"geofileAutoUpdateEnable" form:"geofileAutoUpdateEnable"`
+	GeofileAutoUpdateIntervalHours int  `json:"geofileAutoUpdateIntervalHours" form:"geofileAutoUpdateIntervalHours"`
 	// Geofile library revision retention: how many old (inactive) revisions of each type
 	// (geoip/geosite) to keep before auto-pruning the oldest ones. The active revision is
 	// never pruned regardless of count. 0 = use default (5).
@@ -281,6 +263,15 @@ func (s *AllSetting) CheckValid() error {
 		return common.NewError("nodeHealthCheckIntervalSec must be >= nodeHealthCheckDegradedIntervalSec (online polling interval should not be shorter than degraded)")
 	}
 
+	if s.LoginMaxFails < 3 || s.LoginMaxFails > 100 {
+		return common.NewErrorf("loginMaxFails must be between 3 and 100")
+	}
+	if s.LoginFailWindowSec < 60 || s.LoginFailWindowSec > 86400 {
+		return common.NewErrorf("loginFailWindowSec must be between 60 and 86400 seconds")
+	}
+	if s.LoginBanSec < 10 || s.LoginBanSec > 86400*30 {
+		return common.NewErrorf("loginBanSec must be between 10 seconds and 2592000 (30 days)")
+	}
 	if err := validateIPLimitSettings(s.IPLimitCheckIntervalSec, s.IPLimitBanDurationSec, s.IPLimitEnforcement, s.IPLimitExcessPolicy); err != nil {
 		return err
 	}

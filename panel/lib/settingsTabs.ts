@@ -5,7 +5,6 @@ export const SETTINGS_TAB_IDS = [
   "security",
   "telegram",
   "subscription",
-  "ldap",
   "grafana",
 ] as const;
 
@@ -25,8 +24,6 @@ export function tSettingsTabLabel(t: TFunction, id: SettingsTabId): string {
       return t("pages.settings.tabs.telegram");
     case "subscription":
       return t("pages.settings.tabs.subscription");
-    case "ldap":
-      return t("pages.settings.tabs.ldap");
     case "grafana":
       return t("pages.settings.tabs.grafana");
     default: {

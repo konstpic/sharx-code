@@ -72,7 +72,7 @@ const DESCRIPTIONS: Record<string, string> = {
   "xray:operate": "Start, stop, restart or update Xray and Telemt, manage geo files.",
   "settings:read": "Shows tokens and other secrets that are stored in the settings.",
   "settings:update": "Change the panel settings, except the security ones.",
-  "settings:security": "LDAP, two-factor sign-in, the Telegram bot, the panel address and TLS. Whoever controls these controls who can sign in: only administrators can grant it.",
+  "settings:security": "Two-factor sign-in, the Telegram bot, the panel address and TLS. Whoever controls these controls who can sign in: only administrators can grant it.",
   "system:update": "Update or restart the panel and its nodes.",
   "system:backup": "Export or replace the whole database. Only administrators can grant it.",
   "system:database": "Read and edit database tables directly. Only administrators can grant it.",

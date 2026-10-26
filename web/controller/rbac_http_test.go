@@ -57,7 +57,7 @@ func newHTTPEnv(t *testing.T) *httpEnv {
 	probe := g.Group("/panel")
 	probe.Use((&BaseController{}).checkLogin)
 	probe.POST("/__unmapped", func(c *gin.Context) { c.JSON(200, gin.H{"success": true}) })
-	// test-only sign-in: the real login adds 2FA, LDAP and rate limits that are not under test here
+	// test-only sign-in: the real login adds 2FA and rate limits that are not under test here
 	e.GET("/__login/:id", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.Param("id"))
 		var u model.User
@@ -388,17 +388,17 @@ func TestSettingsAreRedactedAndSecuritySettingsAreSeparate(t *testing.T) {
 	if obj["tgBotToken"] != "123456:SECRET-TOKEN" {
 		t.Fatalf("settings:read shows the settings: %v", obj["tgBotToken"])
 	}
-	// changing a security setting (LDAP decides who can sign in) needs settings:security
+	// changing a security setting (two-factor sign-in decides who can sign in) needs settings:security
 	changed := map[string]any{}
 	for k, v := range obj {
 		changed[k] = v
 	}
-	changed["ldapEnable"] = true
-	changed["ldapHost"] = "ldap.attacker.example"
+	changed["twoFactorTelegram"] = true
+	changed["loginProtectEnable"] = false
 	if code, _ := e.as(cid).do("POST", "/panel/setting/update", changed); code != 403 {
-		t.Fatalf("changing LDAP without settings:security: %d", code)
+		t.Fatalf("changing a security setting without settings:security: %d", code)
 	}
-	if after, _ := st.GetAllSetting(); after.LdapEnable || after.LdapHost == "ldap.attacker.example" {
+	if after, _ := st.GetAllSetting(); after.TwoFactorTelegram || !after.LoginProtectEnable {
 		t.Fatal("the refused update must not have been applied")
 	}
 }

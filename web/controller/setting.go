@@ -115,7 +115,6 @@ func (a *SettingController) getAllSetting(c *gin.Context) {
 func redactSettings(s *entity.AllSetting) {
 	s.TgBotToken, s.TgBotProxy, s.TgBotAPIServer, s.TgBotChatId = "", "", "", ""
 	s.TwoFactorToken = ""
-	s.LdapHost, s.LdapBindDN, s.LdapPassword, s.LdapBaseDN, s.LdapUserFilter = "", "", "", "", ""
 	s.GrafanaLokiUrl, s.GrafanaVictoriaMetricsUrl = "", ""
 	s.WebCertFile, s.WebKeyFile, s.SubCertFile, s.SubKeyFile = "", "", "", ""
 	s.ExternalTrafficInformURI = ""
@@ -204,7 +203,7 @@ func (a *SettingController) updateSetting(c *gin.Context) {
 		return
 	}
 	if !can(c, rbac.SettingsSecurity) {
-		// LDAP, 2FA, the Telegram bot, the panel address and TLS decide who can sign in; changing them is a separate
+		// 2FA, the Telegram bot, the panel address and TLS decide who can sign in; changing them is a separate
 		// permission, otherwise settings:update would let a user redirect sign-in to a server they control.
 		if cur, curErr := a.settingService.GetAllSetting(); curErr == nil && securitySettingsDiffer(cur, allSetting) {
 			forbid(c, "Forbidden: missing permission "+rbac.SettingsSecurity+" (security settings were changed)")
@@ -216,7 +215,7 @@ func (a *SettingController) updateSetting(c *gin.Context) {
 }
 
 // securityFieldPrefixes name the settings fields that belong to settings:security.
-var securityFieldPrefixes = []string{"Web", "SessionMaxAge", "TgBot", "TwoFactor", "TgTwoFactor", "Ldap", "SubCertFile", "SubKeyFile", "Grafana", "ExternalTraffic"}
+var securityFieldPrefixes = []string{"Web", "SessionMaxAge", "TgBot", "TwoFactor", "TgTwoFactor", "SubCertFile", "SubKeyFile", "Grafana", "ExternalTraffic"}
 
 // securitySettingsDiffer reports whether any security-related setting differs between the stored and the submitted values.
 func securitySettingsDiffer(cur, next *entity.AllSetting) bool {

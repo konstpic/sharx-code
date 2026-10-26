@@ -73,3 +73,63 @@ func (l *Limiter) Over(key string) bool {
 	}
 	return n >= l.max
 }
+
+// SetLimits changes the limit and window (the sign-in policy is a panel setting). Counted hits are kept.
+func (l *Limiter) SetLimits(max int, window time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.max, l.window = max, window
+}
+
+// Bans holds keys (an address, or an address and account) that are blocked until a given time, whatever the sliding window
+// says: the sign-in ban lasts the configured time from the moment the limit was exceeded.
+type Bans struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+}
+
+func NewBans() *Bans { return &Bans{until: map[string]time.Time{}} }
+
+// Ban blocks key for d from now, unless it is already blocked longer.
+func (b *Bans) Ban(key string, d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	if t, ok := b.until[key]; ok && t.After(now.Add(d)) {
+		return
+	}
+	b.until[key] = now.Add(d)
+	if len(b.until) > 20000 {
+		for k, t := range b.until {
+			if !t.After(now) {
+				delete(b.until, k)
+			}
+		}
+	}
+}
+
+// Active reports whether key is blocked now.
+func (b *Bans) Active(key string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	t, ok := b.until[key]
+	if ok && !t.After(time.Now()) {
+		delete(b.until, key)
+		return false
+	}
+	return ok
+}
+
+// Clear lifts every ban.
+func (b *Bans) Clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.until = map[string]time.Time{}
+}
+
+// Reset forgets the key's counted hits (a ban starts a fresh count when it ends).
+func (l *Limiter) Reset(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.hits, key)
+}

@@ -231,7 +231,6 @@ Tabs:
 | **Security** | 2FA, API tokens |
 | **Telegram** | Notification bot |
 | **Subscription & JSON** | Subscription params, page builder |
-| **LDAP** | External auth and client sync |
 | **Grafana** | Monitoring integration |
 | **Admin & restart** | Password change, panel restart |
 
@@ -696,7 +695,6 @@ Edit applies expiry, traffic, inbounds, HWID, IP to all group clients in bulk.
 | Panel and subscription ports | Not editable in UI |
 | Inbound tag `api` | Reserved |
 | Inbound port (single-node) | Must be unique on server |
-| LDAP panel login | LDAP password checked only if local user row exists |
 | Password change | Disables 2FA |
 | QR code | Text over ~2500 chars won't fit |
 
@@ -753,7 +751,6 @@ The following could not be fully confirmed from docs and UI alone:
 5. **Hard limits** on clients, nodes, inbounds?
 6. **Public subscription rate limit** — exact thresholds for "Too many requests"?
 7. **DB import behavior** — overwrite vs merge; service stop required?
-8. **LDAP:** does login create a `users` row or only verify existing?
 9. **Full remark model fields** — subscription remark builder docs?
 10. **Which inbound fields** cannot change after clients assigned?
 11. **Official supported client apps** and subscription formats?

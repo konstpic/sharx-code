@@ -95,7 +95,7 @@ const (
 	OrgsDelete = "orgs:delete"
 
 	// Single sign-on: identity providers, role rules, linked accounts. Managing them can hand anybody on the provider an
-	// administrator account, so it is administrators only (like the LDAP settings).
+	// administrator account, so it is administrators only (like the security settings).
 	AuthRead   = "auth:read"
 	AuthManage = "auth:manage"
 )
@@ -171,7 +171,7 @@ var catalogue = []Permission{
 
 	p(SettingsRead, "settings", true), // tokens and secrets in the panel settings
 	p(SettingsUpdate, "settings", false),
-	p(SettingsSecurity, "settings", true), // LDAP, 2FA, Telegram bot, panel address and TLS, secret paths
+	p(SettingsSecurity, "settings", true), // 2FA, Telegram bot, panel address and TLS, secret paths
 
 	p(SystemUpdate, "system", true),   // update or restart the panel
 	p(SystemBackup, "system", true),   // export or import the whole database
@@ -244,7 +244,7 @@ func resourceOf(key string) string {
 }
 
 // superOnly lists permissions that are equivalent to full control of the panel: whoever holds them can sign in as anyone
-// (LDAP and 2FA settings), read or replace the whole database (backup, raw tables). Only an administrator may put them into
+// (2FA settings), read or replace the whole database (backup, raw tables). Only an administrator may put them into
 // a role, so a delegated "manage roles" permission can never mint a second administrator by the back door.
 var superOnly = map[string]bool{SettingsSecurity: true, SystemBackup: true, SystemDatabase: true, AuthManage: true}
 

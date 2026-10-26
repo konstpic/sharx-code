@@ -123,6 +123,10 @@ function FitTank({ fraction, tone, text, min, max }: { fraction: number; tone: s
  * `settings.style` (lib/dashboardStyle.ts) customises colours, typography, number format, charts and behaviour;
  * with a default style every branch renders exactly as before.
  */
+// sizes, rates and counts never go below zero: start their axis at 0 so the ticks are round (an "auto" lower bound landed on
+// the smallest sample, giving ticks like 2.97 / 2.16 / 1.35 / 0.54 / 9.73 KB/s)
+const NONNEGATIVE_UNITS = new Set(["bytes", "speed", "seconds", "count", "load", "ms"]);
+
 export function CustomMetricPanel({ metrics: rawMetrics, settings, detail, icon, onActivate, activateLabel }: { metrics: DashboardMetric[]; settings: TileSettings; detail?: string; icon?: ReactNode; onActivate?: () => void; activateLabel?: string }) {
   const { t, i18n } = useTranslation();
   const rs = useMemo(() => resolveStyle(settings.style), [settings.style]);
@@ -215,7 +219,7 @@ export function CustomMetricPanel({ metrics: rawMetrics, settings, detail, icon,
       <YAxis
         width={room.width < 260 ? 40 : 56}
         tickFormatter={(v) => formatMetric({ ...metrics[0], value: v }, 0)}
-        domain={settings.fixedScale ? [settings.min ?? 0, settings.max ?? 100] : metrics[0].unit === "percent" ? [0, 100] : ["auto", "auto"]}
+        domain={settings.fixedScale ? [settings.min ?? 0, settings.max ?? 100] : metrics[0].unit === "percent" ? [0, 100] : NONNEGATIVE_UNITS.has(metrics[0].unit) ? [0, "auto"] : ["auto", "auto"]}
         {...axis}
       />
     );

@@ -7,7 +7,7 @@ Status: **stages 1-4 are implemented** (3 in `auth-methods.md`, 4 in `rbac.md`) 
 | Piece | Before | Now |
 |---|---|---|
 | Users, roles, permissions | `users`, `roles` (v2.6.0 RBAC), `resource:action` keys, server-side check of every route | unchanged; SSO only decides *which user* and *which role* |
-| Sign-in | password (+ LDAP bind, + TOTP per user, + Telegram code) | the same, **plus** redirect sign-in through any configured provider |
+| Sign-in | password (+ TOTP per user, + Telegram code) | the same, **plus** redirect sign-in through any configured provider |
 | Session | gorilla cookie session + `login_sessions` registry | the same session is created after a successful SSO callback; revocation (`revokeAccess`) works for SSO users too |
 | Audit | `audit_log` + the audit journal | SSO events are audited (`auth.*`, `sso.*`) and read like the other journals |
 | Secrets | settings table | provider client secrets are sealed with AES-256-GCM (key derived from the panel secret) and never returned by the API |
@@ -69,7 +69,7 @@ When no rule matches (`no_match`): `deny` (default, deny-by-default), `default` 
 
 Revocation: if a managed user's rules no longer match and the policy is `deny`, the role is **removed**, all their sessions and API tokens end, and sign-in is refused – the effect of removing someone from a group in the provider. Safeguards: the last enabled administrator is never demoted or revoked by the provider (the attempt is audited as denied); an unconditional rule ("everybody") cannot grant an administrator role; rules based on e-mail require a verified address.
 
-Managing providers and rules needs `auth:manage`, which only administrators can hold or grant (like the LDAP settings): whoever can write a rule can make anybody an administrator.
+Managing providers and rules needs `auth:manage`, which only administrators can hold or grant (like the security settings): whoever can write a rule can make anybody an administrator.
 
 ## Where role changes in the provider take effect
 

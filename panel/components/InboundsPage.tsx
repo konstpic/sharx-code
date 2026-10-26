@@ -612,6 +612,8 @@ export function InboundsPage() {
   const [nodes, setNodes] = useState<NodeRow[]>([]);
   const [form, setForm] = useState(defaultForm);
   const [nodeBindings, setNodeBindings] = useState<NodeBindingFormRow[]>([]);
+  // the text overrides of a node that was just unticked: when the inbound is moved to another node they follow it
+  const removedBindingRef = useRef<NodeBindingFormRow | null>(null);
   /** When false/loading, the wizard omits the “Nodes” step (standalone / single node). */
   const [multiNodeMode, setMultiNodeMode] = useState<boolean | null>(null);
   const [baselineSettings, setBaselineSettings] = useState("");
@@ -718,6 +720,7 @@ export function InboundsPage() {
     setScenario(null);
     setForm(defaultForm());
     setNodeBindings([]);
+    removedBindingRef.current = null;
     setBaselineSettings("");
     setEditId(null);
     setStep("basics");
@@ -800,6 +803,7 @@ export function InboundsPage() {
       ),
       vlessTrojanFallbacks: parsed.vlessTrojanFallbacks ?? ([] as VlessTrojanFallbackFormRow[]),
     });
+    removedBindingRef.current = null;
     setNodeBindings(mode === "edit" ? inboundBindingsToForm(ib) : []);
   }, []);
 
@@ -7864,23 +7868,30 @@ export function InboundsPage() {
                         checked={checked}
                         onChange={(e) => {
                           const on = e.target.checked;
-                          setNodeBindings((rows) => {
-                            if (on) {
-                              if (rows.some((r) => r.nodeId === n.id)) return rows;
-                              return [
-                                ...rows,
-                                {
-                                  nodeId: n.id,
-                                  publishedAddress: "",
-                                  publishedPort: "0",
-                                  includeInSubscription: true,
-                                  subscriptionRemarkSuffix: "",
-                                  serverDescription: "",
-                                },
-                              ];
+                          if (!on) {
+                            const gone = nodeBindings.find((r) => r.nodeId === n.id);
+                            if (gone && (gone.subscriptionRemarkSuffix || gone.serverDescription)) {
+                              removedBindingRef.current = gone;
                             }
-                            return rows.filter((r) => r.nodeId !== n.id);
-                          });
+                            setNodeBindings((rows) => rows.filter((r) => r.nodeId !== n.id));
+                            return;
+                          }
+                          if (nodeBindings.some((r) => r.nodeId === n.id)) return;
+                          // moving the inbound to another node keeps its description and remark suffix (the address
+                          // and port belong to the old server, so they are not carried over)
+                          const carried = removedBindingRef.current;
+                          removedBindingRef.current = null;
+                          setNodeBindings((rows) => [
+                            ...rows,
+                            {
+                              nodeId: n.id,
+                              publishedAddress: "",
+                              publishedPort: "0",
+                              includeInSubscription: carried ? carried.includeInSubscription : true,
+                              subscriptionRemarkSuffix: carried?.subscriptionRemarkSuffix ?? "",
+                              serverDescription: carried?.serverDescription ?? "",
+                            },
+                          ]);
                         }}
                         heading={n.name}
                         description={t("pages.inbounds.nodeIdLabel", {

@@ -125,27 +125,6 @@ var defaultValueMap = map[string]string{
 	"warp":                        "",
 	"externalTrafficInformEnable": "false",
 	"externalTrafficInformURI":    "",
-	// LDAP defaults
-	"ldapEnable":            "false",
-	"ldapHost":              "",
-	"ldapPort":              "389",
-	"ldapUseTLS":            "false",
-	"ldapBindDN":            "",
-	"ldapPassword":          "",
-	"ldapBaseDN":            "",
-	"ldapUserFilter":        "(objectClass=person)",
-	"ldapUserAttr":          "mail",
-	"ldapVlessField":        "vless_enabled",
-	"ldapSyncCron":          "@every 1m",
-	"ldapFlagField":         "",
-	"ldapTruthyValues":      "true,1,yes,on",
-	"ldapInvertFlag":        "false",
-	"ldapInboundTags":       "",
-	"ldapAutoCreate":        "false",
-	"ldapAutoDelete":        "false",
-	"ldapDefaultTotalGB":    "0",
-	"ldapDefaultExpiryDays": "0",
-	"ldapDefaultLimitIP":    "0",
 	// Multi-node mode
 	"multiNodeMode": "false", // "true" for multi-mode, "false" for single-mode
 	// Standalone-panel core versions the admin explicitly pinned (see GetXrayPinnedVersion).
@@ -162,6 +141,10 @@ var defaultValueMap = map[string]string{
 	"ipLimitGlobalEnable":     "true",
 	"ipLimitCheckIntervalSec": "30",
 	"ipLimitBanDurationSec":   "3600",
+	"loginProtectEnable":      "true", // sign-in brute-force protection: ban an address after repeated failures
+	"loginMaxFails":           "6",
+	"loginFailWindowSec":      "900",
+	"loginBanSec":             "900",
 	"ipLimitEnforcement":      "drop_and_block",
 	"ipLimitExcessPolicy":     "newest",
 	// Grafana integration
@@ -904,6 +887,33 @@ func (s *SettingService) GetTgTwoFactorEnable() (bool, error) {
 	return s.getBool("tgTwoFactorEnable")
 }
 
+// LoginPolicy is the sign-in brute-force protection setting: after MaxFails failures within Window an address (or an address
+// with an account) is banned for Ban.
+type LoginPolicy struct {
+	Enabled  bool
+	MaxFails int
+	Window   time.Duration
+	Ban      time.Duration
+}
+
+// GetLoginPolicy reads the sign-in protection; unreadable or out-of-range values fall back to the defaults (6 / 15 min / 15 min).
+func (s *SettingService) GetLoginPolicy() LoginPolicy {
+	p := LoginPolicy{Enabled: true, MaxFails: 6, Window: 15 * time.Minute, Ban: 15 * time.Minute}
+	if v, err := s.getBool("loginProtectEnable"); err == nil {
+		p.Enabled = v
+	}
+	if v, err := s.getInt("loginMaxFails"); err == nil && v >= 3 && v <= 100 {
+		p.MaxFails = v
+	}
+	if v, err := s.getInt("loginFailWindowSec"); err == nil && v >= 60 && v <= 86400 {
+		p.Window = time.Duration(v) * time.Second
+	}
+	if v, err := s.getInt("loginBanSec"); err == nil && v >= 10 && v <= 86400*30 {
+		p.Ban = time.Duration(v) * time.Second
+	}
+	return p
+}
+
 func (s *SettingService) GetTwoFactorTelegram() (bool, error) {
 	return s.getBool("twoFactorTelegram")
 }
@@ -1274,87 +1284,6 @@ func (s *SettingService) GetExternalTrafficInformURI() (string, error) {
 
 func (s *SettingService) SetExternalTrafficInformURI(InformURI string) error {
 	return s.setString("externalTrafficInformURI", InformURI)
-}
-
-// LDAP exported getters
-func (s *SettingService) GetLdapEnable() (bool, error) {
-	return s.getBool("ldapEnable")
-}
-
-func (s *SettingService) GetLdapHost() (string, error) {
-	return s.getString("ldapHost")
-}
-
-func (s *SettingService) GetLdapPort() (int, error) {
-	return s.getInt("ldapPort")
-}
-
-func (s *SettingService) GetLdapUseTLS() (bool, error) {
-	return s.getBool("ldapUseTLS")
-}
-
-func (s *SettingService) GetLdapBindDN() (string, error) {
-	return s.getString("ldapBindDN")
-}
-
-func (s *SettingService) GetLdapPassword() (string, error) {
-	return s.getString("ldapPassword")
-}
-
-func (s *SettingService) GetLdapBaseDN() (string, error) {
-	return s.getString("ldapBaseDN")
-}
-
-func (s *SettingService) GetLdapUserFilter() (string, error) {
-	return s.getString("ldapUserFilter")
-}
-
-func (s *SettingService) GetLdapUserAttr() (string, error) {
-	return s.getString("ldapUserAttr")
-}
-
-func (s *SettingService) GetLdapVlessField() (string, error) {
-	return s.getString("ldapVlessField")
-}
-
-func (s *SettingService) GetLdapSyncCron() (string, error) {
-	return s.getString("ldapSyncCron")
-}
-
-func (s *SettingService) GetLdapFlagField() (string, error) {
-	return s.getString("ldapFlagField")
-}
-
-func (s *SettingService) GetLdapTruthyValues() (string, error) {
-	return s.getString("ldapTruthyValues")
-}
-
-func (s *SettingService) GetLdapInvertFlag() (bool, error) {
-	return s.getBool("ldapInvertFlag")
-}
-
-func (s *SettingService) GetLdapInboundTags() (string, error) {
-	return s.getString("ldapInboundTags")
-}
-
-func (s *SettingService) GetLdapAutoCreate() (bool, error) {
-	return s.getBool("ldapAutoCreate")
-}
-
-func (s *SettingService) GetLdapAutoDelete() (bool, error) {
-	return s.getBool("ldapAutoDelete")
-}
-
-func (s *SettingService) GetLdapDefaultTotalGB() (int, error) {
-	return s.getInt("ldapDefaultTotalGB")
-}
-
-func (s *SettingService) GetLdapDefaultExpiryDays() (int, error) {
-	return s.getInt("ldapDefaultExpiryDays")
-}
-
-func (s *SettingService) GetLdapDefaultLimitIP() (int, error) {
-	return s.getInt("ldapDefaultLimitIP")
 }
 
 // GetBundlesEnabled reports whether delivery and access are driven by bundles (after a verified conversion).

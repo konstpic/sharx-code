@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"regexp"
@@ -28,6 +29,7 @@ func resetLoginLimits() {
 	loginPairFails = authn.NewLimiter(6, 15*time.Minute)
 	loginUserFails = authn.NewLimiter(30, 15*time.Minute)
 	loginAttempts = authn.NewLimiter(60, time.Minute)
+	loginBans.Clear()
 	emailReqRL = authn.NewLimiter(10, 10*time.Minute)
 	tokenUseRL = authn.NewLimiter(30, 10*time.Minute)
 	passkeyRL = authn.NewLimiter(40, 10*time.Minute)
@@ -491,3 +493,55 @@ func TestMFAGateIsSkippedForProviderSignInsThatCountAsMFA(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 func nil2ctx() context.Context { return context.Background() }
+
+func setLoginPolicy(t *testing.T, enable bool, maxFails, window, ban int) {
+	t.Helper()
+	db := database.GetDB()
+	for k, v := range map[string]string{"loginProtectEnable": fmt.Sprint(enable), "loginMaxFails": fmt.Sprint(maxFails),
+		"loginFailWindowSec": fmt.Sprint(window), "loginBanSec": fmt.Sprint(ban)} {
+		if err := db.Save(&model.Setting{Key: k, Value: v}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	loginPolicyMu.Lock()
+	loginPolicyAt = time.Time{}
+	loginPolicyMu.Unlock()
+}
+
+func TestSignInBanUsesTheConfiguredLimitAndDuration(t *testing.T) {
+	a := newAuthHTTP(t)
+	a.user("victim", a.role(rbac.ClientsRead).Id)
+	setLoginPolicy(t, true, 3, 600, 120)
+	b := a.browser()
+	for i := 0; i < 3; i++ {
+		a.login(b, "victim", fmt.Sprint("wrong-", i), "")
+	}
+	if !loginBans.Active("127.0.0.1|victim") && !loginBans.Active("127.0.0.1") {
+		t.Fatal("three failures (the configured limit) must ban the address")
+	}
+	if ok(a.login(b, "victim", "correct-horse-1", "")) {
+		t.Fatal("a banned address cannot sign in, even with the right password")
+	}
+	// the ban ends: the count starts afresh, one wrong attempt does not ban again, the right password works
+	loginBans.Clear()
+	a.login(b, "victim", "wrong-again", "")
+	if loginBans.Active("127.0.0.1|victim") {
+		t.Fatal("a single failure after a ban must not ban again")
+	}
+	if r := a.login(b, "victim", "correct-horse-1", ""); !ok(r) {
+		t.Fatalf("after the ban the owner signs in: %v", r)
+	}
+}
+
+func TestSignInProtectionCanBeSwitchedOff(t *testing.T) {
+	a := newAuthHTTP(t)
+	a.user("victim", a.role(rbac.ClientsRead).Id)
+	setLoginPolicy(t, false, 3, 600, 120)
+	b := a.browser()
+	for i := 0; i < 8; i++ {
+		a.login(b, "victim", fmt.Sprint("wrong-", i), "")
+	}
+	if r := a.login(b, "victim", "correct-horse-1", ""); !ok(r) {
+		t.Fatalf("with the protection off failures do not block: %v", r)
+	}
+}

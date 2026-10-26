@@ -85,10 +85,20 @@ second factor. The Telegram one-time code, when enabled, still applies to every 
 
 ## Brute force
 
-`/login` (and the second-factor step, magic links and passkeys) counts failures: **6 per address and account, 40 per address, 30 per
-account** in 15 minutes, and 60 attempts per address per minute. A blocked attempt gets the same answer as a wrong password and a
-correct password does not get through while blocked. (The per-account counter lets a stranger slow down sign-ins to one account for up
-to 15 minutes; that is the price of making distributed guessing slow.) The e-mail endpoints, token use and passkey endpoints have their own limits.
+`/login` (and the second-factor step, magic links and passkeys) counts failures. The limits are a panel setting (Settings → Security →
+**Sign-in protection**, `loginProtectEnable`, `loginMaxFails`, `loginFailWindowSec`, `loginBanSec`; defaults 6 / 15 minutes / 15 minutes):
+
+- **M failures per address and account** within the window, or **6×M per address** (any accounts), **ban that address (or address and
+  account) for the configured time**: from then on even the right password is refused for exactly that long (10 seconds to 30 days), then
+  the count starts afresh. M is 3 to 100.
+- **5×M per account from anywhere** within the window slows distributed guessing, but it is only a window, not a ban: a stranger cannot
+  keep an account locked for hours by guessing from elsewhere.
+- 60 attempts per address per minute are always refused beyond that, whatever the setting.
+- With the switch off, failures are not counted for bans (the per-minute flood limit stays).
+
+A blocked attempt gets the same answer as a wrong password, so the answer reveals nothing. Bans are kept in memory: a panel restart
+lifts them (the way back in for an administrator who banned themselves; another address works too). The e-mail endpoints, token use and
+passkey endpoints have their own limits.
 
 ## Sessions, cookies, CSRF, CORS
 

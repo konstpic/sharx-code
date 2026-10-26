@@ -163,7 +163,7 @@ More detail: [bundles](docs/architecture/bundles.md), [balancer](docs/architectu
 - **Legacy import**: A built-in **SQLite → PostgreSQL** migration tool is available for importing legacy panel SQLite dumps (`web/service/migration.go`).
 
 ### Observability (optional; not a bundled Grafana stack)
-- **Prometheus scrape**: Metrics are exposed in Prometheus text format at `{basePath}panel/metrics` (`web/web.go`, `web/service/metrics.go`).
+- **Prometheus scrape**: Metrics are exposed in Prometheus text format at `{basePath}panel/metrics` (`web/controller/api.go`, `web/service/metrics.go`). The endpoint requires authentication (a session or an API token as `Authorization: Bearer …`, account with `dashboard:read`); in Prometheus set `authorization: {type: Bearer, credentials: <token>}` in the scrape job.
 - **Loki logging**: Optional push logging when *Grafana integration* is enabled in settings (`logger/loki.go`, `web/entity/entity.go`).
 - **VictoriaMetrics**: Optional remote ingest URL in settings for metric forwarding.
 - **Grafana dashboard JSON**: Export from the panel (settings API) to import into **your** Grafana; the default `docker-compose` does **not** ship Grafana/Prometheus/Loki containers.
@@ -451,7 +451,7 @@ To change these settings, update the environment variables in `docker-compose.ym
 #### Sessions & observability
 
 - **Sessions**: Encrypted cookie store only; protect browser/session cookies like any admin app.
-- **Metrics / logs**: Configure optional Loki and VictoriaMetrics URLs in the panel **Settings** UI if you run those services yourself. Protect `/panel/metrics` at the network or reverse-proxy layer if you scrape it.
+- **Metrics / logs**: Configure optional Loki and VictoriaMetrics URLs in the panel **Settings** UI if you run those services yourself. `/panel/metrics` is not public: it needs an API token (see Observability).
 
 #### Environment Variables Configuration
 

@@ -75,7 +75,6 @@ Data updates in real time via WebSocket.
 | **Security** | 2FA (TOTP), API tokens, HWID mode |
 | **Telegram** | Bot for notifications and login |
 | **Subscription** | Subscription page builder |
-| **LDAP** | External administrator authentication |
 | **Grafana** | Loki, VictoriaMetrics, dashboard integration |
 | **Administrator** | Change login/password, restart panel |
 

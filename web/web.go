@@ -187,14 +187,6 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		MountPanelStaticAssets(engine)
 	}
 
-	// Prometheus metrics endpoint (no auth required for scraping)
-	panelMetrics := g.Group("/panel")
-	panelMetrics.GET("/metrics", func(c *gin.Context) {
-		metrics := service.CollectMetrics()
-		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		c.String(http.StatusOK, metrics)
-	})
-
 	s.index = controller.NewIndexController(g, ServePanelLoginPage)
 	s.panel = controller.NewXUIController(g, ServePanelReactPage)
 	s.api = controller.NewAPIController(g)
@@ -325,17 +317,6 @@ func (s *Server) startTask() {
 	// Per-client calendar reset (daily/weekly-by-weekday/monthly-by-day), independent of the
 	// inbound-level jobs above which reset every client on an inbound together.
 	s.cron.AddJob("@daily", job.NewClientTrafficResetJob())
-
-	// LDAP sync scheduling
-	if ldapEnabled, _ := s.settingService.GetLdapEnable(); ldapEnabled {
-		runtime, err := s.settingService.GetLdapSyncCron()
-		if err != nil || runtime == "" {
-			runtime = "@every 1m"
-		}
-		j := job.NewLdapSyncJob()
-		// job has zero-value services with method receivers that read settings on demand
-		s.cron.AddJob(runtime, j)
-	}
 
 	// Multi-node: jobs tick every second; interval comes from settings (see CheckNodeHealthJob / CollectNodeStatsJob).
 	s.cron.AddJob(job.NodeJobTickSchedule, job.NewCheckNodeHealthJob())

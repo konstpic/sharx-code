@@ -937,7 +937,7 @@ export function NodesPage() {
     setProfileAssignSubmitting(true);
     const r = await postJson(
       panel(`xray-core-config-profile/assign-nodes/${selectedProfileId}`),
-      { nodeIds: [profileAssignNodeId] },
+      { nodeIds: [profileAssignNodeId], mode: "add" },
       true,
     );
     setProfileAssignSubmitting(false);

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -82,20 +83,69 @@ var (
 	loginPairFails = authn.NewLimiter(6, 15*time.Minute)  // failed sign-ins per address and account
 	loginUserFails = authn.NewLimiter(30, 15*time.Minute) // failed sign-ins per account, from anywhere (slows a distributed guess)
 	loginAttempts  = authn.NewLimiter(60, time.Minute)    // every attempt per address
+	loginBans      = authn.NewBans()                      // addresses (or address and account) banned for the configured time
+
+	loginPolicyMu      sync.Mutex
+	loginPolicyAt      time.Time
+	loginPolicyCurrent = service.LoginPolicy{Enabled: true, MaxFails: 6, Window: 15 * time.Minute, Ban: 15 * time.Minute}
 )
 
+// currentLoginPolicy returns the sign-in protection setting (cached for a few seconds, so a flood of attempts does not read the
+// database each time) and applies its limits to the counters. The thresholds keep the old proportions: MaxFails per address and
+// account, six times that per address, five times that per account from anywhere.
+func currentLoginPolicy() service.LoginPolicy {
+	loginPolicyMu.Lock()
+	defer loginPolicyMu.Unlock()
+	if time.Since(loginPolicyAt) > 5*time.Second {
+		loginPolicyCurrent = (&service.SettingService{}).GetLoginPolicy()
+		loginPolicyAt = time.Now()
+		p := loginPolicyCurrent
+		loginPairFails.SetLimits(p.MaxFails, p.Window)
+		loginIPFails.SetLimits(p.MaxFails*6, p.Window)
+		loginUserFails.SetLimits(p.MaxFails*5, p.Window)
+	}
+	return loginPolicyCurrent
+}
+
 // loginBlocked reports whether this address or account has failed too often lately. The answer to a blocked attempt is the
-// same as to a wrong password, so it reveals nothing, and a correct password does not get through while blocked.
+// same as to a wrong password, so it reveals nothing, and a correct password does not get through while blocked. Once an
+// address (or an address with an account) went over the limit it stays banned for exactly the configured time (the count then
+// starts afresh); the account-wide counter is only a window, so someone elsewhere cannot lock an account for hours.
 func loginBlocked(ip, user string) bool {
+	if !currentLoginPolicy().Enabled {
+		return false
+	}
 	u := strings.ToLower(user)
-	return loginIPFails.Over(ip) || loginPairFails.Over(ip+"|"+u) || loginUserFails.Over(u)
+	return loginBans.Active(ip) || loginBans.Active(ip+"|"+u) || loginUserFails.Over(u)
+}
+
+// loginIPBlocked is the address-only check used by the sign-in paths that carry no account name.
+func loginIPBlocked(ip string) bool {
+	return currentLoginPolicy().Enabled && loginBans.Active(ip)
 }
 
 func loginFailed(ip, user string) {
+	service.LoginFailuresTotal.Add(1)
+	p := currentLoginPolicy()
 	u := strings.ToLower(user)
 	loginIPFails.Hit(ip)
 	loginPairFails.Hit(ip + "|" + u)
 	loginUserFails.Hit(u)
+	if !p.Enabled {
+		return
+	}
+	if loginPairFails.Over(ip + "|" + u) {
+		loginBans.Ban(ip+"|"+u, p.Ban)
+		service.LoginBansTotal.Add(1)
+		loginPairFails.Reset(ip + "|" + u)
+		logger.Warningf("sign-in ban: address %q, account %q for %s", ip, template.HTMLEscapeString(u), p.Ban)
+	}
+	if loginIPFails.Over(ip) {
+		loginBans.Ban(ip, p.Ban)
+		service.LoginBansTotal.Add(1)
+		loginIPFails.Reset(ip)
+		logger.Warningf("sign-in ban: address %q for %s", ip, p.Ban)
+	}
 }
 
 // login handles user authentication and session creation.

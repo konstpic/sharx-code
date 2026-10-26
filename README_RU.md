@@ -163,7 +163,7 @@ flowchart TD
 - **Импорт из SQLite**: встроенный инструмент **SQLite → PostgreSQL** для старых дампов панели (`web/service/migration.go`).
 
 ### Наблюдаемость (опционально; не встроенный стек Grafana)
-- **Prometheus**: метрики в текстовом формате на `{basePath}panel/metrics` (`web/web.go`, `web/service/metrics.go`).
+- **Prometheus**: метрики в текстовом формате на `{basePath}panel/metrics` (`web/controller/api.go`, `web/service/metrics.go`). Эндпоинт требует авторизации (сессия или API-токен в `Authorization: Bearer …`, аккаунт с правом `dashboard:read`); в задаче Prometheus укажите `authorization: {type: Bearer, credentials: <токен>}`.
 - **Loki**: опциональная отправка логов при включённой интеграции Grafana в настройках (`logger/loki.go`, `web/entity/entity.go`).
 - **VictoriaMetrics**: опциональный URL для приёма метрик из настроек.
 - **JSON дашборда Grafana**: выгрузка из панели для импорта в **ваш** Grafana; в типовом `docker-compose` **нет** контейнеров Grafana/Prometheus/Loki.
@@ -447,7 +447,7 @@ network_mode: host
 #### Сессии и наблюдаемость
 
 - **Сессии**: только зашифрованные cookie; храните секрет панели и доступ к браузеру как у любого admin-приложения.
-- **Метрики и логи**: опционально укажите URL Loki и VictoriaMetrics в веб-**настройках** панели, если поднимаете эти сервисы сами. Endpoint `/panel/metrics` ограничивайте на уровне сети или reverse proxy.
+- **Метрики и логи**: опционально укажите URL Loki и VictoriaMetrics в веб-**настройках** панели, если поднимаете эти сервисы сами. Endpoint `/panel/metrics` не публичный: нужен API-токен (см. раздел про Prometheus).
 
 #### Настройка через переменные окружения
 

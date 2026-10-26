@@ -3,7 +3,6 @@
 import {
   BarChart3,
   Bell,
-  Building2,
   CalendarSync,
   Download,
   Globe,
@@ -204,17 +203,49 @@ const TAB_VIEW_PERM: Record<string, string> = {
   general: "settings:read",
   telegram: "settings:read",
   subscription: "settings:read",
-  ldap: "settings:read",
   grafana: "settings:read",
 };
-/** What each tab needs to be edited. Telegram, LDAP and Grafana carry security settings: a separate permission. */
+/** What each tab needs to be edited. Telegram and Grafana carry security settings: a separate permission. */
 const TAB_EDIT_PERM: Record<string, string> = {
   general: "settings:update",
   subscription: "settings:update",
   telegram: "settings:security",
-  ldap: "settings:security",
   grafana: "settings:security",
 };
+
+const DURATION_UNITS = [
+  { id: "s", sec: 1, fallback: "seconds" },
+  { id: "m", sec: 60, fallback: "minutes" },
+  { id: "h", sec: 3600, fallback: "hours" },
+] as const;
+
+/** A duration kept in seconds, edited as a number with a seconds / minutes / hours unit. */
+function DurationInput({ seconds, min, max, onChange }: { seconds: number; min: number; max: number; onChange: (sec: number) => void }) {
+  const { t } = useTranslation();
+  const [unit, setUnit] = useState<number>(() => [...DURATION_UNITS].reverse().find((u) => seconds >= u.sec && seconds % u.sec === 0)?.sec ?? 1);
+  const shown = Math.round((seconds / unit) * 100) / 100;
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        type="number"
+        min={1}
+        className="max-w-[120px]"
+        value={shown}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          onChange(Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v * unit))) : min);
+        }}
+      />
+      <SelectNative value={String(unit)} onChange={(e) => setUnit(Number(e.target.value))}>
+        {DURATION_UNITS.map((u) => (
+          <option key={u.id} value={u.sec}>
+            {t(`pages.settings.security.unit.${u.id}`, { defaultValue: u.fallback })}
+          </option>
+        ))}
+      </SelectNative>
+    </div>
+  );
+}
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -486,7 +517,6 @@ export function SettingsPage() {
           { id: "security", label: t("pages.settings.tabs.security"), icon: Shield },
           { id: "telegram", label: t("pages.settings.tabs.telegram"), icon: Send },
           { id: "subscription", label: t("pages.settings.tabs.subscription"), icon: Link2 },
-          { id: "ldap", label: t("pages.settings.tabs.ldap"), icon: Building2 },
           { id: "grafana", label: t("pages.settings.tabs.grafana"), icon: BarChart3 },
         ] as SettingsTabConfig[]
       ).filter((tab) => can(TAB_VIEW_PERM[tab.id])),
@@ -1269,6 +1299,64 @@ export function SettingsPage() {
         </SettingsSection>
 
         <SettingsSection
+          title={t("pages.settings.security.loginProtect", { defaultValue: "Sign-in protection" })}
+          icon={Shield}
+          iconTone="danger"
+          full
+          requires="settings:security"
+        >
+          <Row
+            label={t("pages.settings.security.loginProtectEnable", { defaultValue: "Ban after failed sign-ins" })}
+            hint={t("pages.settings.security.loginProtectEnableDesc", {
+              defaultValue:
+                "An address that fails to sign in too many times is banned for a set time: even the right password is refused meanwhile. Bans are kept in memory and are lifted by a panel restart.",
+            })}
+          >
+            <Switch
+              checked={form.loginProtectEnable}
+              onChange={(v) => patch("loginProtectEnable", v)}
+              ariaLabel={t("pages.settings.security.loginProtectEnable", { defaultValue: "Ban after failed sign-ins" })}
+            />
+          </Row>
+          {form.loginProtectEnable ? (
+            <>
+              <Row
+                label={t("pages.settings.security.loginMaxFails", { defaultValue: "Failed attempts before the ban" })}
+                hint={t("pages.settings.security.loginMaxFailsDesc", {
+                  defaultValue: "Counted per address and account (3–100). An address is also banned at six times this many failures across any accounts.",
+                })}
+              >
+                <Input
+                  type="number"
+                  min={3}
+                  max={100}
+                  className="max-w-[120px]"
+                  value={form.loginMaxFails}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    patch("loginMaxFails", Number.isFinite(v) ? Math.min(100, Math.max(3, v)) : 6);
+                  }}
+                />
+              </Row>
+              <Row
+                label={t("pages.settings.security.loginFailWindow", { defaultValue: "Count failures within" })}
+                hint={t("pages.settings.security.loginFailWindowDesc", { defaultValue: "From 1 minute to 24 hours." })}
+              >
+                <DurationInput seconds={form.loginFailWindowSec} min={60} max={86400} onChange={(v) => patch("loginFailWindowSec", v)} />
+              </Row>
+              <Row
+                label={t("pages.settings.security.loginBanDuration", { defaultValue: "Ban duration" })}
+                hint={t("pages.settings.security.loginBanDurationDesc", {
+                  defaultValue: "From 10 seconds to 30 days. An account is never banned from every address at once, only the address that guessed.",
+                })}
+              >
+                <DurationInput seconds={form.loginBanSec} min={10} max={2592000} onChange={(v) => patch("loginBanSec", v)} />
+              </Row>
+            </>
+          ) : null}
+        </SettingsSection>
+
+        <SettingsSection
           title={t("pages.settings.security.tgTwoFactor", { defaultValue: "Telegram 2FA" })}
           icon={Shield}
           iconTone="danger"
@@ -1765,140 +1853,6 @@ export function SettingsPage() {
             <div className="px-4 py-4">
               <SubscriptionBuilder />
             </div>
-          </SettingsSection>
-        </SettingsGrid>
-      ) : null}
-
-      {activeTab === "ldap" ? (
-        <SettingsGrid>
-          <SettingsSection
-            title={t("pages.settings.sections.ldapServerTls")}
-            hint={t("pages.settings.ldapSectionDesc")}
-            icon={Building2}
-            iconTone="info"
-          >
-            <Row label={t("pages.settings.ldapEnable")}>
-              <Switch
-                checked={form.ldapEnable}
-                onChange={(v) => patch("ldapEnable", v)}
-                ariaLabel={t("pages.settings.ldapEnable")}
-              />
-            </Row>
-            <Row label={t("host")}>
-              <Input value={form.ldapHost} onChange={(e) => patch("ldapHost", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapPortLabel")}>
-              <Input
-                type="number"
-                value={form.ldapPort}
-                onChange={(e) => patch("ldapPort", parseInt(e.target.value, 10) || 0)}
-              />
-            </Row>
-            <Row label={t("pages.settings.certs")}>
-              <Switch
-                checked={form.ldapUseTLS}
-                onChange={(v) => patch("ldapUseTLS", v)}
-                ariaLabel={t("pages.settings.ldapUseTLS")}
-              />
-            </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.ldapBindSearch")}
-            icon={KeyRound}
-            iconTone="neutral"
-          >
-            <Row label={t("pages.settings.ldapBindDN")}>
-              <Input value={form.ldapBindDN} onChange={(e) => patch("ldapBindDN", e.target.value)} autoComplete="off" />
-            </Row>
-            <Row label={t("password")}>
-              <Input
-                type="password"
-                value={form.ldapPassword}
-                onChange={(e) => patch("ldapPassword", e.target.value)}
-                autoComplete="new-password"
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapBaseDN")}>
-              <Input value={form.ldapBaseDN} onChange={(e) => patch("ldapBaseDN", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapUserFilter")}>
-              <Input value={form.ldapUserFilter} onChange={(e) => patch("ldapUserFilter", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapUserAttr")}>
-              <Input value={form.ldapUserAttr} onChange={(e) => patch("ldapUserAttr", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapVlessField")}>
-              <Input value={form.ldapVlessField} onChange={(e) => patch("ldapVlessField", e.target.value)} />
-            </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.ldapSyncFlags")}
-            icon={CalendarSync}
-            iconTone="accent"
-          >
-            <Row label={t("pages.settings.ldapSyncCron")}>
-              <Input value={form.ldapSyncCron} onChange={(e) => patch("ldapSyncCron", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapFlagField")}>
-              <Input value={form.ldapFlagField} onChange={(e) => patch("ldapFlagField", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapTruthyValues")}>
-              <Input value={form.ldapTruthyValues} onChange={(e) => patch("ldapTruthyValues", e.target.value)} />
-            </Row>
-            <Row label={t("pages.settings.ldapInvertFlag")}>
-              <Switch
-                checked={form.ldapInvertFlag}
-                onChange={(v) => patch("ldapInvertFlag", v)}
-                ariaLabel={t("pages.settings.ldapInvertFlag")}
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapInboundTags")}>
-              <Input value={form.ldapInboundTags} onChange={(e) => patch("ldapInboundTags", e.target.value)} />
-            </Row>
-          </SettingsSection>
-
-          <SettingsSection
-            title={t("pages.settings.sections.ldapClientDefaults")}
-            icon={UserCog}
-            iconTone="success"
-          >
-            <Row label={t("pages.settings.ldapAutoCreate")}>
-              <Switch
-                checked={form.ldapAutoCreate}
-                onChange={(v) => patch("ldapAutoCreate", v)}
-                ariaLabel={t("pages.settings.ldapAutoCreate")}
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapAutoDelete")}>
-              <Switch
-                checked={form.ldapAutoDelete}
-                onChange={(v) => patch("ldapAutoDelete", v)}
-                ariaLabel={t("pages.settings.ldapAutoDelete")}
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapDefaultTotalGB")}>
-              <Input
-                type="number"
-                value={form.ldapDefaultTotalGB}
-                onChange={(e) => patch("ldapDefaultTotalGB", parseInt(e.target.value, 10) || 0)}
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapDefaultExpiryDays")}>
-              <Input
-                type="number"
-                value={form.ldapDefaultExpiryDays}
-                onChange={(e) => patch("ldapDefaultExpiryDays", parseInt(e.target.value, 10) || 0)}
-              />
-            </Row>
-            <Row label={t("pages.settings.ldapDefaultLimitIP")}>
-              <Input
-                type="number"
-                value={form.ldapDefaultLimitIP}
-                onChange={(e) => patch("ldapDefaultLimitIP", parseInt(e.target.value, 10) || 0)}
-              />
-            </Row>
           </SettingsSection>
         </SettingsGrid>
       ) : null}

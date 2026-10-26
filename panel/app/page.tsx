@@ -1,7 +1,7 @@
 "use client";
 
 import { Globe, KeyRound, Lock, User } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getJson, postJson } from "@/lib/api";
@@ -12,6 +12,7 @@ import { p } from "@/lib/paths";
 import { usePublicAppMeta } from "@/lib/usePublicAppMeta";
 import { Button, Input, SelectNative, Spinner, useToast } from "@/components/ui";
 import { EmailFlow, PasskeyButton, type FlowMode } from "@/components/login/EmailFlows";
+import { OtpInput } from "@/components/login/OtpInput";
 import { getAssertion, webauthnSupported } from "@/lib/webauthn";
 import { PanelHeaderAppMeta, PanelTelegramNavLink, Surface } from "@/components/panel";
 
@@ -50,6 +51,11 @@ export default function LoginPage() {
   const [form, setForm] = useState({ username: "", password: "", twoFactorCode: "" });
   const [ready, setReady] = useState(false);
   const [awaiting2FA, setAwaiting2FA] = useState(false);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [recoveryAvailable, setRecoveryAvailable] = useState(false);
+  const [codeInvalid, setCodeInvalid] = useState(false);
+  // carousel direction: 1 = forward (the next screen slides in from the right), -1 = back
+  const dirRef = useRef<1 | -1>(1);
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const publicMeta = usePublicAppMeta();
@@ -99,7 +105,9 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
+    dirRef.current = -1;
     setAwaiting2FA(false);
+    setUseRecovery(false);
     setResendIn(0);
   }, [form.username, form.password]);
 
@@ -114,10 +122,10 @@ export default function LoginPage() {
     applyPanelTheme(theme);
   }, [publicMeta?.panelTheme]);
 
-  const submitLogin = async (resend: boolean, keyResponse?: unknown) => {
+  const submitLogin = async (resend: boolean, keyResponse?: unknown, codeOverride?: string) => {
     setLoading(true);
     try {
-      const v: Record<string, unknown> = { ...form, twoFactorCode: resend ? "" : form.twoFactorCode };
+      const v: Record<string, unknown> = { ...form, twoFactorCode: resend ? "" : (codeOverride ?? form.twoFactorCode) };
       if (keyResponse !== undefined && keyChallenge) {
         v.webauthnState = keyChallenge.state;
         v.webauthnResponse = keyResponse;
@@ -132,10 +140,13 @@ export default function LoginPage() {
         return;
       }
       const obj = res.obj as
-        | { needTwoFactor?: boolean; telegramSent?: boolean; resendIn?: number; webauthn?: { state: string; options: Record<string, unknown> } }
+        | { needTwoFactor?: boolean; recovery?: boolean; telegramSent?: boolean; resendIn?: number; webauthn?: { state: string; options: Record<string, unknown> } }
         | undefined;
       if (obj?.needTwoFactor) {
         setKeyChallenge(obj.webauthn ?? null);
+        setRecoveryAvailable(!!obj.recovery);
+        setCodeInvalid(false);
+        if (!awaiting2FA) dirRef.current = 1;
         if (obj.telegramSent) {
           toast.success(t("pages.login.toasts.twoFactorTelegramSent"));
         } else if (typeof obj.resendIn === "number") {
@@ -153,11 +164,28 @@ export default function LoginPage() {
         return;
       }
       toast.error(res.msg || t("pages.login.toasts.wrongUsernameOrPassword"));
+      if (awaiting2FA) {
+        // a wrong code: empty the cells so the next try starts clean
+        setCodeInvalid(true);
+        setForm((f) => ({ ...f, twoFactorCode: "" }));
+      }
     } catch {
       toast.error(t("fail"));
     } finally {
       setLoading(false);
     }
+  };
+
+  const openFlow = (f: { mode: FlowMode; token: string }) => {
+    dirRef.current = 1;
+    setFlow(f);
+  };
+
+  const view: "credentials" | "otp" | "recovery" | "flow" = flow ? "flow" : awaiting2FA ? (useRecovery ? "recovery" : "otp") : "credentials";
+  const slide = {
+    enter: (d: number) => ({ x: reduceMotion ? 0 : d * 56, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (d: number) => ({ x: reduceMotion ? 0 : d * -56, opacity: 0 }),
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -273,14 +301,149 @@ export default function LoginPage() {
             SharX Panel
           </p>
           <Surface>
-            {flow ? (
-              <EmailFlow mode={flow.mode} token={flow.token} onBack={() => setFlow(null)} />
-            ) : (
-            <>
-            <form onSubmit={onSubmit} className="flex flex-col gap-4">
-              {!awaiting2FA ? (
-                <>
-              <div>
+            <div className="relative overflow-hidden">
+              <AnimatePresence initial={false} mode="popLayout" custom={dirRef.current}>
+                <motion.div
+                  key={view}
+                  custom={dirRef.current}
+                  variants={slide}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  transition={{ duration: reduceMotion ? 0.01 : 0.3, ease: easeStandard }}
+                >
+                  {view === "flow" && flow ? (
+                    <EmailFlow
+                      mode={flow.mode}
+                      token={flow.token}
+                      onBack={() => {
+                        dirRef.current = -1;
+                        setFlow(null);
+                      }}
+                    />
+                  ) : null}
+                  {view === "otp" ? (
+                    <div className="flex flex-col gap-5">
+                      <p className="text-center text-sm text-[var(--fg-muted)] text-balance">
+                        {t("pages.login.twoFactorStepHint", { defaultValue: "Enter the code to finish signing in." })}
+                      </p>
+                      <OtpInput
+                        value={form.twoFactorCode}
+                        label={t("twoFactorCode")}
+                        invalid={codeInvalid}
+                        disabled={loading}
+                        onChange={(code) => {
+                          setCodeInvalid(false);
+                          setForm((f) => ({ ...f, twoFactorCode: code }));
+                        }}
+                        onComplete={(code) => void submitLogin(false, undefined, code)}
+                      />
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <button
+                          type="button"
+                          className="text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                          onClick={() => {
+                            dirRef.current = -1;
+                            setAwaiting2FA(false);
+                            setResendIn(0);
+                            setForm((f) => ({ ...f, twoFactorCode: "" }));
+                          }}
+                        >
+                          {t("back")}
+                        </button>
+                        <button
+                          type="button"
+                          className="text-[var(--accent)] disabled:cursor-not-allowed disabled:text-[var(--fg-subtle)]"
+                          disabled={loading || resendIn > 0}
+                          onClick={() => void submitLogin(true)}
+                        >
+                          {resendIn > 0
+                            ? t("pages.login.resendCodeIn", { defaultValue: "Resend code in {{seconds}} s", seconds: resendIn })
+                            : t("pages.login.resendCode", { defaultValue: "Resend code" })}
+                        </button>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full !py-3"
+                        loading={loading}
+                        disabled={form.twoFactorCode.length < 6}
+                        onClick={() => void submitLogin(false)}
+                      >
+                        {t("confirm")}
+                      </Button>
+                      {keyChallenge && webauthnSupported() ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="w-full"
+                          onClick={async () => {
+                            try {
+                              const resp = await getAssertion(keyChallenge.options);
+                              await submitLogin(false, resp);
+                            } catch {
+                              toast.error(t("rbac.keys.failed", { defaultValue: "The key could not be used." }));
+                            }
+                          }}
+                        >
+                          {t("pages.login.flows.useKey", { defaultValue: "Use a security key" })}
+                        </Button>
+                      ) : null}
+                      {recoveryAvailable ? (
+                        <button
+                          type="button"
+                          className="text-center text-xs text-[var(--accent)]"
+                          onClick={() => {
+                            dirRef.current = 1;
+                            setForm((f) => ({ ...f, twoFactorCode: "" }));
+                            setUseRecovery(true);
+                          }}
+                        >
+                          {t("pages.login.flows.useRecovery", { defaultValue: "Use a recovery code" })}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {view === "recovery" ? (
+                    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+                      <p className="text-center text-sm text-[var(--fg-muted)] text-balance">
+                        {t("pages.login.flows.recoveryHint", { defaultValue: "Enter one of your recovery codes. Each works once." })}
+                      </p>
+                      <div className="relative">
+                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]" aria-hidden />
+                        <Input
+                          id="t"
+                          name="twoFactorCode"
+                          autoComplete="one-time-code"
+                          autoFocus
+                          inputSize="lg"
+                          className="!pl-10"
+                          placeholder={t("pages.login.flows.recoveryCode", { defaultValue: "Recovery code" })}
+                          value={form.twoFactorCode}
+                          onChange={(e) => setForm((f) => ({ ...f, twoFactorCode: e.target.value }))}
+                          required
+                        />
+                      </div>
+                      <Button type="submit" variant="primary" className="w-full !py-3" loading={loading}>
+                        {t("confirm")}
+                      </Button>
+                      <button
+                        type="button"
+                        className="text-center text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+                        onClick={() => {
+                          dirRef.current = -1;
+                          setForm((f) => ({ ...f, twoFactorCode: "" }));
+                          setUseRecovery(false);
+                        }}
+                      >
+                        {t("pages.login.flows.useAuthenticatorCode", { defaultValue: "Use the authenticator code instead" })}
+                      </button>
+                    </form>
+                  ) : null}
+                  {view === "credentials" ? (
+                    <>
+                      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+                        <div>
                 <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="u">
                   {t("username")}
                 </label>
@@ -325,121 +488,33 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-                </>
-              ) : null}
-              {awaiting2FA ? (
-                <motion.div
-                  className="flex flex-col gap-4"
-                  initial={reduceMotion ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: durations.base, ease: easeStandard }}
-                >
-                  <p className="text-center text-sm text-[var(--fg-muted)] text-balance">
-                    {t("pages.login.twoFactorStepHint", {
-                      defaultValue: "Enter the code to finish signing in.",
-                    })}
-                  </p>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]" htmlFor="t">
-                      {t("twoFactorCode")}
-                    </label>
-                    <div className="relative">
-                      <KeyRound
-                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--fg-subtle)]"
-                        aria-hidden
-                      />
-                      <Input
-                        id="t"
-                        name="twoFactorCode"
-                        autoComplete="one-time-code"
-                        inputMode="numeric"
-                        autoFocus
-                        inputSize="lg"
-                        className="!pl-10"
-                        placeholder={t("pages.login.flows.codeOrRecovery", { defaultValue: "Code or recovery code" })}
-                        value={form.twoFactorCode}
-                        onChange={(e) => setForm((f) => ({ ...f, twoFactorCode: e.target.value }))}
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 text-xs">
-                    <button
-                      type="button"
-                      className="text-[var(--fg-muted)] hover:text-[var(--fg)]"
-                      onClick={() => {
-                        setAwaiting2FA(false);
-                        setResendIn(0);
-                        setForm((f) => ({ ...f, twoFactorCode: "" }));
-                      }}
-                    >
-                      {t("back")}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-[var(--accent)] disabled:cursor-not-allowed disabled:text-[var(--fg-subtle)]"
-                      disabled={loading || resendIn > 0}
-                      onClick={() => void submitLogin(true)}
-                    >
-                      {resendIn > 0
-                        ? t("pages.login.resendCodeIn", {
-                            defaultValue: "Resend code in {{seconds}} s",
-                            seconds: resendIn,
-                          })
-                        : t("pages.login.resendCode", { defaultValue: "Resend code" })}
-                    </button>
-                  </div>
-                </motion.div>
-              ) : null}
-              <Button
-                type="submit"
-                variant="primary"
-                className="!mt-2 w-full !py-3"
-                loading={loading}
-              >
-                {awaiting2FA ? t("confirm") : t("login")}
-              </Button>
-            </form>
-            {awaiting2FA && keyChallenge && webauthnSupported() ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className="mt-3 w-full"
-                onClick={async () => {
-                  try {
-                    const resp = await getAssertion(keyChallenge.options);
-                    await submitLogin(false, resp);
-                  } catch {
-                    toast.error(t("rbac.keys.failed", { defaultValue: "The key could not be used." }));
-                  }
-                }}
-              >
-                {t("pages.login.flows.useKey", { defaultValue: "Use a security key" })}
-              </Button>
-            ) : null}
-            {!awaiting2FA && (methods.passkeys || methods.magicLink || methods.signup || methods.passwordReset) ? (
+                        <Button type="submit" variant="primary" className="!mt-2 w-full !py-3" loading={loading}>
+                          {t("login")}
+                        </Button>
+                      </form>
+                      {(methods.passkeys || methods.magicLink || methods.signup || methods.passwordReset) ? (
               <div className="mt-4 flex flex-col gap-3">
                 {methods.passkeys && webauthnSupported() ? <PasskeyButton onError={(m) => toast.error(m)} /> : null}
                 <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
                   {methods.magicLink ? (
-                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "magic", token: "" })}>
+                    <button type="button" className="text-[var(--accent)]" onClick={() => openFlow({ mode: "magic", token: "" })}>
                       {t("pages.login.flows.magicLink", { defaultValue: "E-mail me a sign-in link" })}
                     </button>
                   ) : null}
                   {methods.passwordReset ? (
-                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "forgot", token: "" })}>
+                    <button type="button" className="text-[var(--accent)]" onClick={() => openFlow({ mode: "forgot", token: "" })}>
                       {t("pages.login.flows.forgot", { defaultValue: "Forgot your password?" })}
                     </button>
                   ) : null}
                   {methods.signup ? (
-                    <button type="button" className="text-[var(--accent)]" onClick={() => setFlow({ mode: "register", token: "" })}>
+                    <button type="button" className="text-[var(--accent)]" onClick={() => openFlow({ mode: "register", token: "" })}>
                       {t("pages.login.flows.createAccount", { defaultValue: "Create an account" })}
                     </button>
                   ) : null}
                 </div>
               </div>
             ) : null}
-            {sso.length > 0 && !awaiting2FA ? (
+            {sso.length > 0 ? (
               <div className="mt-5 border-t border-[var(--border)] pt-5">
                 <p className="mb-3 text-center text-xs text-[var(--fg-muted)]">
                   {t("pages.login.sso.or", { defaultValue: "or sign in with" })}
@@ -462,8 +537,11 @@ export default function LoginPage() {
                 </div>
               </div>
             ) : null}
-            </>
-            )}
+                    </>
+                  ) : null}
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </Surface>
         </motion.div>
       </div>

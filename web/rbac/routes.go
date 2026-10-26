@@ -38,6 +38,7 @@ var routes = map[string][]string{
 	"GET /panel/api/server/memHistory/:bucket":    {DashboardRead},
 	"GET /panel/api/server/diskHistory/:bucket":   {DashboardRead},
 	"GET /panel/api/server/metrics":               {DashboardRead},
+	"GET /panel/metrics":                          {DashboardRead}, // Prometheus scrape: session or Bearer API token
 	"GET /panel/api/server/getXrayVersion":        {DashboardRead},
 	"GET /panel/api/server/getTelemtVersion":      {DashboardRead},
 	"POST /panel/api/server/logs/:count":          {LogsRead},

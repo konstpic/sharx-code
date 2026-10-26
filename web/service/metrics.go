@@ -3,9 +3,13 @@ package service
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 )
@@ -15,6 +19,104 @@ var (
 	userAgentCounts = make(map[string]int64)
 	userAgentMu     sync.RWMutex
 )
+
+// Sign-in event counters, exported as xui_login_failures_total / xui_login_bans_total (see controller.loginFailed).
+var (
+	LoginFailuresTotal atomic.Int64
+	LoginBansTotal     atomic.Int64
+)
+
+// metricWriter writes Prometheus text blocks (HELP, TYPE, samples).
+type metricWriter struct{ b *strings.Builder }
+
+func (w metricWriter) head(name, help, typ string) {
+	fmt.Fprintf(w.b, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ)
+}
+
+func (w metricWriter) sample(name, labels string, v any) {
+	if labels != "" {
+		labels = "{" + labels + "}"
+	}
+	fmt.Fprintf(w.b, "%s%s %v\n", name, labels, v)
+}
+
+func (w metricWriter) one(name, help, typ string, v any) {
+	w.head(name, help, typ)
+	w.sample(name, "", v)
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func lbl(k, v string) string { return k + `="` + escapeLabelValue(v) + `"` }
+
+// collectExtraMetrics adds the panel build, runtime, security, client-lifecycle and per-node core metrics.
+func collectExtraMetrics(b *strings.Builder, status *Status, nodes []*model.Node) {
+	w := metricWriter{b}
+	w.head("xui_build_info", "Panel build information", "gauge")
+	w.sample("xui_build_info", lbl("version", config.GetVersion()), 1)
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	w.one("xui_go_goroutines", "Number of goroutines of the panel process", "gauge", runtime.NumGoroutine())
+	w.one("xui_go_heap_alloc_bytes", "Heap bytes allocated by the panel process", "gauge", ms.HeapAlloc)
+	w.one("xui_go_gc_cycles_total", "Completed garbage collection cycles", "counter", ms.NumGC)
+
+	w.one("xui_login_failures_total", "Failed sign-in attempts since the panel started", "counter", LoginFailuresTotal.Load())
+	w.one("xui_login_bans_total", "Sign-in bans issued since the panel started", "counter", LoginBansTotal.Load())
+
+	if status != nil {
+		w.one("xui_panel_uptime_seconds", "Panel process uptime in seconds", "gauge", status.PanelUptime)
+		w.one("xui_users_online", "Clients currently online", "gauge", status.UsersOnline)
+		w.head("xui_nodes_xray", "Worker nodes by Xray state", "gauge")
+		for state, n := range map[string]int{"running": status.NodesXray.Running, "stopped": status.NodesXray.Stopped, "error": status.NodesXray.Error, "unknown": status.NodesXray.Unknown} {
+			w.sample("xui_nodes_xray", lbl("state", state), n)
+		}
+		w.head("xui_nodes_telemt", "Worker nodes by Telemt state", "gauge")
+		for state, n := range map[string]int{"running": status.NodesTelemt.Running, "stopped": status.NodesTelemt.Stopped, "unknown": status.NodesTelemt.Unknown} {
+			w.sample("xui_nodes_telemt", lbl("state", state), n)
+		}
+		w.one("xui_telemt_running", "Local Telemt sidecars running (standalone panel)", "gauge", boolInt(status.Telemt.State == "running"))
+	}
+
+	if len(nodes) > 0 {
+		w.head("xui_node_enabled", "Node enabled in the panel (1) or paused (0)", "gauge")
+		w.head("xui_node_xray_up", "Xray on the node is running (1) or not (0)", "gauge")
+		w.head("xui_node_telemt_up", "Telemt on the node is running (1) or not (0)", "gauge")
+		w.head("xui_node_amneziawg_up", "AmneziaWG on the node is running (1) or not (0)", "gauge")
+		w.head("xui_node_info", "Node core and worker versions", "gauge")
+		w.head("xui_node_last_check_timestamp_seconds", "Unix time of the node's last health check", "gauge")
+		w.head("xui_node_traffic_limit_bytes", "Node traffic limit in bytes (0 = unlimited)", "gauge")
+		for _, n := range nodes {
+			id := lbl("node", n.Name) + "," + lbl("node_id", fmt.Sprint(n.Id))
+			w.sample("xui_node_enabled", id, boolInt(n.Enable))
+			w.sample("xui_node_xray_up", id, boolInt(n.XrayState == "running"))
+			w.sample("xui_node_telemt_up", id, boolInt(n.TelemtState == model.NodeTelemtRunning))
+			w.sample("xui_node_amneziawg_up", id, boolInt(n.AmneziaWgState == model.NodeAmneziaWgRunning))
+			w.sample("xui_node_info", id+","+lbl("xray_version", n.XrayVersion)+","+lbl("telemt_version", n.TelemtVersion)+","+lbl("worker_version", n.WorkerVersion), 1)
+			w.sample("xui_node_last_check_timestamp_seconds", id, n.LastCheck)
+			w.sample("xui_node_traffic_limit_bytes", id, int64(n.TrafficLimitGB*(1<<30)))
+		}
+	}
+
+	db := database.GetDB()
+	nowMs := time.Now().UnixMilli()
+	var expired, exhausted, hwids, groups, orgs int64
+	db.Model(&model.ClientEntity{}).Where("expiry_time > 0 AND expiry_time < ?", nowMs).Count(&expired)
+	db.Model(&model.ClientEntity{}).Where("total_gb > 0 AND (up + down) >= total_gb * 1073741824").Count(&exhausted)
+	db.Model(&model.ClientHWID{}).Count(&hwids)
+	db.Model(&model.ClientGroup{}).Count(&groups)
+	db.Model(&model.Organization{}).Count(&orgs)
+	w.one("xui_clients_expired", "Clients whose expiry time has passed", "gauge", expired)
+	w.one("xui_clients_traffic_exhausted", "Clients that used up their traffic limit", "gauge", exhausted)
+	w.one("xui_hwid_devices_total", "Registered client devices (HWID)", "gauge", hwids)
+	w.one("xui_client_groups_total", "Client groups", "gauge", groups)
+	w.one("xui_organizations_total", "Organizations", "gauge", orgs)
+}
 
 // InitMetricsExporter initializes the metrics exporter
 // Metrics are exposed via /panel/metrics endpoint for Prometheus/Grafana scraping
@@ -276,6 +378,8 @@ func CollectMetrics() string {
 				escapeLabelValue(node.Name), node.Id, node.ResponseTime))
 		}
 	}
+
+	collectExtraMetrics(&builder, status, nodes)
 
 	// User Agent metrics (subscription server)
 	userAgentMu.RLock()

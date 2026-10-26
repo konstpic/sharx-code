@@ -28,6 +28,10 @@ export type AllSetting = {
   twoFactorToken: string;
   twoFactorTelegram: boolean;
   tgTwoFactorEnable: boolean;
+  loginProtectEnable: boolean;
+  loginMaxFails: number;
+  loginFailWindowSec: number;
+  loginBanSec: number;
   subEnable: boolean;
   subJsonEnable: boolean;
   subTitle: string;
@@ -57,26 +61,6 @@ export type AllSetting = {
   subPageLogoUrl: string;
   subPageBrandText: string;
   subPageBackgroundUrl: string;
-  ldapEnable: boolean;
-  ldapHost: string;
-  ldapPort: number;
-  ldapUseTLS: boolean;
-  ldapBindDN: string;
-  ldapPassword: string;
-  ldapBaseDN: string;
-  ldapUserFilter: string;
-  ldapUserAttr: string;
-  ldapVlessField: string;
-  ldapSyncCron: string;
-  ldapFlagField: string;
-  ldapTruthyValues: string;
-  ldapInvertFlag: boolean;
-  ldapInboundTags: string;
-  ldapAutoCreate: boolean;
-  ldapAutoDelete: boolean;
-  ldapDefaultTotalGB: number;
-  ldapDefaultExpiryDays: number;
-  ldapDefaultLimitIP: number;
   multiNodeMode: boolean;
   enableIPv6: boolean;
   /** Seconds between worker stats polls (multi-node). */
@@ -166,6 +150,10 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     twoFactorToken: toStr(raw.twoFactorToken),
     twoFactorTelegram: toBool(raw.twoFactorTelegram),
     tgTwoFactorEnable: toBool(raw.tgTwoFactorEnable),
+    loginProtectEnable: raw.loginProtectEnable === undefined ? true : toBool(raw.loginProtectEnable),
+    loginMaxFails: toInt(raw.loginMaxFails, 6),
+    loginFailWindowSec: toInt(raw.loginFailWindowSec, 900),
+    loginBanSec: toInt(raw.loginBanSec, 900),
     subEnable: toBool(raw.subEnable),
     subJsonEnable: toBool(raw.subJsonEnable),
     subTitle: toStr(raw.subTitle),
@@ -195,26 +183,6 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     subPageLogoUrl: toStr(raw.subPageLogoUrl),
     subPageBrandText: toStr(raw.subPageBrandText),
     subPageBackgroundUrl: toStr(raw.subPageBackgroundUrl),
-    ldapEnable: toBool(raw.ldapEnable),
-    ldapHost: toStr(raw.ldapHost),
-    ldapPort: toInt(raw.ldapPort, 389),
-    ldapUseTLS: toBool(raw.ldapUseTLS),
-    ldapBindDN: toStr(raw.ldapBindDN),
-    ldapPassword: toStr(raw.ldapPassword),
-    ldapBaseDN: toStr(raw.ldapBaseDN),
-    ldapUserFilter: toStr(raw.ldapUserFilter, "(objectClass=person)"),
-    ldapUserAttr: toStr(raw.ldapUserAttr, "mail"),
-    ldapVlessField: toStr(raw.ldapVlessField, "vless_enabled"),
-    ldapSyncCron: toStr(raw.ldapSyncCron, "@every 1m"),
-    ldapFlagField: toStr(raw.ldapFlagField),
-    ldapTruthyValues: toStr(raw.ldapTruthyValues, "true,1,yes,on"),
-    ldapInvertFlag: toBool(raw.ldapInvertFlag),
-    ldapInboundTags: toStr(raw.ldapInboundTags),
-    ldapAutoCreate: toBool(raw.ldapAutoCreate),
-    ldapAutoDelete: toBool(raw.ldapAutoDelete),
-    ldapDefaultTotalGB: toInt(raw.ldapDefaultTotalGB, 0),
-    ldapDefaultExpiryDays: toInt(raw.ldapDefaultExpiryDays, 0),
-    ldapDefaultLimitIP: toInt(raw.ldapDefaultLimitIP, 0),
     multiNodeMode: toBool(raw.multiNodeMode),
     enableIPv6: toBool(raw.enableIPv6),
     nodeStatsCollectionIntervalSec: toInt(raw.nodeStatsCollectionIntervalSec, 3),

@@ -43,7 +43,7 @@
 
 ### پایش (اختیاری؛ استک آمادهٔ Grafana نیست)
 
-* **Prometheus**: متریک‌ها به صورت متن Prometheus در `{basePath}panel/metrics` (`web/web.go`, `web/service/metrics.go`).
+* **Prometheus**: متریک‌ها به صورت متن Prometheus در `{basePath}panel/metrics` (`web/controller/api.go`, `web/service/metrics.go`). این مسیر نیاز به احراز هویت دارد (نشست یا توکن API با `Authorization: Bearer`).
 * **Loki**: ارسال اختیاری لاگ وقتی یکپارچه‌سازی Grafana در تنظیمات فعال باشد (`logger/loki.go`, `web/entity/entity.go`).
 * **VictoriaMetrics**: URL اختیاری برای فوروارد متریک در تنظیمات.
 * **JSON داشبورد Grafana**: از پانل برای ایمپورت در **Grafana خودتان**؛ در `docker-compose` پیش‌فرض کانتینر Grafana/Prometheus/Loki نیست.
@@ -362,7 +362,7 @@ network_mode: host
 #### نشست‌ها و پایش
 
 * **نشست‌ها**: فقط کوکی رمزنگاری‌شده؛ راز پانل و دسترسی مرورگر را مثل هر برنامهٔ مدیریتی محافظت کنید.
-* **متریک/لاگ**: در صورت اجرای Loki/VictoriaMetrics، URL را در **تنظیمات** پانل وارد کنید. `/panel/metrics` را در شبکه یا reverse proxy محدود کنید.
+* **متریک/لاگ**: در صورت اجرای Loki/VictoriaMetrics، URL را در **تنظیمات** پانل وارد کنید. `/panel/metrics` عمومی نیست و به توکن API نیاز دارد.
 
 #### پیکربندی متغیرهای محیطی
 

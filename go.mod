@@ -13,7 +13,6 @@ require (
 	github.com/gin-contrib/gzip v1.2.5
 	github.com/gin-contrib/sessions v1.0.4
 	github.com/gin-gonic/gin v1.11.0
-	github.com/go-ldap/ldap/v3 v3.4.12
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/goccy/go-json v0.10.5
 	github.com/goccy/go-yaml v1.19.1
@@ -44,7 +43,6 @@ require (
 )
 
 require (
-	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
@@ -56,7 +54,6 @@ require (
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
-	github.com/go-asn1-ber/asn1-ber v1.5.8-0.20250403174932-29230038a667 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

@@ -72,6 +72,15 @@ func (a *APIController) initRouter(g *gin.RouterGroup) {
 	nodeAPI.POST("/push-geo", a.pushNodeGeo)
 	nodeAPI.POST("/pull-xray-config", a.pullWorkerXrayConfig)
 
+	// Prometheus scrape endpoint. It used to be public, which handed the server's load, memory, node and client counts to anyone;
+	// now it needs a session or an API token (Bearer) of an account that may read the dashboard. Prometheus:
+	//   authorization: {type: Bearer, credentials: <API token>}
+	g.GET("/panel/metrics", a.checkAPIAuth, func(c *gin.Context) {
+		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		c.Header("Cache-Control", "no-store")
+		c.String(http.StatusOK, service.CollectMetrics())
+	})
+
 	// Main API group with session auth
 	api := g.Group("/panel/api")
 	api.Use(a.checkAPIAuth)
