@@ -20,6 +20,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
@@ -495,6 +496,24 @@ func dialNodeSSH(req NodeSSHProvisionRequest) (*ssh.Client, error) {
 
 // sshRunCombined runs one command in a fresh session with a hard timeout, returning combined
 // stdout+stderr. Each step gets its own session since a ssh.Client supports many sequential ones.
+// lockedBuffer is a bytes.Buffer safe for the concurrent writers of an ssh session.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func sshRunCombined(client *ssh.Client, timeout time.Duration, cmd string) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
@@ -502,9 +521,11 @@ func sshRunCombined(client *ssh.Client, timeout time.Duration, cmd string) (stri
 	}
 	defer session.Close()
 
-	var buf bytes.Buffer
-	session.Stdout = &buf
-	session.Stderr = &buf
+	// The ssh package copies stdout and stderr in separate goroutines, and on timeout we read while they may still write:
+	// a plain bytes.Buffer shared by both is a data race (it dropped output).
+	buf := &lockedBuffer{}
+	session.Stdout = buf
+	session.Stderr = buf
 
 	done := make(chan error, 1)
 	go func() { done <- session.Run(cmd) }()

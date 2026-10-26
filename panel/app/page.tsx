@@ -12,6 +12,7 @@ import { p } from "@/lib/paths";
 import { usePublicAppMeta } from "@/lib/usePublicAppMeta";
 import { Button, Input, SelectNative, Spinner, useToast } from "@/components/ui";
 import { EmailFlow, PasskeyButton, type FlowMode } from "@/components/login/EmailFlows";
+import { HandwrittenText } from "@/components/login/HandwrittenText";
 import { OtpInput } from "@/components/login/OtpInput";
 import { getAssertion, webauthnSupported } from "@/lib/webauthn";
 import { PanelHeaderAppMeta, PanelTelegramNavLink, Surface } from "@/components/panel";
@@ -266,34 +267,12 @@ export default function LoginPage() {
             ease: easeStandard,
           }}
         >
-          <motion.h1
-            className={`font-login-welcome mb-2 text-center leading-[1.08] text-balance ${reduceMotion ? "text-[var(--fg)]" : ""}`}
+          <h1
+            className="font-login-welcome mb-2 text-center leading-[1.08] text-balance"
             style={{ fontSize: "clamp(1.75rem, 1rem + 2.8vw, 2.75rem)" }}
-            initial={reduceMotion ? false : { opacity: 0, y: 8, filter: "blur(6px)" }}
-            animate={reduceMotion ? { opacity: 1, y: 0, filter: "blur(0px)" } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ duration: durations.slow, delay: 0.04, ease: easeStandard }}
           >
-            {reduceMotion ? (
-              t("pages.login.hello")
-            ) : (
-              <motion.span
-                className="inline-block bg-clip-text text-transparent [background-size:200%_100%] [background-image:linear-gradient(105deg,var(--fg)_0%,color-mix(in_oklab,var(--accent)_26%,var(--fg))_45%,var(--fg)_100%)]"
-                initial={{ backgroundPosition: "0% 50%" }}
-                animate={{ backgroundPosition: ["0% 50%", "100% 50%"] }}
-                transition={{
-                  backgroundPosition: {
-                    duration: 6.5,
-                    ease: "easeInOut",
-                    repeat: Number.POSITIVE_INFINITY,
-                    repeatType: "reverse",
-                    delay: 0.5,
-                  },
-                }}
-              >
-                {t("pages.login.hello")}
-              </motion.span>
-            )}
-          </motion.h1>
+            <HandwrittenText text={t("pages.login.hello")} reduceMotion={!!reduceMotion} />
+          </h1>
           <p
             className="mb-8 text-center text-[var(--fg-muted)] text-balance"
             style={{ fontSize: "clamp(0.875rem, 0.8rem + 0.35vw, 0.9375rem)" }}

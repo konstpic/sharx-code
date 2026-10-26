@@ -9,8 +9,8 @@
   --font-sans: var(--font-mont), "Montserrat", system-ui, sans-serif;
   --font-mono: var(--font-fira), "Fira Mono", ui-monospace, monospace;
   --font-heading: var(--font-unbounded), "Unbounded", system-ui, sans-serif;
-  /* Sacramento (OFL) — login welcome; falls back to --font-sans for scripts without Latin glyphs */
-  --font-script: var(--font-sacramento), var(--font-sans), cursive, serif;
+  /* Sacramento (Latin) and Marck Script (Cyrillic), both OFL — the handwritten login welcome; other scripts fall back to --font-sans */
+  --font-script: var(--font-sacramento), var(--font-marck), var(--font-sans), cursive, serif;
 }
 
 @property --accent {
@@ -1048,9 +1048,59 @@ h1.font-heading,
 }
 
 .font-login-welcome {
-  font-family: var(--font-script);
+  font-family: var(--font-marck), var(--font-sacramento), var(--font-mont), system-ui, sans-serif;
   font-weight: 400;
   font-synthesis: none;
+}
+
+/* handwritten greeting (components/login/HandwrittenText.tsx): each letter's outline is drawn, then filled */
+.hw-text,
+.hw-static {
+  /* next/font sets these variables on <body>, so they are used here directly (--font-script is only a theme token). Marck Script goes first: Sacramento's metric-adjusted fallback face would otherwise claim the Cyrillic letters */
+  font-family: var(--font-marck), var(--font-sacramento), var(--font-mont), system-ui, sans-serif;
+  font-weight: 400;
+  font-synthesis: none;
+  fill: var(--fg);
+  stroke: color-mix(in oklab, var(--accent) 55%, var(--fg));
+  stroke-width: 1.6px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+  letter-spacing: -0.045em;
+}
+.hw-static {
+  stroke: none;
+}
+.hw-text .hw-glyph {
+  fill-opacity: 0;
+  stroke-dasharray: var(--hw-len);
+  stroke-dashoffset: var(--hw-len);
+  animation:
+    hw-draw 0.95s cubic-bezier(0.45, 0.05, 0.3, 1) var(--hw-d, 0ms) forwards,
+    hw-fill 0.6s ease calc(var(--hw-d, 0ms) + 0.7s) forwards,
+    hw-settle 0.5s ease calc(var(--hw-d, 0ms) + 1.1s) forwards;
+}
+@keyframes hw-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes hw-fill {
+  to {
+    fill-opacity: 1;
+  }
+}
+@keyframes hw-settle {
+  to {
+    stroke-opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hw-text .hw-glyph {
+    animation: none;
+    fill-opacity: 1;
+    stroke: none;
+  }
 }
 
 .panel-doc-sidebar {

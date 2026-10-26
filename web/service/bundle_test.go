@@ -283,9 +283,30 @@ func TestBundleHostLifecycle(t *testing.T) {
 		t.Fatalf("reset must restore the placement's address: %+v", place)
 	}
 
-	// Managed hosts cannot be deleted by hand; an address host can, without losing access.
-	if err := svc.DeleteBundleHost(place.Id); err == nil {
-		t.Fatal("managed hosts must not be deletable")
+	// A managed host can be deleted by hand too (the sync then leaves it deleted), and restoring it brings it back.
+	if err := svc.DeleteBundleHost(place.Id); err != nil {
+		t.Fatalf("a managed host can be deleted: %v", err)
+	}
+	(&HostSyncService{}).SyncAll()
+	if err := db.First(&model.Host{}, place.Id).Error; err == nil {
+		t.Fatal("the deleted host must be gone")
+	}
+	var recreated int64
+	db.Model(&model.Host{}).Where("kind = ? AND inbound_id = ?", model.HostKindPlacement, in.Id).Count(&recreated)
+	if recreated != 0 {
+		t.Fatal("the sync must not recreate a host the operator deleted")
+	}
+	sup, err := svc.ListSuppressedHosts()
+	if err != nil || len(sup) != 1 {
+		t.Fatalf("the deletion must be listed so it can be undone: %+v %v", sup, err)
+	}
+	if err := svc.RestoreSuppressedHost(sup[0].Id); err != nil {
+		t.Fatal(err)
+	}
+	(&HostSyncService{}).SyncAll()
+	place = model.Host{}
+	if err := db.Where("kind = ? AND inbound_id = ?", model.HostKindPlacement, in.Id).First(&place).Error; err != nil {
+		t.Fatalf("after the restore the sync recreates the host: %v", err)
 	}
 	if err := svc.DeleteBundleHost(h.Id); err != nil {
 		t.Fatal(err)

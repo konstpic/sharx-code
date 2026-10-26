@@ -7,6 +7,7 @@ import {
   Pathway_Gothic_One,
   Playfair_Display,
   Sacramento,
+  Marck_Script,
   Unbounded,
 } from "next/font/google";
 import "./globals.css";
@@ -42,6 +43,15 @@ const sacramento = Sacramento({
   preload: false,
   variable: "--font-sacramento",
   subsets: ["latin", "latin-ext"],
+  weight: "400",
+  display: "swap",
+});
+
+/** Cyrillic cursive for the handwritten login greeting (Sacramento has no Cyrillic glyphs) */
+const marckScript = Marck_Script({
+  preload: false,
+  variable: "--font-marck",
+  subsets: ["cyrillic", "latin"],
   weight: "400",
   display: "swap",
 });
@@ -105,7 +115,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${montserrat.variable} ${unbounded.variable} ${firaMono.variable} ${sacramento.variable} ${orbitron.variable} ${pathwayGothic.variable} ${comfortaa.variable} ${playfairDisplay.variable} antialiased`}
+        className={`${montserrat.variable} ${unbounded.variable} ${firaMono.variable} ${sacramento.variable} ${marckScript.variable} ${orbitron.variable} ${pathwayGothic.variable} ${comfortaa.variable} ${playfairDisplay.variable} antialiased`}
         style={{ fontFamily: "var(--font-sans)" }}
       >
         <Providers>{children}</Providers>
