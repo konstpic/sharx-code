@@ -1,5 +1,5 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { sharxSubpageConfigV2Schema } from "@/lib/sharxSubpageConfig";
+import { z } from "zod";
+import { sharxSubpageConfigV2Schema } from "./sharxSubpageConfig";
 
 let cached: object | null = null;
 
@@ -19,10 +19,12 @@ const fallback: object = {
 export function getSharxV2ConfigJsonSchemaForMonaco(): object {
   if (cached) return cached;
   try {
-    const json = zodToJsonSchema(sharxSubpageConfigV2Schema, {
-      name: "SharxSubpageConfigV2",
-      $refStrategy: "none",
-      target: "jsonSchema7",
+    // io "input": fields with defaults are optional for the person writing the JSON; custom (layout) is "any"
+    const json = z.toJSONSchema(sharxSubpageConfigV2Schema, {
+      target: "draft-7",
+      io: "input",
+      unrepresentable: "any",
+      reused: "inline",
     }) as object;
     cached = {
       $schema: "http://json-schema.org/draft-07/schema#",

@@ -31,8 +31,7 @@
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "three": "^0.186.1",
-    "zod": "^3.24.1",
-    "zod-to-json-schema": "^3.25.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
