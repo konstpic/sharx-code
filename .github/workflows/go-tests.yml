@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # the release workflow runs the same checks first (harbor-release.yml): a tag whose tests or audit fail builds nothing
+  workflow_call:
 
 permissions:
   contents: read

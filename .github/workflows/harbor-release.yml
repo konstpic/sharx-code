@@ -15,7 +15,14 @@ permissions:
   packages: write
 
 jobs:
+  # Gate: the tests and the dependency audit must pass before anything is built or published.
+  checks:
+    uses: ./.github/workflows/go-tests.yml
+    permissions:
+      contents: read
+
   prepare:
+    needs: checks
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
