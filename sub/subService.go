@@ -3081,7 +3081,7 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 			}
 		}
 	}
-	return strings.Join(remark, separationChar)
+	return withInboundFlag(strings.Join(remark, separationChar), inbound.Remark)
 }
 
 func (s *SubService) genShareLinkFragment(inbound *model.Inbound, email, extra string, tpl *RemarkTplNode, serverDescription string) string {
@@ -3197,7 +3197,7 @@ func (s *SubService) genRemarkWithClient(inbound *model.Inbound, client *model.C
 			}
 		}
 	}
-	return strings.Join(remark, separationChar)
+	return withInboundFlag(strings.Join(remark, separationChar), inbound.Remark)
 }
 
 func searchKey(data any, key string) (any, bool) {
