@@ -4074,6 +4074,7 @@ export function InboundsPage() {
                             <option value="POST">POST</option>
                             <option value="PUT">PUT</option>
                             <option value="GET">GET (packet-up only)</option>
+                            <option value="OPTIONS">OPTIONS (SharX fork core only)</option>
                           </SelectNative>
                         </div>
                         <div>
@@ -4226,6 +4227,141 @@ export function InboundsPage() {
                           ) : null}
                         </div>
                       ) : null}
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xhttp-max-hdr"
+                                >
+                                  Server max header bytes
+                                </label>
+                                <Input
+                                  id="in-xhttp-max-hdr"
+                                  type="number"
+                                  min={0}
+                                  className="font-mono text-xs"
+                                  value={String(form.streamForm.xhttpServerMaxHeaderBytes)}
+                                  onChange={(e) =>
+                                    setStreamFormField("xhttpServerMaxHeaderBytes", Math.max(0, parseInt(e.target.value, 10) || 0))
+                                  }
+                                  placeholder="0 (default)"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xhttp-min-int"
+                                >
+                                  Min POST interval (ms)
+                                </label>
+                                <Input
+                                  id="in-xhttp-min-int"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpScMinPostsIntervalMs}
+                                  onChange={(e) => setStreamFormField("xhttpScMinPostsIntervalMs", e.target.value)}
+                                  placeholder="30 or 10-50"
+                                />
+                              </div>
+                      </div>
+                      <p className="text-xs font-medium text-[var(--fg-muted)]">
+                        xmux (client multiplexing, goes into share links)
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-conc"
+                                >
+                                  maxConcurrency
+                                </label>
+                                <Input
+                                  id="in-xmux-conc"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpXmuxMaxConcurrency}
+                                  onChange={(e) => setStreamFormField("xhttpXmuxMaxConcurrency", e.target.value)}
+                                  placeholder="16-32"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-conn"
+                                >
+                                  maxConnections
+                                </label>
+                                <Input
+                                  id="in-xmux-conn"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpXmuxMaxConnections}
+                                  onChange={(e) => setStreamFormField("xhttpXmuxMaxConnections", e.target.value)}
+                                  placeholder="0 (default 3, not with maxConcurrency)"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-cre"
+                                >
+                                  cMaxReuseTimes
+                                </label>
+                                <Input
+                                  id="in-xmux-cre"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpXmuxCMaxReuseTimes}
+                                  onChange={(e) => setStreamFormField("xhttpXmuxCMaxReuseTimes", e.target.value)}
+                                  placeholder="0"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-hreq"
+                                >
+                                  hMaxRequestTimes
+                                </label>
+                                <Input
+                                  id="in-xmux-hreq"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpXmuxHMaxRequestTimes}
+                                  onChange={(e) => setStreamFormField("xhttpXmuxHMaxRequestTimes", e.target.value)}
+                                  placeholder="600-900"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-hsec"
+                                >
+                                  hMaxReusableSecs
+                                </label>
+                                <Input
+                                  id="in-xmux-hsec"
+                                  className="font-mono text-xs"
+                                  value={form.streamForm.xhttpXmuxHMaxReusableSecs}
+                                  onChange={(e) => setStreamFormField("xhttpXmuxHMaxReusableSecs", e.target.value)}
+                                  placeholder="1800-3000"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                  htmlFor="in-xmux-ka"
+                                >
+                                  hKeepAlivePeriod (s)
+                                </label>
+                                <Input
+                                  id="in-xmux-ka"
+                                  type="number"
+                                  min={0}
+                                  className="font-mono text-xs"
+                                  value={String(form.streamForm.xhttpXmuxHKeepAlivePeriod)}
+                                  onChange={(e) =>
+                                    setStreamFormField("xhttpXmuxHKeepAlivePeriod", Math.max(0, parseInt(e.target.value, 10) || 0))
+                                  }
+                                  placeholder="0"
+                                />
+                              </div>
+                      </div>
                       <div>
                         <CheckboxField
                           checked={form.streamForm.xhttpNoSseHeader}

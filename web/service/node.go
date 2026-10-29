@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/konstpic/sharx-code/v2/util/xraycore"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -959,7 +960,7 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 	return nil
 }
 
-func normCoreVersion(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+func normCoreVersion(v string) string { return xraycore.NormVersion(v) }
 
 // newNodeCoreWindow is how long after creation a node without pins is considered "new" and is
 // brought to the panel-wide core versions. Older nodes are never touched implicitly.

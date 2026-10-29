@@ -372,6 +372,9 @@ export function DashboardPage() {
   const [verOpen, setVerOpen] = useState(false);
   const [verTab, setVerTab] = useState<"xray" | "telemt">("xray");
   const [verListXray, setVerListXray] = useState<string[]>([]);
+  const [verXraySource, setVerXraySource] = useState<"official" | "sharx">("official");
+  const [verListXraySharx, setVerListXraySharx] = useState<string[]>([]);
+  const [verSharxError, setVerSharxError] = useState("");
   const [verListTelemt, setVerListTelemt] = useState<string[]>([]);
   const [pendingVersion, setPendingVersion] = useState<string | null>(null);
   const [pendingCore, setPendingCore] = useState<"xray" | "telemt">("xray");
@@ -758,7 +761,23 @@ export function DashboardPage() {
       if (xr.success && xr.obj) setVerListXray(xr.obj);
       if (tm.success && tm.obj) setVerListTelemt(tm.obj);
       setVerTab("xray");
+      setVerXraySource("official");
+      setVerSharxError("");
       setVerOpen(true);
+    } finally {
+      setSpin(false);
+    }
+  };
+
+  const pickXraySource = async (source: "official" | "sharx") => {
+    setVerXraySource(source);
+    setVerSharxError("");
+    if (source !== "sharx") return;
+    setSpin(true);
+    try {
+      const r = await getJson<string[]>(panel("api/server/getXrayVersion?source=sharx"));
+      if (r.success && r.obj) setVerListXraySharx(r.obj);
+      else setVerSharxError(r.msg || t("pages.index.xrayForkLoadFailed", { defaultValue: "Could not load SharX fork releases" }));
     } finally {
       setSpin(false);
     }
@@ -1034,14 +1053,47 @@ export function DashboardPage() {
             {t("pages.index.versionTabTelemt")}
           </Button>
         </div>
+        {verTab === "xray" ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={verXraySource === "official" ? "primary" : "secondary"}
+              onClick={() => void pickXraySource("official")}
+            >
+              {t("pages.index.xraySourceOfficial", { defaultValue: "Official Xray-core" })}
+            </Button>
+            <Button
+              type="button"
+              variant={verXraySource === "sharx" ? "primary" : "secondary"}
+              onClick={() => void pickXraySource("sharx")}
+            >
+              {t("pages.index.xraySourceSharx", { defaultValue: "SharX fork" })}
+            </Button>
+          </div>
+        ) : null}
+        {verTab === "xray" && verXraySource === "sharx" ? (
+          <p className="mb-3 text-xs text-[var(--fg-muted)]">
+            {verSharxError ||
+              t("pages.index.xraySourceSharxHint", {
+                defaultValue:
+                  "Optional fork of Xray-core with extra XHTTP features (OPTIONS as the uplink method). A fork build is a drop-in replacement; switch back to an official release at any time.",
+              })}
+          </p>
+        ) : null}
         <p className="mb-3 text-xs text-[var(--fg-muted)]">
           {verTab === "xray"
             ? t("pages.index.xraySwitchClick")
             : t("pages.index.telemtSwitchClick")}
         </p>
         <CoreVersionCards
-          key={verTab}
-          versions={verTab === "xray" ? verListXray : verListTelemt}
+          key={`${verTab}-${verXraySource}`}
+          versions={
+            verTab === "xray"
+              ? verXraySource === "sharx"
+                ? verListXraySharx
+                : verListXray
+              : verListTelemt
+          }
           installed={verTab === "xray" ? installedXray?.version : installedTelemt?.version}
           onPick={(v) => {
             setPendingCore(verTab);

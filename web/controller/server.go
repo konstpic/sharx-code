@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/konstpic/sharx-code/v2/util/xraycore"
 	"io"
 	"net/http"
 	"net/url"
@@ -562,13 +563,24 @@ func clampPercent(v float64) float64 {
 
 // getXrayVersion retrieves available Xray versions, with caching for 1 minute.
 func (a *ServerController) getXrayVersion(c *gin.Context) {
+	// ?source=sharx lists the SharX fork builds instead of the official releases.
+	if xraycore.NormalizeSource(c.Query("source")) == xraycore.SourceSharx {
+		versions, err := a.serverService.GetXrayVersions(xraycore.SourceSharx)
+		if err != nil {
+			jsonMsg(c, I18nWeb(c, "getVersion"), err)
+			return
+		}
+		jsonObj(c, versions, nil)
+		return
+	}
+
 	now := time.Now().Unix()
 	if now-a.lastGetVersionsTime <= 60 { // 1 minute cache
 		jsonObj(c, a.lastVersions, nil)
 		return
 	}
 
-	versions, err := a.serverService.GetXrayVersions()
+	versions, err := a.serverService.GetXrayVersions(xraycore.SourceOfficial)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "getVersion"), err)
 		return

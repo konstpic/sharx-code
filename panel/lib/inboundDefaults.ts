@@ -893,6 +893,43 @@ export const REALITY_FINGERPRINTS = [
 /** xHTTP custom request headers (3x-ui name/value rows → Xray v2 `headers` map, last wins per key). */
 export type XhttpHeaderRow = { name: string; value: string };
 
+/** Xray Int32Range accepts a number or "from-to"; the form keeps it as text. */
+function xhttpRangeToString(raw: unknown): string {
+  if (typeof raw === "number" && raw > 0) return String(raw);
+  if (typeof raw === "string") return raw.trim();
+  if (raw && typeof raw === "object") {
+    const r = raw as { from?: unknown; to?: unknown };
+    const from = Number(r.from) || 0;
+    const to = Number(r.to) || 0;
+    if (to > 0) return from === to || from === 0 ? String(to) : `${from}-${to}`;
+  }
+  return "";
+}
+
+/** serverMaxHeaderBytes / scMinPostsIntervalMs / xmux — only emitted when set, so existing inbounds stay unchanged. */
+function xhttpServerAndMuxSettings(state: StreamFormState): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const maxHeader = Math.round(Number(state.xhttpServerMaxHeaderBytes)) || 0;
+  if (maxHeader > 0) out.serverMaxHeaderBytes = maxHeader;
+  const minInterval = state.xhttpScMinPostsIntervalMs.trim();
+  if (minInterval) out.scMinPostsIntervalMs = minInterval;
+  const xmux: Record<string, unknown> = {};
+  const ranges: [string, string][] = [
+    ["maxConcurrency", state.xhttpXmuxMaxConcurrency],
+    ["maxConnections", state.xhttpXmuxMaxConnections],
+    ["cMaxReuseTimes", state.xhttpXmuxCMaxReuseTimes],
+    ["hMaxRequestTimes", state.xhttpXmuxHMaxRequestTimes],
+    ["hMaxReusableSecs", state.xhttpXmuxHMaxReusableSecs],
+  ];
+  for (const [key, val] of ranges) {
+    if (val.trim()) xmux[key] = val.trim();
+  }
+  const keepAlive = Math.round(Number(state.xhttpXmuxHKeepAlivePeriod)) || 0;
+  if (keepAlive > 0) xmux.hKeepAlivePeriod = keepAlive;
+  if (Object.keys(xmux).length > 0) out.xmux = xmux;
+  return out;
+}
+
 /** MODE_OPTION from 3x-ui inbound xHTTPStreamSettings. */
 export const XHTTP_MODES = ["auto", "packet-up", "stream-up", "stream-one", "gun-stream"] as const;
 
@@ -1012,6 +1049,15 @@ export type StreamFormState = {
   xhttpUplinkDataPlacement: string;
   xhttpUplinkDataKey: string;
   xhttpUplinkChunkSize: number;
+  xhttpServerMaxHeaderBytes: number;
+  xhttpScMinPostsIntervalMs: string;
+  /** xmux (client-side connection multiplexing, shipped to clients via share-link `extra`). Empty = core default. */
+  xhttpXmuxMaxConcurrency: string;
+  xhttpXmuxMaxConnections: string;
+  xhttpXmuxCMaxReuseTimes: string;
+  xhttpXmuxHMaxRequestTimes: string;
+  xhttpXmuxHMaxReusableSecs: string;
+  xhttpXmuxHKeepAlivePeriod: number;
   grpcServiceName: string;
   grpcMultiMode: boolean;
   grpcIdleTimeout: number;
@@ -1125,6 +1171,14 @@ export function defaultStreamForm(): StreamFormState {
     xhttpUplinkDataPlacement: "",
     xhttpUplinkDataKey: "",
     xhttpUplinkChunkSize: 0,
+    xhttpServerMaxHeaderBytes: 0,
+    xhttpScMinPostsIntervalMs: "",
+    xhttpXmuxMaxConcurrency: "",
+    xhttpXmuxMaxConnections: "",
+    xhttpXmuxCMaxReuseTimes: "",
+    xhttpXmuxHMaxRequestTimes: "",
+    xhttpXmuxHMaxReusableSecs: "",
+    xhttpXmuxHKeepAlivePeriod: 0,
     grpcServiceName: "",
     grpcMultiMode: false,
     grpcIdleTimeout: 0,
@@ -1755,8 +1809,11 @@ export function parseStreamSettingsToForm(
         if (typeof xh.xPaddingPlacement === "string") base.xhttpPaddingPlacement = xh.xPaddingPlacement;
         if (typeof xh.xPaddingMethod === "string") base.xhttpPaddingMethod = xh.xPaddingMethod;
         if (typeof xh.uplinkHTTPMethod === "string") base.xhttpUplinkHttpMethod = xh.uplinkHTTPMethod;
-        if (typeof xh.sessionPlacement === "string") base.xhttpSessionPlacement = xh.sessionPlacement;
-        if (typeof xh.sessionKey === "string") base.xhttpSessionKey = xh.sessionKey;
+        // Core field names are sessionID*; fall back to the legacy session* names older panel versions saved.
+        const sessPlacement = xh.sessionIDPlacement ?? xh.sessionPlacement;
+        const sessKey = xh.sessionIDKey ?? xh.sessionKey;
+        if (typeof sessPlacement === "string") base.xhttpSessionPlacement = sessPlacement;
+        if (typeof sessKey === "string") base.xhttpSessionKey = sessKey;
         if (typeof xh.seqPlacement === "string") base.xhttpSeqPlacement = xh.seqPlacement;
         if (typeof xh.seqKey === "string") base.xhttpSeqKey = xh.seqKey;
         if (typeof xh.uplinkDataPlacement === "string") {
@@ -1765,6 +1822,22 @@ export function parseStreamSettingsToForm(
         if (typeof xh.uplinkDataKey === "string") base.xhttpUplinkDataKey = xh.uplinkDataKey;
         if (typeof xh.uplinkChunkSize === "number" && xh.uplinkChunkSize >= 0) {
           base.xhttpUplinkChunkSize = Math.round(xh.uplinkChunkSize);
+        }
+        if (typeof xh.serverMaxHeaderBytes === "number" && xh.serverMaxHeaderBytes > 0) {
+          base.xhttpServerMaxHeaderBytes = Math.round(xh.serverMaxHeaderBytes);
+        }
+        const minInterval = xhttpRangeToString(xh.scMinPostsIntervalMs);
+        if (minInterval) base.xhttpScMinPostsIntervalMs = minInterval;
+        const xm = xh.xmux as Record<string, unknown> | undefined;
+        if (xm && typeof xm === "object" && !Array.isArray(xm)) {
+          base.xhttpXmuxMaxConcurrency = xhttpRangeToString(xm.maxConcurrency);
+          base.xhttpXmuxMaxConnections = xhttpRangeToString(xm.maxConnections);
+          base.xhttpXmuxCMaxReuseTimes = xhttpRangeToString(xm.cMaxReuseTimes);
+          base.xhttpXmuxHMaxRequestTimes = xhttpRangeToString(xm.hMaxRequestTimes);
+          base.xhttpXmuxHMaxReusableSecs = xhttpRangeToString(xm.hMaxReusableSecs);
+          if (typeof xm.hKeepAlivePeriod === "number" && xm.hKeepAlivePeriod > 0) {
+            base.xhttpXmuxHKeepAlivePeriod = Math.round(xm.hKeepAlivePeriod);
+          }
         }
       }
     }
@@ -1910,13 +1983,14 @@ export function buildStreamSettingsFromForm(
       xPaddingPlacement: state.xhttpPaddingPlacement.trim(),
       xPaddingMethod: state.xhttpPaddingMethod.trim(),
       uplinkHTTPMethod: state.xhttpUplinkHttpMethod.trim(),
-      sessionPlacement: state.xhttpSessionPlacement.trim(),
-      sessionKey: state.xhttpSessionKey.trim(),
+      sessionIDPlacement: state.xhttpSessionPlacement.trim(),
+      sessionIDKey: state.xhttpSessionKey.trim(),
       seqPlacement: state.xhttpSeqPlacement.trim(),
       seqKey: state.xhttpSeqKey.trim(),
       uplinkDataPlacement: state.xhttpUplinkDataPlacement.trim(),
       uplinkDataKey: state.xhttpUplinkDataKey.trim(),
       uplinkChunkSize: Math.max(0, Math.round(Number(state.xhttpUplinkChunkSize)) || 0),
+      ...xhttpServerAndMuxSettings(state),
     };
   } else if (state.network === "kcp") {
     out.kcpSettings = {

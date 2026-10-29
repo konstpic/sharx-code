@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/konstpic/sharx-code/v2/util/xraycore"
 	"io"
 	"io/fs"
 	"net/http"
@@ -1391,44 +1392,12 @@ func (m *Manager) InstallXrayVersion(version string) error {
 	return nil
 }
 
-// downloadXRay downloads the Xray binary zip file for the specified version.
+// downloadXRay downloads the Xray binary zip file for the specified version. A "-sharx.N" tag is fetched from the
+// SharX fork release, anything else from the official XTLS release.
 func (m *Manager) downloadXRay(version string) (string, error) {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-
-	switch osName {
-	case "darwin":
-		osName = "macos"
-	case "windows":
-		osName = "windows"
-	}
-
-	switch arch {
-	case "amd64":
-		arch = "64"
-	case "arm64":
-		arch = "arm64-v8a"
-	case "armv7":
-		arch = "arm32-v7a"
-	case "armv6":
-		arch = "arm32-v6"
-	case "armv5":
-		arch = "arm32-v5"
-	case "386":
-		arch = "32"
-	case "s390x":
-		arch = "s390x"
-	}
-
-	fileName := fmt.Sprintf("Xray-%s-%s.zip", osName, arch)
-
-	// Ensure version has 'v' prefix for GitHub releases
+	fileName := xraycore.AssetName()
+	url := xraycore.DownloadURL(version, fileName)
 	versionTag := version
-	if !strings.HasPrefix(versionTag, "v") {
-		versionTag = "v" + versionTag
-	}
-
-	url := fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/%s", versionTag, fileName)
 
 	logger.Infof("Downloading Xray %s from %s", versionTag, url)
 	resp, err := http.Get(url)

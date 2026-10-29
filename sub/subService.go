@@ -1383,7 +1383,7 @@ func applyXhttpPaddingParams(xhttp map[string]any, params map[string]string) {
 // xhttpStringExtras are xhttpSettings fields the client needs as well as the server (Xray "extra"). Empty = default.
 var xhttpStringExtras = []string{
 	"uplinkHTTPMethod",
-	"sessionPlacement", "sessionKey",
+	"sessionIDPlacement", "sessionIDKey",
 	"seqPlacement", "seqKey",
 	"uplinkDataPlacement", "uplinkDataKey",
 }
@@ -1392,6 +1392,14 @@ var xhttpStringExtras = []string{
 // placement and keys, uplink chunk size) into dst. Unset fields are skipped, so links of inbounds that do not use them
 // stay byte-for-byte the same.
 func applyXhttpTransportExtras(xhttp map[string]any, dst map[string]any) {
+	// Inbounds saved by older panels hold the legacy session* names, which the core ignores: map them to sessionID*.
+	for legacy, current := range map[string]string{"sessionPlacement": "sessionIDPlacement", "sessionKey": "sessionIDKey"} {
+		if v, ok := xhttp[legacy].(string); ok && strings.TrimSpace(v) != "" {
+			if cur, _ := xhttp[current].(string); strings.TrimSpace(cur) == "" {
+				dst[current] = strings.TrimSpace(v)
+			}
+		}
+	}
 	for _, field := range xhttpStringExtras {
 		if v, ok := xhttp[field].(string); ok && strings.TrimSpace(v) != "" {
 			dst[field] = strings.TrimSpace(v)
@@ -1399,6 +1407,20 @@ func applyXhttpTransportExtras(xhttp map[string]any, dst map[string]any) {
 	}
 	if n, ok := xhttp["uplinkChunkSize"].(float64); ok && n > 0 {
 		dst["uplinkChunkSize"] = int(n)
+	}
+	// scMinPostsIntervalMs is a client-side pacing setting (Int32Range: number or "from-to").
+	switch v := xhttp["scMinPostsIntervalMs"].(type) {
+	case string:
+		if t := strings.TrimSpace(v); t != "" {
+			dst["scMinPostsIntervalMs"] = t
+		}
+	case float64:
+		if v > 0 {
+			dst["scMinPostsIntervalMs"] = int(v)
+		}
+	}
+	if xmux, ok := xhttp["xmux"].(map[string]any); ok && len(xmux) > 0 {
+		dst["xmux"] = xmux
 	}
 }
 

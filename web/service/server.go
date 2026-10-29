@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/konstpic/sharx-code/v2/util/xraycore"
 	"io"
 	"io/fs"
 	"mime/multipart"
@@ -1043,11 +1044,11 @@ func (s *ServerService) sampleCPUUtilization() (float64, error) {
 	return s.emaCPU, nil
 }
 
-func (s *ServerService) GetXrayVersions() ([]string, error) {
-	const (
-		XrayURL    = "https://api.github.com/repos/XTLS/Xray-core/releases"
-		bufferSize = 8192
-	)
+// GetXrayVersions lists installable Xray releases of the source ("official" or "sharx").
+func (s *ServerService) GetXrayVersions(source string) ([]string, error) {
+	const bufferSize = 8192
+	XrayURL := xraycore.ReleasesAPIURL(source)
+	fork := xraycore.NormalizeSource(source) == xraycore.SourceSharx
 
 	resp, err := http.Get(XrayURL)
 	if err != nil {
@@ -1080,6 +1081,12 @@ func (s *ServerService) GetXrayVersions() ([]string, error) {
 
 	var versions []string
 	for _, release := range releases {
+		if fork {
+			if xraycore.IsForkTag(release.TagName) {
+				versions = append(versions, release.TagName)
+			}
+			continue
+		}
 		tagVersion := strings.TrimPrefix(release.TagName, "v")
 		tagParts := strings.Split(tagVersion, ".")
 		if len(tagParts) != 3 {
@@ -1183,40 +1190,15 @@ func (s *ServerService) RestartXrayService() error {
 }
 
 func (s *ServerService) downloadXRay(version string) (string, error) {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-
-	switch osName {
-	case "darwin":
-		osName = "macos"
-	case "windows":
-		osName = "windows"
-	}
-
-	switch arch {
-	case "amd64":
-		arch = "64"
-	case "arm64":
-		arch = "arm64-v8a"
-	case "armv7":
-		arch = "arm32-v7a"
-	case "armv6":
-		arch = "arm32-v6"
-	case "armv5":
-		arch = "arm32-v5"
-	case "386":
-		arch = "32"
-	case "s390x":
-		arch = "s390x"
-	}
-
-	fileName := fmt.Sprintf("Xray-%s-%s.zip", osName, arch)
-	url := fmt.Sprintf("https://github.com/XTLS/Xray-core/releases/download/%s/%s", version, fileName)
-	resp, err := http.Get(url)
+	fileName := xraycore.AssetName()
+	resp, err := http.Get(xraycore.DownloadURL(version, fileName))
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download of Xray %s failed with status %d", version, resp.StatusCode)
+	}
 
 	os.Remove(fileName)
 	file, err := os.Create(fileName)
@@ -1225,11 +1207,9 @@ func (s *ServerService) downloadXRay(version string) (string, error) {
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
+	if _, err = io.Copy(file, resp.Body); err != nil {
 		return "", err
 	}
-
 	return fileName, nil
 }
 
@@ -1324,7 +1304,7 @@ func (s *ServerService) ReconcilePinnedCoreVersions() {
 	if multi, err := ss.GetMultiNodeMode(); err == nil && multi {
 		return
 	}
-	norm := func(v string) string { return strings.TrimPrefix(strings.TrimSpace(v), "v") }
+	norm := xraycore.NormVersion
 
 	if pinned, err := ss.GetXrayPinnedVersion(); err == nil && pinned != "" {
 		if current := xray.GetInstalledVersion(); current != "" && norm(current) != norm(pinned) {
