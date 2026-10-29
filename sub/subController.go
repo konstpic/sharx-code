@@ -270,19 +270,20 @@ func (a *SUBController) subs(c *gin.Context) {
 
 	header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, traffic.ExpiryTime/1000)
 
-	clientAnnounce := ""
+	clientAnnounce, clientRouting := "", ""
 	if !gateBlocked {
 		db := database.GetDB()
 		var clientEntity *model.ClientEntity
 		err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
-		if err == nil && clientEntity != nil && clientEntity.Announce != "" {
+		if err == nil && clientEntity != nil {
 			clientAnnounce = clientEntity.Announce
+			clientRouting = clientEntity.Routing
 		}
 	}
 
 	result = prependSubscriptionBodyMetaComments(result, uaClient, cfg, clientAnnounce)
 
-	a.ApplyCommonHeaders(c, cfg, header, subId, clientAnnounce)
+	a.ApplyCommonHeaders(c, cfg, header, subId, clientAnnounce, clientRouting)
 	c.Writer.Header().Set("Content-Type", ContentTypeForClient(uaClient, uaFormat))
 
 	// Dispatch the body encoding based on both the UA-derived format and the
@@ -342,7 +343,7 @@ func (a *SUBController) subJsons(c *gin.Context) {
 			c.String(http.StatusForbidden, appGateForbiddenBody)
 			return
 		}
-		a.ApplyCommonHeaders(c, cfg, "upload=0; download=0; total=0; expire=0", subId, "")
+		a.ApplyCommonHeaders(c, cfg, "upload=0; download=0; total=0; expire=0", subId, "", "")
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		c.String(200, jsonSubscriptionNoticeBody(appGateRemarks(decision.Reason, service.EffectiveCustomRemarks(cfg))))
 		return
@@ -364,15 +365,16 @@ func (a *SUBController) subJsons(c *gin.Context) {
 		return
 	}
 
-	clientAnnounce := ""
+	clientAnnounce, clientRouting := "", ""
 	db := database.GetDB()
 	var clientEntity *model.ClientEntity
 	err = db.Where("sub_id = ? AND enable = ?", subId, true).First(&clientEntity).Error
-	if err == nil && clientEntity != nil && clientEntity.Announce != "" {
+	if err == nil && clientEntity != nil {
 		clientAnnounce = clientEntity.Announce
+		clientRouting = clientEntity.Routing
 	}
 
-	a.ApplyCommonHeaders(c, cfg, header, subId, clientAnnounce)
+	a.ApplyCommonHeaders(c, cfg, header, subId, clientAnnounce, clientRouting)
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	c.String(200, jsonSub)
@@ -386,7 +388,8 @@ func (a *SUBController) subJsons(c *gin.Context) {
 // Canonical headers (Subscription-Userinfo, X-Subscription-ID, Profile-Update-Interval)
 // are always emitted. Extra headers override auto Routing when the same key is set.
 // clientAnnounce (if present on the client row) overrides ResponseRules.Announce.
-func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSubpageConfigV2, header, subId, clientAnnounce string) {
+// clientRouting (if present on the client row) replaces the subscription page's Routing for this client only.
+func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSubpageConfigV2, header, subId, clientAnnounce, clientRouting string) {
 	c.Writer.Header().Set("Subscription-Userinfo", header)
 	c.Writer.Header().Set("X-Subscription-ID", subId)
 
@@ -442,6 +445,7 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSub
 		c.Writer.Header().Set("Routing", routingVal)
 		c.Writer.Header().Set("Routing-Enable", "1")
 	}
+	applyClientRoutingHeader(c.Writer.Header(), clientRouting)
 
 	if rr != nil {
 		for _, h := range rr.ExtraHeaders {
@@ -456,6 +460,15 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSub
 	// Legacy / manual "Routing" may be raw Base64 or happ://add/…; clients expect happ://routing/add/…
 	if rh := strings.TrimSpace(c.Writer.Header().Get("Routing")); rh != "" {
 		c.Writer.Header().Set("Routing", service.NormalizeSubscriptionRoutingHeaderValue(rh))
+	}
+}
+
+// applyClientRoutingHeader makes a per-client routing profile win over the shared one, whatever the shared
+// delivery mode is. An empty value leaves the headers untouched.
+func applyClientRoutingHeader(h http.Header, clientRouting string) {
+	if v := strings.TrimSpace(clientRouting); v != "" {
+		h.Set("Routing", v)
+		h.Set("Routing-Enable", "1")
 	}
 }
 

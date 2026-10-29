@@ -377,6 +377,8 @@ export function DashboardPage() {
   const [verSharxError, setVerSharxError] = useState("");
   const [verListTelemt, setVerListTelemt] = useState<string[]>([]);
   const [pendingVersion, setPendingVersion] = useState<string | null>(null);
+  /** nodes ticked in the install confirmation (unticked nodes keep the core they have) */
+  const [versionNodeIds, setVersionNodeIds] = useState<Record<number, boolean>>({});
   const [pendingCore, setPendingCore] = useState<"xray" | "telemt">("xray");
   const [versionInstalling, setVersionInstalling] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -543,6 +545,12 @@ export function DashboardPage() {
       }
     })();
   }, [multi]);
+
+  // Every node starts ticked, which is what the install did before nodes could be left out.
+  useEffect(() => {
+    if (pendingVersion == null) return;
+    setVersionNodeIds(Object.fromEntries(nodes.map((n) => [n.id, true])));
+  }, [pendingVersion, nodes]);
 
   useEffect(() => {
     const load = async () => {
@@ -785,16 +793,16 @@ export function DashboardPage() {
 
   const runInstallVersion = async () => {
     if (!pendingVersion) return;
+    const pickedNodeIds = nodes.filter((n) => versionNodeIds[n.id] !== false).map((n) => n.id);
     setVersionInstalling(true);
     setSpin(true);
     try {
       if (pendingCore === "xray") {
         await postJson(panel(`api/server/installXray/${pendingVersion}`));
-        if (multi && nodes.length) {
-          const ids = nodes.map((n) => n.id);
+        if (multi && pickedNodeIds.length) {
           await postJson(
             panel(`api/server/installXrayOnNodes/${pendingVersion}`),
-            { nodeIds: ids },
+            { nodeIds: pickedNodeIds },
             true,
           );
         }
@@ -804,12 +812,13 @@ export function DashboardPage() {
             toast.error(t("pages.index.nodesCoresNoEnabled"));
             return;
           }
-          const ids = nodes.map((n) => n.id);
-          await postJson(
-            panel(`api/server/installTelemtOnNodes/${pendingVersion}`),
-            { nodeIds: ids },
-            true,
-          );
+          if (pickedNodeIds.length) {
+            await postJson(
+              panel(`api/server/installTelemtOnNodes/${pendingVersion}`),
+              { nodeIds: pickedNodeIds },
+              true,
+            );
+          }
         } else {
           await postJson(panel(`api/server/installTelemt/${pendingVersion}`));
         }
@@ -1252,7 +1261,28 @@ export function DashboardPage() {
         onCancel={() => setPendingVersion(null)}
         onConfirm={runInstallVersion}
         loading={versionInstalling}
-      />
+      >
+        {pendingVersion && multi && nodes.length ? (
+          <div className="mt-3 space-y-1.5 text-left">
+            <p className="text-xs text-[var(--fg-muted)]">
+              {t("pages.index.versionNodesHint", {
+                defaultValue:
+                  "Also installed on the ticked nodes. Untick a node to keep the core it has now; change a single node on the Nodes page.",
+              })}
+            </p>
+            {nodes.map((n) => (
+              <CheckboxField
+                key={n.id}
+                label={`${n.name} · ${(pendingCore === "telemt" ? n.telemtVersion : n.xrayVersion) || "—"}${
+                  n.enable === false ? ` · ${t("disabled")}` : ""
+                }`}
+                checked={versionNodeIds[n.id] !== false}
+                onChange={(e) => setVersionNodeIds((m) => ({ ...m, [n.id]: e.target.checked }))}
+              />
+            ))}
+          </div>
+        ) : null}
+      </ConfirmDialog>
     </PageScaffold>
   );
 }

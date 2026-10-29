@@ -17,6 +17,7 @@ import { Button, Switch } from "@/components/ui";
 import type { NodeLoad } from "@/lib/nodeLoad";
 
 import type { ListViewMode } from "@/lib/listViewModeStorage";
+import { xrayVersionLabel } from "@/lib/nodeXrayBuild";
 
 /** @deprecated use ListViewMode from listViewModeStorage */
 export type NodeViewMode = ListViewMode;
@@ -30,6 +31,7 @@ export type NodeListRow = {
   responseTime?: number;
   useTls?: boolean;
   xrayVersion?: string;
+  xrayBuild?: string;
   telemtVersion?: string;
   workerVersion?: string;
   xrayState?: string;
@@ -52,6 +54,8 @@ export type NodeListViewContext = {
   togglingEnableId: number | null;
   onStopXray: (r: NodeListRow) => void;
   onRestartXray: (r: NodeListRow) => void;
+  /** open the "change core" dialog (Xray or Telemt) for this node only */
+  onChangeCore?: (r: NodeListRow, core: "xray" | "telemt") => void;
   xrayStoppingId: number | null;
   xrayRestartingId: number | null;
   onStopTelemt: (r: NodeListRow) => void;
@@ -367,7 +371,7 @@ function NodeMetaGrid({ r, ctx, cols = "grid-cols-2 sm:grid-cols-3 lg:grid-cols-
         <span className="font-mono">{r.workerVersion || "—"}</span>
       </MetaItem>
       <MetaItem label={t("pages.nodes.xrayVersion")}>
-        <span className="font-mono">{r.xrayVersion || "—"}</span>
+        <span className="font-mono">{xrayVersionLabel(r.xrayVersion, r.xrayBuild)}</span>
       </MetaItem>
       <MetaItem label={t("pages.nodes.telemtVersion")}>
         <span className="font-mono">{r.telemtVersion || "—"}</span>

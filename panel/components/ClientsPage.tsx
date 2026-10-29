@@ -221,6 +221,7 @@ type ClientCard = {
   tgId?: number;
   reset?: number;
   announce?: string;
+  routing?: string;
   createdAt?: number;
   updatedAt?: number;
   lastOnline?: number;
@@ -1403,6 +1404,7 @@ type ClientDetail = {
   inboundIds?: number[];
   comment?: string;
   announce?: string;
+  routing?: string;
   reset?: number;
   trafficResetCadence?: string;
   trafficResetDay?: number;
@@ -1433,6 +1435,8 @@ type ClientFormState = {
   /** Subscription id (пустой на сервере = сгенерировать при создании) */
   subId: string;
   announce: string;
+  /** Per-client routing profile (deep link, Base64 JSON or JSON); empty = use the subscription's routing */
+  routing: string;
   hwidEnabled: boolean;
   maxHwid: string;
   ipLimitEnabled: boolean;
@@ -1452,6 +1456,7 @@ const FORM_DEFAULT: ClientFormState = {
   tgId: "",
   subId: "",
   announce: "",
+  routing: "",
   hwidEnabled: false,
   maxHwid: "0",
   ipLimitEnabled: false,
@@ -2550,6 +2555,22 @@ function ClientUnifiedCard({
             />
             <p className="mt-1 text-xs text-[var(--fg-subtle)]">
               {t("pages.clients.addModalAnnounceHint")} · {form.announce.length}/200
+            </p>
+          </div>
+          <div>
+            <label
+              className="mb-1.5 flex items-center gap-1 text-xs font-medium text-[var(--fg-muted)]"
+              htmlFor={id("routing")}
+            >
+              {t("pages.clients.addModalRouting")}
+            </label>
+            <TextArea
+              id={id("routing")}
+              value={form.routing}
+              onChange={(e) => setForm((f) => ({ ...f, routing: e.target.value }))}
+            />
+            <p className="mt-1 text-xs text-[var(--fg-subtle)]">
+              {t("pages.clients.addModalRoutingHint")}
             </p>
           </div>
         </div>
@@ -3774,6 +3795,7 @@ export function ClientsPage() {
         tgId: c.tgId != null && c.tgId > 0 ? String(c.tgId) : "",
         subId: c.subId ?? "",
         announce: c.announce ?? "",
+        routing: c.routing ?? "",
         hwidEnabled: !!c.hwidEnabled,
         maxHwid: String(c.maxHwid ?? 0),
         ipLimitEnabled: !!c.ipLimitEnabled,
@@ -3821,6 +3843,7 @@ export function ClientsPage() {
       toast.error(t("pages.clients.addModalAnnounceTooLong"));
       return;
     }
+    const routing = form.routing.trim();
     const selectedInboundIds = inboundSubscriptionOrder.filter((id) => inboundIds[id]);
 
     const telemtAdTagsPayload: Record<string, string> = {};
@@ -3926,6 +3949,7 @@ export function ClientsPage() {
         subId: subIdTrim,
         comment,
         announce,
+        routing,
       };
       if (isEdit) {
         body.groupId = groupIdNum;

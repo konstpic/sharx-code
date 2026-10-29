@@ -1,6 +1,6 @@
 "use client";
 
-import { Power, RefreshCw, Radio, ShieldHalf, Zap, type LucideIcon } from "lucide-react";
+import { ArrowDownUp, Power, RefreshCw, Radio, ShieldHalf, Zap, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui";
 import type { NodeListRow, NodeListViewContext } from "@/components/nodes/NodeListViews";
@@ -39,14 +39,18 @@ function IconAction({
   onClick: () => void;
   disabled: boolean;
   loading: boolean;
-  tone: "stop" | "restart";
+  tone: "stop" | "restart" | "core";
 }) {
   return (
     <Button
       type="button"
       variant="ghost"
       className={`!size-7 !rounded-md !border !border-[var(--border)] !p-0 text-[var(--fg-muted)] disabled:opacity-40 ${
-        tone === "stop" ? "hover:!border-amber-400/60 hover:text-amber-300" : "hover:!border-sky-400/60 hover:text-sky-300"
+        tone === "stop"
+          ? "hover:!border-amber-400/60 hover:text-amber-300"
+          : tone === "core"
+            ? "hover:!border-emerald-400/60 hover:text-emerald-300"
+            : "hover:!border-sky-400/60 hover:text-sky-300"
       }`}
       loading={loading}
       disabled={disabled}
@@ -159,6 +163,21 @@ export function NodeCoresBlock({ r, ctx }: { r: NodeListRow; ctx: NodeListViewCo
                 <IconAction tone="restart" title={c.restartTitle} onClick={c.onRestart} loading={c.restarting} disabled={busy}>
                   <RefreshCw size={14} />
                 </IconAction>
+                {(c.id === "xray" || c.id === "telemt") && ctx.onChangeCore ? (
+                  <IconAction
+                    tone="core"
+                    title={
+                      c.id === "telemt"
+                        ? t("pages.nodes.changeTelemtCoreButton", { defaultValue: "Change Telemt core on this node" })
+                        : t("pages.nodes.changeCoreButton", { defaultValue: "Change Xray core on this node" })
+                    }
+                    onClick={() => ctx.onChangeCore?.(r, c.id === "telemt" ? "telemt" : "xray")}
+                    loading={false}
+                    disabled={busy}
+                  >
+                    <ArrowDownUp size={14} />
+                  </IconAction>
+                ) : null}
               </span>
             ) : (
               <span />

@@ -476,6 +476,11 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 	// Trim whitespace from comment
 	client.Comment = strings.TrimSpace(client.Comment)
 	client.Announce = strings.TrimSpace(client.Announce)
+	routing, err := NormalizeClientRouting(client.Routing)
+	if err != nil {
+		return false, err
+	}
+	client.Routing = routing
 
 	// Normalize name to lowercase
 	client.Name = strings.ToLower(client.Name)
@@ -526,7 +531,7 @@ func (s *ClientService) AddClient(userId int, client *model.ClientEntity) (bool,
 		"tg_id", "sub_id", "comment", "reset", "created_at", "updated_at",
 		"up", "down", "all_time", "last_online", "hwid_enabled", "max_hwid",
 		"ip_limit_enabled", "max_ips",
-		"announce", "traffic_reset_cadence", "traffic_reset_day",
+		"announce", "routing", "traffic_reset_cadence", "traffic_reset_day",
 	}
 	// Add group_id only if it's not nil
 	if client.GroupId != nil {
@@ -731,6 +736,11 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 		return false, common.NewError("Client announce exceeds maximum length of 200 characters")
 	}
 	client.Announce = strings.TrimSpace(client.Announce)
+	routing, err := NormalizeClientRouting(client.Routing)
+	if err != nil {
+		return false, err
+	}
+	client.Routing = routing
 
 	if err := normalizeClientTrafficResetCadence(client); err != nil {
 		return false, err
@@ -790,6 +800,7 @@ func (s *ClientService) UpdateClient(userId int, client *model.ClientEntity) (bo
 	updates["sub_id"] = client.SubID
 	updates["comment"] = client.Comment
 	updates["announce"] = client.Announce
+	updates["routing"] = client.Routing
 	// flow is set from assigned VLESS inbounds after mapping (see below), not from the request
 	updates["reset"] = client.Reset
 	updates["traffic_reset_cadence"] = client.TrafficResetCadence

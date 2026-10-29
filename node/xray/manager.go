@@ -1362,6 +1362,9 @@ func (m *Manager) InstallXrayVersion(version string) error {
 	}
 
 	logger.Infof("Xray version %s installed successfully to %s", version, targetBinary)
+	if err := xray.WriteInstalledBuild(version); err != nil {
+		logger.Warningf("Failed to record the installed Xray build %s: %v", version, err)
+	}
 
 	// 5. Make binary executable (important for Linux/Unix)
 	if runtime.GOOS != "windows" {

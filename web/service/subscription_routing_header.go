@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"unicode"
 )
@@ -194,4 +195,52 @@ func NormalizeSubscriptionRoutingHeaderValue(v string) string {
 		return v
 	}
 	return happRoutingAddPrefix + strings.TrimSpace(v)
+}
+
+// maxClientRoutingLen bounds the stored per-client routing deep link (a Happ profile with long geo lists is a few KB).
+const maxClientRoutingLen = 65536
+
+// NormalizeClientRouting validates a per-client routing value and returns it as a deep link
+// `scheme://routing/(add|onadd)/{base64 JSON}`. Accepted inputs: such a deep link (the payload must be
+// Base64 of a JSON document), the Base64 payload alone, or the raw JSON profile. Empty input clears the override.
+func NormalizeClientRouting(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if len(v) > maxClientRoutingLen {
+		return "", errors.New("client routing exceeds the maximum length")
+	}
+
+	if strings.HasPrefix(v, "{") {
+		if !json.Valid([]byte(v)) {
+			return "", errors.New("client routing is not valid JSON")
+		}
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, []byte(v)); err != nil {
+			return "", errors.New("client routing is not valid JSON")
+		}
+		return happRoutingAddPrefix + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	}
+
+	v = NormalizeSubscriptionRoutingHeaderValue(v)
+	lower := strings.ToLower(v)
+	for _, marker := range []string{"://routing/onadd/", "://routing/add/"} {
+		i := strings.Index(lower, marker)
+		if i <= 0 {
+			continue
+		}
+		scheme := lower[:i]
+		for _, r := range scheme {
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.') {
+				return "", errors.New("client routing has an invalid link scheme")
+			}
+		}
+		payload := strings.TrimSpace(v[i+len(marker):])
+		if _, ok := decodeStdBase64JSON(payload); !ok {
+			return "", errors.New("client routing link does not carry a Base64 JSON profile")
+		}
+		return v, nil
+	}
+	return "", errors.New("client routing must be a routing deep link, Base64 JSON or a JSON profile")
 }

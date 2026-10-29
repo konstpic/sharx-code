@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Modal } from "./modal";
 import { Button } from "./button";
 
@@ -13,6 +14,8 @@ type ConfirmDialogProps = {
   onCancel: () => void;
   danger?: boolean;
   loading?: boolean;
+  /** extra content under the description (for example a list of options to tick) */
+  children?: ReactNode;
 };
 
 export function ConfirmDialog({
@@ -25,6 +28,7 @@ export function ConfirmDialog({
   onCancel,
   danger,
   loading,
+  children,
 }: ConfirmDialogProps) {
   return (
     <Modal
@@ -51,6 +55,7 @@ export function ConfirmDialog({
       {description != null && (
         <p className="text-sm text-[var(--fg-muted)]">{description}</p>
       )}
+      {children}
     </Modal>
   );
 }

@@ -349,6 +349,9 @@ type ClientEntity struct {
 
 	// Subscription customization
 	Announce string `json:"announce,omitempty" form:"announce" gorm:"column:announce"` // Custom announcement text for this client (overrides subscription header, max 200 chars, supports base64)
+	// Routing is a per-client client-routing profile (Happ/INCY): a deep link `scheme://routing/add/{base64 JSON}`.
+	// When set it replaces the subscription page's Routing header for this client only.
+	Routing string `json:"routing,omitempty" form:"routing" gorm:"column:routing;type:text"`
 }
 
 // ClientCardInboundBrief is inbound metadata attached to panel client cards.
@@ -427,6 +430,7 @@ type Node struct {
 	Enable         bool   `json:"enable" form:"enable" gorm:"column:enable;default:true"`                  // When false, panel skips health checks, stats collection, and config push
 	XrayState      string `json:"xrayState" gorm:"column:xray_state;default:unknown"`                      // running | stopped | error | unknown (worker Xray)
 	XrayVersion    string `json:"xrayVersion" gorm:"column:xray_version;default:''"`                       // cached Xray version from worker (e.g. "26.5.3"), empty when unknown
+	XrayBuild      string `json:"xrayBuild" gorm:"column:xray_build;default:''"`                           // cached Xray release the worker says it installed ("26.10.29", "26.10.29-sharx.1"), "bundled" for the image's own binary, empty when the worker does not report it
 	WorkerVersion  string `json:"workerVersion" gorm:"column:worker_version;default:''"`                   // cached SharX worker build/version from node API (sharxVersion)
 	TelemtState    string `json:"telemtState" gorm:"column:telemt_state;default:unknown"`                  // running | stopped | unknown (worker Telemt sidecars)
 	TelemtVersion  string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`                   // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown

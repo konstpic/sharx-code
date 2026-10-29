@@ -388,6 +388,11 @@ func (s *NodeService) SetNodeXrayVersion(id int, version string) error {
 	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("xray_version", version).Error
 }
 
+// SetNodeXrayBuild persists the Xray release the worker reports as installed (empty = not reported).
+func (s *NodeService) SetNodeXrayBuild(id int, build string) error {
+	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("xray_build", build).Error
+}
+
 // SetNodeWorkerVersion persists the cached SharX worker build string from the node API (sharxVersion).
 func (s *NodeService) SetNodeWorkerVersion(id int, version string) error {
 	return database.GetDB().Model(&model.Node{}).Where("id = ?", id).Update("worker_version", version).Error
@@ -645,16 +650,22 @@ func (s *NodeService) RefreshNodeXrayStateFromWorker(node *model.Node) error {
 
 	// Cache version from /api/v1/status (and keep compatibility with alternate payload keys).
 	version := extractNodeXrayVersion(st)
-	if version == "" {
+	health, hErr := s.GetNodePublicHealth(node)
+	if hErr != nil {
+		health = nil
+	}
+	if version == "" && health != nil {
 		// Fallback to public /health payload for older/newer worker payload variants.
-		if health, hErr := s.GetNodePublicHealth(node); hErr == nil && health != nil {
-			v := strings.TrimSpace(health.XrayVersion)
-			if v != "" && !strings.EqualFold(v, "unknown") {
-				version = v
-			}
+		v := strings.TrimSpace(health.XrayVersion)
+		if v != "" && !strings.EqualFold(v, "unknown") {
+			version = v
 		}
 	}
 	_ = s.SetNodeXrayVersion(node.Id, version)
+	if health != nil {
+		// Workers that predate the field send nothing: the build stays empty and is never enforced.
+		_ = s.SetNodeXrayBuild(node.Id, strings.TrimSpace(health.XrayBuild))
+	}
 	_ = s.SetNodeWorkerVersion(node.Id, extractNodeWorkerVersion(st))
 
 	if statusMapRunning(st["running"]) {
@@ -962,6 +973,24 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 
 func normCoreVersion(v string) string { return xraycore.NormVersion(v) }
 
+// xrayBuildMismatch reports whether the core a worker says it runs is a different build than the one pinned
+// on the node: the stock core where the SharX fork is pinned (or the other way round), or another fork release.
+// A fork build and the stock core report the same version number, so comparing versions alone never notices
+// that a recreated worker went back to its bundled stock binary. Unknown on either side (no pin, or a worker
+// that does not report its build) is not a mismatch.
+func xrayBuildMismatch(pinned, build string) bool {
+	pin := strings.TrimPrefix(strings.TrimSpace(pinned), "v")
+	b := strings.TrimPrefix(strings.TrimSpace(build), "v")
+	if pin == "" || b == "" {
+		return false
+	}
+	pinFork, buildFork := xraycore.IsForkTag(pin), xraycore.IsForkTag(b)
+	if pinFork != buildFork {
+		return true
+	}
+	return pinFork && pin != b
+}
+
 // newNodeCoreWindow is how long after creation a node without pins is considered "new" and is
 // brought to the panel-wide core versions. Older nodes are never touched implicitly.
 const newNodeCoreWindow = 6 * time.Hour
@@ -1034,7 +1063,13 @@ func fleetPinnedVersion(column string, exceptNodeID int) string {
 // nothing is ever reinstalled (and no node restarts) just because a pin was missing.
 func (s *NodeService) adoptReportedCoreVersions(node *model.Node, xrayPin, telemtPin string) {
 	if node.XrayPinnedVersion == "" && xrayPin == "" && node.XrayVersion != "" {
-		_ = s.SetNodeXrayPinnedVersion(node.Id, normCoreVersion(node.XrayVersion))
+		// Keep the installed release tag when the worker reports one (a SharX fork build and the stock core
+		// share a version number); otherwise the stock core would later be enforced over the fork.
+		adopted := normCoreVersion(node.XrayVersion)
+		if b := strings.TrimPrefix(strings.TrimSpace(node.XrayBuild), "v"); b != "" && !strings.EqualFold(b, "bundled") && normCoreVersion(b) == adopted {
+			adopted = b
+		}
+		_ = s.SetNodeXrayPinnedVersion(node.Id, adopted)
 	}
 	if node.TelemtPinnedVersion == "" && telemtPin == "" && node.TelemtVersion != "" {
 		_ = s.SetNodeTelemtPinnedVersion(node.Id, normCoreVersion(node.TelemtVersion))
@@ -1052,6 +1087,12 @@ func (s *NodeService) MaybeReinstallPinnedCoreVersions(node *model.Node) {
 	}
 	xrayPin, telemtPin := effectiveNodePins(node, SettingService{}, time.Now())
 	xrayMismatch := xrayPin != "" && node.XrayVersion != "" && normCoreVersion(node.XrayVersion) != normCoreVersion(xrayPin)
+	buildMismatch := xrayBuildMismatch(node.XrayPinnedVersion, node.XrayBuild)
+	if buildMismatch {
+		xrayMismatch = true
+		// Re-install the exact release the admin chose (it carries the SharX fork marker), not its bare version.
+		xrayPin = strings.TrimPrefix(strings.TrimSpace(node.XrayPinnedVersion), "v")
+	}
 	telemtMismatch := telemtPin != "" && node.TelemtVersion != "" && normCoreVersion(node.TelemtVersion) != normCoreVersion(telemtPin)
 	s.adoptReportedCoreVersions(node, xrayPin, telemtPin)
 	if !xrayMismatch && !telemtMismatch {
@@ -1344,6 +1385,7 @@ type NodePublicHealth struct {
 	Service          string `json:"service"`
 	XrayRunning      bool   `json:"xrayRunning"`
 	XrayVersion      string `json:"xrayVersion"`
+	XrayBuild        string `json:"xrayBuild"`
 	XrayUptime       int64  `json:"xrayUptime"`
 	TelemtRunning    bool   `json:"telemtRunning"`
 	TelemtCount      int    `json:"telemtCount"`

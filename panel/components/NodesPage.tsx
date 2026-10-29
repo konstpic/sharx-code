@@ -8,6 +8,7 @@ import {
   Filter,
   LayoutGrid,
   LayoutList,
+  ArrowDownUp,
   Network,
   Plus,
   Power,
@@ -76,6 +77,8 @@ import {
   Switch,
   useToast,
 } from "@/components/ui";
+import { xrayVersionLabel } from "@/lib/nodeXrayBuild";
+import { NodeCoreModal, type NodeCoreKind } from "@/components/nodes/NodeCoreModal";
 
 /** Pre-`pairing` auth_mode from older DB / API rows. */
 const LEGACY_NODE_AUTH_PAIRING = "remna";
@@ -104,6 +107,8 @@ type NodeRow = {
   inbounds?: InboundRef[];
   profiles?: ProfileRef[];
   xrayVersion?: string;
+  /** Release the worker reports as installed (fork tag, "bundled" or empty) */
+  xrayBuild?: string;
   telemtVersion?: string;
   /** SharX worker build (from node /api/v1/status sharxVersion), cached in DB */
   workerVersion?: string;
@@ -317,6 +322,8 @@ export function NodesPage() {
   const [amneziawgStoppingId, setAmneziawgStoppingId] = useState<number | null>(null);
   const [amneziawgRestartingId, setAmneziawgRestartingId] = useState<number | null>(null);
   const [xrayRestartingId, setXrayRestartingId] = useState<number | null>(null);
+  const [coreNode, setCoreNode] = useState<NodeRow | null>(null);
+  const [coreKind, setCoreKind] = useState<NodeCoreKind>("xray");
   const [editForm, setEditForm] = useState({
     name: "",
     nameFlag: "",
@@ -1419,6 +1426,10 @@ export function NodesPage() {
       togglingEnableId,
       onStopXray: (r: NodeRow) => void stopXrayOnRow(r),
       onRestartXray: (r: NodeRow) => void restartXrayOnRow(r),
+      onChangeCore: (r: NodeRow, core: NodeCoreKind) => {
+        setCoreKind(core);
+        setCoreNode(r);
+      },
       xrayStoppingId,
       xrayRestartingId,
       onStopTelemt: (r: NodeRow) => void stopTelemtOnRow(r),
@@ -1695,7 +1706,7 @@ export function NodesPage() {
                       {r.workerVersion || "—"}
                     </td>
                     <td className="p-3 font-mono text-xs">
-                      {r.xrayVersion || "—"}
+                      {xrayVersionLabel(r.xrayVersion, r.xrayBuild)}
                     </td>
                     <td
                       className="p-3"
@@ -1749,6 +1760,22 @@ export function NodesPage() {
                             >
                               <RefreshCw size={16} />
                             </Button>
+                            {canOperate ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="!p-1.5 text-[var(--fg-muted)] hover:text-emerald-300 disabled:opacity-40"
+                                disabled={xrayRestartingId === r.id || xrayStoppingId === r.id}
+                                title={t("pages.nodes.changeCoreButton", { defaultValue: "Change Xray core on this node" })}
+                                aria-label={t("pages.nodes.changeCoreButton", { defaultValue: "Change Xray core on this node" })}
+                                onClick={() => {
+                                  setCoreKind("xray");
+                                  setCoreNode(r);
+                                }}
+                              >
+                                <ArrowDownUp size={16} />
+                              </Button>
+                            ) : null}
                           </>
                         ) : null}
                       </div>
@@ -1798,6 +1825,22 @@ export function NodesPage() {
                               >
                                 <RefreshCw size={16} />
                               </Button>
+                              {canOperate ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="!p-1.5 text-[var(--fg-muted)] hover:text-emerald-300 disabled:opacity-40"
+                                  disabled={telemtRestartingId === r.id || telemtStoppingId === r.id}
+                                  title={t("pages.nodes.changeTelemtCoreButton", { defaultValue: "Change Telemt core on this node" })}
+                                  aria-label={t("pages.nodes.changeTelemtCoreButton", { defaultValue: "Change Telemt core on this node" })}
+                                  onClick={() => {
+                                    setCoreKind("telemt");
+                                    setCoreNode(r);
+                                  }}
+                                >
+                                  <ArrowDownUp size={16} />
+                                </Button>
+                              ) : null}
                             </>
                           ) : null}
                         </div>
@@ -2840,6 +2883,14 @@ export function NodesPage() {
         nodeName={metricsNode?.name ?? ""}
         onClose={() => setMetricsNode(null)}
       />
+      <NodeCoreModal
+        node={coreNode}
+        core={coreKind}
+        t={t}
+        onClose={() => setCoreNode(null)}
+        onInstalled={() => void load()}
+      />
+
       <EntityLogsModal
         open={logsNode != null}
         entityType="node"

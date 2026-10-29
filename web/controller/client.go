@@ -560,6 +560,11 @@ func (a *ClientController) updateClient(c *gin.Context) {
 					client.Announce = announce
 				}
 			}
+			if routingVal, exists := updateData["routing"]; exists {
+				if routing, ok := routingVal.(string); ok {
+					client.Routing = routing
+				}
+			}
 			// Handle reset - can be 0 (disabled), so check if key exists
 			if resetVal, exists := updateData["reset"]; exists {
 				if reset, ok := resetVal.(float64); ok {

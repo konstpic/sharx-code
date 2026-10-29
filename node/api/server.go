@@ -35,6 +35,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/node/xray"
 	telemtinstall "github.com/konstpic/sharx-code/v2/telemt/install"
 	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
+	corexray "github.com/konstpic/sharx-code/v2/xray"
 )
 
 // try executes a function and recovers from panics, logging them as warnings
@@ -308,6 +309,7 @@ func (s *Server) health(c *gin.Context) {
 		"sharxVersion":     config.GetVersion(),
 		"xrayRunning":      st["running"],
 		"xrayVersion":      st["version"],
+		"xrayBuild":        corexray.ReadInstalledBuild(),
 		"xrayUptime":       st["uptime"],
 		"telemtRunning":    tCount > 0,
 		"telemtCount":      tCount,
