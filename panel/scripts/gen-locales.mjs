@@ -87,9 +87,15 @@ for (const [lang, file] of Object.entries(files)) {
       if (!(k in flat)) flat[k] = v;
     }
   }
+  // Keep panel-only translations that have not yet been backfilled into TOML.
+  // Regenerating locales must not silently remove existing UI strings; TOML wins.
+  const outputPath = path.join(outDir, `${lang}.json`);
+  const existing = fs.existsSync(outputPath)
+    ? JSON.parse(fs.readFileSync(outputPath, "utf8"))
+    : {};
   fs.writeFileSync(
-    path.join(outDir, `${lang}.json`),
-    JSON.stringify(flat, null, 0),
+    outputPath,
+    JSON.stringify({ ...existing, ...flat }, null, 0),
     "utf8"
   );
   console.log("wrote", lang, Object.keys(flat).length, "keys");

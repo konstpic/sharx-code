@@ -379,6 +379,7 @@ func (s *Server) Start() (err error) {
 	if err != nil {
 		return err
 	}
+	service.StartMeshOwner(s.ctx)
 	if certFile != "" || keyFile != "" {
 		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err == nil {

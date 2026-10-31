@@ -9,19 +9,14 @@ import { getJson, postJson } from "@/lib/api";
 import { copyTextToClipboard } from "@/lib/copyToClipboard";
 import { panel } from "@/lib/paths";
 
+import { queryLocalLogs, type LogEntry } from "@/lib/localLogEntries";
+export type { LogEntry } from "@/lib/localLogEntries";
+
 export type LogSource = { type: "node" | "balancer" | "panel" | "audit"; id: number };
 
-type Entry = {
-  source: string;
-  level: string;
-  message: string;
-  ts: number;
-  component?: string;
-  connId?: string;
-};
 type Bucket = { t: number; debug: number; info: number; warn: number; error: number };
 type Result = {
-  entries: Entry[];
+  entries: LogEntry[];
   components: string[];
   volume: Bucket[];
   total: number;
@@ -92,7 +87,7 @@ function Highlight({ text, terms }: { text: string; terms: string[] }) {
  * Log explorer in the spirit of Grafana/Loki: volume histogram, level and component chips, term search ("-term" excludes),
  * time range, live tail, expandable lines with field filters, and download as txt / ndjson / csv.
  */
-export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange = "1h" }: { source: LogSource; heightClass?: string; defaultRange?: string }) {
+export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange = "1h", entries }: { source: LogSource; heightClass?: string; defaultRange?: string; entries?: LogEntry[] }) {
   const { t } = useTranslation();
   const [range, setRange] = useState(defaultRange);
   const [levels, setLevels] = useState<Set<Level>>(new Set(["info", "warn", "error"]));
@@ -110,6 +105,8 @@ export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange
   const [dlOpen, setDlOpen] = useState(false);
   const [levelBusy, setLevelBusy] = useState(false);
   const seq = useRef(0);
+  const frozenEntries = useRef(entries);
+  if (live) frozenEntries.current = entries;
 
   useEffect(() => {
     const id = window.setTimeout(() => setQ(qDraft), 300);
@@ -135,6 +132,13 @@ export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange
     const my = ++seq.current;
     setLoading(true);
     try {
+      if (entries) {
+        const local = queryLocalLogs(frozenEntries.current || [], { since: Number(params().get("since") || 0), levels, components, q });
+        setRes(local);
+        setKnown(local.components);
+        setError("");
+        return;
+      }
       const r = await getJson<Result>(panel(`${base}?${params({ count: "1500" })}`));
       if (my !== seq.current) return;
       if (!r.success) {
@@ -149,7 +153,7 @@ export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange
     } finally {
       if (my === seq.current) setLoading(false);
     }
-  }, [base, params]);
+  }, [base, params, entries, levels, components, q]);
 
   useEffect(() => {
     setRes(null);
@@ -195,7 +199,14 @@ export function LogExplorer({ source, heightClass = "max-h-[56vh]", defaultRange
   const terms = useMemo(() => q.toLowerCase().split(/\s+/).filter((x) => x && !x.startsWith("-")), [q]);
   const spansDays = rows.length > 0 && new Date(rows[0].ts).toDateString() !== new Date(rows[rows.length - 1].ts).toDateString();
 
-  const downloadHref = (format: string) => panel(`${base}?${params({ download: "1", format, count: "100000" })}`);
+  const downloadHref = (format: string) => {
+    if (!entries) return panel(`${base}?${params({ download: "1", format, count: "100000" })}`);
+    const quote = (v: string) => `"${v.replaceAll('"', '""')}"`;
+    const body = format === "ndjson" ? rows.map(e => JSON.stringify(e)).join("\n") :
+      format === "csv" ? ["time,level,component,message", ...rows.map(e => [new Date(e.ts).toISOString(), e.level, e.component || e.source, e.message].map(quote).join(","))].join("\n") :
+      rows.map(e => `${new Date(e.ts).toISOString()} ${e.level.toUpperCase()} [${e.component || e.source}] ${e.message}`).join("\n");
+    return `data:text/plain;charset=utf-8,${encodeURIComponent(body)}`;
+  };
 
   const setAgentLevel = async (lv: "info" | "debug") => {
     setLevelBusy(true);

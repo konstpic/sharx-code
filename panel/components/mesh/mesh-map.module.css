@@ -1,0 +1,19 @@
+.edge { transition: opacity 180ms ease, stroke-width 180ms ease; }
+.flow { pointer-events: none; animation: mesh-flow 3s linear infinite; }
+.reverse { animation-direction: reverse; animation-delay: -1.5s; }
+.transit { pointer-events: none; animation: mesh-transit 1.3s linear infinite; }
+.hit { cursor: pointer; outline: none; }
+.hit:focus-visible { stroke: var(--accent); stroke-opacity: .3; }
+.node { transition: opacity 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
+@keyframes mesh-flow { to { stroke-dashoffset: -104; } }
+@keyframes mesh-transit { to { stroke-dashoffset: -24; } }
+.leader { animation: mesh-leader 2s ease-in-out infinite; }
+.paused .flow, .paused .transit, .paused .leader { animation: none; }
+.paused .flow { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .flow { display: none; }
+  .transit, .leader { animation: none; }
+  .edge, .node { transition: none; }
+}
+
+@keyframes mesh-leader { 0%,100% { opacity:.45; } 50% { opacity:1; } }

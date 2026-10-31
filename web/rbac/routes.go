@@ -162,6 +162,10 @@ var routes = map[string][]string{
 	"POST /panel/host/del/:id":                   {HostsDelete},
 
 	// ----- infrastructure: nodes, balancers -----
+	"GET /panel/mesh/status":                       {MeshRead},
+	"POST /panel/mesh/settings":                    {MeshOperate},
+	"POST /panel/mesh/ssh-hostkey":                 {MeshOperate},
+	"POST /panel/mesh/action/:action":              {MeshOperate},
 	"GET /panel/node/traffic-history/:id":          {NodesRead},
 	"GET /panel/node/list":                         {NodesRead},
 	"GET /panel/node/get/:id":                      {NodesRead},

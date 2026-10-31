@@ -50,6 +50,9 @@ const (
 	OutboundsUpdate = "outbounds:update"
 	OutboundsDelete = "outbounds:delete"
 
+	MeshRead    = "mesh:read"
+	MeshOperate = "mesh:operate"
+
 	NodesRead    = "nodes:read"
 	NodesCreate  = "nodes:create"
 	NodesUpdate  = "nodes:update"
@@ -149,6 +152,8 @@ var catalogue = []Permission{
 	p(HostsUpdate, "subscriptions", false),
 	p(HostsDelete, "subscriptions", false),
 
+	p(MeshRead, "infrastructure", false),
+	p(MeshOperate, "infrastructure", true),
 	p(NodesRead, "infrastructure", false),
 	p(NodesCreate, "infrastructure", true), // SSH provisioning takes server credentials
 	p(NodesUpdate, "infrastructure", false),
@@ -246,7 +251,7 @@ func resourceOf(key string) string {
 // superOnly lists permissions that are equivalent to full control of the panel: whoever holds them can sign in as anyone
 // (2FA settings), read or replace the whole database (backup, raw tables). Only an administrator may put them into
 // a role, so a delegated "manage roles" permission can never mint a second administrator by the back door.
-var superOnly = map[string]bool{SettingsSecurity: true, SystemBackup: true, SystemDatabase: true, AuthManage: true}
+var superOnly = map[string]bool{MeshOperate: true, SettingsSecurity: true, SystemBackup: true, SystemDatabase: true, AuthManage: true}
 
 // IsSuperOnly reports whether only an administrator may grant the permission.
 func IsSuperOnly(key string) bool { return superOnly[key] }

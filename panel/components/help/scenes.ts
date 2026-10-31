@@ -1,5 +1,7 @@
 import {
   Activity,
+  Database,
+  Network,
   Bell,
   Building2,
   Cpu,
@@ -29,6 +31,8 @@ export type SceneStep = {
   focus?: string[];
   /** Actors shown as failed (dimmed, crossed out). */
   down?: string[];
+  /** Failed channels between otherwise available actors. */
+  brokenLinks?: [string, string][];
   /** Animated packets travelling between actors. */
   flows?: SceneFlow[];
 };
@@ -290,4 +294,24 @@ const subpage: Scene = {
   ],
 };
 
-export const SCENES: Record<string, Scene> = { subpage, welcome, inbounds, nodes, balancers, bundles, hosts, clients, groups };
+const M = (key: string) => `pages.mesh.${key}`;
+const mesh: Scene = {
+  id: "mesh", titleKey: M("helpTitle"),
+  actors: [
+    { id: "panel", labelKey: M("scenePanel"), icon: LayoutDashboard, x: 12, y: 42, tone: "accent" },
+    { id: "entry", labelKey: M("entry"), icon: Server, x: 44, y: 24, tone: "green" },
+    { id: "exit", labelKey: M("exit"), icon: Server, x: 86, y: 24, tone: "blue" },
+    { id: "transit", labelKey: M("sceneTransit"), icon: Network, x: 66, y: 76, tone: "amber" },
+    { id: "etcd", labelKey: M("sceneEtcd"), icon: Database, x: 28, y: 76, tone: "accent" },
+  ],
+  links: [["panel", "entry"], ["panel", "etcd"], ["etcd", "entry"], ["etcd", "exit"], ["entry", "exit"], ["entry", "transit"], ["transit", "exit"]],
+  steps: [
+    { captionKey: M("sceneCap1"), show: ["panel", "entry", "exit"], focus: ["panel"], flows: [{ from: "panel", to: "entry", tone: "accent" }] },
+    { captionKey: M("sceneCap2"), show: ["panel", "entry", "exit", "etcd"], focus: ["etcd"], flows: [{ from: "etcd", to: "entry", tone: "green" }, { from: "etcd", to: "exit", tone: "green" }] },
+    { captionKey: M("sceneCap3"), show: ["entry", "exit", "etcd", "transit"], focus: ["entry", "exit"], flows: [{ from: "entry", to: "exit", tone: "blue" }] },
+    { captionKey: M("sceneCap4"), show: ["entry", "exit", "etcd", "transit"], focus: ["transit"], brokenLinks: [["entry", "exit"]], flows: [{ from: "entry", to: "transit", tone: "blue" }, { from: "transit", to: "exit", tone: "blue" }] },
+    { captionKey: M("sceneCap5"), show: ["panel", "entry", "exit", "etcd", "transit"], focus: ["entry"], flows: [{ from: "entry", to: "exit", tone: "amber" }] },
+  ],
+};
+
+export const SCENES: Record<string, Scene> = { mesh, subpage, welcome, inbounds, nodes, balancers, bundles, hosts, clients, groups };

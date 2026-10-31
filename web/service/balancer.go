@@ -427,6 +427,7 @@ func (s *BalancerService) BuildSpec(id int) (spec.Spec, error) {
 
 func (s *BalancerService) buildSpecFor(b *model.Balancer) spec.Spec {
 	out := spec.Spec{Engine: b.Engine, Pools: []spec.Pool{}}
+	meshDisabled := meshPoolDisabled()
 	for _, p := range b.Pools {
 		if !p.Enable {
 			continue
@@ -440,7 +441,7 @@ func (s *BalancerService) buildSpecFor(b *model.Balancer) spec.Spec {
 			ProxyProtocol: p.ProxyProtocol, HealthCheck: p.HealthCheck,
 		}
 		for _, m := range p.Members {
-			if !m.Enable || m.NodeStatus == "disabled" {
+			if !m.Enable || m.NodeStatus == "disabled" || meshDisabled[fmt.Sprint("pool-", p.Id)][fmt.Sprint("node-", m.NodeId)] {
 				continue
 			}
 			host := strings.TrimSpace(m.AddressOverride)

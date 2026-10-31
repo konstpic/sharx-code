@@ -86,7 +86,7 @@ export function HelpScene({ sceneId, className = "", compact = false }: { sceneI
             const B = byId.get(y);
             if (!A || !B) return null;
             const vis = shown.has(x) && shown.has(y);
-            const broken = down.has(x) || down.has(y);
+            const broken = down.has(x) || down.has(y) || (cur.brokenLinks ?? []).some(([a, b]) => (a === x && b === y) || (a === y && b === x));
             return (
               <motion.line
                 key={`${x}-${y}`}

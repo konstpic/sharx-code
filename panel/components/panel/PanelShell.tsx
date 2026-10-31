@@ -235,7 +235,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
     };
     const KIND_PERM: Record<string, string> = {
       clients: "clients:read",
-      nodes: "nodes:read|balancers:read",
+      nodes: "nodes:read|balancers:read|mesh:read",
       xray: "xray:read",
       access: "users:read|roles:read|audit:read",
     };
@@ -333,6 +333,7 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                     child("geo", t("menu.nodesGeography"), linkP("panel/nodes/geography"), u === nodesGeoHref),
                   ]
                 : []),
+              ...(can("mesh:read") ? [child("mesh", t("pages.mesh.title", { defaultValue: "Mesh & relays" }), linkP("panel/nodes/mesh"), u === routePath(p("panel/nodes/mesh")))] : []),
               ...(can("balancers:read")
                 ? [child("balancers", t("menu.balancers", { defaultValue: "Balancers" }), linkP("panel/nodes/balancers"), u === nodesBalancersHref)]
                 : []),

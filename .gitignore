@@ -41,3 +41,5 @@ tmp/
 
 # # Ignore .env (Environment Variables) file
 # .env.DS_Store
+
+.superdesign/tmp/

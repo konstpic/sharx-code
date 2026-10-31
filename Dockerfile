@@ -51,6 +51,7 @@ COPY database/ ./database/
 COPY logger/ ./logger/
 COPY util/ ./util/
 COPY conndrop/ ./conndrop/
+COPY mesh/ ./mesh/
 COPY xray/ ./xray/
 COPY telemt/ ./telemt/
 COPY amneziawg/ ./amneziawg/
@@ -78,6 +79,13 @@ ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags "-w -s" -o build/x-ui main.go
+
+# Host agents are static Go binaries, installed over confirmed SSH. Both host
+# architectures are bundled regardless of the panel architecture.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-w -s" -o build/mesh/linux-amd64 ./mesh/agentcmd && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-w -s" -o build/mesh/linux-arm64 ./mesh/agentcmd
 
 RUN bash DockerInit.sh "$TARGETARCH"
 RUN ARCH="" && case "${TARGETARCH}" in amd64) ARCH=linux-amd64 ;; arm64) ARCH=linux-arm64 ;; esac && \
@@ -109,6 +117,7 @@ RUN apk add --no-cache --update \
   postgresql16-client \
   conntrack-tools
 
+COPY --from=builder /app/build/mesh/ /opt/sharx-mesh/
 COPY --from=builder /app/build/ /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/scripts/ensure-dev-net-tun.sh /app/scripts/ensure-dev-net-tun.sh

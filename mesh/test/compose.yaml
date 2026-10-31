@@ -1,0 +1,103 @@
+# Disposable local stand. Keep volumes and worker containers for manual review.
+name: sharx-mesh-test
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: sharx-mesh-test-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust # TEST ONLY: isolated bridge + loopback publish.
+    ports: ["127.0.0.1:55439:5432"]
+    volumes: ["database:/var/lib/postgresql/data"]
+    networks:
+      mesh: {ipv4_address: 172.30.203.5}
+  panel:
+    image: sharx-mesh-test-panel:local
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args: {TARGETARCH: arm64}
+    container_name: sharx-mesh-test-panel
+    restart: unless-stopped
+    environment:
+      XUI_DB_HOST: 172.30.203.5
+      XUI_DB_PORT: "5432"
+      XUI_DB_USER: postgres
+      XUI_DB_NAME: sharx_mesh_app
+      XUI_DB_SSLMODE: disable
+      XUI_MESH_STATE_DIR: /etc/x-ui/mesh
+      XUI_WEB_LISTEN: 0.0.0.0
+      XUI_WEB_PORT: "2053"
+      XUI_WEB_BASE_PATH: /
+    ports: ["127.0.0.1:55253:2053"]
+    volumes: ["panel-state:/etc/x-ui"]
+    networks:
+      mesh: {ipv4_address: 172.30.203.10}
+  n1: &node
+    image: sharx-mesh-test-node:local
+    build: {context: ., dockerfile: Dockerfile.node}
+    container_name: sharx-mesh-test-n1
+    hostname: mesh-test-n1
+    restart: unless-stopped
+    privileged: true
+    cgroup: host
+    tmpfs: [/run, /run/lock]
+    volumes: ["/sys/fs/cgroup:/sys/fs/cgroup:rw"]
+    networks:
+      mesh: {ipv4_address: 172.30.203.11}
+  n2:
+    <<: *node
+    container_name: sharx-mesh-test-n2
+    hostname: mesh-test-n2
+    networks:
+      mesh: {ipv4_address: 172.30.203.12}
+  n3:
+    <<: *node
+    container_name: sharx-mesh-test-n3
+    hostname: mesh-test-n3
+    networks:
+      mesh: {ipv4_address: 172.30.203.13}
+  n4:
+    <<: *node
+    container_name: sharx-mesh-test-n4
+    hostname: mesh-test-n4
+    networks:
+      mesh: {ipv4_address: 172.30.203.14}
+  n5:
+    <<: *node
+    container_name: sharx-mesh-test-n5
+    hostname: mesh-test-n5
+    networks:
+      mesh: {ipv4_address: 172.30.203.15}
+  n6:
+    <<: *node
+    container_name: sharx-mesh-test-n6
+    hostname: mesh-test-n6
+    networks:
+      mesh: {ipv4_address: 172.30.203.16}
+  n7:
+    <<: *node
+    container_name: sharx-mesh-test-n7
+    hostname: mesh-test-n7
+    networks:
+      mesh: {ipv4_address: 172.30.203.17}
+  n8:
+    <<: *node
+    container_name: sharx-mesh-test-n8
+    hostname: mesh-test-n8
+    networks:
+      mesh: {ipv4_address: 172.30.203.18}
+  n9:
+    <<: *node
+    container_name: sharx-mesh-test-n9
+    hostname: mesh-test-n9
+    networks:
+      mesh: {ipv4_address: 172.30.203.19}
+networks:
+  mesh:
+    name: sharx-mesh-test-net
+    ipam:
+      config: [{subnet: 172.30.203.0/24}]
+volumes:
+  panel-state: {name: sharx-mesh-test-panel-state}
+  database: {name: sharx-mesh-test-db-state}

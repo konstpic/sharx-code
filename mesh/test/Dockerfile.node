@@ -1,0 +1,7 @@
+# Disposable local integration nodes. Never used for a release or a production deployment.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive container=docker
+RUN apt-get update -qq && apt-get install -y -qq systemd systemd-sysv openssh-server wireguard-tools iproute2 iptables curl python3 docker.io >/dev/null && rm -rf /var/lib/apt/lists/* && mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh && ssh-keygen -A && printf 'PermitRootLogin prohibit-password\nPasswordAuthentication no\n' > /etc/ssh/sshd_config.d/mesh-test.conf && systemctl enable ssh && systemctl enable docker.service docker.socket
+RUN mkdir -p /etc/docker && printf '{"storage-driver":"vfs","features":{"containerd-snapshotter":false}}\n' > /etc/docker/daemon.json
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

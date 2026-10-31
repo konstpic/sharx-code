@@ -35,6 +35,7 @@ func (a *XUIController) initRouter(g *gin.RouterGroup) {
 	NewRBACController(g.Group("/rbac"))
 	NewSSOAdminController(g.Group("/auth"))
 	NewBalancerController(g.Group("/balancer"), &a.nodeController.nodeService)
+	NewMeshController(g.Group("/mesh"))
 	NewBundleController(g.Group("/bundle"))
 	NewClientController(g.Group("/client"))
 	NewHostController(g.Group("/host"))
