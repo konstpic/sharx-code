@@ -12,7 +12,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     # Required for drop-connections (conntrack) and AmneziaWG TUN:
-    cap_add: [NET_ADMIN]
+    cap_add: [NET_ADMIN, NET_RAW]
     network_mode: host
     devices:
       - /dev/net/tun:/dev/net/tun

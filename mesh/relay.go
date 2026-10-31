@@ -149,6 +149,12 @@ func (c *Controller) pushForwards(extra string, on bool) error {
 			continue
 		}
 		entries++
+		if d.Transport == "embedded" {
+			if e = c.agentCall(n, "forward", json.RawMessage(b), nil); e != nil {
+				return e
+			}
+			continue
+		}
 		if e = c.put(n, "/etc/sharx-meshfwd/rules.json", b, "600"); e != nil {
 			return e
 		}
@@ -409,7 +415,13 @@ func (c *Controller) remove(name string, j *Job) error {
 		}
 	}
 	cmd := "systemctl disable --now sharx-mesh-agent >/dev/null 2>&1; for d in $(ip -o link show | grep -o 'sxm-n[0-9]*' | sort -u); do ip link del \"$d\"; done; ip addr del " + quote(d.Overlay+"/32") + " dev lo 2>/dev/null || true"
-	if _, e := c.remote(name, cmd, nil, 45*time.Second); e != nil {
+	var removeErr error
+	if d.Transport == "embedded" {
+		removeErr = c.agentCall(name, "remove", nil, nil)
+	} else {
+		_, removeErr = c.remote(name, cmd, nil, 45*time.Second)
+	}
+	if e := removeErr; e != nil {
 		return e
 	}
 	delete(c.enrolled, name)

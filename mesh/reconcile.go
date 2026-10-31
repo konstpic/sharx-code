@@ -116,7 +116,15 @@ func (c *Controller) probe() {
 		wg.Add(1)
 		go func(n string) {
 			defer wg.Done()
-			out, e := c.remote(n, "/usr/local/lib/sharx-mesh/sharx-mesh-agent probe", b, 90*time.Second)
+			var out []byte
+			var e error
+			if c.enrolled[n].Transport == "embedded" {
+				var raw json.RawMessage
+				e = c.agentCall(n, "probe", json.RawMessage(b), &raw)
+				out = raw
+			} else {
+				out, e = c.remote(n, "/usr/local/lib/sharx-mesh/sharx-mesh-agent probe", b, 90*time.Second)
+			}
 			if e != nil {
 				return
 			}

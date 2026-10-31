@@ -29,6 +29,7 @@ import (
 )
 
 type Enrolled struct {
+	Transport   string `json:"transport,omitempty"`
 	Host        string `json:"host"`
 	User        string `json:"user"`
 	Sudo        bool   `json:"sudo"`
@@ -265,6 +266,12 @@ func (c *Controller) remote(name, cmd string, input []byte, timeout time.Duratio
 	return runSSH(ctx, cl, d, cmd, input)
 }
 func (c *Controller) put(name, path string, b []byte, mode string) error {
+	if c.enrolled[name].Transport == "embedded" {
+		if path != "/etc/sharx-mesh-etcd/managed.json" {
+			return errors.New("unsupported embedded file operation")
+		}
+		return c.agentCall(name, "etcd-marker", json.RawMessage(b), nil)
+	}
 	_, e := c.remote(name, "umask 077; mkdir -p "+quote(filepath.Dir(path))+" && cat > "+quote(path+".tmp")+" && chmod "+mode+" "+quote(path+".tmp")+" && mv -f "+quote(path+".tmp")+" "+quote(path), b, 120*time.Second)
 	return e
 }
@@ -313,7 +320,7 @@ func (c *Controller) store() (*protocol.Store, error) {
 		}
 		return &tunnel{Conn: conn, ssh: cl}, nil
 	}
-	return &protocol.Store{Endpoints: endpoints, Client: &http.Client{Transport: transport, Timeout: 8 * time.Second}}, nil
+	return &protocol.Store{Endpoints: endpoints, Client: &http.Client{Transport: &agentTransport{controller: c, fallback: transport, names: memberByOverlay}, Timeout: 8 * time.Second}}, nil
 }
 
 type tunnel struct {

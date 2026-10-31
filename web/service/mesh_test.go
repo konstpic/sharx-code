@@ -132,3 +132,37 @@ func TestMeshPoolExclusionsDoNotChangeManualSettingsOrOtherPools(t *testing.T) {
 		t.Fatal("manual pool flags mutated")
 	}
 }
+
+func TestMeshParticipantMustLeaveBeforeMetadataDeletion(t *testing.T) {
+	db := testdb.New(t)
+	t.Setenv("XUI_MESH_STATE_DIR", t.TempDir())
+	n := seedNode(t, db, "mesh worker", "http://192.0.2.1:8080")
+	b := model.Balancer{Name: "mesh balancer", Address: "192.0.2.2", ApiAddress: "http://192.0.2.2:8080", Engine: "haproxy", Enable: true}
+	if e := db.Create(&b).Error; e != nil {
+		t.Fatal(e)
+	}
+	path := filepath.Join(meshDirectory(), "enrolled.json")
+	if e := mesh.AtomicJSON(path, map[string]mesh.Enrolled{"n1": {Node: fmt.Sprint("node-", n.Id), Transport: "embedded"}, "b1": {Node: fmt.Sprint("balancer-", b.Id), Transport: "embedded"}}); e != nil {
+		t.Fatal(e)
+	}
+	if e := (&NodeService{}).DeleteNode(n.Id); e == nil {
+		t.Fatal("enrolled worker metadata deleted")
+	}
+	if e := (&BalancerService{}).Delete(b.Id); e == nil {
+		t.Fatal("enrolled balancer metadata deleted")
+	}
+	var count int64
+	db.Model(&model.Node{}).Where("id=?", n.Id).Count(&count)
+	if count != 1 {
+		t.Fatal("worker changed on rejection")
+	}
+	if e := os.Remove(path); e != nil {
+		t.Fatal(e)
+	}
+	if e := (&NodeService{}).DeleteNode(n.Id); e != nil {
+		t.Fatal(e)
+	}
+	if e := (&BalancerService{}).Delete(b.Id); e != nil {
+		t.Fatal(e)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/balancer/api"
 	"github.com/konstpic/sharx-code/v2/balancer/engine"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/mesh/embedded"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	"github.com/op/go-logging"
 )
@@ -38,14 +39,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	meshService := embedded.New(*dir)
+	defer meshService.Close()
+
 	mgr := engine.New(*dir)
 	if err := mgr.Restore(); err != nil {
 		logger.Warningf("restore last config: %v", err)
 	}
 
+	agentAPI := api.New(bundle.AuthSecret, mgr)
+	agentAPI.SetMesh(meshService)
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(*port),
-		Handler:           api.New(bundle.AuthSecret, mgr).Handler(),
+		Handler:           agentAPI.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}

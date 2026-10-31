@@ -1,3 +1,10 @@
+FROM quay.io/coreos/etcd:v3.6.15 AS mesh-etcd
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS mesh-wireguard
+ARG TARGETARCH
+WORKDIR /wg
+RUN go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-20261024220952-b3bc704ef0ee golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/wireguard-go golang.zx2c4.com/wireguard
+
 # Telemt: ./scripts/download-telemt.sh → third_party/telemt-sharx/prebuilt/linux-*/telemt (or DockerInit fallback)
 # Build stage
 FROM golang:1.27-alpine AS builder
@@ -51,6 +58,10 @@ FROM alpine:latest
 ARG TARGETARCH
 
 RUN apk --no-cache add ca-certificates tzdata conntrack-tools iptables
+
+COPY --from=mesh-etcd /usr/local/bin/etcd /usr/local/bin/etcd
+COPY --from=mesh-wireguard /out/wireguard-go /usr/local/bin/wireguard-go
+RUN apk --no-cache add wireguard-tools iproute2 iptables procps
 
 WORKDIR /app
 

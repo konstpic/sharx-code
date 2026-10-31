@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/konstpic/sharx-code/v2/mesh/embedded"
 	"github.com/konstpic/sharx-code/v2/mesh/protocol"
 	"os"
 	"path/filepath"
@@ -102,6 +103,13 @@ func (c *Controller) etcdHealth(records []Member, all bool) ([]string, error) {
 	return alive, nil
 }
 func (c *Controller) prepareEtcd(name string, allowExisting bool) error {
+	if d := c.enrolled[name]; d.Transport == "embedded" {
+		cert, key, e := c.issue("sharx-mesh-member-"+name, []string{d.Overlay, d.Host, "127.0.0.1", "localhost", name}, true)
+		if e != nil {
+			return e
+		}
+		return c.agentCall(name, "etcd-prepare", embedded.EtcdTLS{CA: string(c.caPEM), Cert: string(cert), Key: string(key), AllowExisting: allowExisting}, nil)
+	}
 	if _, e := c.remote(name, "command -v docker >/dev/null || (DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io >/dev/null)", nil, 10*time.Minute); e != nil {
 		return e
 	}
@@ -152,6 +160,9 @@ func (c *Controller) prepareEtcd(name string, allowExisting bool) error {
 	return e
 }
 func (c *Controller) launchEtcd(name, cluster, state, token string) error {
+	if c.enrolled[name].Transport == "embedded" {
+		return c.agentCall(name, "etcd-start", embedded.EtcdStart{Cluster: cluster, State: state, Token: token}, nil)
+	}
 	m := c.member(name)
 	args := []string{"docker", "run", "-d", "--name", "sharx-mesh-etcd", "--restart", "always", "--net", "host", "--label", "app=sharx-mesh-etcd", "-v", "/var/lib/sharx-mesh-etcd:/etcd-data", "-v", "/etc/sharx-mesh-etcd/tls:/etcd-tls:ro", EtcdImage, "etcd", "--name=" + name, "--data-dir=/etcd-data", "--initial-cluster-state=" + state, "--initial-cluster=" + cluster, "--listen-client-urls=" + m.ClientURL + ",https://127.0.0.1:2399", "--advertise-client-urls=" + m.ClientURL, "--listen-peer-urls=" + m.PeerURL, "--initial-advertise-peer-urls=" + m.PeerURL, "--cert-file=/etcd-tls/server.crt", "--key-file=/etcd-tls/server.key", "--trusted-ca-file=/etcd-tls/ca.crt", "--client-cert-auth=true", "--peer-cert-file=/etcd-tls/server.crt", "--peer-key-file=/etcd-tls/server.key", "--peer-trusted-ca-file=/etcd-tls/ca.crt", "--peer-client-cert-auth=true", "--auto-compaction-retention=1", "--quota-backend-bytes=268435456"}
 	if token != "" {
@@ -417,7 +428,7 @@ func (c *Controller) changeMember(name string, add bool, j *Job) error {
 		if e = c.put(name, "/etc/sharx-mesh-etcd/managed.json", marker, "600"); e != nil {
 			return e
 		}
-		if _, e = c.remote(name, "if docker inspect sharx-mesh-etcd >/dev/null 2>&1; then docker rm -f sharx-mesh-etcd >/dev/null; fi", nil, 45*time.Second); e != nil {
+		if e = c.stopMemberProcess(name); e != nil {
 			return e
 		}
 		c.step(j, "etcd остановлен; данные сохранены на ноде")

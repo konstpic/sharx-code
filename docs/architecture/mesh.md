@@ -1,66 +1,76 @@
-# Embedded mesh (v2.13.0)
+# Mesh в Docker — v2.13.0
 
-The controller is native **Go**, running as part of the `x-ui` process in the **same panel container**. There is no child interpreter, sidecar, controller listener or Docker socket. Host agents are static Go binaries bundled for Linux amd64 and arm64 and installed only on enrolled workers. The panel requires no NET_ADMIN, host networking or access to the overlay: authenticated etcd requests travel through pinned SSH tunnels.
+Контроллер mesh написан на Go и находится в процессе панели. На ноде и балансировщике агент работает как часть их собственного Go-процесса. Отдельный контейнер или служба mesh не нужны. В standalone-панели контроллер не запускается; обычный контейнер участника до подключения не создаёт ни mesh-файлов, ни сетевых интерфейсов.
 
-Only multi-node installations can use mesh. It is disabled by default; standalone mode never starts the controller or creates its state. Server-side mode guards and `mesh:read` / administrator-only `mesh:operate` permissions protect all routes. Organization-scoped accounts cannot manage this shared infrastructure.
+## Подключение
 
-## Setup
+1. Обновите образ ноды или балансировщика и используйте его штатный Compose. Уже существующий `SECRET_KEY` остаётся способом авторизации. В Compose включены host networking, `NET_ADMIN`/`NET_RAW`, устройство `/dev/net/tun` и постоянный том `/app/data`.
+2. Зарегистрируйте ноду или балансировщик обычным способом. В multi-node панели откройте **Ноды → Mesh**, включите функцию, выберите зарегистрированного участника и роль, нажмите **Подключить**. Настройка передаётся через существующий авторизованный API. SSH, apt, systemd, установка пакетов на хост и Docker socket не используются.
+3. Выберите три, пять или семь подключённых участников для начального etcd. На выбранных участниках запускается бинарник etcd **в том же контейнере**, с mTLS с первого запуска. Остальные участники etcd не запускают.
+4. Проверьте карту, кворум и HTTPS-доступность. При необходимости задайте адрес релея, HTTPS-порты/SNI и конкретный пул балансировщика. Автоматика по умолчанию выключена; включайте нужные переключатели явно.
 
-1. Enable multi-node mode and register the worker nodes normally.
-2. Open Nodes → Mesh & relays, enable mesh and save. No remote installation runs automatically.
-3. Select an existing worker, its entry/exit role and SSH port. Read and independently verify its SSH host-key fingerprint. Submit one-time SSH credentials. The panel installs its own Ed25519 public identity, Linux tools and `sharx-mesh-agent.service` on that worker. Passwords and uploaded private keys are not saved. Subsequent connections require the same pinned SSH host key. A root account, or passwordless sudo, and systemd are required.
-4. Select three installed workers and install the initial etcd quorum. Five or seven are also supported. Clients and peers require mTLS from the first start; there is no HTTP migration stage. Existing etcd and data are never overwritten. Interrupted bootstrap can resume with the same members.
-5. Agents discover selected peers from a single atomic registry value (partial bootstrap prefixes cannot remove links), generate private WireGuard keys locally, build links and choose transit paths using loss, RTT and normalized load with hysteresis. They retain their last graph when etcd or the panel is unavailable.
-6. For automatic relay/pool decisions, configure real HTTPS probe ports and SNI that work on **every selected exit**. A TCP SYN/ACK is not considered proof that traffic works. Without these probes, only overlay monitoring is available.
-7. Configure the public entry/relay address and explicitly select one balancer pool. Enable only the automation you want. Defaults are observe-only.
+Балансировщик участвует как вход/транзит, worker — как вход или выход. Роль etcd независима: участником хранилища может быть и нода, и балансировщик. Участие в mesh и отключение обычной ноды в панели — разные действия.
 
-The panel itself, unrelated servers and balancer-only agents cannot be enrolled: enrollment requires an enabled worker row and derives its IP from that row. The current installer requires an IPv4 node API address. A node may be both an entry/exit and an etcd member; these are separate roles.
+## Что входит в образы
 
-## Resource isolation
+- Mesh-агент — Go-код внутри `node-service` / `sharx-balancer`, без отдельного агентского процесса.
+- `wg`, `ip`, `iptables` и userspace `wireguard-go` включены в образ. Предпочитается WireGuard ядра; если его нет, используется userspace через TUN. Пакеты на хосте не устанавливаются. `wireguard-go` закреплён на `v0.0.0-20261024220952-b3bc704ef0ee`, зависимости crypto/net/sys обновлены до версий основного проекта.
+- etcd **3.6.15** включён в образ и запускается как управляемый дочерний процесс только при назначении роли. При остановке основного процесса останавливается корректно; после пересоздания контейнера восстанавливается из того же тома.
+- Mesh и etcd восстанавливаются до ожидания запуска дополнительных core-сервисов. Они не требуют доступной панели для возврата после перезапуска.
 
-Resources differ from the Remnawave mesh. Do not reuse that mesh's inventory, CA, SSH key or endpoints.
+Используются Linux-контейнеры. Docker унифицирует пользовательское окружение, но не отменяет права на сетевой namespace и устройство TUN. Один сетевой namespace должен обслуживаться одним mesh-участником: при обнаружении уже работающего старого агента новая регистрация отклоняется. Не запускайте два независимых mesh-участника в одном host namespace.
 
-| Resource | SharX |
+Docker обычно включает IPv4 forwarding сам. Агент читает текущие sysctl и не пытается переписывать уже подходящие значения в read-only `/proc/sys`; для reverse-path filtering подходят выключенный или loose режим. При неподходящих настройках/правах операция сообщает ошибку вместо ложной готовности.
+
+## Адреса и ресурсы
+
+| Ресурс | Значение |
 |---|---|
-| Overlay | `10.203.0.0/24` (up to 200 enrolled nodes) |
-| Point-to-point links | `10.204.X.Y`, interfaces `sxm-<peer>` |
-| WireGuard UDP | `53000 + peer's overlay octet` |
-| etcd client / peer | HTTPS 2399 / 2391, overlay and loopback only |
-| etcd container / persistent data | `sharx-mesh-etcd` / `/var/lib/sharx-mesh-etcd` on selected workers |
-| Host agent / configuration | `sharx-mesh-agent.service` / `/etc/sharx-mesh` |
-| DNAT relay | `sharx-mesh-fwd.service`, `SXMFWD*` chains |
-| Relay ports | 55000–64999, stable 100-port slots for up to 100 exit slots |
-| etcd keys | `/sharx-mesh/` |
+| Overlay | `10.203.0.0/24`, до 200 участников |
+| Отдельные связи | `10.204.X.Y`, интерфейсы `sxm-n<ID>` / `sxm-b<ID>` |
+| WireGuard UDP | `53000 + октет overlay-адреса соседа` |
+| etcd клиент / peer | HTTPS `2399` / `2391`, только overlay и loopback |
+| Релейные порты | `55000–64999`, стабильные слоты |
+| API участника | `POST /api/v1/mesh` за существующей JWT-авторизацией |
+| Состояние участника | `/app/data/mesh` внутри его постоянного тома |
+| Состояние контроллера | `XUI_MESH_STATE_DIR`, по умолчанию `/etc/x-ui/mesh` |
 
-Check these ranges against the installation's existing networks and listeners before enabling mesh. Firewall policy must permit the listed WireGuard ports between enrolled workers, ICMP on overlay links, HTTPS etcd between workers, and configured public relay ports. No firewall is opened in the cluster.
+Проверьте конфликты этих диапазонов с текущей сетью. Между участниками нужны соответствующие UDP-порты, ICMP внутри overlay, TLS etcd и выбранные публичные релейные порты. Панель не открывает firewall кластера и сама не входит в overlay.
 
-## Relays and subscriptions
+API поддерживает конкретные операции настройки, статуса, проверок, forwarding и жизненного цикла etcd. Выполнение произвольных команд и запись произвольных файлов не предоставляются. Панель обращается к etcd через авторизованный API его участника; тот выполняет ограниченный набор запросов к локальному etcd по mTLS. Идентификаторы etcd и счётчики Raft не теряют точность uint64.
 
-Modes are automatic, direct and relay. Relay state records originals durably on the panel persistent volume **before** forwarding or subscription changes. Interrupted operations resume. Address/port edits made outside mesh cause a conflict rather than silent overwrite. Restoring preserves a host's raw zero/inherited port and its original customization flag, including hosts disabled while the relay was active.
+## Связи, транзит и балансировщик
 
-Only placement hosts belonging unambiguously to a particular node are eligible. Arbitrary address hosts, pool hosts, legacy shared hosts and hosts with a custom published port different from the inbound's real port are not rewritten. Configure explicit placement hosts for mesh-managed subscriptions. New eligible hosts created while a relay is active are reconciled into its saved plan. Both TCP and UDP use the allocated relay port. At most 100 distinct inbound ports can be allocated; assignments remain stable when new ports are added.
+Агенты получают атомарный реестр участников из etcd, строят WireGuard-связи и измеряют оба направления. Выбор транзита учитывает задержку, потери и нагрузку с защитой от частых переключений. Первый агентский цикл создаёт недостающие начальные маршруты до запроса к etcd; сохранённые маршруты транзита не затираются.
 
-A pool's mesh exclusion is a separate desired-state layer. It does not overwrite manual member enable/weight/backup flags and applies only to the explicitly selected pool. Directly disabling a node and disabling it in the mesh pool are different operations.
+У подключённого балансировщика backend зарегистрированной mesh-ноды использует её overlay-адрес. Явный `addressOverride` участника пула сохраняет приоритет. Ручные веса, backup и enable не переписываются. HAProxy/nginx продолжают управляться своим обычным API. При отказе прямого канала трафик может восстановиться через транзит после сходимости mesh и health-check движка; это не обещание переключения без разрыва существующего TCP-соединения.
 
-The public-IP watcher requires three matching observations. An offline node cannot announce a provider-side IP change: recover the guest network first. The API URL retains its scheme, port and path. DNS automation is intentionally not implicit: domains remain under their existing DNS/GitOps management.
+Отдельная автоматика исключений по-прежнему действует только на явно выбранный пул и хранит собственный слой состояния. Она отличается от выбора overlay-адреса и от выключения ноды.
 
-## etcd operations and durability
+## Релеи и IP
 
-New members join as learners and are promoted only after etcd confirms synchronization. Removing a voter must leave at least three healthy voters. Membership transitions and bootstrap seeds survive controller restarts. Removed members' data is retained. Finish a pending operation before starting another.
+Режимы выхода — прямой, релей и авто. Релей публикует TCP/UDP-порты выхода через вход, а контроллер меняет только однозначно привязанные placement-хосты подписки. Исходные адрес, сырой/наследуемый порт и флаг customization сохраняются до изменений. Ручная правка вызывает конфликт; выключенные хосты тоже восстанавливаются. Произвольные адресные, общие legacy-хосты и хосты пулов не переписываются.
 
-The etcd 3.6.15 image is version-pinned. See the official [runtime reconfiguration guide](https://etcd.io/docs/v3.6/op-guide/runtime-configuration/) and [transport security model](https://etcd.io/docs/v3.6/op-guide/security/).
+Для автоматических решений нужны настоящие HTTPS-проверки с подходящими портами и SNI на всех выходах. Открытый TCP-порт не означает успешную доставку HTTPS. Без проверок остаётся наблюдение за overlay.
 
-Mount a persistent volume at `XUI_MESH_STATE_DIR` (default `/etc/x-ui/mesh`). It holds the mesh's own SSH identity, CA, enrollment, stable port assignments, bootstrap progress and discovery seeds. Directory permissions are 0700, sensitive/state files 0600. Back this volume up **alongside PostgreSQL and etcd data**: a database-only backup is insufficient. Never commit these files. Keep this deployment single-replica; there is one controller owner per panel process, not a distributed controller election.
+Обновление публичного IP требует трёх отдельных свежих одинаковых наблюдений. Офлайн-агент не может сообщить IP после сломанной сети ОС. URL API сохраняет схему, порт и путь. DNS-записи остаются под существующим DNS/GitOps-управлением.
 
-Leaf certificates are valid for one year and the CA for ten years. Plan certificate renewal before expiry; CA recreation is refused when an existing CA certificate has lost its key. Do not delete mesh state to troubleshoot a running installation.
+## etcd, обновления и резервное копирование
 
-Disabling multi-node stops the panel controller. Agents preserve established routes across a panel outage; they are explicitly removed with “Remove mesh from node,” after restoring relays and removing any etcd role. Removal preserves worker services and etcd data.
+Новый участник сначала добавляется learner и повышается после синхронизации. Удаление должно оставлять минимум три здоровых голосующих участника. Журналы незавершённых операций переживают перезапуск. Данные выведенного участника сохраняются; повторное присоединение не перезаписывает старый каталог.
 
-## Development verification
+Храните том `/app/data` каждого участника, включая его WireGuard identity, сертификаты, настройки и `mesh/etcd-data`. Сохраняйте также PostgreSQL и постоянный том контроллера: только бэкапа БД недостаточно. Права каталогов mesh — 0700, файлов состояния и ключей — 0600. Контроллер панели должен оставаться в одной реплике.
 
-- `go test ./...` plus PostgreSQL integration tests using `SHARX_TEST_DB` (disposable database only).
-- `go test -race ./mesh/...`: native lifecycle, routing hysteresis, untrusted registry validation and relay journals.
-- `cd panel && npx tsc --noEmit --incremental false && npm run build`.
-- The local Linux integration fixture uses `mesh/test/Dockerfile.node`. Never point it at production workers or attach a production Docker socket.
+Обновляйте контейнеры голосующих участников etcd по одному, дожидаясь восстановления кворума. При временной потере etcd или панели агенты продолжают работать с сохранённой топологией. Не удаляйте тома, чтобы «перезапустить» mesh.
 
-Release v2.13.0 ships the optional feature disabled by default. Enabling and enrolling production nodes remains an explicit administrator operation.
+Сертификаты участников действуют один год, CA — десять лет. Автоматического продления пока нет. Смена образа обновляет сам mesh-код вместе с основным приложением, сохраняя настройки и ключи из тома.
+
+## Совместимость
+
+Существующие SSH-регистрации ранней сборки v2.13.0 распознаются и обслуживаются прежним транспортом для предотвращения потери управления. Новая форма создаёт только встроенные Docker-регистрации. Автоматическая перезапись старых WireGuard-ключей, etcd-данных или остановка старых хостовых служб не выполняется. Нельзя просто запустить новый агент параллельно старому в том же namespace; миграция действующей SSH-установки требует отдельного согласованного переключения.
+
+## Проверка
+
+`mesh/test/docker_e2e.py` поднимает отдельный сохранённый стенд из production Docker-образов нод и балансировщика. Он проверяет авторизацию, выключенный по умолчанию mesh, kernel/userspace WireGuard, etcd mTLS, HAProxy → overlay, отказ прямой связи, релеи, learner-операции, потерю etcd, пересоздание контейнера и отказ панели. Подробности — в `mesh/test/README.md`. Предыдущий девятиузловой стенд сохраняется отдельно.
+
+Перевыпуск v2.13.0 содержит эту Docker-реализацию. Обновление production-установки выполняется отдельно через её Compose/GitOps; перед пересозданием контейнеров сохраните тома и соблюдайте кворум etcd.

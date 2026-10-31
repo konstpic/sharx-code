@@ -32,7 +32,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"fixture": "sharx-mesh-test", "node": host, "host": r.Host, "sni": r.TLS.ServerName, "remote": r.RemoteAddr, "ok": true})
 	})}
-	l, e := net.Listen("tcp", server.Addr)
+	l, e := net.Listen("tcp4", server.Addr)
 	if e != nil {
 		log.Fatal(e)
 	}

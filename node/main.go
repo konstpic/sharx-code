@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/mesh/embedded"
+	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/api"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
@@ -24,7 +26,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/node/defaults"
 	"github.com/konstpic/sharx-code/v2/node/geopush"
 	nodeLogs "github.com/konstpic/sharx-code/v2/node/logs"
-	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/node/xray"
@@ -121,6 +122,10 @@ func main() {
 	if nodeDataDir == "" {
 		nodeDataDir = "/app/data"
 	}
+	// Restore networking and quorum before waiting for optional core services.
+	meshService := embedded.New(nodeDataDir)
+	defer meshService.Close()
+
 	nodeCacheDir := filepath.Join(nodeDataDir, "node-cache")
 
 	xrayManager := xray.NewManager()
@@ -169,6 +174,7 @@ func main() {
 	go xrayCrashWatchdog(xrayManager)
 	server := api.NewServer(port, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
 	server.SetPairing(bundle)
+	server.SetMesh(meshService)
 	logger.Info("SECRET_KEY: JWT auth; log push uses HMAC (optional PANEL_URL in config or env)")
 
 	logger.Infof("Starting SharX Node Service on port %d", port)

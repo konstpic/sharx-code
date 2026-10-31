@@ -244,6 +244,9 @@ func (s *BalancerService) SetEnabled(id int, enable bool) error {
 
 // Delete removes a balancer (pools and members cascade).
 func (s *BalancerService) Delete(id int) error {
+	if e := meshDeletionGuard(fmt.Sprint("balancer-", id)); e != nil {
+		return e
+	}
 	defer TriggerHostSync()
 	return database.GetDB().Delete(&model.Balancer{}, id).Error
 }
@@ -428,6 +431,7 @@ func (s *BalancerService) BuildSpec(id int) (spec.Spec, error) {
 func (s *BalancerService) buildSpecFor(b *model.Balancer) spec.Spec {
 	out := spec.Spec{Engine: b.Engine, Pools: []spec.Pool{}}
 	meshDisabled := meshPoolDisabled()
+	meshAddresses := meshAddressesForBalancer(b.Id)
 	for _, p := range b.Pools {
 		if !p.Enable {
 			continue
@@ -447,6 +451,9 @@ func (s *BalancerService) buildSpecFor(b *model.Balancer) spec.Spec {
 			host := strings.TrimSpace(m.AddressOverride)
 			if host == "" {
 				host = m.NodeAddr
+				if overlay := meshAddresses[m.NodeId]; overlay != "" {
+					host = overlay
+				}
 			}
 			bport := m.PortOverride
 			if bport == 0 {

@@ -160,7 +160,7 @@ function buildNodeDockerComposeYaml(secretKey: string, nodePort?: number) {
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
-    cap_add: [NET_ADMIN]
+    cap_add: [NET_ADMIN, NET_RAW]
     devices:
       - /dev/net/tun:/dev/net/tun
     network_mode: host

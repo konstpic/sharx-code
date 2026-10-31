@@ -1,11 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
@@ -270,7 +274,82 @@ func meshBridge(ctx context.Context, action string, body json.RawMessage) (any, 
 		for _, n := range nodes {
 			out = append(out, map[string]any{"uuid": fmt.Sprint("node-", n.Id), "name": fmt.Sprint("node-", n.Id), "displayName": n.Name, "address": hostNodeAddress(n.Address), "enabled": n.Enable})
 		}
+		var balancers []model.Balancer
+		if e := db.Order("id").Find(&balancers).Error; e != nil {
+			return nil, e
+		}
+		for _, b := range balancers {
+			out = append(out, map[string]any{"uuid": fmt.Sprint("balancer-", b.Id), "name": fmt.Sprint("balancer-", b.Id), "displayName": b.Name, "address": hostNodeAddress(b.ApiAddress), "enabled": b.Enable})
+		}
 		return out, nil
+	case "mesh-agent":
+		var q struct {
+			UUID      string          `json:"uuid"`
+			Operation string          `json:"operation"`
+			Data      json.RawMessage `json:"data"`
+		}
+		if e := json.Unmarshal(body, &q); e != nil {
+			return nil, e
+		}
+		address := ""
+		var authNode model.Node
+		if strings.HasPrefix(q.UUID, "balancer-") {
+			id, e := meshID(q.UUID, "balancer-")
+			if e != nil {
+				return nil, e
+			}
+			var b model.Balancer
+			if e = db.First(&b, id).Error; e != nil {
+				return nil, e
+			}
+			address = strings.TrimRight(b.ApiAddress, "/")
+		} else {
+			id, e := meshID(q.UUID, "node-")
+			if e != nil {
+				return nil, e
+			}
+			if e = db.First(&authNode, id).Error; e != nil {
+				return nil, e
+			}
+			address = nodeRequestBaseURL(&authNode)
+		}
+		payload, _ := json.Marshal(map[string]any{"operation": q.Operation, "data": q.Data})
+		req, e := http.NewRequestWithContext(ctx, "POST", address+"/api/v1/mesh", bytes.NewReader(payload))
+		if e != nil {
+			return nil, e
+		}
+		if e = (&NodeService{}).setNodeAuthHeader(&authNode, req); e != nil {
+			return nil, e
+		}
+		req.Header.Set("Content-Type", "application/json")
+		client, e := (&NodeService{}).createHTTPClient(&authNode, 90*time.Second)
+		if e != nil {
+			return nil, e
+		}
+		defer client.CloseIdleConnections()
+		resp, e := client.Do(req)
+		if e != nil {
+			return nil, errors.New("mesh API unavailable; check participant image and API connectivity")
+		}
+		defer resp.Body.Close()
+		data, e := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		if e != nil {
+			return nil, e
+		}
+		if resp.StatusCode != 200 {
+			var failure struct {
+				Error string `json:"error"`
+			}
+			_ = json.Unmarshal(data, &failure)
+			if failure.Error != "" {
+				return nil, errors.New(failure.Error)
+			}
+			return nil, fmt.Errorf("mesh API HTTP %d; update the participant image", resp.StatusCode)
+		}
+		if !json.Valid(data) {
+			return nil, errors.New("invalid mesh API response")
+		}
+		return json.RawMessage(data), nil
 	case "hosts":
 		return meshHosts(db)
 	case "ports":
@@ -294,6 +373,49 @@ func meshBridge(ctx context.Context, action string, body json.RawMessage) (any, 
 		}
 		if e := json.Unmarshal(body, &q); e != nil {
 			return nil, e
+		}
+		if strings.HasPrefix(q.UUID, "balancer-") {
+			id, e := meshID(q.UUID, "balancer-")
+			if e != nil {
+				return nil, e
+			}
+			ip := net.ParseIP(q.Address)
+			if ip == nil || !ip.IsGlobalUnicast() || ip.IsLoopback() {
+				return nil, errors.New("invalid new balancer IP")
+			}
+			e = db.Transaction(func(tx *gorm.DB) error {
+				var b model.Balancer
+				if e := tx.First(&b, id).Error; e != nil {
+					return e
+				}
+				if !b.Enable {
+					return errors.New("balancer disabled")
+				}
+				current := hostNodeAddress(b.ApiAddress)
+				if current != q.Old && current != q.Address {
+					return errors.New("balancer API address changed manually")
+				}
+				if current == q.Address {
+					return nil
+				}
+				address, e := meshNodeURL(b.ApiAddress, q.Address)
+				if e != nil {
+					return e
+				}
+				updates := map[string]any{"api_address": address}
+				if b.Address == q.Old {
+					updates["address"] = q.Address
+				}
+				result := tx.Model(&model.Balancer{}).Where("id=? AND api_address=?", id, b.ApiAddress).Updates(updates)
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected != 1 {
+					return errors.New("balancer address changed concurrently")
+				}
+				return nil
+			})
+			return map[string]bool{"ok": e == nil}, e
 		}
 		id, e := meshID(q.UUID, "node-")
 		if e != nil {
@@ -494,3 +616,58 @@ func meshBalancerBridge(action string, body json.RawMessage) (any, error) {
 
 // MeshNodeHost exposes only the registered node hostname for confirmed SSH enrollment.
 func MeshNodeHost(address string) string { return hostNodeAddress(address) }
+
+// Mesh addresses affect only an explicitly enrolled balancer and enrolled workers.
+// Explicit member address overrides always win in buildSpecFor.
+func meshAddressesForBalancer(id int) map[int]string {
+	out := map[int]string{}
+	r := getMeshRuntime()
+	if r == nil {
+		return out
+	}
+	raw, e := r.Call(context.Background(), "status", nil)
+	if e != nil {
+		return out
+	}
+	var view struct {
+		Enrolled map[string]struct {
+			Overlay string `json:"overlay"`
+			Node    string `json:"rw_node"`
+		} `json:"enrolled"`
+	}
+	if json.Unmarshal(raw, &view) != nil {
+		return out
+	}
+	if _, ok := view.Enrolled[fmt.Sprint("b", id)]; !ok {
+		return out
+	}
+	for _, n := range view.Enrolled {
+		nodeID, e := meshID(n.Node, "node-")
+		if e == nil && net.ParseIP(n.Overlay) != nil {
+			out[nodeID] = n.Overlay
+		}
+	}
+	return out
+}
+
+// Keep management metadata until explicit mesh removal. Disabling an ordinary
+// worker does not disable its independently assigned mesh/etcd role.
+func meshDeletionGuard(uuid string) error {
+	raw, e := os.ReadFile(filepath.Join(meshDirectory(), "enrolled.json"))
+	if os.IsNotExist(e) {
+		return nil
+	}
+	if e != nil {
+		return errors.New("cannot check mesh enrollment before deletion")
+	}
+	var enrolled map[string]mesh.Enrolled
+	if json.Unmarshal(raw, &enrolled) != nil {
+		return errors.New("repair mesh enrollment state before deleting participants")
+	}
+	for _, d := range enrolled {
+		if d.Node == uuid {
+			return errors.New("сначала выведите участника из mesh, сохранив кворум etcd")
+		}
+	}
+	return nil
+}

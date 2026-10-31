@@ -18,6 +18,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/balancer/spec"
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/mesh/embedded"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
 )
@@ -26,6 +27,7 @@ const maxApplyBody = 2 << 20 // 2 MiB is far above any real spec
 
 // Server serves the agent API.
 type Server struct {
+	mesh   *embedded.Service
 	secret []byte
 	eng    *engine.Manager
 }
@@ -35,11 +37,16 @@ func New(authSecret string, eng *engine.Manager) *Server {
 	return &Server{secret: []byte(authSecret), eng: eng}
 }
 
+func (s *Server) SetMesh(m *embedded.Service) { s.mesh = m }
+
 // Handler returns the routes.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.mesh != nil {
+		mux.HandleFunc("POST /api/v1/mesh", s.auth(s.mesh.Handler))
+	}
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "role": "balancer", "agentVersion": config.GetVersion()})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "role": "balancer", "meshEmbedded": s.mesh != nil, "agentVersion": config.GetVersion()})
 	})
 	mux.HandleFunc("GET /api/v1/status", s.auth(s.status))
 	mux.HandleFunc("GET /api/v1/metrics", s.auth(s.metrics))

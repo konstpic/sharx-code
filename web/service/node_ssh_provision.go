@@ -129,6 +129,9 @@ func buildBalancerDockerComposeYaml(secretKey string, agentPort, watchtowerPort 
     labels:
       com.centurylinklabs.watchtower.enable: "true"
     network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       - sharx-balancer-data:/app/data
     environment:
@@ -197,7 +200,7 @@ func buildNodeDockerComposeYamlPort(secretKey string, watchtowerPort, nodePort i
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
-    cap_add: [NET_ADMIN]
+    cap_add: [NET_ADMIN, NET_RAW]
     devices:
       - /dev/net/tun:/dev/net/tun
     network_mode: host

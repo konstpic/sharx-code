@@ -96,3 +96,23 @@ exit 0
 		t.Fatal("etcd discovery was never reached")
 	}
 }
+
+// Docker mounts /proc/sys read-only even with NET_ADMIN. Values which are
+// already suitable must not cause a write and fail an otherwise usable mesh.
+func TestSysctlDoesNotRewriteSuitableDockerDefaults(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nif [ \"$1\" = '-n' ]; then case \"$2\" in net.ipv4.ip_forward) echo 1;; *) echo 2;; esac; exit 0; fi\nexit 1\n"
+	if e := os.WriteFile(filepath.Join(dir, "sysctl"), []byte(script), 0700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	if e := setSysctl(context.Background(), "net.ipv4.ip_forward", "1"); e != nil {
+		t.Fatal(e)
+	}
+	if e := setSysctl(context.Background(), "net.ipv4.conf.sxm-n2.rp_filter", "0", "2"); e != nil {
+		t.Fatal(e)
+	}
+	if e := setSysctl(context.Background(), "net.ipv4.conf.sxm-n2.rp_filter", "0"); e == nil {
+		t.Fatal("strict unsuitable defaults were silently accepted")
+	}
+}

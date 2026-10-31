@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
-    cap_add: [NET_ADMIN]
+    cap_add: [NET_ADMIN, NET_RAW]
     network_mode: host
     devices:
       - /dev/net/tun:/dev/net/tun

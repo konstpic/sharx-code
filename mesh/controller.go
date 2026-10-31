@@ -314,7 +314,7 @@ func (c *Controller) publish() {
 			obs[n] = o.Links
 		}
 		routes[n] = c.routes[n]
-		inventory[n] = map[string]any{"host": d.Host, "overlay": d.Overlay, "role": d.Role, "rw_node": d.Node}
+		inventory[n] = map[string]any{"host": d.Host, "overlay": d.Overlay, "role": d.Role, "rw_node": d.Node, "transport": d.Transport}
 		isMember := false
 		for _, m := range c.members {
 			if m.Name == n {
@@ -419,6 +419,8 @@ func (c *Controller) Action(ctx context.Context, action string, raw json.RawMess
 }
 
 type EnrollRequest struct {
+	Transport   string `json:"transport"`
+	Kind        string `json:"kind"`
 	NodeID      int    `json:"nodeId"`
 	Role        string `json:"role"`
 	User        string `json:"user"`
@@ -431,6 +433,9 @@ type EnrollRequest struct {
 }
 
 func (c *Controller) enroll(q EnrollRequest, j *Job) error {
+	if q.Transport != "ssh" {
+		return c.enrollEmbedded(q, j)
+	}
 	if q.NodeID < 1 || q.NodeID > 9999999 || (q.Role != "entry" && q.Role != "exit") {
 		return errors.New("invalid node ID or role")
 	}
@@ -583,6 +588,9 @@ func (c *Controller) enroll(q EnrollRequest, j *Job) error {
 }
 func (c *Controller) installAgent(name string) error {
 	d := c.enrolled[name]
+	if d.Transport == "embedded" {
+		return c.configureEmbedded(name)
+	}
 	out, e := c.remote(name, "uname -m", nil, 20*time.Second)
 	if e != nil {
 		return e
@@ -650,7 +658,11 @@ func (c *Controller) seedAgents(j *Job) error {
 			return fmt.Errorf("agent %s: %w", n, e)
 		}
 		if j != nil {
-			c.step(j, "Go-агент "+n+" установлен; WireGuard private key сохранён на ноде")
+			if c.enrolled[n].Transport == "embedded" {
+				c.step(j, "Встроенный mesh "+n+" настроен через API; ключ сохранён в томе участника")
+			} else {
+				c.step(j, "Go-агент "+n+" установлен; WireGuard private key сохранён на ноде")
+			}
 		}
 	}
 	return nil
@@ -658,6 +670,9 @@ func (c *Controller) seedAgents(j *Job) error {
 func (c *Controller) configurePorts() error {
 	ids := []int{}
 	for n := range c.enrolled {
+		if strings.HasPrefix(n, "b") {
+			continue
+		}
 		id, _ := strconv.Atoi(n[1:])
 		ids = append(ids, id)
 	}

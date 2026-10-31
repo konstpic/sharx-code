@@ -9,6 +9,9 @@ services:
     container_name: sharx-balancer
     restart: unless-stopped
     network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       - sharx-balancer-data:/app/data
     environment:

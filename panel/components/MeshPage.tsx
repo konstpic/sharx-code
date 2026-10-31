@@ -20,7 +20,6 @@ import {
   SelectNative,
   Spinner,
   Switch,
-  Textarea,
   Tabs,
   CheckboxField,
   IconButton,
@@ -122,14 +121,8 @@ export function MeshPage() {
     [pending, setPending] = useState(false),
     [nodeId, setNodeId] = useState(0),
     [role, setRole] = useState("exit");
-  const [user, setUser] = useState("root"),
-    [port, setPort] = useState(22),
-    [password, setPassword] = useState(""),
-    [privateKey, setPrivateKey] = useState("");
-  const [hostKeyType, setHostKeyType] = useState("");
-  const [fingerprint, setFingerprint] = useState(""),
-    [trusted, setTrusted] = useState(false),
-    [members, setMembers] = useState<string[]>([]);
+  const [participantKind, setParticipantKind] = useState("node");
+  const [members, setMembers] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<{
     title: string;
     description: string;
@@ -201,10 +194,6 @@ export function MeshPage() {
       clearTimeout(timer);
     };
   }, [multi, load, tr]);
-  useEffect(() => {
-    setFingerprint("");
-    setTrusted(false);
-  }, [nodeId, port]);
   const mutate = async (path: string, body: object) => {
     setPending(true);
     setError("");
@@ -231,7 +220,7 @@ export function MeshPage() {
     (status?.jobs ?? []).some((j) => j.status === "running");
   const names = Object.keys(status?.enrolled ?? {}),
     label = (name: string) =>
-      nodes.find((n) => `n${n.id}` === name)?.name ?? name;
+      nodes.find((n) => `n${n.id}` === name)?.name ?? balancers.find((b) => `b${b.id}` === name)?.name ?? name;
   const ask = (
     title: string,
     description: string,
@@ -302,7 +291,7 @@ export function MeshPage() {
           </Button>
           {multi && operate && (
             <Button variant="primary" onClick={() => setTab("nodes")}>
-              {tr("enroll", "Add a worker to mesh")}
+              {tr("enroll", "Connect a participant to mesh")}
             </Button>
           )}
         </div>
@@ -745,57 +734,43 @@ export function MeshPage() {
               {tab === "nodes" && operate && (
                 <Surface>
                   <h2 className="font-semibold">
-                    {tr("enroll", "Add a worker to mesh")}
+                    {tr("enroll", "Connect a participant to mesh")}
                   </h2>
                   <p className="mt-2 text-sm text-[var(--fg-muted)]">
                     {tr(
                       "enrollHelp",
-                      "SSH credentials are used once. Installs the panel's own SSH identity, a mesh agent and isolated WireGuard links. Requires Linux with systemd and root or passwordless sudo.",
+                      "Mesh is built into the node and balancer images. Select a participant and role; the panel configures it through the existing API. Use the supplied Docker Compose with a persistent data volume.",
                     )}
                   </p>
                   <form
                     className="mt-4 grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4 sm:grid-cols-2"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      void action("enroll", {
-                        nodeId,
-                        role,
-                        user,
-                        sshPort: port,
-                        password,
-                        privateKey,
-                        fingerprint,
-                        keyType: hostKeyType,
-                      }).then((ok) => {
-                        if (ok) {
-                          setPassword("");
-                          setPrivateKey("");
-                          setTrusted(false);
-                        }
-                      });
+                      void action("enroll", {nodeId, kind: participantKind, role, transport: "embedded"});
                     }}
                   >
                     <Field
-                      title={tr("worker", "Registered worker")}
+                      title={tr("worker", "Registered participant")}
                       hint={tr(
                         "workerHint",
-                        "Select an enabled worker already registered in the panel. The panel itself does not join mesh.",
+                        "Select an enabled node or balancer registered in the panel. The panel itself does not join mesh.",
                       )}
                     >
                       <SelectNative
-                        value={nodeId}
-                        onChange={(e) => setNodeId(Number(e.target.value))}
+                        value={`${participantKind}:${nodeId}`}
+                        onChange={(e) => {const [kind,id]=e.target.value.split(":");setParticipantKind(kind);setNodeId(Number(id));if(kind==="balancer")setRole("entry");}}
                       >
-                        <option value={0}>
+                        <option value="node:0">
                           {tr("choose", "Choose a node")}
                         </option>
                         {nodes
                           .filter((n) => n.enable)
                           .map((n) => (
-                            <option value={n.id} key={n.id}>
+                            <option value={`node:${n.id}`} key={`node:${n.id}`}>
                               {n.name}
                             </option>
                           ))}
+                        {balancers.filter((b)=>b.enable).map((b)=><option value={`balancer:${b.id}`} key={`balancer:${b.id}`}>{tr("balancerParticipant", "Balancer")}: {b.name}</option>)}
                       </SelectNative>
                     </Field>
                     <Field
@@ -810,103 +785,9 @@ export function MeshPage() {
                         onChange={(e) => setRole(e.target.value)}
                       >
                         <option value="entry">{tr("entry", "Entry")}</option>
-                        <option value="exit">{tr("exit", "Exit")}</option>
+                        <option value="exit" disabled={participantKind==="balancer"}>{tr("exit", "Exit")}</option>
                       </SelectNative>
                     </Field>
-                    <Field
-                      title={tr("sshUser", "SSH user")}
-                      hint={tr(
-                        "sshHint",
-                        "Installation requires root or passwordless sudo. SSH credentials are used once.",
-                      )}
-                    >
-                      <Input
-                        value={user}
-                        autoComplete="off"
-                        onChange={(e) => setUser(e.target.value)}
-                      />
-                    </Field>
-                    <Field
-                      title={tr("sshPort", "SSH port")}
-                      hint={tr(
-                        "sshPortHint",
-                        "SSH management port on this worker; unrelated to WireGuard and service ports.",
-                      )}
-                    >
-                      <Input
-                        type="number"
-                        min={1}
-                        max={65535}
-                        value={port}
-                        onChange={(e) => setPort(Number(e.target.value))}
-                      />
-                    </Field>
-                    <div className="md:col-span-2">
-                      <Button
-                        className="min-h-11"
-                        disabled={!nodeId || busy}
-                        onClick={() => {
-                          setPending(true);
-                          setTrusted(false);
-                          void postJson<{
-                            fingerprint: string;
-                            keyType: string;
-                          }>(panel("mesh/ssh-hostkey"), { nodeId, port }, true)
-                            .then((r) => {
-                              if (!r.success) throw new Error(r.msg);
-                              setFingerprint(r.obj.fingerprint);
-                              setHostKeyType(r.obj.keyType);
-                            })
-                            .catch((e) =>
-                              setError(
-                                e instanceof Error
-                                  ? e.message
-                                  : tr("actionError", "Mesh operation failed"),
-                              ),
-                            )
-                            .finally(() => setPending(false));
-                        }}
-                      >
-                        {tr("fingerprint", "Read SSH host key")}
-                      </Button>
-                      {fingerprint && (
-                        <>
-                          <p className="my-3 break-all font-mono text-xs">
-                            {fingerprint}
-                          </p>
-                          <CheckboxField
-                            className="min-h-11"
-                            checked={trusted}
-                            onChange={(e) => setTrusted(e.target.checked)}
-                            label={tr(
-                              "trust",
-                              "I verified this SSH fingerprint against the server",
-                            )}
-                          />
-                        </>
-                      )}
-                    </div>
-                    {trusted && (
-                      <>
-                        <Field title={tr("password", "One-time SSH password")}>
-                          <Input
-                            type="password"
-                            autoComplete="new-password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                          />
-                        </Field>
-                        <Field
-                          title={tr("key", "Or a one-time SSH private key")}
-                        >
-                          <Textarea
-                            autoComplete="off"
-                            value={privateKey}
-                            onChange={(e) => setPrivateKey(e.target.value)}
-                          />
-                        </Field>
-                      </>
-                    )}
                     <div>
                       <Button
                         className="min-h-11"
@@ -914,13 +795,10 @@ export function MeshPage() {
                         variant="primary"
                         loading={pending}
                         disabled={
-                          busy ||
-                          !trusted ||
-                          !nodeId ||
-                          !(password || privateKey)
+                          busy || !nodeId
                         }
                       >
-                        {tr("install", "Install mesh agent")}
+                        {tr("install", "Connect to mesh")}
                       </Button>
                     </div>
                   </form>

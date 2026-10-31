@@ -25,6 +25,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/config"
 	"github.com/konstpic/sharx-code/v2/conndrop"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/mesh/embedded"
 	"github.com/konstpic/sharx-code/v2/node/amneziawg"
 	"github.com/konstpic/sharx-code/v2/node/auth"
 	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
@@ -50,6 +51,7 @@ func try(fn func()) {
 
 // Server provides REST API for managing the node.
 type Server struct {
+	mesh             *embedded.Service
 	port             int
 	xrayManager      *xray.Manager
 	telemtManager    *telemt.Manager
@@ -106,6 +108,8 @@ func NewServer(port int, xrayManager *xray.Manager, telemtManager *telemt.Manage
 	}
 }
 
+func (s *Server) SetMesh(m *embedded.Service) { s.mesh = m }
+
 // SetTLS sets TLS certificate files for HTTPS.
 func (s *Server) SetTLS(certFile, keyFile string) {
 	s.certFile = certFile
@@ -150,6 +154,9 @@ func (s *Server) Start() error {
 
 	// API endpoints (require auth)
 	api := router.Group("/api/v1")
+	if s.mesh != nil {
+		api.POST("/mesh", func(c *gin.Context) { s.mesh.Handler(c.Writer, c.Request) })
+	}
 	{
 		api.POST("/apply-config", s.applyConfig)
 		api.POST("/apply-sidecars", s.applySidecars)
@@ -306,6 +313,7 @@ func (s *Server) health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":           "ok",
 		"service":          "sharx-node",
+		"meshEmbedded":     s.mesh != nil,
 		"sharxVersion":     config.GetVersion(),
 		"xrayRunning":      st["running"],
 		"xrayVersion":      st["version"],

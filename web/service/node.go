@@ -348,6 +348,9 @@ func (s *NodeService) UpdateNode(node *model.Node) error {
 // DeleteNode deletes a node by ID.
 // This will cascade delete all InboundNodeMapping entries for this node.
 func (s *NodeService) DeleteNode(id int) error {
+	if e := meshDeletionGuard(fmt.Sprint("node-", id)); e != nil {
+		return e
+	}
 	defer TriggerHostSync()
 	db := database.GetDB()
 

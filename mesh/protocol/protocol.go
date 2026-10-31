@@ -28,7 +28,7 @@ type Node struct {
 	Priority int    `json:"prio"`
 }
 
-var Name = regexp.MustCompile(`^n[1-9][0-9]{0,6}$`)
+var Name = regexp.MustCompile(`^[nb][1-9][0-9]{0,6}$`)
 
 func Octet(ip string) int {
 	p := net.ParseIP(ip).To4()

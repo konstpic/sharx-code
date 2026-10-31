@@ -119,6 +119,10 @@ type Agent struct {
 	endpoints    map[string]string
 }
 
+func validPaths(path string, cfg Config) bool {
+	dir := filepath.Dir(path)
+	return (cfg.KeyFile == "/etc/wireguard/sharx-mesh.key" && cfg.NodesFile == "/etc/sharx-mesh/nodes.json") || (cfg.KeyFile == filepath.Join(dir, "wireguard.key") && cfg.NodesFile == filepath.Join(dir, "nodes.json"))
+}
 func New(path string) (*Agent, error) {
 	var cfg Config
 	b, e := os.ReadFile(path)
@@ -128,7 +132,7 @@ func New(path string) (*Agent, error) {
 	if e = json.Unmarshal(b, &cfg); e != nil {
 		return nil, e
 	}
-	if !protocol.Name.MatchString(cfg.Name) || !protocol.Overlay(cfg.Overlay) || cfg.KeyFile != "/etc/wireguard/sharx-mesh.key" || cfg.NodesFile != "/etc/sharx-mesh/nodes.json" {
+	if !protocol.Name.MatchString(cfg.Name) || !protocol.Overlay(cfg.Overlay) || !validPaths(path, cfg) {
 		return nil, errors.New("invalid agent configuration")
 	}
 	var nodes map[string]protocol.Node
@@ -206,15 +210,43 @@ func (a *Agent) refresh(ctx context.Context) {
 	}
 
 }
+
+// EnsureInterface prefers kernel WireGuard and falls back to the bundled userspace implementation.
+func EnsureInterface(ctx context.Context, name string) error {
+	if os.Getenv("SHARX_MESH_FORCE_USERSPACE") != "1" {
+		if e := must(ctx, "ip", "link", "add", name, "type", "wireguard"); e == nil {
+			return nil
+		}
+	}
+	if _, e := os.Stat("/dev/net/tun"); e != nil {
+		return errors.New("mesh requires NET_ADMIN and a /dev/net/tun device when kernel WireGuard is unavailable")
+	}
+	return must(ctx, "wireguard-go", name)
+}
 func dev(n string) string { return "sxm-" + n }
 func link(mine, theirs string) string {
 	return fmt.Sprintf("10.204.%d.%d", protocol.Octet(mine), protocol.Octet(theirs))
+}
+func setSysctl(ctx context.Context, key, want string, accepted ...string) error {
+	current, e := command(ctx, "sysctl", "-n", key)
+	if e == nil {
+		current = strings.TrimSpace(current)
+		if current == want {
+			return nil
+		}
+		for _, value := range accepted {
+			if current == value {
+				return nil
+			}
+		}
+	}
+	return must(ctx, "sysctl", "-qw", key+"="+want)
 }
 func (a *Agent) links(ctx context.Context) error {
 	if e := protocol.Validate(a.nodes); e != nil {
 		return e
 	}
-	if e := must(ctx, "sysctl", "-qw", "net.ipv4.ip_forward=1"); e != nil {
+	if e := setSysctl(ctx, "net.ipv4.ip_forward", "1"); e != nil {
 		return e
 	}
 	if e := must(ctx, "ip", "addr", "replace", a.cfg.Overlay+"/32", "dev", "lo"); e != nil {
@@ -227,7 +259,7 @@ func (a *Agent) links(ctx context.Context) error {
 		d := dev(p)
 		_, exists := command(ctx, "ip", "link", "show", "dev", d)
 		if exists != nil {
-			if e := must(ctx, "ip", "link", "add", d, "type", "wireguard"); e != nil {
+			if e := EnsureInterface(ctx, d); e != nil {
 				return e
 			}
 		}
@@ -245,7 +277,7 @@ func (a *Agent) links(ctx context.Context) error {
 				return e
 			}
 		}
-		if e := must(ctx, "sysctl", "-qw", "net.ipv4.conf."+d+".rp_filter=0"); e != nil {
+		if e := setSysctl(ctx, "net.ipv4.conf."+d+".rp_filter", "0", "2"); e != nil {
 			return e
 		}
 	}
@@ -441,7 +473,11 @@ func (a *Agent) Round(ctx context.Context) error {
 	}
 	a.hops = hops
 	status := map[string]any{"node": a.cfg.Name, "ts": obs.TS, "links": local, "via": via}
-	if e := Atomic("/run/sharx-mesh/status.json", status); e != nil {
+	statusFile := filepath.Join(filepath.Dir(a.path), "status.json")
+	if a.cfg.KeyFile == "/etc/wireguard/sharx-mesh.key" {
+		statusFile = "/run/sharx-mesh/status.json"
+	}
+	if e := Atomic(statusFile, status); e != nil {
 		return e
 	}
 	if a.store != nil {

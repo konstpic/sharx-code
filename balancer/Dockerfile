@@ -1,3 +1,10 @@
+FROM quay.io/coreos/etcd:v3.6.15 AS mesh-etcd
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS mesh-wireguard
+ARG TARGETARCH
+WORKDIR /wg
+RUN go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-20261024220952-b3bc704ef0ee golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/wireguard-go golang.zx2c4.com/wireguard
+
 # SharX balancer agent + HAProxy + nginx (stream). Build from the repo root:
 #   docker build -f balancer/Dockerfile -t sharxbalancer .
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
@@ -13,6 +20,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates tzdata haproxy nginx nginx-mod-stream iproute2-ss && \
     mkdir -p /app/data /var/run && rm -f /etc/nginx/http.d/default.conf
+COPY --from=mesh-etcd /usr/local/bin/etcd /usr/local/bin/etcd
+COPY --from=mesh-wireguard /out/wireguard-go /usr/local/bin/wireguard-go
+RUN apk --no-cache add wireguard-tools iproute2 iptables procps
+
 WORKDIR /app
 COPY --from=builder /out/sharx-balancer /app/sharx-balancer
 ENV SHARX_BALANCER_DATA=/app/data
