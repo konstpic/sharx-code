@@ -1,15 +1,5 @@
 import type { Metadata } from "next";
-import {
-  Comfortaa,
-  Fira_Mono,
-  Montserrat,
-  Orbitron,
-  Pathway_Gothic_One,
-  Playfair_Display,
-  Sacramento,
-  Marck_Script,
-  Unbounded,
-} from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { themeInitScript } from "@/lib/theme-provider";
@@ -18,77 +8,78 @@ import { themeInitScript } from "@/lib/theme-provider";
  * Only the body font is preloaded. The others are used by some pages/themes only; preloading them made the browser warn
  * "resource was preloaded but not used within a few seconds" on every page load. They still load on demand via @font-face.
  */
-const montserrat = Montserrat({
+const montserrat = localFont({
+  src: [{ path: "./fonts/montserrat/Montserrat[wght].ttf", weight: "100 900", style: "normal" }],
   variable: "--font-mont",
-  subsets: ["latin", "cyrillic"],
+  preload: true,
   display: "swap",
 });
 
-const unbounded = Unbounded({
-  preload: false,
+const unbounded = localFont({
+  src: [{ path: "./fonts/unbounded/Unbounded[wght].ttf", weight: "200 900", style: "normal" }],
   variable: "--font-unbounded",
-  subsets: ["latin", "cyrillic"],
+  preload: false,
   display: "swap",
 });
 
-const firaMono = Fira_Mono({
-  preload: false,
+const firaMono = localFont({
+  src: [
+    { path: "./fonts/firamono/FiraMono-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/firamono/FiraMono-Medium.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/firamono/FiraMono-Bold.ttf", weight: "700", style: "normal" },
+  ],
   variable: "--font-fira",
-  subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "700"],
+  preload: false,
   display: "swap",
 });
 
-const sacramento = Sacramento({
-  preload: false,
+const sacramento = localFont({
+  src: [{ path: "./fonts/sacramento/Sacramento-Regular.ttf", weight: "400", style: "normal" }],
   variable: "--font-sacramento",
-  subsets: ["latin", "latin-ext"],
-  weight: "400",
+  preload: false,
   display: "swap",
 });
 
 /** Cyrillic cursive for the handwritten login greeting (Sacramento has no Cyrillic glyphs) */
-const marckScript = Marck_Script({
-  preload: false,
+const marckScript = localFont({
+  src: [{ path: "./fonts/marckscript/MarckScript-Regular.ttf", weight: "400", style: "normal" }],
   variable: "--font-marck",
-  subsets: ["cyrillic", "latin"],
-  weight: "400",
+  preload: false,
   display: "swap",
 });
 
 /** Star Wars theme — display / crawl-style headings */
-const orbitron = Orbitron({
-  preload: false,
+const orbitron = localFont({
+  src: [{ path: "./fonts/orbitron/Orbitron[wght].ttf", weight: "500 700", style: "normal" }],
   variable: "--font-orbitron",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  preload: false,
   display: "swap",
 });
 
-const pathwayGothic = Pathway_Gothic_One({
-  preload: false,
+const pathwayGothic = localFont({
+  src: [{ path: "./fonts/pathwaygothicone/PathwayGothicOne-Regular.ttf", weight: "400", style: "normal" }],
   variable: "--font-pathway",
-  subsets: ["latin"],
-  weight: "400",
+  preload: false,
   display: "swap",
 });
 
 /** Hello Kitty theme — soft rounded display headings */
-const comfortaa = Comfortaa({
-  preload: false,
+const comfortaa = localFont({
+  src: [{ path: "./fonts/comfortaa/Comfortaa[wght].ttf", weight: "500 700", style: "normal" }],
   variable: "--font-comfortaa",
-  subsets: ["latin", "cyrillic"],
-  weight: ["500", "600", "700"],
+  preload: false,
   display: "swap",
 });
 
 /** Barbie theme — glam serif display headings */
-const playfairDisplay = Playfair_Display({
+const playfairDisplay = localFont({
+  src: [
+    { path: "./fonts/playfair-display/PlayfairDisplay-Variable.ttf", weight: "600 800", style: "normal" },
+    { path: "./fonts/playfair-display/PlayfairDisplay-Italic-Variable.ttf", weight: "600 800", style: "italic" },
+  ],
+  adjustFontFallback: "Times New Roman",
   preload: false,
   variable: "--font-playfair",
-  subsets: ["latin", "cyrillic"],
-  weight: ["600", "700", "800"],
-  style: ["normal", "italic"],
   display: "swap",
 });
 
