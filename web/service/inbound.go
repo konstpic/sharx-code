@@ -428,6 +428,9 @@ func (s *InboundService) BuildSettingsFromClientEntities(inbound *model.Inbound,
 	vlessFromInbound := ""
 	if proto == model.VLESS {
 		vlessFromInbound = VLESSEffectiveFlow(inbound.Settings, inbound.StreamSettings, inbound.Protocol)
+		if inbound.SnNetwork && inbound.SnNetworkRole == "provider" {
+			vlessFromInbound = "xtls-rprx-vision"
+		}
 	}
 
 	// Build clients array for Xray (only minimal fields)
@@ -810,6 +813,13 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		// #endregion
 		return false, fmt.Errorf("database connection is nil")
 	}
+	var managed model.Inbound
+	if err := db.Select("id", "sn_network").First(&managed, id).Error; err != nil {
+		return false, err
+	}
+	if managed.SnNetwork {
+		return false, common.NewError("SharX Network inbounds are immutable; manage them from SharX Network")
+	}
 
 	var tag string
 	needRestart := false
@@ -1044,6 +1054,9 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		logger.Debugf("[DEBUG-AGENT] UpdateInbound service: GetInbound error, inboundId=%d, error=%v", inbound.Id, err)
 		// #endregion
 		return inbound, false, err
+	}
+	if oldInbound.SnNetwork {
+		return inbound, false, common.NewError("SharX Network inbounds are immutable; manage them from SharX Network")
 	}
 
 	SanitizeVLESSFlowInInboundSettings(inbound)

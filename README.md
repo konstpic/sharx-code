@@ -11,6 +11,12 @@
 
 </div>
 
+## SharX Network beta / Бета сети
+
+SharX Network is in a closed beta. **Network access is currently granted on request** by the project operator; installing the beta does not automatically grant access. Request participation through the project's usual support channel and receive an invitation before connecting a panel. The coordinator is operated separately; its server source is not included in this repository.
+
+SharX Network находится в закрытой бете. **Доступ к сети пока предоставляется по запросу** оператору проекта. Установка beta сама по себе не открывает доступ: сначала запросите участие через обычный канал поддержки проекта и получите приглашение. Координатор работает отдельно; его серверный код не входит в этот репозиторий.
+
 ## Welcome to SharX / Добро пожаловать в SharX
 
 **SharX** is a modern multi-node Xray management platform with Docker-first deployment, observability hooks, and a visual subscription page builder.

@@ -31,6 +31,7 @@ import (
 	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
 	"github.com/konstpic/sharx-code/v2/node/geopush"
 	nodeLogs "github.com/konstpic/sharx-code/v2/node/logs"
+	"github.com/konstpic/sharx-code/v2/node/qos"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/node/xray"
@@ -51,6 +52,7 @@ func try(fn func()) {
 
 // Server provides REST API for managing the node.
 type Server struct {
+	networkQoS       *qos.Manager
 	mesh             *embedded.Service
 	port             int
 	xrayManager      *xray.Manager
@@ -99,8 +101,13 @@ func logXrayNotReadyThrottled(endpoint string) {
 // NewServer creates a new API server instance. Call SetPairing before Start (pairing-only).
 func NewServer(port int, xrayManager *xray.Manager, telemtManager *telemt.Manager, amneziawgManager *amneziawg.Manager, telemtWebManager *telemtweb.Manager) *Server {
 	netLoad.start()
+	qm := qos.NewManager(filepath.Join(networkStateDir(), "network-qos.json"))
+	if err := qm.LoadAndApplyCache(context.Background()); err != nil {
+		logger.Warningf("network QoS restore failed: %v", err)
+	}
 	return &Server{
 		port:             port,
+		networkQoS:       qm,
 		xrayManager:      xrayManager,
 		telemtManager:    telemtManager,
 		amneziawgManager: amneziawgManager,
@@ -159,6 +166,11 @@ func (s *Server) Start() error {
 	}
 	{
 		api.POST("/apply-config", s.applyConfig)
+		api.POST("/network-qos", s.applyNetworkQoS)
+		api.POST("/network-revoke", s.revokeNetworkUser)
+		api.GET("/network-qos", s.networkQoSStatus)
+		api.GET("/network-evidence/key", s.networkEvidenceKey)
+		api.POST("/network-evidence", s.networkEvidence)
 		api.POST("/apply-sidecars", s.applySidecars)
 		api.POST("/stop-xray", s.stopXray)
 		api.POST("/stop-telemt", s.stopTelemt)

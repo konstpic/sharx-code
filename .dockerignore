@@ -75,3 +75,10 @@ test/
 tmp/
 temp/
 *.tmp
+
+network/test/.state/
+
+# Generated Network subscription credentials
+network/test/session.json
+network/test/client-config.json
+network/test/__pycache__/

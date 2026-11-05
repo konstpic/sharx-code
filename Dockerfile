@@ -52,6 +52,7 @@ COPY logger/ ./logger/
 COPY util/ ./util/
 COPY conndrop/ ./conndrop/
 COPY mesh/ ./mesh/
+COPY network/ ./network/
 COPY xray/ ./xray/
 COPY telemt/ ./telemt/
 COPY amneziawg/ ./amneziawg/

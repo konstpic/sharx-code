@@ -3079,7 +3079,6 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 	if err := s.setNodeAuthHeader(node, req); err != nil {
 		return err
 	}
-	logger.Debugf("[Node: %s] Request headers: Content-Type=%s, Authorization=Bearer %s...", node.Name, req.Header.Get("Content-Type"), authDebugPrefix(node))
 
 	resp, err := client.Do(req)
 	if err != nil {

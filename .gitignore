@@ -43,3 +43,20 @@ tmp/
 # .env.DS_Store
 
 .superdesign/tmp/
+
+# Private disposable Network test keys and certificates
+/network/test/.state/
+
+# Generated Network subscription credentials
+network/test/session.json
+network/test/client-config.json
+network/test/__pycache__/
+
+# Coordinator implementation belongs only to the private GitLab repository.
+/coordinator/
+/network/coordinator/
+/network/store/
+/network/ledger/
+/network/antifraud/
+/network/scoring/
+/network/test/fixtures/

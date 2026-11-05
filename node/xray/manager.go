@@ -92,16 +92,20 @@ func asLoglevelString(v any) string {
 
 // NodeStats represents traffic and online clients statistics from a node.
 type NodeStats struct {
-	Traffic       []*xray.Traffic       `json:"traffic"`
-	ClientTraffic []*xray.ClientTraffic `json:"clientTraffic"`
-	OnlineClients []string              `json:"onlineClients"`
+	NetworkCounters map[string][2]int64   `json:"networkCounters,omitempty"`
+	Traffic         []*xray.Traffic       `json:"traffic"`
+	ClientTraffic   []*xray.ClientTraffic `json:"clientTraffic"`
+	OnlineClients   []string              `json:"onlineClients"`
 }
 
 // Manager manages the XRAY Core process lifecycle.
 type Manager struct {
-	process *xray.Process
-	lock    sync.Mutex
-	config  *xray.Config
+	networkTotals  map[string][2]int64
+	networkLast    map[string][2]int64
+	networkProcess *xray.Process
+	process        *xray.Process
+	lock           sync.Mutex
+	config         *xray.Config
 }
 
 func inboundTagSet(cfg *xray.Config) map[string]struct{} {
@@ -592,6 +596,11 @@ func (m *Manager) GetStats(reset bool) (*NodeStats, error) {
 		return nil, fmt.Errorf("failed to get traffic: %w", err)
 	}
 
+	totals, err := m.accumulateNetworkCounters(clientTraffics, reset)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get online clients from process
 	onlineClients := m.process.GetOnlineClients()
 
@@ -618,9 +627,10 @@ func (m *Manager) GetStats(reset bool) (*NodeStats, error) {
 	}
 
 	return &NodeStats{
-		Traffic:       traffics,
-		ClientTraffic: clientTraffics,
-		OnlineClients: onlineList,
+		NetworkCounters: totals,
+		Traffic:         traffics,
+		ClientTraffic:   clientTraffics,
+		OnlineClients:   onlineList,
 	}, nil
 }
 

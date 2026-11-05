@@ -407,6 +407,10 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		if !inbound.Enable {
 			continue
 		}
+		if inbound.SnNetwork {
+			// SharX Network inbounds live on worker nodes only; never bind them on the panel host.
+			continue
+		}
 		if !model.IsXrayInboundProtocol(inbound.Protocol) {
 			continue
 		}
@@ -762,6 +766,9 @@ func (s *XrayService) buildNodeWorkerConfigJSON(node *model.Node, inbounds []*mo
 	}
 	if err := MergeSessionIPBlockRoutingIntoConfig(&nodeConfig, clientIDSet); err != nil {
 		logger.Warningf("session IP block routing merge (node worker): %v", err)
+	}
+	if err := applyNetworkRoutingGuards(&nodeConfig, networkInboundTags(inbounds)); err != nil {
+		logger.Warningf("network routing guard merge (node worker): %v", err)
 	}
 
 	out, err := json.MarshalIndent(&nodeConfig, "", "  ")

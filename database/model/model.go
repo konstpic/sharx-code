@@ -193,6 +193,8 @@ type Inbound struct {
 	Settings       string                   `json:"settings" form:"settings"`
 	StreamSettings string                   `json:"streamSettings" form:"streamSettings"`
 	Tag            string                   `json:"tag" form:"tag" gorm:"unique"`
+	SnNetwork      bool                     `json:"snNetwork" gorm:"column:sn_network;default:false"`       // SharX Network inbound (never started on the panel host)
+	SnNetworkRole  string                   `json:"snNetworkRole" gorm:"column:sn_network_role;default:''"` // provider | consumer
 	Sniffing       string                   `json:"sniffing" form:"sniffing"`
 	NodeId         *int                     `json:"nodeId,omitempty" form:"-" gorm:"-"`       // Node ID (not stored in Inbound table, from mapping) - DEPRECATED: kept only for backward compatibility with old clients, use NodeIds instead
 	NodeIds        []int                    `json:"nodeIds,omitempty" form:"-" gorm:"-"`      // Node IDs array (not stored in Inbound table, from mapping) - use this for multi-node support
@@ -563,12 +565,12 @@ type Outbound struct {
 	Protocol       string `json:"protocol" form:"protocol"`                     // Outbound protocol (freedom, blackhole, socks, http, vmess, vless, trojan, shadowsocks, wireguard, etc.)
 	Settings       string `json:"settings" form:"settings"`                     // Protocol-specific settings (JSON)
 	StreamSettings string `json:"streamSettings" form:"streamSettings"`         // Stream settings (JSON, optional)
-	Tag            string `json:"tag" form:"tag" gorm:"unique"`                 // Outbound tag (must be unique)
-	ProxySettings  string `json:"proxySettings" form:"proxySettings"`           // Proxy settings for chaining (JSON, optional)
-	SendThrough    string `json:"sendThrough" form:"sendThrough"`               // Send through address (optional)
-	Mux            string `json:"mux" form:"mux"`                               // Mux settings (JSON, optional)
-	CreatedAt      int64  `json:"createdAt" gorm:"autoCreateTime"`              // Creation timestamp
-	UpdatedAt      int64  `json:"updatedAt" gorm:"autoUpdateTime"`              // Last update timestamp
+	Tag            string `json:"tag" form:"tag" gorm:"unique"`
+	ProxySettings  string `json:"proxySettings" form:"proxySettings"` // Proxy settings for chaining (JSON, optional)
+	SendThrough    string `json:"sendThrough" form:"sendThrough"`     // Send through address (optional)
+	Mux            string `json:"mux" form:"mux"`                     // Mux settings (JSON, optional)
+	CreatedAt      int64  `json:"createdAt" gorm:"autoCreateTime"`    // Creation timestamp
+	UpdatedAt      int64  `json:"updatedAt" gorm:"autoUpdateTime"`    // Last update timestamp
 
 	// Relations (not stored in DB, loaded via queries)
 	NodeIds []int `json:"nodeIds,omitempty" form:"-" gorm:"-"` // Node IDs array (not stored in Outbound table, from mapping) - use this for multi-node support
@@ -689,6 +691,7 @@ const (
 	HostSourcePlacement = "placement"
 	HostSourcePool      = "pool"
 	HostSourceLegacy    = "legacy"
+	HostSourceNetwork   = "sharx-network"
 )
 
 // HostSyncSuppression records that an operator explicitly deleted an auto-managed host (placement or pool kind),

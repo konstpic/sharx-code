@@ -49,6 +49,9 @@
   },
   "overrides": {
     "postcss": "^8.5.28",
-    "d3-color": "^3.1.0"
+    "d3-color": "^3.1.0",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.4"
+    }
   }
 }

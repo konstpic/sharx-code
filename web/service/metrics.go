@@ -116,6 +116,33 @@ func collectExtraMetrics(b *strings.Builder, status *Status, nodes []*model.Node
 	w.one("xui_hwid_devices_total", "Registered client devices (HWID)", "gauge", hwids)
 	w.one("xui_client_groups_total", "Client groups", "gauge", groups)
 	w.one("xui_organizations_total", "Organizations", "gauge", orgs)
+
+	var participant model.SnParticipant
+	if err := db.First(&participant).Error; err == nil {
+		w.one("xui_network_enabled", "SharX Network participation enabled", "gauge", boolInt(participant.Enabled))
+		w.one("xui_network_last_sync_timestamp_seconds", "Last successful SharX Network synchronization", "gauge", participant.LastSyncAt)
+		var published int64
+		db.Model(&model.SnSharedNode{}).Where("status = 'published'").Count(&published)
+		w.one("xui_network_published_nodes", "Nodes currently published to SharX Network", "gauge", published)
+		w.head("xui_network_sessions", "SharX Network sessions by role and state", "gauge")
+		for _, role := range []string{"provider", "consumer"} {
+			for _, state := range []string{"provisioning", "active", "degraded", "closing", "closed", "disputed"} {
+				var count int64
+				db.Model(&model.SnSession{}).Where("role = ? AND status = ?", role, state).Count(&count)
+				w.sample("xui_network_sessions", lbl("role", role)+","+lbl("status", state), count)
+			}
+		}
+		w.head("xui_network_usage_bytes", "Reported SharX Network usage", "gauge")
+		for _, role := range []string{"provider", "consumer"} {
+			var up, down int64
+			db.Model(&model.SnSession{}).Where("role = ?", role).Select("COALESCE(SUM(usage_up_bytes),0), COALESCE(SUM(usage_down_bytes),0)").Row().Scan(&up, &down)
+			w.sample("xui_network_usage_bytes", lbl("role", role)+","+lbl("direction", "up"), up)
+			w.sample("xui_network_usage_bytes", lbl("role", role)+","+lbl("direction", "down"), down)
+		}
+		var queued int64
+		db.Model(&model.SnProvisionQueue{}).Where("status IN ('pending','failed')").Count(&queued)
+		w.one("xui_network_provision_pending", "Pending or failed SharX Network provisioning operations", "gauge", queued)
+	}
 }
 
 // InitMetricsExporter initializes the metrics exporter

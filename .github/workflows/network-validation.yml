@@ -1,0 +1,39 @@
+name: Network HA and kernel validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [beta]
+  pull_request:
+    paths: ['network/**', 'verifier/**', 'node/qos/**', 'node/api/network*', 'node/xray/network*', 'web/service/network*', '.github/workflows/network-validation.yml']
+permissions: {contents: read}
+jobs:
+  network:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: {POSTGRES_HOST_AUTH_METHOD: trust}
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      SHARX_TEST_DB: host=127.0.0.1 port=5432 user=postgres dbname=postgres sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep coordinator source private
+        run: |
+          for path in coordinator network/coordinator network/store network/ledger network/antifraud network/scoring; do
+            test -z "$(git ls-files -- "$path")" || { echo "Private coordinator source found: $path"; exit 1; }
+          done
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - run: go test -race ./network/... ./node/qos/...
+      - name: Enable kernel features on disposable runner
+        run: for module in cls_flower sch_htb sch_ingress sch_netem act_police; do sudo modprobe "$module"; done
+      - name: Compile isolated kernel tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/sharx-qos"
+          CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/sharx-qos/qos.test" ./node/qos
+          cp network/test/Dockerfile.qos-test network/test/qos-kernel.sh "$RUNNER_TEMP/sharx-qos/"
+          docker build -t sharx-qos-check -f "$RUNNER_TEMP/sharx-qos/Dockerfile.qos-test" "$RUNNER_TEMP/sharx-qos"
+      - run: docker run --rm --privileged --network none -v /lib/modules:/lib/modules:ro sharx-qos-check
+      - run: docker run --rm --cap-add NET_ADMIN --network none --entrypoint /tests/qos.test -e SHARX_QOS_KERNEL_TEST=1 sharx-qos-check -test.run TestRevocationOnlyNetworkPort -test.v

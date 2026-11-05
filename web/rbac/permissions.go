@@ -53,6 +53,9 @@ const (
 	MeshRead    = "mesh:read"
 	MeshOperate = "mesh:operate"
 
+	NetworkRead   = "network:read"
+	NetworkManage = "network:manage"
+
 	NodesRead    = "nodes:read"
 	NodesCreate  = "nodes:create"
 	NodesUpdate  = "nodes:update"
@@ -154,6 +157,8 @@ var catalogue = []Permission{
 
 	p(MeshRead, "infrastructure", false),
 	p(MeshOperate, "infrastructure", true),
+	p(NetworkRead, "infrastructure", false),
+	p(NetworkManage, "infrastructure", true),
 	p(NodesRead, "infrastructure", false),
 	p(NodesCreate, "infrastructure", true), // SSH provisioning takes server credentials
 	p(NodesUpdate, "infrastructure", false),

@@ -163,6 +163,9 @@ func (s *HostService) UpdateHost(userId int, host *model.Host) error {
 	if existing.UserId != userId {
 		return common.NewError("Host not found or access denied")
 	}
+	if existing.Source == model.HostSourceNetwork {
+		return common.NewError("SharX Network hosts are immutable; manage their sessions from SharX Network")
+	}
 
 	// Update timestamp
 	host.UpdatedAt = time.Now().Unix()
@@ -247,6 +250,9 @@ func (s *HostService) DeleteHost(userId int, id int) error {
 	}
 	if existing.UserId != userId {
 		return common.NewError("Host not found or access denied")
+	}
+	if existing.Source == model.HostSourceNetwork {
+		return common.NewError("SharX Network hosts are immutable; manage their sessions from SharX Network")
 	}
 
 	db := database.GetDB()

@@ -334,6 +334,9 @@ export function PanelShell({ children }: { children: React.ReactNode }) {
                   ]
                 : []),
               ...(can("mesh:read") ? [child("mesh", t("pages.mesh.title", { defaultValue: "Mesh & relays" }), linkP("panel/nodes/mesh"), u === routePath(p("panel/nodes/mesh")))] : []),
+              ...(can("network:read")
+                ? [child("network", t("menu.network", { defaultValue: "Network" }), linkP("panel/network"), u === routePath(p("panel/network")))]
+                : []),
               ...(can("balancers:read")
                 ? [child("balancers", t("menu.balancers", { defaultValue: "Balancers" }), linkP("panel/nodes/balancers"), u === nodesBalancersHref)]
                 : []),

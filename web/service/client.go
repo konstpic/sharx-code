@@ -1088,6 +1088,9 @@ func (s *ClientService) syncSingleModeConfigJSON(multiMode bool, oldName string,
 						if err != nil {
 							continue
 						}
+						if inbound.SnNetwork && inbound.SnNetworkRole == "consumer" {
+							continue
+						}
 						assigned := assignedSet[inboundId]
 						if !assigned || !finalClient.Enable {
 							if err := xray.UpdateConfigFileAfterUserRemoval(processConfig, inbound.Tag, existing.Name); err != nil {
@@ -1162,6 +1165,9 @@ func (s *ClientService) rebuildInboundsAndSync(affectedInboundIds map[int]bool) 
 		inbound, err := inboundService.GetInbound(inboundId)
 		if err != nil {
 			logger.Warningf("Failed to get inbound %d for settings update: %v", inboundId, err)
+			continue
+		}
+		if inbound.SnNetwork && inbound.SnNetworkRole == "consumer" {
 			continue
 		}
 

@@ -1,0 +1,5 @@
+FROM alpine:3.23
+RUN apk add --no-cache iproute2 iperf3
+COPY qos.test /tests/qos.test
+COPY qos-kernel.sh /tests/run.sh
+ENTRYPOINT ["/bin/sh","/tests/run.sh"]

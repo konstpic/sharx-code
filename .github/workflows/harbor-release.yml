@@ -20,6 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Keep coordinator source private
+        run: |
+          for path in coordinator network/coordinator network/store network/ledger network/antifraud network/scoring; do
+            test -z "$(git ls-files -- "$path")" || { echo "Private coordinator source found: $path"; exit 1; }
+          done
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

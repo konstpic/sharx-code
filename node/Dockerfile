@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS mesh-etcd-build
 ARG TARGETARCH
 WORKDIR /etcd
-RUN go mod init sharx-etcd-runtime && \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod init sharx-etcd-runtime && \
     go get go.etcd.io/etcd/server/v3@v3.6.15 github.com/klauspost/compress@v1.18.7 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/etcd go.etcd.io/etcd/server/v3
 FROM scratch AS mesh-etcd
@@ -11,7 +11,7 @@ COPY --from=mesh-etcd-build /out/etcd /out/etcd
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS mesh-wireguard
 ARG TARGETARCH
 WORKDIR /wg
-RUN go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-20261024220952-b3bc704ef0ee golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-20261024220952-b3bc704ef0ee golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
     CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/wireguard-go golang.zx2c4.com/wireguard
 
 # Telemt: ./scripts/download-telemt.sh → third_party/telemt-sharx/prebuilt/linux-*/telemt (or DockerInit fallback)

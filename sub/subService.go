@@ -16,6 +16,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/network/protocol"
 	"github.com/konstpic/sharx-code/v2/util/common"
 	"github.com/konstpic/sharx-code/v2/util/crypto"
 	"github.com/konstpic/sharx-code/v2/util/random"
@@ -94,7 +95,7 @@ func (s *SubService) ClientShareLinks(client *model.ClientEntity, inboundIDs []i
 		s.attachBundleHosts(client, []*model.Inbound{inbound})
 		prepared := s.prepareInboundForSubscription(inbound)
 		link := s.getLinkWithClient(prepared, client)
-		if link == "" && client != nil && strings.TrimSpace(client.Name) != "" {
+		if link == "" && !inbound.SnNetwork && client != nil && strings.TrimSpace(client.Name) != "" {
 			link = s.getLink(prepared, client.Name)
 		}
 		if link == "" {
@@ -348,6 +349,7 @@ func (s *SubService) GetSubs(subId string, host string, c *gin.Context) ([]strin
 	return result, lastOnline, traffic, nil
 }
 
+// New architecture: Find client by subId, then find inbounds through ClientInboundMapping.
 // getInboundsBySubId retrieves all inbounds assigned to a client with the given subId.
 // New architecture: Find client by subId, then find inbounds through ClientInboundMapping.
 func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) {
@@ -578,6 +580,23 @@ func (s *SubService) getLinkWithClient(inbound *model.Inbound, client *model.Cli
 	}
 	if client == nil {
 		return ""
+	}
+	if inbound.SnNetwork {
+		if inbound.SnNetworkRole != "consumer" {
+			return ""
+		}
+		var sess model.SnSession
+		if err := database.GetDB().First(&sess,
+			"inbound_id = ? AND role = 'consumer' AND status IN ('active','degraded')", inbound.Id).Error; err != nil {
+			return ""
+		}
+		var link protocol.SessionLink
+		if err := json.Unmarshal([]byte(sess.Link), &link); err != nil || link.ClientUUID == "" {
+			return ""
+		}
+		remoteClient := *client
+		remoteClient.UUID = link.ClientUUID
+		client = &remoteClient
 	}
 	switch in.Protocol {
 	case model.VMESS:

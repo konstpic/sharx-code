@@ -82,11 +82,21 @@ func (s *SubService) addressesFromBundleHosts(inbound *model.Inbound) ([]Address
 	return out, subHost
 }
 
-// attachBundleHosts sets, on each inbound, the hosts that deliver it to this client. It does nothing while the bundle
-// scheme is off, so the old assembly stays in charge. On an error it also does nothing: falling back to the old assembly
-// is safer than an empty subscription.
+// attachBundleHosts sets the hosts that deliver each inbound to this client. Consumer network inbounds always use
+// their explicit bundle plan; other inbounds keep the legacy assembly until the global bundle scheme is enabled.
 func (s *SubService) attachBundleHosts(client *model.ClientEntity, inbounds []*model.Inbound) {
-	if client == nil || !(s.forceBundles || s.bundleService.BundlesActive()) {
+	if client == nil {
+		return
+	}
+	bundlesActive := s.forceBundles || s.bundleService.BundlesActive()
+	needsNetworkPlan := false
+	for _, in := range inbounds {
+		if in != nil && in.SnNetwork && in.SnNetworkRole == "consumer" {
+			needsNetworkPlan = true
+			break
+		}
+	}
+	if !bundlesActive && !needsNetworkPlan {
 		return
 	}
 	plan, err := s.bundleService.SubscriptionHosts(client.Id)
@@ -95,7 +105,7 @@ func (s *SubService) attachBundleHosts(client *model.ClientEntity, inbounds []*m
 		return
 	}
 	for _, in := range inbounds {
-		if in == nil {
+		if in == nil || (!bundlesActive && !(in.SnNetwork && in.SnNetworkRole == "consumer")) {
 			continue
 		}
 		in.SubHosts = plan[in.Id]
