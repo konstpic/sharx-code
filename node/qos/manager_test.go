@@ -273,3 +273,57 @@ func TestKernelRateFormattingAndClassIsolation(t *testing.T) {
 		t.Fatal("another class hid an incorrect shared rate")
 	}
 }
+
+func TestClearHandlesKernelCollectedActionWithoutHidingFailures(t *testing.T) {
+	for _, mode := range []string{"collected", "delete-fails", "inspect-fails", "collected-during-delete"} {
+		t.Run(mode, func(t *testing.T) {
+			spec := Spec{Interface: "eth0", Port: 443, CapacityMbps: 100, SpeedLimitMbps: 40}
+			cache := filepath.Join(t.TempDir(), "qos.json")
+			if e := os.WriteFile(cache, []byte("{}"), 0600); e != nil {
+				t.Fatal(e)
+			}
+			calls := 0
+			deletes := 0
+			runner := &fakeRunner{run: func(ctx context.Context, name string, args ...string) (string, error) {
+				cmd := strings.Join(args, " ")
+				if cmd == "qdisc show dev eth0 root" {
+					return "qdisc noqueue 0: root", nil
+				}
+				if cmd == "actions list action police" {
+					calls++
+					if mode == "inspect-fails" {
+						return "", errors.New("permission denied")
+					}
+					if mode == "collected" || (mode == "collected-during-delete" && calls > 1) {
+						return "police index 1004430", nil
+					}
+					return "police index 100443 ref 1 bind 0", nil
+				}
+				if strings.HasPrefix(cmd, "actions delete") {
+					deletes++
+					return "", errors.New("kernel refused delete")
+				}
+				return "", nil
+			}}
+			manager := NewManager(cache)
+			manager.runner = runner
+			manager.desired = &spec
+			err := manager.Clear(context.Background())
+			wantFailure := mode == "delete-fails" || mode == "inspect-fails"
+			if (err != nil) != wantFailure {
+				t.Fatalf("mode %s err=%v", mode, err)
+			}
+			if mode == "collected" && deletes != 0 {
+				t.Fatal("must not delete an already collected action or another index")
+			}
+			if wantFailure {
+				if manager.desired == nil {
+					t.Fatal("failed cleanup must retain desired state")
+				}
+				if _, e := os.Stat(cache); e != nil {
+					t.Fatal("failed cleanup lost retry state")
+				}
+			}
+		})
+	}
+}

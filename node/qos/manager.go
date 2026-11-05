@@ -446,8 +446,24 @@ func (m *Manager) Clear(ctx context.Context) error {
 			}
 		}
 	}
-	if _, err := m.run(ctx, "tc", "actions", "delete", "action", "police", "index", strconv.Itoa(100000+spec.Port)); err != nil {
-		return m.failLocked(spec, fmt.Errorf("qos: clear owned policing action: %w", err))
+	// Some kernels collect the action when its last filter is detached. Do not
+	// infer absence from a failed delete: enumerate the kernel state explicitly.
+	index := strconv.Itoa(100000 + spec.Port)
+	actionPresent := func() (bool, error) {
+		out, err := m.run(ctx, "tc", "actions", "list", "action", "police")
+		return regexp.MustCompile(`\bindex\s+` + index + `\b`).MatchString(out), err
+	}
+	present, err := actionPresent()
+	if err != nil {
+		return m.failLocked(spec, fmt.Errorf("qos: inspect owned policing action: %w", err))
+	}
+	if present {
+		if _, err := m.run(ctx, "tc", "actions", "delete", "action", "police", "index", index); err != nil {
+			stillPresent, inspectErr := actionPresent()
+			if inspectErr != nil || stillPresent {
+				return m.failLocked(spec, fmt.Errorf("qos: clear owned policing action: %w", err))
+			}
+		}
 	}
 	if ownedRoot {
 		if _, err := m.run(ctx, "tc", "qdisc", "del", "dev", spec.Interface, "root"); err != nil {

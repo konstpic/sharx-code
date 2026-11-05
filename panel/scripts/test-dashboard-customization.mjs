@@ -8,10 +8,10 @@ const nativeRequire=createRequire(path.resolve('panel/package.json'));
 const cache=new Map();
 function load(file) {
  const target=path.resolve(file);if(cache.has(target))return cache.get(target);
- const module={exports:{}};cache.set(target,module.exports);
+ const loadedModule={exports:{}};cache.set(target,loadedModule.exports);
  const js=ts.transpileModule(readFileSync(target,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
- new Function('module','exports','require',js)(module,module.exports,name=>name.startsWith('.')?load(path.resolve(path.dirname(target),name+'.ts')):name.startsWith('@/')?load(path.resolve('panel',name.slice(2)+'.ts')):nativeRequire(name));
- return module.exports;
+ new Function('module','exports','require',js)(loadedModule,loadedModule.exports,name=>name.startsWith('.')?load(path.resolve(path.dirname(target),name+'.ts')):name.startsWith('@/')?load(path.resolve('panel',name.slice(2)+'.ts')):nativeRequire(name));
+ return loadedModule.exports;
 }
 const {matchesColumnFilter:match}=load('panel/lib/columnFilters.ts');
 const {parseLayout,defaultLayout,parseWorkspace,saveActiveBoard}=load('panel/lib/dashboardBuilder.ts');
