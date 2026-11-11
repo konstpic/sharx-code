@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-go@v5
         with: {go-version-file: go.mod}
       - run: go test -race ./network/... ./node/qos/...
+      - name: Validate panel network HTTP and publication contracts
+        run: go test -race ./web/controller ./web/service -run 'TestNetwork|TestValidatePublish'
       - name: Enable kernel features on disposable runner
         run: for module in cls_flower sch_htb sch_ingress sch_netem act_police; do sudo modprobe "$module"; done
       - name: Compile isolated kernel tests

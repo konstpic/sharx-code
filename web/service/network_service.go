@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -294,6 +297,7 @@ func (s NetworkService) RenewCertificateIfNeeded() error {
 
 type PublishParams struct {
 	NodeID            int
+	EndpointHost      string
 	Label             string
 	Country           string
 	Security          string // reality (v1); tls rejected with guidance
@@ -306,6 +310,11 @@ type PublishParams struct {
 }
 
 func (s NetworkService) validatePublish(p PublishParams) error {
+	if host := strings.TrimSpace(p.EndpointHost); host != "" {
+		if strings.ContainsAny(host, "/@?# \t\r\n") || (strings.Contains(host, ":") && net.ParseIP(host) == nil) {
+			return errors.New("endpoint host must be an IP address or hostname without scheme or port")
+		}
+	}
 	if !p.RiskAck {
 		return errors.New("risk acknowledgment required")
 	}
@@ -361,7 +370,7 @@ func (s NetworkService) PublishNode(params PublishParams) error {
 	if err != nil {
 		return err
 	}
-	endpointHost := nodeEndpointHost(node)
+	endpointHost := publicationEndpointHost(node, params.EndpointHost)
 	var stream map[string]any
 	_ = json.Unmarshal([]byte(inbound.StreamSettings), &stream)
 	reality, _ := stream["realitySettings"].(map[string]any)
@@ -420,6 +429,13 @@ func bandwidthOrDefault(v, def int) int {
 		return def
 	}
 	return v
+}
+
+func publicationEndpointHost(node *model.Node, override string) string {
+	if host := strings.TrimSpace(override); host != "" {
+		return host
+	}
+	return nodeEndpointHost(node)
 }
 
 func nodeEndpointHost(node *model.Node) string {
@@ -511,7 +527,7 @@ func (s NetworkService) ensureNetworkInbound(node *model.Node, params PublishPar
 	nodeService := NodeService{}
 	err = nodeService.AssignInboundToNodesWithBindings(created.Id, []InboundNodeBindingInput{{
 		NodeId:                node.Id,
-		PublishedAddress:      nodeEndpointHost(node),
+		PublishedAddress:      publicationEndpointHost(node, params.EndpointHost),
 		PublishedPort:         port,
 		IncludeInSubscription: netBoolPtr(false),
 		ServerDescription:     "[SharX Network] " + params.Label,
@@ -537,7 +553,26 @@ func (s NetworkService) realityKeyPair() (map[string]any, error) {
 	return pair, nil
 }
 
-// pickPort chooses a free port on the node (20000-60000).
+// networkPortRange defaults to 20000-60000. NAT/container deployments may restrict
+// publication to the inclusive externally forwarded range.
+func networkPortRange() (int, int, error) {
+	low, high := 20000, 60000
+	for key, dest := range map[string]*int{"SHARX_NETWORK_PORT_MIN": &low, "SHARX_NETWORK_PORT_MAX": &high} {
+		if raw := os.Getenv(key); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil {
+				return 0, 0, fmt.Errorf("invalid %s", key)
+			}
+			*dest = n
+		}
+	}
+	if low < 1 || high > 65535 || low > high {
+		return 0, 0, errors.New("invalid network publication port range")
+	}
+	return low, high, nil
+}
+
+// pickPort chooses an unused port within the configured public range.
 func (s NetworkService) pickPort(nodeId int) (int, error) {
 	nodeService := NodeService{}
 	existing, err := nodeService.GetInboundsForNode(nodeId)
@@ -553,12 +588,17 @@ func (s NetworkService) pickPort(nodeId int) (int, error) {
 	for _, p := range panelPorts {
 		used[p] = true
 	}
-	for i := 0; i < 200; i++ {
-		n, err := rand.Int(rand.Reader, big.NewInt(40001))
-		if err != nil {
-			return 0, err
-		}
-		port := int(n.Int64()) + 20000
+	low, high, err := networkPortRange()
+	if err != nil {
+		return 0, err
+	}
+	width := high - low + 1
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(width)))
+	if err != nil {
+		return 0, err
+	}
+	for i := 0; i < width; i++ {
+		port := low + (int(n.Int64())+i)%width
 		if !used[port] {
 			return port, nil
 		}

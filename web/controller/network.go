@@ -128,6 +128,7 @@ func bindNetworkForm(c *gin.Context, form any) bool {
 
 type networkPublishForm struct {
 	NodeID            int     `json:"nodeId" form:"nodeId"`
+	EndpointHost      string  `json:"endpointHost" form:"endpointHost"`
 	ID                int     `json:"id" form:"id"`
 	Label             string  `json:"label" form:"label"`
 	Country           string  `json:"country" form:"country"`
@@ -146,7 +147,7 @@ func (form networkPublishForm) params() service.PublishParams {
 		country = "UN"
 	}
 	return service.PublishParams{
-		NodeID: form.NodeID, Label: strings.TrimSpace(form.Label), Country: country,
+		NodeID: form.NodeID, EndpointHost: strings.TrimSpace(form.EndpointHost), Label: strings.TrimSpace(form.Label), Country: country,
 		Security: form.Security, TrafficLimitGB: form.TrafficLimitGB,
 		SpeedLimitMbps: form.SpeedLimitMbps, ReserveMbps: form.ReserveMbps,
 		MaxSessions: form.MaxSessions, PriceCreditsPerGB: form.PriceCreditsPerGB, RiskAck: form.RiskAck,
