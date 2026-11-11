@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,7 @@ func (a *NetworkController) createBundle(c *gin.Context) {
 	}
 	bundle, err := a.service.CreateBundle(networkOperatorID(c), form.Name, form.SessionIDs)
 	if err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.bundle.create", strconv.Itoa(bundle.Id))
@@ -56,7 +57,7 @@ func (a *NetworkController) assignBundle(c *gin.Context) {
 		return
 	}
 	if err := a.service.AssignBundle(networkOperatorID(c), form.BundleID, form.ClientIDs); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.bundle.assign", strconv.Itoa(form.BundleID))

@@ -54,13 +54,14 @@ export function OnboardingCard({ status, manage, onChanged }: OnboardingCardProp
     setError("");
     setInfo("");
     try {
-      const r = await postJson(
+      const r = await postJson<{ ok: boolean }>(
         panel("network/enroll"),
         { coordinatorUrl: coordinatorUrl.trim(), inviteCode: inviteCode.trim(), name: name.trim() },
         true,
       );
-      if (!r.success) throw new Error(r.msg);
-      setInfo(tr("enrollSuccess", "Request sent to the coordinator. Participation starts as soon as enrollment is confirmed."));
+      if (!r.success || r.obj?.ok !== true) throw new Error(r.msg || tr("enrollError", "Could not join the network"));
+      setInfo(tr("enrollComplete", "Joined the network. No additional approval is required."));
+      setInviteCode("");
       await onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : tr("enrollError", "Could not join the network"));
@@ -160,7 +161,7 @@ export function OnboardingCard({ status, manage, onChanged }: OnboardingCardProp
         <Surface>
           <h2 className="font-semibold">{tr("joinTitle", "Join SharX Network")}</h2>
           <p className="mt-1 text-sm text-[var(--fg-muted)]">
-            {tr("joinHint", "Enter the coordinator address and the invite code you received from the network operator.")}
+            {tr("joinHint", "Enter the coordinator API address and the invite code from the network operator. The public Explorer address is different.")}
           </p>
           <fieldset disabled={!manage} className="m-0 min-w-0 border-0 p-0">
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -171,7 +172,7 @@ export function OnboardingCard({ status, manage, onChanged }: OnboardingCardProp
                 <Input
                   value={coordinatorUrl}
                   onChange={(e) => setCoordinatorUrl(e.target.value)}
-                  placeholder="https://coordinator.example.com"
+                  placeholder="https://coordinator.sharxconnect.app"
                   autoComplete="off"
                 />
               </label>

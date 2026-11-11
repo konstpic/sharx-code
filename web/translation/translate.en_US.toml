@@ -6166,3 +6166,7 @@ helpP5 = "On the live map, green means both directions are usable, amber is asym
 balancerParticipant = "Balancer"
 
 workerHelp = "Connect participants through their existing authenticated API. Update their Docker images first. Mesh state and keys stay in the participant data volume."
+
+[pages.network]
+joinHint = "Enter the coordinator API address and invite code. The public Explorer address cannot be used for enrollment."
+enrollComplete = "Joined the network. No additional approval is required."

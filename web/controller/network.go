@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -66,7 +67,7 @@ func (a *NetworkController) enroll(c *gin.Context) {
 		return
 	}
 	if err := a.service.Enroll(form.CoordinatorURL, form.InviteCode, form.Name); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.enroll", "")
@@ -74,9 +75,15 @@ func (a *NetworkController) enroll(c *gin.Context) {
 }
 
 func (a *NetworkController) enable(c *gin.Context) {
-	enabled := c.PostForm("enabled") == "true" || c.PostForm("enabled") == "1"
+	var form struct {
+		Enabled *bool `json:"enabled" form:"enabled" binding:"required"`
+	}
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	enabled := *form.Enabled
 	if err := a.service.SetEnabled(enabled); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.enable", strconv.FormatBool(enabled))
@@ -84,12 +91,18 @@ func (a *NetworkController) enable(c *gin.Context) {
 }
 
 func (a *NetworkController) leave(c *gin.Context) {
-	if c.PostForm("confirm") != "LEAVE" {
-		jsonMsg(c, "Confirmation required (type LEAVE)", nil)
+	var form struct {
+		Confirm string `json:"confirm" form:"confirm"`
+	}
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	if form.Confirm != "LEAVE" {
+		pureJsonMsg(c, http.StatusOK, false, "Confirmation required (type LEAVE)")
 		return
 	}
 	if err := a.service.Leave(); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.leave", "")
@@ -105,34 +118,53 @@ func (a *NetworkController) nodes(c *gin.Context) {
 	jsonObj(c, gin.H{"nodes": nodes}, nil)
 }
 
-func (a *NetworkController) publishParams(c *gin.Context) service.PublishParams {
-	country := c.PostForm("country")
+func bindNetworkForm(c *gin.Context, form any) bool {
+	if err := c.ShouldBind(form); err != nil {
+		pureJsonMsg(c, http.StatusOK, false, "Invalid network form: "+err.Error())
+		return false
+	}
+	return true
+}
+
+type networkPublishForm struct {
+	NodeID            int     `json:"nodeId" form:"nodeId"`
+	ID                int     `json:"id" form:"id"`
+	Label             string  `json:"label" form:"label"`
+	Country           string  `json:"country" form:"country"`
+	Security          string  `json:"security" form:"security"`
+	TrafficLimitGB    float64 `json:"trafficLimitGB" form:"trafficLimitGB"`
+	SpeedLimitMbps    int     `json:"speedLimitMbps" form:"speedLimitMbps"`
+	ReserveMbps       int     `json:"reserveMbps" form:"reserveMbps"`
+	MaxSessions       int     `json:"maxSessions" form:"maxSessions"`
+	PriceCreditsPerGB float64 `json:"priceCreditsPerGB" form:"priceCreditsPerGB"`
+	RiskAck           bool    `json:"riskAck" form:"riskAck"`
+}
+
+func (form networkPublishForm) params() service.PublishParams {
+	country := form.Country
 	if country == "" {
 		country = "UN"
 	}
-	p := service.PublishParams{
-		Label:             strings.TrimSpace(c.PostForm("label")),
-		Country:           country,
-		Security:          c.PostForm("security"),
-		TrafficLimitGB:    atof(c.PostForm("trafficLimitGB")),
-		SpeedLimitMbps:    atoi(c.PostForm("speedLimitMbps")),
-		ReserveMbps:       atoi(c.PostForm("reserveMbps")),
-		MaxSessions:       atoi(c.PostForm("maxSessions")),
-		PriceCreditsPerGB: atof(c.PostForm("priceCreditsPerGB")),
-		RiskAck:           c.PostForm("riskAck") == "true" || c.PostForm("riskAck") == "1",
+	return service.PublishParams{
+		NodeID: form.NodeID, Label: strings.TrimSpace(form.Label), Country: country,
+		Security: form.Security, TrafficLimitGB: form.TrafficLimitGB,
+		SpeedLimitMbps: form.SpeedLimitMbps, ReserveMbps: form.ReserveMbps,
+		MaxSessions: form.MaxSessions, PriceCreditsPerGB: form.PriceCreditsPerGB, RiskAck: form.RiskAck,
 	}
-	return p
 }
 
 func (a *NetworkController) publishNode(c *gin.Context) {
-	p := a.publishParams(c)
-	p.NodeID = atoi(c.PostForm("nodeId"))
+	var form networkPublishForm
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	p := form.params()
 	if p.NodeID <= 0 {
-		jsonMsg(c, "nodeId required", nil)
+		pureJsonMsg(c, http.StatusOK, false, "nodeId required")
 		return
 	}
 	if err := a.service.PublishNode(p); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.node.publish", strconv.Itoa(p.NodeID))
@@ -140,14 +172,18 @@ func (a *NetworkController) publishNode(c *gin.Context) {
 }
 
 func (a *NetworkController) updateNode(c *gin.Context) {
-	id := atoi(c.PostForm("id"))
-	if id <= 0 {
-		jsonMsg(c, "id required", nil)
+	var form networkPublishForm
+	if !bindNetworkForm(c, &form) {
 		return
 	}
-	p := a.publishParams(c)
+	id := form.ID
+	if id <= 0 {
+		pureJsonMsg(c, http.StatusOK, false, "id required")
+		return
+	}
+	p := form.params()
 	if err := a.service.UpdateNode(id, p); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.node.update", strconv.Itoa(id))
@@ -155,14 +191,20 @@ func (a *NetworkController) updateNode(c *gin.Context) {
 }
 
 func (a *NetworkController) pauseNode(c *gin.Context) {
-	id := atoi(c.PostForm("id"))
-	paused := c.PostForm("paused") == "true" || c.PostForm("paused") == "1"
+	var form struct {
+		ID     int  `json:"id" form:"id"`
+		Paused bool `json:"paused" form:"paused"`
+	}
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	id, paused := form.ID, form.Paused
 	if id <= 0 {
-		jsonMsg(c, "id required", nil)
+		pureJsonMsg(c, http.StatusOK, false, "id required")
 		return
 	}
 	if err := a.service.SetNodePaused(id, paused); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.node.pause", strconv.Itoa(id))
@@ -170,13 +212,19 @@ func (a *NetworkController) pauseNode(c *gin.Context) {
 }
 
 func (a *NetworkController) unpublishNode(c *gin.Context) {
-	id := atoi(c.PostForm("id"))
+	var form struct {
+		ID int `json:"id" form:"id"`
+	}
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	id := form.ID
 	if id <= 0 {
-		jsonMsg(c, "id required", nil)
+		pureJsonMsg(c, http.StatusOK, false, "id required")
 		return
 	}
 	if err := a.service.UnpublishNode(id); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.node.unpublish", strconv.Itoa(id))
@@ -187,7 +235,7 @@ func (a *NetworkController) catalog(c *gin.Context) {
 	need := atoi(c.Query("needMbps"))
 	candidates, err := a.service.Catalog(strings.ToUpper(strings.TrimSpace(c.Query("country"))), c.Query("protocol"), need)
 	if err != nil {
-		jsonMsg(c, "Catalog unavailable: "+err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, "Catalog unavailable: "+err.Error())
 		return
 	}
 	jsonObj(c, gin.H{"candidates": candidates}, nil)
@@ -215,26 +263,38 @@ func (a *NetworkController) openSession(c *gin.Context) {
 	}
 	form.NodeID = strings.TrimSpace(form.NodeID)
 	if form.NodeID == "" {
-		jsonMsg(c, "nodeId required", nil)
+		pureJsonMsg(c, http.StatusOK, false, "nodeId required")
 		return
 	}
 	sess, err := a.service.OpenSession(form.NodeID, form.QuotaGB, form.TariffRevision, form.MaxReserveMicros)
 	if err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.session.open", sess.Id)
 	jsonObj(c, gin.H{"session": sess}, nil)
 }
 
+type networkSessionActionForm struct {
+	ID     string `json:"id" form:"id"`
+	Reason string `json:"reason" form:"reason"`
+}
+
 func (a *NetworkController) closeSession(c *gin.Context) {
-	id := strings.TrimSpace(c.PostForm("id"))
-	reason := c.PostForm("reason")
+	var form networkSessionActionForm
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	id, reason := strings.TrimSpace(form.ID), form.Reason
+	if id == "" {
+		pureJsonMsg(c, http.StatusOK, false, "id required")
+		return
+	}
 	if reason == "" {
 		reason = "admin"
 	}
 	if err := a.service.CloseSession(id, reason); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.session.close", id)
@@ -242,14 +302,17 @@ func (a *NetworkController) closeSession(c *gin.Context) {
 }
 
 func (a *NetworkController) disputeSession(c *gin.Context) {
-	id := strings.TrimSpace(c.PostForm("id"))
-	reason := strings.TrimSpace(c.PostForm("reason"))
+	var form networkSessionActionForm
+	if !bindNetworkForm(c, &form) {
+		return
+	}
+	id, reason := strings.TrimSpace(form.ID), strings.TrimSpace(form.Reason)
 	if id == "" || reason == "" {
-		jsonMsg(c, "id and reason required", nil)
+		pureJsonMsg(c, http.StatusOK, false, "id and reason required")
 		return
 	}
 	if err := a.service.DisputeSession(id, reason, 0); err != nil {
-		jsonMsg(c, err.Error(), nil)
+		pureJsonMsg(c, http.StatusOK, false, err.Error())
 		return
 	}
 	a.auditNetwork(c, "network.session.dispute", id)
