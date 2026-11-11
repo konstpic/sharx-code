@@ -6,7 +6,6 @@ module github.com/konstpic/sharx-code/v2
 
 go 1.27.4
 
-toolchain go1.27.4
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.4
