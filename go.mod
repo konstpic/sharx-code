@@ -4,9 +4,9 @@ module github.com/konstpic/sharx-code/v2
 // These replace directives ensure we use local code during development
 // Remove these when changes are pushed to GitHub
 
-go 1.27
+go 1.27.4
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.4
@@ -43,7 +43,7 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.2.1 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/apernet/quic-go v0.61.1-0.20260806010916-184d081eef3e // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.14.2 // indirect
@@ -77,7 +77,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect
-	github.com/klauspost/compress v1.18.7 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/koron/go-ssdp v0.0.4 // indirect
 	github.com/kr/text v0.2.0 // indirect

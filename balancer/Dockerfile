@@ -1,5 +1,5 @@
 # Keep etcd 3.6.15 data/protocol compatibility, but rebuild with patched Go/dependencies.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS mesh-etcd-build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS mesh-etcd-build
 ARG TARGETARCH
 WORKDIR /etcd
 RUN go mod init sharx-etcd-runtime && \
@@ -8,7 +8,7 @@ RUN go mod init sharx-etcd-runtime && \
 FROM scratch AS mesh-etcd
 COPY --from=mesh-etcd-build /out/etcd /out/etcd
 
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS mesh-wireguard
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS mesh-wireguard
 ARG TARGETARCH
 WORKDIR /wg
 RUN go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-20261024220952-b3bc704ef0ee golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/sys@v0.48.0 && \
@@ -16,7 +16,7 @@ RUN go mod init sharx-mesh-runtime && go get golang.zx2c4.com/wireguard@v0.0.0-2
 
 # SharX balancer agent + HAProxy + nginx (stream). Build from the repo root:
 #   docker build -f balancer/Dockerfile -t sharxbalancer .
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 WORKDIR /build
