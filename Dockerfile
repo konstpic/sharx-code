@@ -110,7 +110,7 @@ FROM alpine:3.20
 ENV TZ=Asia/Tehran
 WORKDIR /app
 
-RUN apk add --no-cache --update \
+RUN apk upgrade --no-cache && apk add --no-cache --update \
   ca-certificates \
   tzdata \
   fail2ban \
