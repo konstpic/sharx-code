@@ -119,9 +119,39 @@ var quicNumberRules = map[string]quicNumberRule{
 	"initConnectionReceiveWindow": {min: 16384},
 	"maxConnectionReceiveWindow":  {min: 16384},
 	"maxIncomingStreams":          {min: 8},
-	"brutalUp":                    {min: 65536},
-	"brutalDown":                  {min: 65536},
 }
+
+// quicBandwidthKeys are Bandwidth strings in the kernel config
+// (infra/conf/transport_method.go, Bps parsing). A JSON number in these fields
+// breaks config loading.
+var quicBandwidthKeys = []string{"brutalUp", "brutalDown"}
+
+// bandwidthRe matches the kernel Bandwidth syntax: "<number><unit>?" where the
+// unit is one of b/k/kb/kbps/m/mb/mbps/g/gb/gbps/t/tb/tbps (case-insensitive).
+var bandwidthRe = regexp.MustCompile(`(?i)^(\d+(?:\.\d+)?)(b|k|kb|kbps|m|mb|mbps|g|gb|gbps|t|tb|tbps)?$`)
+
+// bandwidthMultipliers converts a Bandwidth unit to bits per second (decimal
+// prefixes, as used by "mbps"-style values).
+var bandwidthMultipliers = map[string]float64{
+	"":     1,
+	"b":    1,
+	"k":    1e3,
+	"kb":   1e3,
+	"kbps": 1e3,
+	"m":    1e6,
+	"mb":   1e6,
+	"mbps": 1e6,
+	"g":    1e9,
+	"gb":   1e9,
+	"gbps": 1e9,
+	"t":    1e12,
+	"tb":   1e12,
+	"tbps": 1e12,
+}
+
+// minBandwidthBps is the smallest bandwidth the kernel accepts for brutal
+// congestion (65536 bps).
+const minBandwidthBps = 65536
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 
@@ -505,6 +535,7 @@ var headerCustomItemTypes = map[string]struct{}{
 	"str":    {},
 	"hex":    {},
 	"base64": {},
+	"array":  {},
 }
 
 // validateHeaderCustomTCP mirrors the kernel schema:
@@ -512,7 +543,7 @@ var headerCustomItemTypes = map[string]struct{}{
 func validateHeaderCustomTCP(path string, st map[string]any) []Issue {
 	var issues []Issue
 	nonEmpty := false
-	for _, stream := range []string{"clients", "servers"} {
+	for _, stream := range []string{"clients", "servers", "errors"} {
 		v, exists := st[stream]
 		if !exists || v == nil {
 			continue
@@ -549,7 +580,7 @@ func validateHeaderCustomTCP(path string, st map[string]any) []Issue {
 				if typ, exists := im["type"]; exists {
 					if _, ok := headerCustomItemTypes[strings.ToLower(strings.TrimSpace(strValue(typ)))]; !ok {
 						issues = append(issues, issue("header_custom_tcp_item_type", ipath+".type", SeverityError,
-							"item type must be one of \"\", str, hex, base64"))
+							"item type must be one of \"\", str, hex, base64, array"))
 					}
 				}
 			}
@@ -557,7 +588,7 @@ func validateHeaderCustomTCP(path string, st map[string]any) []Issue {
 	}
 	if len(issues) == 0 && !nonEmpty {
 		issues = append(issues, issue("header_custom_tcp_schema", path+".settings", SeverityError,
-			"tcp header-custom requires at least one clients/servers item"))
+			"tcp header-custom requires at least one clients/servers/errors item"))
 	}
 	return issues
 }
@@ -608,7 +639,7 @@ func validateMKCPLegacy(path string, el, st map[string]any) []Issue {
 	header := strings.ToLower(strings.TrimSpace(strValue(firstNonNil(st["header"], el["header"]))))
 	value := strings.ToLower(strings.TrimSpace(strValue(firstNonNil(st["value"], el["value"]))))
 	if header == "" && value == "" {
-		// Kernel default (aes128gcm-default) needs neither header nor value.
+		// Kernel default (original.Config) needs neither header nor value.
 		return nil
 	}
 	switch header {
@@ -731,6 +762,13 @@ func validateQuicParams(raw any) []Issue {
 			}
 		}
 	}
+	for _, k := range quicBandwidthKeys {
+		v, exists := qp[k]
+		if !exists || v == nil {
+			continue
+		}
+		issues = append(issues, validateBandwidth(qpPath+"."+k, k, v)...)
+	}
 	for k := range quicBoolKeys {
 		v, exists := qp[k]
 		if !exists || v == nil {
@@ -742,13 +780,44 @@ func validateQuicParams(raw any) []Issue {
 		}
 	}
 	if s := strings.ToLower(strings.TrimSpace(strValue(qp["congestion"]))); s == "force-brutal" {
-		up, _ := numberValue(qp["brutalUp"])
-		if up <= 0 {
+		if strings.TrimSpace(strValue(qp["brutalUp"])) == "" {
 			issues = append(issues, issue("quic_brutal_up_required", qpPath+".brutalUp", SeverityError,
-				"congestion force-brutal requires brutalUp"))
+				"congestion force-brutal requires a non-empty brutalUp bandwidth string"))
 		}
 	}
 	return issues
+}
+
+// validateBandwidth checks a kernel Bandwidth string (e.g. "100mbps") and its
+// minimum equivalent of 65536 bps.
+func validateBandwidth(path, key string, v any) []Issue {
+	s, ok := v.(string)
+	if !ok {
+		return []Issue{issue("quic_bandwidth_type", path, SeverityError,
+			"%s must be a bandwidth string like \"100mbps\"", key)}
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return []Issue{issue("quic_bandwidth_value", path, SeverityError,
+			"%s must not be empty", key)}
+	}
+	m := bandwidthRe.FindStringSubmatch(s)
+	if m == nil {
+		return []Issue{issue("quic_bandwidth_value", path, SeverityError,
+			"%s must be a bandwidth string like \"100mbps\"", key)}
+	}
+	var value float64
+	if _, err := fmt.Sscanf(m[1], "%f", &value); err != nil {
+		return []Issue{issue("quic_bandwidth_value", path, SeverityError,
+			"%s must be a bandwidth string like \"100mbps\"", key)}
+	}
+	unit := strings.ToLower(m[2])
+	bps := value * bandwidthMultipliers[unit]
+	if bps < minBandwidthBps {
+		return []Issue{issue("quic_bandwidth_min", path, SeverityError,
+			"%s must be at least 65536 bps", key)}
+	}
+	return nil
 }
 
 // Normalize returns a new streamSettings map where finalmask is normalized:
@@ -937,6 +1006,20 @@ func SanitizeQuicParams(fm map[string]any) map[string]any {
 		return fm
 	}
 	for k, v := range qp {
+		if isQuicBandwidthKey(k) {
+			switch t := v.(type) {
+			case string:
+				if s := strings.TrimSpace(t); s == "" {
+					delete(qp, k)
+				} else {
+					qp[k] = s
+				}
+			default:
+				// Bandwidth must be a string; numbers break config loading.
+				delete(qp, k)
+			}
+			continue
+		}
 		switch n := v.(type) {
 		case float64:
 			if n < 0 || n != math.Trunc(n) {
@@ -985,6 +1068,15 @@ func SanitizeQuicParams(fm map[string]any) map[string]any {
 		delete(fm, "quicParams")
 	}
 	return fm
+}
+
+func isQuicBandwidthKey(k string) bool {
+	for _, key := range quicBandwidthKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
 }
 
 // DropServerOnly removes masks listed in serverOnlyMasks from both transports.

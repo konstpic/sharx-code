@@ -264,10 +264,15 @@ func TestFinalMaskLinkHelpers(t *testing.T) {
 	qp := sanitizeQuicParams(map[string]any{"quicParams": map[string]any{
 		"maxIdleTimeout": 30.0,
 		"debug":          true,
+		"brutalUp":       " 100mbps ",
+		"brutalDown":     1234,
 	}})
 	qpm := qp["quicParams"].(map[string]any)
-	if qpm["maxIdleTimeout"] != int64(30) || qpm["debug"] != true {
-		t.Fatalf("sanitizeQuicParams must keep integral numbers and known bools, got %v", qpm)
+	if qpm["maxIdleTimeout"] != int64(30) || qpm["debug"] != true || qpm["brutalUp"] != "100mbps" {
+		t.Fatalf("sanitizeQuicParams must keep integral numbers, known bools and bandwidth strings, got %v", qpm)
+	}
+	if _, keep := qpm["brutalDown"]; keep {
+		t.Fatal("numeric bandwidth must be dropped")
 	}
 	frac := sanitizeQuicParams(map[string]any{"quicParams": map[string]any{"maxIdleTimeout": 30.7}})
 	if _, keep := frac["quicParams"]; keep {

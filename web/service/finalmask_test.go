@@ -288,6 +288,22 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			}},
 		},
 		{
+			name: "header-custom tcp array item type",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"clients": []any{[]any{map[string]any{"rand": 8, "type": "array"}}},
+				}},
+			}},
+		},
+		{
+			name: "header-custom tcp errors only",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"errors": []any{[]any{map[string]any{"rand": 8}}},
+				}},
+			}},
+		},
+		{
 			name: "header-custom udp bad mode",
 			fm: map[string]any{"udp": []any{
 				map[string]any{"type": "header-custom", "settings": map[string]any{"mode": "weird"}},
@@ -404,14 +420,41 @@ func TestValidateFinalmaskTable(t *testing.T) {
 		{
 			name: "quic zero means default",
 			fm: map[string]any{"quicParams": map[string]any{
-				"maxIdleTimeout": 0, "keepAlivePeriod": 0, "brutalUp": 0,
+				"maxIdleTimeout": 0, "keepAlivePeriod": 0,
 			}},
 		},
 		{
 			name: "quic valid",
 			fm: map[string]any{"quicParams": map[string]any{
 				"congestion": "brutal", "bbrProfile": "aggressive", "maxIdleTimeout": 30,
-				"brutalUp": 1000000, "maxIncomingStreams": 8, "debug": true,
+				"brutalUp": "100mbps", "brutalDown": "1gb", "maxIncomingStreams": 8, "debug": true,
+			}},
+		},
+		{
+			name: "quic brutalUp numeric",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": 1000000,
+			}},
+			wantErrIn: "quic_bandwidth_type",
+		},
+		{
+			name: "quic brutalUp below minimum",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "64kbps",
+			}},
+			wantErrIn: "quic_bandwidth_min",
+		},
+		{
+			name: "quic brutalUp invalid syntax",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "fast",
+			}},
+			wantErrIn: "quic_bandwidth_value",
+		},
+		{
+			name: "quic force-brutal with bandwidth",
+			fm: map[string]any{"quicParams": map[string]any{
+				"congestion": "force-brutal", "brutalUp": "1gbps",
 			}},
 		},
 		{
@@ -626,9 +669,17 @@ func TestNormalizeFinalmaskSanitizeQuicParams(t *testing.T) {
 		"debug":                   true,
 		"bogusBool":               true,
 		"bogusKey":                "x",
+		"brutalUp":                "  100mbps  ",
+		"brutalDown":              1234,
 	}}}
 	fm := NormalizeFinalmask(stream, true)["finalmask"].(map[string]any)
 	qp := fm["quicParams"].(map[string]any)
+	if qp["brutalUp"] != "100mbps" {
+		t.Fatal("bandwidth string must be kept trimmed")
+	}
+	if _, ok := qp["brutalDown"]; ok {
+		t.Fatal("numeric bandwidth must be removed")
+	}
 	if _, ok := qp["maxIdleTimeout"]; ok {
 		t.Fatal("fractional number must be removed, not truncated")
 	}
