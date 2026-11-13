@@ -106,6 +106,7 @@ import {
 import { InboundColumnFiltersBar } from "@/components/inbounds/InboundColumnFiltersBar";
 import { InboundTlsCertPinBlock } from "@/components/inbounds/InboundTlsCertPinBlock";
 import { VlessEncryptionSection } from "@/components/inbounds/VlessEncryptionSection";
+import { FinalmaskEditor } from "@/components/FinalmaskEditor";
 import {
   roundTripInboundCoreConfig,
   roundTripInboundSniffing,
@@ -5236,6 +5237,17 @@ export function InboundsPage() {
                   ) : null}
                 </>
               )}
+              {form.protocol !== "wireguard" &&
+              form.protocol !== "telemt" &&
+              form.protocol !== "amneziawg" ? (
+                <div className="mt-4 border-t border-[var(--border)] pt-4">
+                  <FinalmaskEditor
+                    streamForm={form.streamForm}
+                    setStreamFormField={setStreamFormField}
+                    idPrefix="in-finalmask"
+                  />
+                </div>
+              ) : null}
             </InboundFormSection>
             ) : null}
 

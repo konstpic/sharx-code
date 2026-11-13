@@ -8,6 +8,12 @@ import {
   randomShadowsocksServerPassword,
   stripShadowsocksClientMethods,
 } from "@/lib/shadowsocksKeys";
+import {
+  buildFinalmask,
+  emptyFinalmaskState,
+  parseFinalmask,
+  type FMItem,
+} from "@/lib/finalmaskDefaults";
 
 export type InboundFormProtocol =
   | "vless"
@@ -1086,6 +1092,15 @@ export type StreamFormState = {
   hysteriaUdpIdleTimeout: number;
   hysteriaObfsType: "" | "salamander";
   hysteriaObfsPassword: string;
+  /**
+   * `streamSettings.finalmask` (transport masquerade layers). Kept as a
+   * structural state so that it survives the JSON round-trip for every
+   * protocol; `settings` stays a raw JSON object (lossless for advanced keys).
+   */
+  finalmaskTcp: FMItem[];
+  finalmaskUdp: FMItem[];
+  /** Pretty JSON string for finalmask.quicParams; empty = absent. */
+  finalmaskQuicParams: string;
   /** Hysteria QUIC-TLS (3x-ui–style tlsSettings); unused for TCP/WS editor paths. */
   tlsMaxVersion: "" | "1.2" | "1.3";
   tlsRejectUnknownSni: boolean;
@@ -1201,6 +1216,7 @@ export function defaultStreamForm(): StreamFormState {
     hysteriaUdpIdleTimeout: 60,
     hysteriaObfsType: "",
     hysteriaObfsPassword: "",
+    ...emptyFinalmaskState(),
     tlsMaxVersion: "",
     tlsRejectUnknownSni: false,
     tlsDisableSystemRoot: false,
@@ -1332,6 +1348,12 @@ function parseHysteriaTlsFormFields(
     }
   }
   if (typeof root.masquerade === "string") base.hysteria2Masquerade = root.masquerade;
+  // Keep every other mask / custom quicParams lossless (salamander is shared
+  // with the legacy obfuscation selector above).
+  const fmState = parseFinalmask(root);
+  base.finalmaskTcp = fmState.tcp;
+  base.finalmaskUdp = fmState.udp;
+  base.finalmaskQuicParams = fmState.quicParams;
   const tls = root.tlsSettings as Record<string, unknown> | undefined;
   if (!tls) return;
   if (typeof tls.serverName === "string") base.tlsServerName = tls.serverName;
@@ -1421,19 +1443,26 @@ function buildHysteriaStreamSettingsFromForm(
       udpIdleTimeout: Math.max(1, Math.round(state.hysteriaUdpIdleTimeout) || 60),
     },
   };
-  // Match common Xray Hy2 setups (e.g. other panels): BBR on QUIC stack; keeps client/server congestion aligned.
-  if (version === 2) {
-    const finalmask: Record<string, unknown> = {
-      quicParams: {
-        debug: false,
-        congestion: "bbr",
-      },
-    };
-    const obfsPwd = state.hysteriaObfsPassword.trim();
-    if (state.hysteriaObfsType === "salamander" && [...obfsPwd].length >= 4) {
-      finalmask.udp = [{ type: "salamander", settings: { password: obfsPwd } }];
+  // Preserve every extra mask and custom quicParams; the legacy obfuscation
+  // selector only contributes a salamander entry when one is not already set.
+  // Match common Xray Hy2 setups (e.g. other panels): BBR on QUIC stack.
+  const finalmask = buildFinalmask(state) ?? {};
+  const udpItems: FMItem[] = Array.isArray(finalmask.udp) ? (finalmask.udp as FMItem[]) : [];
+  const obfsPwd = state.hysteriaObfsPassword.trim();
+  if (state.hysteriaObfsType === "salamander" && [...obfsPwd].length >= 4) {
+    const hasSalamander = udpItems.some(
+      (item) => (item.type || "").trim().toLowerCase() === "salamander",
+    );
+    if (!hasSalamander) {
+      udpItems.unshift({ type: "salamander", settings: { password: obfsPwd } });
     }
-    out.finalmask = finalmask;
+  }
+  if (udpItems.length > 0) finalmask.udp = udpItems;
+  if (version === 2 && !("quicParams" in finalmask)) {
+    finalmask.quicParams = { debug: false, congestion: "bbr" };
+  }
+  if (Object.keys(finalmask).length > 0) out.finalmask = finalmask;
+  if (version === 2) {
     const masquerade = state.hysteria2Masquerade.trim();
     if (masquerade) out.masquerade = masquerade;
   }
@@ -1546,6 +1575,10 @@ function parseStreamSettingsShadowsocksForm(json: string): StreamFormState {
   base.security = "none";
   try {
     const root = JSON.parse(json) as Record<string, unknown>;
+    const fmState = parseFinalmask(root);
+    base.finalmaskTcp = fmState.tcp;
+    base.finalmaskUdp = fmState.udp;
+    base.finalmaskQuicParams = fmState.quicParams;
     const net = root.network;
     base.network = net === "ws" ? "ws" : "tcp";
     if (root.acceptProxyProtocol === true) base.acceptProxyProtocol = true;
@@ -1588,6 +1621,7 @@ function buildStreamSettingsShadowsocksFromForm(state: StreamFormState): string 
       headers,
     };
   }
+  applyFinalmaskToStream(out, state);
   return JSON.stringify(out);
 }
 
@@ -1629,6 +1663,10 @@ export function parseStreamSettingsToForm(
   }
   try {
     const root = JSON.parse(json) as Record<string, unknown>;
+    const fmState = parseFinalmask(root);
+    base.finalmaskTcp = fmState.tcp;
+    base.finalmaskUdp = fmState.udp;
+    base.finalmaskQuicParams = fmState.quicParams;
     const net = root.network;
     if (
       net === "ws" ||
@@ -1882,6 +1920,13 @@ export function parseStreamSettingsToForm(
   return base;
 }
 
+/** Attach the structural finalmask state (if any) to a streamSettings object. */
+function applyFinalmaskToStream(out: Record<string, unknown>, state: StreamFormState): void {
+  const fm = buildFinalmask(state);
+  if (fm) out.finalmask = fm;
+  else delete out.finalmask;
+}
+
 /** Build streamSettings JSON string from structured form (and protocol). */
 export function buildStreamSettingsFromForm(
   state: StreamFormState,
@@ -2081,6 +2126,8 @@ export function buildStreamSettingsFromForm(
     applyTlsPinnedSha256ToSettings(tlsSettings, state.tlsPinnedSha256);
     out.tlsSettings = tlsSettings;
   }
+
+  applyFinalmaskToStream(out, state);
 
   return JSON.stringify(out);
 }

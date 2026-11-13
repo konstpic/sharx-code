@@ -84,9 +84,14 @@ export function roundTripInboundStreamSettings(
   } catch {
     return { ok: false, message: "streamSettings: rebuild failed" };
   }
+  // finalmask (with quicParams) is structural form state now, but keep a
+  // verbatim safety net: a future form-model gap must never silently drop it.
+  if (before.finalmask !== undefined && after.finalmask === undefined) {
+    after.finalmask = before.finalmask;
+  }
   return {
     ok: true,
-    json: rebuilt,
+    json: JSON.stringify(after),
     strippedKeys: diffStrippedPaths(before, after),
   };
 }
