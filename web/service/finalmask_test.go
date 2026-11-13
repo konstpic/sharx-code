@@ -445,6 +445,38 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			wantErrIn: "quic_bandwidth_min",
 		},
 		{
+			name: "quic brutalUp 100k is 12800 B/s",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "100k",
+			}},
+			wantErrIn: "quic_bandwidth_min",
+		},
+		{
+			name: "quic brutalUp 500k is 64000 B/s",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "500k",
+			}},
+			wantErrIn: "quic_bandwidth_min",
+		},
+		{
+			name: "quic brutalUp zero disables",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "0",
+			}},
+		},
+		{
+			name: "quic brutalUp empty disables",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "  ",
+			}},
+		},
+		{
+			name: "quic brutalUp 512k is 65536 B/s",
+			fm: map[string]any{"quicParams": map[string]any{
+				"brutalUp": "512k",
+			}},
+		},
+		{
 			name: "quic brutalUp invalid syntax",
 			fm: map[string]any{"quicParams": map[string]any{
 				"brutalUp": "fast",

@@ -130,28 +130,28 @@ var quicBandwidthKeys = []string{"brutalUp", "brutalDown"}
 // unit is one of b/k/kb/kbps/m/mb/mbps/g/gb/gbps/t/tb/tbps (case-insensitive).
 var bandwidthRe = regexp.MustCompile(`(?i)^(\d+(?:\.\d+)?)(b|k|kb|kbps|m|mb|mbps|g|gb|gbps|t|tb|tbps)?$`)
 
-// bandwidthMultipliers converts a Bandwidth unit to bits per second (decimal
-// prefixes, as used by "mbps"-style values).
+// bandwidthMultipliers converts a Bandwidth unit to bytes with the kernel's
+// binary prefixes (val * 1024^n), as used by infra/conf Bandwidth.Bps.
 var bandwidthMultipliers = map[string]float64{
 	"":     1,
 	"b":    1,
-	"k":    1e3,
-	"kb":   1e3,
-	"kbps": 1e3,
-	"m":    1e6,
-	"mb":   1e6,
-	"mbps": 1e6,
-	"g":    1e9,
-	"gb":   1e9,
-	"gbps": 1e9,
-	"t":    1e12,
-	"tb":   1e12,
-	"tbps": 1e12,
+	"k":    1024,
+	"kb":   1024,
+	"kbps": 1024,
+	"m":    1024 * 1024,
+	"mb":   1024 * 1024,
+	"mbps": 1024 * 1024,
+	"g":    1024 * 1024 * 1024,
+	"gb":   1024 * 1024 * 1024,
+	"gbps": 1024 * 1024 * 1024,
+	"t":    1024 * 1024 * 1024 * 1024,
+	"tb":   1024 * 1024 * 1024 * 1024,
+	"tbps": 1024 * 1024 * 1024 * 1024,
 }
 
-// minBandwidthBps is the smallest bandwidth the kernel accepts for brutal
-// congestion (65536 bps).
-const minBandwidthBps = 65536
+// minBandwidthBytes is the smallest bandwidth (bytes/s) the kernel accepts for
+// brutal congestion; 0 disables the limit.
+const minBandwidthBytes = 65536
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
 
@@ -788,8 +788,10 @@ func validateQuicParams(raw any) []Issue {
 	return issues
 }
 
-// validateBandwidth checks a kernel Bandwidth string (e.g. "100mbps") and its
-// minimum equivalent of 65536 bps.
+// validateBandwidth checks a kernel Bandwidth string (e.g. "100mbps").
+// Mirroring infra/conf Bandwidth.Bps: bytesPerSecond = val * 1024^n / 8, and a
+// value is valid when it is 0 (disabled) or at least 65536 bytes/s. An empty
+// value is treated as 0 (disabled).
 func validateBandwidth(path, key string, v any) []Issue {
 	s, ok := v.(string)
 	if !ok {
@@ -798,8 +800,8 @@ func validateBandwidth(path, key string, v any) []Issue {
 	}
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return []Issue{issue("quic_bandwidth_value", path, SeverityError,
-			"%s must not be empty", key)}
+		// Empty / unset means the limit is disabled (kernel up==0).
+		return nil
 	}
 	m := bandwidthRe.FindStringSubmatch(s)
 	if m == nil {
@@ -812,10 +814,11 @@ func validateBandwidth(path, key string, v any) []Issue {
 			"%s must be a bandwidth string like \"100mbps\"", key)}
 	}
 	unit := strings.ToLower(m[2])
-	bps := value * bandwidthMultipliers[unit]
-	if bps < minBandwidthBps {
+	// Kernel truncates to uint64 bytes/s and compares against the threshold.
+	bytesPerSecond := uint64(value*bandwidthMultipliers[unit]) / 8
+	if bytesPerSecond != 0 && bytesPerSecond < minBandwidthBytes {
 		return []Issue{issue("quic_bandwidth_min", path, SeverityError,
-			"%s must be at least 65536 bps", key)}
+			"%s must be 0 or at least 65536 bytes/s", key)}
 	}
 	return nil
 }
