@@ -72,55 +72,23 @@ func patchHysteriaStreamTLS(stream map[string]any, defaultCertFile, defaultKeyFi
 	ensureHysteriaDefaultALPN(stream)
 }
 
-// patchHysteriaObfs validates finalmask.udp obfuscation entries (salamander requires password).
-func patchHysteriaObfs(stream map[string]any) {
-	fm, ok := stream["finalmask"].(map[string]any)
-	if !ok || fm == nil {
+// patchHysteriaFinalmask normalizes the finalmask block for a Hysteria inbound
+// and drops entries the kernel would reject (safety net for configs stored
+// before validation existed). Valid masks of any supported type are preserved.
+func patchHysteriaFinalmask(stream map[string]any, protocol string) {
+	if _, ok := stream["finalmask"]; !ok {
 		return
 	}
-	udp, ok := fm["udp"].([]any)
-	if !ok || len(udp) == 0 {
-		return
+	normalized := NormalizeFinalmask(stream, true)
+	pruned, dropped := dropInvalidFinalmaskElements(normalized, protocol)
+	if dropped > 0 {
+		logger.Warningf("Hysteria inbound: dropped %d invalid finalmask entr(ies).", dropped)
 	}
-	cleaned := make([]any, 0, len(udp))
-	for _, item := range udp {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		typ, _ := m["type"].(string)
-		switch strings.TrimSpace(typ) {
-		case "salamander":
-			settings, _ := m["settings"].(map[string]any)
-			pwd, _ := settings["password"].(string)
-			if strings.TrimSpace(pwd) == "" {
-				if legacy, ok := m["password"].(string); ok && strings.TrimSpace(legacy) != "" {
-					pwd = legacy
-				}
-			}
-			if len([]rune(strings.TrimSpace(pwd))) < 4 {
-				logger.Debug("Hysteria salamander obfs requires a password of at least 4 characters; stripping invalid entry.")
-				continue
-			}
-			normalized := map[string]any{
-				"type":     "salamander",
-				"settings": map[string]any{"password": pwd},
-			}
-			cleaned = append(cleaned, normalized)
-		default:
-			if typ != "" {
-				logger.Debugf("Hysteria obfs type %q is not supported; stripping entry.", typ)
-			}
-		}
+	if fm, ok := pruned["finalmask"]; ok {
+		stream["finalmask"] = fm
+	} else {
+		delete(stream, "finalmask")
 	}
-	if len(cleaned) == 0 {
-		delete(fm, "udp")
-		if len(fm) == 0 {
-			delete(stream, "finalmask")
-		}
-		return
-	}
-	fm["udp"] = cleaned
 }
 
 func ensureHysteriaDefaultALPN(stream map[string]any) {
@@ -188,7 +156,7 @@ func BuildInboundXrayConfig(inbound *model.Inbound, defaultCertFile, defaultKeyF
 		var stream map[string]any
 		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err == nil {
 			patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
-			patchHysteriaObfs(stream)
+			patchHysteriaFinalmask(stream, string(model.NormalizeProtocol(ib.Protocol)))
 			if out, err := json.MarshalIndent(stream, "", "  "); err == nil {
 				ib.StreamSettings = string(out)
 			}

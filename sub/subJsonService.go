@@ -360,7 +360,9 @@ func (s *SubJsonService) streamData(stream string) map[string]any {
 	case "httpupgrade":
 		streamSettings["httpupgradeSettings"] = s.removeAcceptProxy(streamSettings["httpupgradeSettings"])
 	}
-	return streamSettings
+	// Client-side finalmask view: legacy fragment ranges are expanded, udphop is
+	// moved to the end and server-only masks (filter) are dropped.
+	return service.NormalizeFinalmask(streamSettings, false)
 }
 
 func (s *SubJsonService) removeAcceptProxy(setting any) map[string]any {

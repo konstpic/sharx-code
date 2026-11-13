@@ -1115,6 +1115,7 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 	}
 	baseObj["id"] = clients[clientIndex].ID
 	baseObj["scy"] = clients[clientIndex].Security
+	applyFinalMaskObj(stream, inbound.Protocol, baseObj)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -1281,6 +1282,7 @@ func (s *SubService) genVmessLinkWithClient(inbound *model.Inbound, client *mode
 	// Use ClientEntity data directly
 	baseObj["id"] = client.UUID
 	baseObj["scy"] = client.Security
+	applyFinalMaskObj(stream, inbound.Protocol, baseObj)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -1599,6 +1601,7 @@ func (s *SubService) genVlessLinkWithClient(inbound *model.Inbound, client *mode
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -1825,6 +1828,7 @@ func (s *SubService) genVlessLink(inbound *model.Inbound, email string) string {
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -2036,6 +2040,7 @@ func (s *SubService) genTrojanLinkWithClient(inbound *model.Inbound, client *mod
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -2248,6 +2253,7 @@ func (s *SubService) genTrojanLink(inbound *model.Inbound, email string) string 
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	externalProxies, _ := stream["externalProxy"].([]any)
 
@@ -2495,6 +2501,7 @@ func (s *SubService) genShadowsocksLinkWithClient(inbound *model.Inbound, client
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	encPart := fmt.Sprintf("%s:%s", method, clientPass)
 	if strings.HasPrefix(method, "2022") {
@@ -2711,6 +2718,7 @@ func (s *SubService) genShadowsocksLink(inbound *model.Inbound, email string) st
 		sn = "tcp"
 	}
 	baseParams := shallowCopyStringMap(params)
+	applyFinalMaskParams(stream, inbound.Protocol, baseParams)
 
 	encPart := fmt.Sprintf("%s:%s", method, clientPass)
 	if strings.HasPrefix(method, "2022") {
