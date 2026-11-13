@@ -46,9 +46,13 @@ func TestValidateFinalmaskTable(t *testing.T) {
 		wantErrIn string // expected error issue code, "" = no errors
 	}{
 		{
-			name: "tcp header-custom packet",
+			name: "tcp header-custom kernel schema",
 			fm: map[string]any{"tcp": []any{
-				map[string]any{"type": "header-custom", "settings": map[string]any{"packet": map[string]any{"x": 1}}},
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"clients": []any{[]any{map[string]any{"packet": map[string]any{"delay": 10}}}},
+					"servers": []any{[]any{map[string]any{"transform": map[string]any{"x": 1}}}},
+					"errors":  []any{[]any{map[string]any{"rand": 8}}},
+				}},
 			}},
 		},
 		{
@@ -72,10 +76,11 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			}},
 		},
 		{
-			name: "tcp filter (server side)",
+			name: "tcp filter rejected (not in pinned kernel)",
 			fm: map[string]any{"tcp": []any{
 				map[string]any{"type": "filter", "settings": map[string]any{}},
 			}},
+			wantErrIn: "unknown_type",
 		},
 		{
 			name: "udp salamander",
@@ -91,11 +96,19 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			}},
 		},
 		{
+			name: "udp mkcp-legacy default (empty)",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "mkcp-legacy", "settings": map[string]any{}},
+			}},
+		},
+		{
 			name: "udp noise",
 			fm: map[string]any{"udp": []any{
 				map[string]any{"type": "noise", "settings": map[string]any{"noise": []any{
 					map[string]any{"type": "str", "packet": "hello"},
-					map[string]any{"type": "exp", "packet": "exp:1,2"},
+					map[string]any{"type": "exp", "packet": "<t:2s,rand:8-16>"},
+					map[string]any{"rand": 8},
+					map[string]any{"randRange": "8-16"},
 				}}},
 			}},
 		},
@@ -233,20 +246,46 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			wantErrIn: "udphop_interval",
 		},
 		{
-			name: "header-custom tcp no mode",
+			name: "header-custom tcp empty settings",
 			fm: map[string]any{"tcp": []any{
 				map[string]any{"type": "header-custom", "settings": map[string]any{}},
 			}},
-			wantErrIn: "header_custom_tcp_mode",
+			wantErrIn: "header_custom_tcp_schema",
 		},
 		{
-			name: "header-custom tcp two modes",
+			name: "header-custom tcp item without mechanism",
 			fm: map[string]any{"tcp": []any{
 				map[string]any{"type": "header-custom", "settings": map[string]any{
-					"packet": map[string]any{"a": 1}, "rand": map[string]any{"b": 2},
+					"clients": []any{[]any{map[string]any{"type": "str"}}},
 				}},
 			}},
-			wantErrIn: "header_custom_tcp_mode",
+			wantErrIn: "header_custom_tcp_item",
+		},
+		{
+			name: "header-custom tcp item bad type",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"clients": []any{[]any{map[string]any{"rand": 8, "type": "raw"}}},
+				}},
+			}},
+			wantErrIn: "header_custom_tcp_item_type",
+		},
+		{
+			name: "header-custom tcp flat array",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"clients": []any{map[string]any{"rand": 8}},
+				}},
+			}},
+			wantErrIn: "header_custom_tcp_schema",
+		},
+		{
+			name: "header-custom tcp several mechanisms in one item",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"clients": []any{[]any{map[string]any{"packet": map[string]any{"a": 1}, "rand": 8}}},
+				}},
+			}},
 		},
 		{
 			name: "header-custom udp bad mode",
@@ -256,9 +295,22 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			wantErrIn: "header_custom_udp_mode",
 		},
 		{
+			name: "header-custom udp schema",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"client": map[string]any{},
+				}},
+			}},
+			wantErrIn: "header_custom_udp_schema",
+		},
+		{
 			name: "udp header-custom standalone",
 			fm: map[string]any{"udp": []any{
-				map[string]any{"type": "header-custom", "settings": map[string]any{"mode": "standalone"}},
+				map[string]any{"type": "header-custom", "settings": map[string]any{
+					"mode":   "standalone",
+					"client": []any{map[string]any{"packet": map[string]any{"a": 1}}},
+					"server": []any{map[string]any{}},
+				}},
 			}},
 		},
 		{
@@ -308,17 +360,82 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			wantErrIn: "quic_bbr_profile",
 		},
 		{
-			name: "quic non-positive number",
+			name: "quic maxIdleTimeout below range",
 			fm: map[string]any{"quicParams": map[string]any{
-				"maxIdleTimeout": 0,
+				"maxIdleTimeout": 2,
 			}},
-			wantErrIn: "quic_number_positive",
+			wantErrIn: "quic_number_range",
+		},
+		{
+			name: "quic keepAlivePeriod above range",
+			fm: map[string]any{"quicParams": map[string]any{
+				"keepAlivePeriod": 100,
+			}},
+			wantErrIn: "quic_number_range",
+		},
+		{
+			name: "quic fractional number",
+			fm: map[string]any{"quicParams": map[string]any{
+				"maxIdleTimeout": 10.5,
+			}},
+			wantErrIn: "quic_number_integer",
+		},
+		{
+			name: "quic receive window below min",
+			fm: map[string]any{"quicParams": map[string]any{
+				"maxStreamReceiveWindow": 1024,
+			}},
+			wantErrIn: "quic_number_range",
+		},
+		{
+			name: "quic maxIncomingStreams below min",
+			fm: map[string]any{"quicParams": map[string]any{
+				"maxIncomingStreams": 4,
+			}},
+			wantErrIn: "quic_number_range",
+		},
+		{
+			name: "quic force-brutal without brutalUp",
+			fm: map[string]any{"quicParams": map[string]any{
+				"congestion": "force-brutal",
+			}},
+			wantErrIn: "quic_brutal_up_required",
+		},
+		{
+			name: "quic zero means default",
+			fm: map[string]any{"quicParams": map[string]any{
+				"maxIdleTimeout": 0, "keepAlivePeriod": 0, "brutalUp": 0,
+			}},
 		},
 		{
 			name: "quic valid",
 			fm: map[string]any{"quicParams": map[string]any{
 				"congestion": "brutal", "bbrProfile": "aggressive", "maxIdleTimeout": 30,
+				"brutalUp": 1000000, "maxIncomingStreams": 8, "debug": true,
 			}},
+		},
+		{
+			name: "quic bool type",
+			fm: map[string]any{"quicParams": map[string]any{
+				"disableGSO": "yes",
+			}},
+			wantErrIn: "quic_bool_type",
+		},
+		{
+			name: "fragment lengths as string",
+			fm: map[string]any{"tcp": []any{
+				map[string]any{"type": "fragment", "settings": map[string]any{"lengths": "100-200"}},
+			}},
+			wantErrIn: "fragment_lengths_type",
+		},
+		{
+			name: "noise item without packet or rand",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "noise", "settings": map[string]any{"noise": []any{
+					map[string]any{"type": "str"},
+				}}},
+			}},
+			wantErrIn: "noise_item_packet",
 		},
 	}
 
@@ -465,22 +582,37 @@ func TestNormalizeFinalmaskUDPHopOrdering(t *testing.T) {
 	}
 }
 
-func TestNormalizeFinalmaskDropServerOnly(t *testing.T) {
+func TestNormalizeFinalmaskNoServerOnlyMasks(t *testing.T) {
+	// The pinned kernel has no server-only mask, so normalization keeps every
+	// entry on both sides; the link whitelist is what trims client output.
 	stream := map[string]any{"finalmask": map[string]any{
 		"tcp": []any{
-			map[string]any{"type": "filter", "settings": map[string]any{}},
 			map[string]any{"type": "sudoku", "settings": map[string]any{"password": "pw"}},
 		},
 	}}
-	clientSide := NormalizeFinalmask(stream, false)
-	tcp := clientSide["finalmask"].(map[string]any)["tcp"].([]any)
-	if len(tcp) != 1 || tcp[0].(map[string]any)["type"] != "sudoku" {
-		t.Fatalf("filter must be dropped on client side, got %v", tcp)
+	for _, serverSide := range []bool{false, true} {
+		out := NormalizeFinalmask(stream, serverSide)
+		if got := out["finalmask"].(map[string]any)["tcp"].([]any); len(got) != 1 {
+			t.Fatalf("serverSide=%v: sudoku must be kept, got %d entries", serverSide, len(got))
+		}
 	}
-	serverSide := NormalizeFinalmask(stream, true)
-	tcpServer := serverSide["finalmask"].(map[string]any)["tcp"].([]any)
-	if len(tcpServer) != 2 {
-		t.Fatalf("filter must be kept on server side, got %v", tcpServer)
+}
+
+func TestNormalizeFinalmaskMigratesLegacyPassword(t *testing.T) {
+	stream := map[string]any{"finalmask": map[string]any{
+		"udp": []any{map[string]any{"type": "salamander", "password": "legacypw"}},
+	}}
+	out := NormalizeFinalmask(stream, true)
+	el := out["finalmask"].(map[string]any)["udp"].([]any)[0].(map[string]any)
+	st := el["settings"].(map[string]any)
+	if st["password"] != "legacypw" {
+		t.Fatal("legacy password was not migrated into settings.password")
+	}
+	if _, still := el["password"]; still {
+		t.Fatal("legacy element-level password must be removed after migration")
+	}
+	if _, still := stream["finalmask"].(map[string]any)["udp"].([]any)[0].(map[string]any)["password"]; !still {
+		t.Fatal("input finalmask must not be mutated")
 	}
 }
 
@@ -491,15 +623,17 @@ func TestNormalizeFinalmaskSanitizeQuicParams(t *testing.T) {
 		"keepAlivePeriod":         -5,
 		"empty":                   "",
 		"disablePathMTUDiscovery": true,
+		"debug":                   true,
 		"bogusBool":               true,
+		"bogusKey":                "x",
 	}}}
 	fm := NormalizeFinalmask(stream, true)["finalmask"].(map[string]any)
 	qp := fm["quicParams"].(map[string]any)
-	if qp["maxIdleTimeout"] != int64(10) {
-		t.Fatalf("maxIdleTimeout = %#v, want truncated int", qp["maxIdleTimeout"])
+	if _, ok := qp["maxIdleTimeout"]; ok {
+		t.Fatal("fractional number must be removed, not truncated")
 	}
 	if _, ok := qp["keepAlivePeriod"]; ok {
-		t.Fatal("non-positive number must be removed")
+		t.Fatal("negative number must be removed")
 	}
 	if _, ok := qp["empty"]; ok {
 		t.Fatal("empty string must be removed")
@@ -507,8 +641,14 @@ func TestNormalizeFinalmaskSanitizeQuicParams(t *testing.T) {
 	if _, ok := qp["bogusBool"]; ok {
 		t.Fatal("unknown bool must be removed")
 	}
+	if _, ok := qp["bogusKey"]; ok {
+		t.Fatal("unknown string key must be removed")
+	}
 	if qp["disablePathMTUDiscovery"] != true {
 		t.Fatal("disablePathMTUDiscovery must be kept")
+	}
+	if qp["debug"] != true {
+		t.Fatal("debug bool must be kept")
 	}
 	if qp["congestion"] != "bbr" {
 		t.Fatal("congestion must be kept")

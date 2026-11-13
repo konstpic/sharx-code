@@ -8,9 +8,9 @@ import (
 // This file emits the streamSettings.finalmask block into client share links as
 // the compact `fm=<json>` parameter (Xray-core / 3x-ui compatible).
 //
-// The finalmask belongs to the client side of the tunnel: server-only masks
-// (filter) are stripped, legacy fragment ranges are expanded, udphop ordering
-// is enforced and only whitelisted masks are emitted.
+// The finalmask belongs to the client side of the tunnel: masks outside the
+// link whitelist are stripped, legacy fragment ranges are expanded and udphop
+// ordering is enforced.
 
 // marshalFinalMask renders the client-side finalmask JSON for a share link.
 // It returns false when nothing to emit remains.
@@ -76,7 +76,8 @@ func sanitizeQuicParams(fm map[string]any) map[string]any {
 	return finalmask.SanitizeQuicParams(fm)
 }
 
-// dropServerOnly removes masks that only exist on the server side (filter).
+// dropServerOnly removes masks that only exist on the server side (the list is
+// currently empty for the pinned kernel; kept for the 3x-ui compat chain).
 func dropServerOnly(fm map[string]any) map[string]any {
 	return finalmask.DropServerOnly(fm)
 }

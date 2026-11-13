@@ -132,7 +132,7 @@ func TestMarshalFinalMaskWhitelistDropsXDNS(t *testing.T) {
 	}
 }
 
-func TestMarshalFinalMaskDropsFilter(t *testing.T) {
+func TestMarshalFinalMaskDropsFilterByWhitelist(t *testing.T) {
 	fm := map[string]any{"tcp": []any{
 		map[string]any{"type": "filter", "settings": map[string]any{}},
 		map[string]any{"type": "sudoku", "settings": map[string]any{"password": "pw"}},
@@ -252,8 +252,8 @@ func TestFinalMaskLinkHelpers(t *testing.T) {
 	if out := withLegacyFragmentRanges(fm); out["tcp"].([]any)[0].(map[string]any)["settings"].(map[string]any)["length"] != "100-200" {
 		t.Fatal("withLegacyFragmentRanges did not expand ranges")
 	}
-	if out := dropServerOnly(map[string]any{"tcp": []any{map[string]any{"type": "filter"}}}); len(out) != 0 {
-		t.Fatalf("dropServerOnly must remove filter, got %v", out)
+	if out := dropServerOnly(map[string]any{"tcp": []any{map[string]any{"type": "filter"}}}); len(out["tcp"].([]any)) != 1 {
+		t.Fatal("dropServerOnly must be a no-op for the pinned kernel")
 	}
 	if out := normalizeUDPHop(map[string]any{"udp": []any{
 		map[string]any{"type": "xicmp"},
@@ -261,7 +261,37 @@ func TestFinalMaskLinkHelpers(t *testing.T) {
 	}}); out["udp"].([]any)[1].(map[string]any)["type"] != "xicmp" {
 		t.Fatal("normalizeUDPHop must move socket mask last")
 	}
-	if out := sanitizeQuicParams(map[string]any{"quicParams": map[string]any{"maxIdleTimeout": 30.7}}); out["quicParams"].(map[string]any)["maxIdleTimeout"] != int64(30) {
-		t.Fatal("sanitizeQuicParams must truncate numbers")
+	qp := sanitizeQuicParams(map[string]any{"quicParams": map[string]any{
+		"maxIdleTimeout": 30.0,
+		"debug":          true,
+	}})
+	qpm := qp["quicParams"].(map[string]any)
+	if qpm["maxIdleTimeout"] != int64(30) || qpm["debug"] != true {
+		t.Fatalf("sanitizeQuicParams must keep integral numbers and known bools, got %v", qpm)
+	}
+	frac := sanitizeQuicParams(map[string]any{"quicParams": map[string]any{"maxIdleTimeout": 30.7}})
+	if _, keep := frac["quicParams"]; keep {
+		t.Fatal("sanitizeQuicParams must drop fractional numbers")
+	}
+}
+
+func TestMarshalFinalMaskMigratesLegacyPassword(t *testing.T) {
+	fm := map[string]any{"udp": []any{
+		map[string]any{"type": "salamander", "password": "legacypw"},
+	}}
+	raw, ok := marshalFinalMask(fm)
+	if !ok {
+		t.Fatal("expected salamander in fm")
+	}
+	el := decodeFM(t, raw)["udp"].([]any)[0].(map[string]any)
+	st, _ := el["settings"].(map[string]any)
+	if st["password"] != "legacypw" {
+		t.Fatal("fm must carry the legacy password inside settings")
+	}
+	if _, still := el["password"]; still {
+		t.Fatal("legacy element-level password must not be emitted twice")
+	}
+	if _, mutated := fm["udp"].([]any)[0].(map[string]any)["settings"]; mutated {
+		t.Fatal("marshalFinalMask must not mutate its input")
 	}
 }

@@ -7,9 +7,9 @@
 //     `fm=<compact JSON>` share-link parameter (3x-ui compatible).
 //
 // Facts about the kernel behaviour this file relies on (Xray-core 26.10.31):
-//   - TCP types: header-custom, fragment, sudoku, xmc, filter
+//   - TCP types: header-custom, fragment, sudoku, xmc
 //   - UDP types: header-custom, mkcp-legacy, noise, salamander, sudoku, xdns,
-//     xicmp, realm, udphop, filter
+//     xicmp, realm, udphop
 //   - unknown type => "unknown config id: <type>" (config rejected)
 //   - `type` is case-insensitive; settings keys unknown to the kernel are ignored
 //   - the JSON array is applied in reverse order (first element = outermost layer)
@@ -20,6 +20,7 @@ package finalmask
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -51,7 +52,6 @@ var tcpTypes = map[string]struct{}{
 	"fragment":      {},
 	"sudoku":        {},
 	"xmc":           {},
-	"filter":        {},
 }
 
 var udpTypes = map[string]struct{}{
@@ -64,7 +64,6 @@ var udpTypes = map[string]struct{}{
 	"xicmp":         {},
 	"realm":         {},
 	"udphop":        {},
-	"filter":        {},
 }
 
 // Link whitelist mirrors 3x-ui: masks that make sense in a client share link.
@@ -89,9 +88,39 @@ var socketReplacingMasks = map[string]struct{}{
 	"udphop": {},
 }
 
-// serverOnlyMasks work on the server side only and must not be emitted to clients.
-var serverOnlyMasks = map[string]struct{}{
-	"filter": {},
+// serverOnlyMasks lists masks that exist on the server side only and must not
+// be emitted to clients. Xray-core 2026-10-31 does not ship any such mask yet
+// (`filter` is not part of the upstream pinned core, see package docs).
+var serverOnlyMasks = map[string]struct{}{}
+
+// quicBoolKeys are the boolean quicParams fields known to the kernel. Any other
+// boolean value is dropped during sanitizing.
+var quicBoolKeys = map[string]struct{}{
+	"debug":                         {},
+	"brutalDisableLossCompensation": {},
+	"disableChromeParrot":           {},
+	"disableGSO":                    {},
+	"disableStatelessReset":         {},
+	"disablePathMTUDiscovery":       {},
+}
+
+// quicNumberRule describes the accepted integer range of a quicParams field.
+// A value of 0 means "kernel default" and is always accepted.
+type quicNumberRule struct {
+	min int64
+	max int64 // 0 = unbounded
+}
+
+var quicNumberRules = map[string]quicNumberRule{
+	"maxIdleTimeout":              {min: 4, max: 120},
+	"keepAlivePeriod":             {min: 2, max: 60},
+	"initStreamReceiveWindow":     {min: 16384},
+	"maxStreamReceiveWindow":      {min: 16384},
+	"initConnectionReceiveWindow": {min: 16384},
+	"maxConnectionReceiveWindow":  {min: 16384},
+	"maxIncomingStreams":          {min: 8},
+	"brutalUp":                    {min: 65536},
+	"brutalDown":                  {min: 65536},
 }
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`)
@@ -264,7 +293,7 @@ func validateElement(transport string, idx int, item any) []Issue {
 		return validateNoise(path, el, st)
 	case "sudoku":
 		return validateSudoku(path, el, st)
-	case "filter", "xicmp":
+	case "xicmp":
 		return nil
 	}
 	return nil
@@ -300,6 +329,22 @@ func validateOrdering(transport string, arr []any) []Issue {
 
 func validateFragment(path string, st map[string]any) []Issue {
 	var issues []Issue
+	lengthsRaw, hasLengths := st["lengths"]
+	if hasLengths && lengthsRaw != nil {
+		// The kernel expects []Int32Range; a bare string ("100-200") is rejected.
+		if _, ok := lengthsRaw.([]any); !ok {
+			issues = append(issues, issue("fragment_lengths_type", path+".settings.lengths", SeverityError,
+				"lengths must be an array of ranges/numbers, not a string"))
+			return issues
+		}
+	}
+	if delaysRaw, ok := st["delays"]; ok && delaysRaw != nil {
+		if _, ok := delaysRaw.([]any); !ok {
+			issues = append(issues, issue("fragment_delays_type", path+".settings.delays", SeverityError,
+				"delays must be an array of ranges/numbers, not a string"))
+			return issues
+		}
+	}
 	minLen, hasLen := minNumber(st["lengths"])
 	if !hasLen {
 		minLen, hasLen = minNumber(st["length"])
@@ -451,38 +496,127 @@ func validateUDPHop(path string, el, st map[string]any, transport string) []Issu
 	return issues
 }
 
-func validateHeaderCustomTCP(path string, st map[string]any) []Issue {
-	n := 0
-	for _, key := range []string{"packet", "rand", "reuse", "transform"} {
-		if nonEmptyValue(st[key]) {
-			n++
-		}
-	}
-	if n != 1 {
-		return []Issue{issue("header_custom_tcp_mode", path+".settings", SeverityError,
-			"tcp header-custom requires exactly one of packet/rand/reuse/transform, found %d", n)}
-	}
-	return nil
+// headerCustomItemMechanisms are the per-item mechanisms of header-custom.
+var headerCustomItemMechanisms = []string{"packet", "rand", "reuse", "transform"}
+
+// headerCustomItemTypes are the kernel-accepted TCPItem type values.
+var headerCustomItemTypes = map[string]struct{}{
+	"":       {},
+	"str":    {},
+	"hex":    {},
+	"base64": {},
 }
 
+// validateHeaderCustomTCP mirrors the kernel schema:
+// settings = {clients: [][]TCPItem, servers: [][]TCPItem, errors: [][]TCPItem}.
+func validateHeaderCustomTCP(path string, st map[string]any) []Issue {
+	var issues []Issue
+	nonEmpty := false
+	for _, stream := range []string{"clients", "servers"} {
+		v, exists := st[stream]
+		if !exists || v == nil {
+			continue
+		}
+		groups, ok := v.([]any)
+		if !ok {
+			issues = append(issues, issue("header_custom_tcp_schema", path+".settings."+stream, SeverityError,
+				"%s must be an array of item arrays", stream))
+			continue
+		}
+		if len(groups) > 0 {
+			nonEmpty = true
+		}
+		for gi, group := range groups {
+			items, ok := group.([]any)
+			gpath := fmt.Sprintf("%s.settings.%s[%d]", path, stream, gi)
+			if !ok {
+				issues = append(issues, issue("header_custom_tcp_schema", gpath, SeverityError,
+					"each %s entry must be an array of items", stream))
+				continue
+			}
+			for ii, item := range items {
+				ipath := fmt.Sprintf("%s[%d]", gpath, ii)
+				im, ok := item.(map[string]any)
+				if !ok {
+					issues = append(issues, issue("header_custom_tcp_item", ipath, SeverityError,
+						"header-custom item must be an object"))
+					continue
+				}
+				if !hasAnyHeaderCustomMechanism(im) {
+					issues = append(issues, issue("header_custom_tcp_item", ipath, SeverityError,
+						"header-custom item requires at least one of packet/rand/reuse/transform"))
+				}
+				if typ, exists := im["type"]; exists {
+					if _, ok := headerCustomItemTypes[strings.ToLower(strings.TrimSpace(strValue(typ)))]; !ok {
+						issues = append(issues, issue("header_custom_tcp_item_type", ipath+".type", SeverityError,
+							"item type must be one of \"\", str, hex, base64"))
+					}
+				}
+			}
+		}
+	}
+	if len(issues) == 0 && !nonEmpty {
+		issues = append(issues, issue("header_custom_tcp_schema", path+".settings", SeverityError,
+			"tcp header-custom requires at least one clients/servers item"))
+	}
+	return issues
+}
+
+func hasAnyHeaderCustomMechanism(im map[string]any) bool {
+	for _, key := range headerCustomItemMechanisms {
+		if nonEmptyValue(im[key]) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateHeaderCustomUDP mirrors the kernel schema:
+// settings = {mode: ""|prefix|standalone, client: [UDPItem], server: [UDPItem]}.
 func validateHeaderCustomUDP(path string, st map[string]any) []Issue {
+	var issues []Issue
 	mode := strings.ToLower(strings.TrimSpace(strValue(st["mode"])))
 	switch mode {
 	case "", "prefix", "standalone":
-		return nil
+	default:
+		issues = append(issues, issue("header_custom_udp_mode", path+".settings.mode", SeverityError,
+			"udp header-custom mode must be one of \"\", prefix, standalone"))
 	}
-	return []Issue{issue("header_custom_udp_mode", path+".settings.mode", SeverityError,
-		"udp header-custom mode must be one of \"\", prefix, standalone")}
+	for _, key := range []string{"client", "server"} {
+		v, exists := st[key]
+		if !exists || v == nil {
+			continue
+		}
+		items, ok := v.([]any)
+		if !ok {
+			issues = append(issues, issue("header_custom_udp_schema", path+".settings."+key, SeverityError,
+				"%s must be an array of items", key))
+			continue
+		}
+		for i, item := range items {
+			ipath := fmt.Sprintf("%s.settings.%s[%d]", path, key, i)
+			if _, ok := item.(map[string]any); !ok {
+				issues = append(issues, issue("header_custom_udp_item", ipath, SeverityError,
+					"header-custom item must be an object"))
+			}
+		}
+	}
+	return issues
 }
 
 func validateMKCPLegacy(path string, el, st map[string]any) []Issue {
 	header := strings.ToLower(strings.TrimSpace(strValue(firstNonNil(st["header"], el["header"]))))
+	value := strings.ToLower(strings.TrimSpace(strValue(firstNonNil(st["value"], el["value"]))))
+	if header == "" && value == "" {
+		// Kernel default (aes128gcm-default) needs neither header nor value.
+		return nil
+	}
 	switch header {
 	case "dns", "dtls", "srtp", "utp", "wechat", "wireguard":
 		return nil
 	}
 	return []Issue{issue("mkcp_legacy_header", path+".settings.header", SeverityError,
-		"mkcp-legacy header must be one of dns, dtls, srtp, utp, wechat, wireguard")}
+		"mkcp-legacy header must be empty (aes128gcm-default) or one of dns, dtls, srtp, utp, wechat, wireguard")}
 }
 
 func validateNoise(path string, el, st map[string]any) []Issue {
@@ -510,17 +644,26 @@ func validateNoise(path string, el, st map[string]any) []Issue {
 		}
 		packet := strings.TrimSpace(strValue(im["packet"]))
 		if packet == "" {
+			// rand/randRange generate the packet at runtime; only a fully empty
+			// item is invalid.
+			if nonEmptyValue(im["rand"]) || nonEmptyValue(im["randRange"]) {
+				continue
+			}
 			issues = append(issues, issue("noise_item_packet", npath+".packet", SeverityError,
-				"noise item requires a non-empty packet"))
+				"noise item requires packet, rand or randRange"))
 			continue
 		}
-		if typ == "exp" && !strings.HasPrefix(strings.ToLower(packet), "exp:") {
+		if typ == "exp" && !noiseExpPacketRe.MatchString(packet) {
 			issues = append(issues, issue("noise_exp_packet", npath+".packet", SeverityWarning,
-				"exp packet does not look like \"exp:<payload>\" and may be rejected by the kernel"))
+				"exp packet does not match the \"<...>\" syntax and may be rejected by the kernel"))
 		}
 	}
 	return issues
 }
+
+// noiseExpPacketRe matches the kernel noise "exp" packet syntax: an expression
+// wrapped in angle brackets, e.g. "<t:2s,rand:8-16>".
+var noiseExpPacketRe = regexp.MustCompile(`^<[^<>]+>$`)
 
 func validateSudoku(path string, el, st map[string]any) []Issue {
 	pwd := strings.TrimSpace(strValue(firstNonNil(st["password"], el["password"])))
@@ -557,10 +700,52 @@ func validateQuicParams(raw any) []Issue {
 				"bbrProfile must be one of conservative, standard, aggressive"))
 		}
 	}
-	for k, v := range qp {
-		if n, ok := numberValue(v); ok && n <= 0 {
-			issues = append(issues, issue("quic_number_positive", qpPath+"."+k, SeverityError,
-				"%s must be greater than 0", k))
+	for k, rule := range quicNumberRules {
+		v, exists := qp[k]
+		if !exists || v == nil {
+			continue
+		}
+		n, ok := numberValue(v)
+		if !ok {
+			issues = append(issues, issue("quic_number_type", qpPath+"."+k, SeverityError,
+				"%s must be a number", k))
+			continue
+		}
+		if n != math.Trunc(n) {
+			issues = append(issues, issue("quic_number_integer", qpPath+"."+k, SeverityError,
+				"%s must be an integer", k))
+			continue
+		}
+		iv := int64(n)
+		if iv == 0 {
+			// 0 means "kernel default" for every numeric quicParams field.
+			continue
+		}
+		if iv < rule.min || (rule.max != 0 && iv > rule.max) {
+			if rule.max != 0 {
+				issues = append(issues, issue("quic_number_range", qpPath+"."+k, SeverityError,
+					"%s must be 0 or between %d and %d", k, rule.min, rule.max))
+			} else {
+				issues = append(issues, issue("quic_number_range", qpPath+"."+k, SeverityError,
+					"%s must be 0 or at least %d", k, rule.min))
+			}
+		}
+	}
+	for k := range quicBoolKeys {
+		v, exists := qp[k]
+		if !exists || v == nil {
+			continue
+		}
+		if _, ok := v.(bool); !ok {
+			issues = append(issues, issue("quic_bool_type", qpPath+"."+k, SeverityError,
+				"%s must be a boolean", k))
+		}
+	}
+	if s := strings.ToLower(strings.TrimSpace(strValue(qp["congestion"]))); s == "force-brutal" {
+		up, _ := numberValue(qp["brutalUp"])
+		if up <= 0 {
+			issues = append(issues, issue("quic_brutal_up_required", qpPath+".brutalUp", SeverityError,
+				"congestion force-brutal requires brutalUp"))
 		}
 	}
 	return issues
@@ -606,7 +791,7 @@ func NormalizeFinalmask(fm map[string]any, serverSide bool) map[string]any {
 		return nil
 	}
 	cp = withLegacyFragmentRangesInto(cp)
-	cp = migrateLegacySalamanderPassword(cp)
+	cp = migrateLegacyPassword(cp)
 	cp = NormalizeUDPHop(cp)
 	if !serverSide {
 		cp = DropServerOnly(cp)
@@ -664,28 +849,34 @@ func withLegacyFragmentRangesInto(fm map[string]any) map[string]any {
 	return fm
 }
 
-func migrateLegacySalamanderPassword(fm map[string]any) map[string]any {
-	arr, ok := fm["udp"].([]any)
-	if !ok {
-		return fm
-	}
-	for _, item := range arr {
-		el, ok := item.(map[string]any)
+// migrateLegacyPassword lifts an element-level legacy `password` into
+// settings.password (salamander, xmc, sudoku, ...) so the emitted mask actually
+// works. It mutates and returns fm (callers pass a copy).
+func migrateLegacyPassword(fm map[string]any) map[string]any {
+	for _, transport := range []string{"tcp", "udp"} {
+		arr, ok := fm[transport].([]any)
 		if !ok {
 			continue
 		}
-		if strings.ToLower(strings.TrimSpace(strValue(el["type"]))) != "salamander" {
-			continue
-		}
-		st, ok := el["settings"].(map[string]any)
-		if !ok {
-			st = map[string]any{}
-			el["settings"] = st
-		}
-		if strings.TrimSpace(strValue(st["password"])) == "" {
-			if legacy := strings.TrimSpace(strValue(el["password"])); legacy != "" {
+		for _, item := range arr {
+			el, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			legacy := strings.TrimSpace(strValue(el["password"]))
+			if legacy == "" {
+				continue
+			}
+			st, ok := el["settings"].(map[string]any)
+			if !ok {
+				st = map[string]any{}
+				el["settings"] = st
+			}
+			if strings.TrimSpace(strValue(st["password"])) == "" {
 				st["password"] = legacy
 			}
+			// settings.password is the kernel schema; drop the legacy duplicate.
+			delete(el, "password")
 		}
 	}
 	return fm
@@ -733,9 +924,10 @@ func NormalizeUDPHop(fm map[string]any) map[string]any {
 	return fm
 }
 
-// SanitizeQuicParams truncates numeric values to integers, drops non-positive
-// numbers and empty strings, and removes the block when nothing is left.
-// It mutates and returns fm (callers pass a copy).
+// SanitizeQuicParams normalizes quicParams for emission: integral numbers are
+// converted to int64, fractional/negative numbers, unknown booleans and unknown
+// strings are dropped (0 is a valid "kernel default"), and the block is removed
+// when nothing is left. It mutates and returns fm (callers pass a copy).
 func SanitizeQuicParams(fm map[string]any) map[string]any {
 	if fm == nil {
 		return nil
@@ -747,36 +939,41 @@ func SanitizeQuicParams(fm map[string]any) map[string]any {
 	for k, v := range qp {
 		switch n := v.(type) {
 		case float64:
-			if n <= 0 {
+			if n < 0 || n != math.Trunc(n) {
 				delete(qp, k)
 				continue
 			}
 			qp[k] = int64(n)
 		case float32:
-			if n <= 0 {
+			f := float64(n)
+			if f < 0 || f != math.Trunc(f) {
 				delete(qp, k)
 				continue
 			}
-			qp[k] = int64(n)
+			qp[k] = int64(f)
 		case int:
-			if n <= 0 {
+			if n < 0 {
 				delete(qp, k)
-				continue
 			}
 		case int64:
-			if n <= 0 {
+			if n < 0 {
 				delete(qp, k)
-				continue
 			}
 		case bool:
-			if k != "disablePathMTUDiscovery" {
+			if _, allowed := quicBoolKeys[k]; !allowed {
 				delete(qp, k)
 			}
 		case string:
-			if strings.TrimSpace(n) == "" {
+			s := strings.ToLower(strings.TrimSpace(n))
+			switch k {
+			case "congestion", "bbrProfile":
+				if s == "" {
+					delete(qp, k)
+				} else {
+					qp[k] = strings.TrimSpace(n)
+				}
+			default:
 				delete(qp, k)
-			} else {
-				qp[k] = strings.TrimSpace(n)
 			}
 		case nil:
 			delete(qp, k)
@@ -790,7 +987,9 @@ func SanitizeQuicParams(fm map[string]any) map[string]any {
 	return fm
 }
 
-// DropServerOnly removes server-only masks (filter) from both transports.
+// DropServerOnly removes masks listed in serverOnlyMasks from both transports.
+// The list is currently empty (no server-only type in the pinned kernel), so it
+// is a no-op kept for the 3x-ui compatibility chain.
 // It mutates and returns fm (callers pass a copy).
 func DropServerOnly(fm map[string]any) map[string]any {
 	if fm == nil {
@@ -832,6 +1031,7 @@ func Marshal(fm map[string]any) (string, bool) {
 		return "", false
 	}
 	cp = withLegacyFragmentRangesInto(cp)
+	cp = migrateLegacyPassword(cp)
 	cp = NormalizeUDPHop(cp)
 	cp = DropServerOnly(cp)
 	cp = SanitizeQuicParams(cp)
