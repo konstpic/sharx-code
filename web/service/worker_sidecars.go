@@ -49,12 +49,14 @@ func BuildUDPHopNatIntentsForNode(ibs []*model.Inbound) []finalmask.UDPHopNatInt
 		}
 		var stream map[string]any
 		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err != nil || stream == nil {
+			logger.Debugf("udphopNat: inbound %d (%s): malformed streamSettings, skipped", ib.Id, ib.Tag)
 			continue
 		}
 		intents = append(intents, finalmask.UDPHopNatIntentsForStream(
 			string(model.NormalizeProtocol(ib.Protocol)), stream, ib.Port)...)
 	}
 	intents = finalmask.SortAndDedupIntents(intents)
+	warnOverlappingIntents(intents)
 	if intents == nil {
 		intents = []finalmask.UDPHopNatIntent{}
 	}
@@ -62,4 +64,24 @@ func BuildUDPHopNatIntentsForNode(ibs []*model.Inbound) []finalmask.UDPHopNatInt
 		logger.Debugf("udphopNat: %d intent(s) for node inbounds", len(intents))
 	}
 	return intents
+}
+
+// warnOverlappingIntents reports port ranges that overlap while redirecting to
+// different inbound ports: the first REDIRECT rule wins in the chain, so the
+// clients of the later inbound silently lose their port hopping. Equal targets
+// are harmless (the redirect is the same either way).
+func warnOverlappingIntents(intents []finalmask.UDPHopNatIntent) {
+	for i := 0; i < len(intents); i++ {
+		for j := i + 1; j < len(intents); j++ {
+			a, b := intents[i], intents[j]
+			if a.ToPort == b.ToPort {
+				continue
+			}
+			if a.FromPortMin <= b.FromPortMax && b.FromPortMin <= a.FromPortMax {
+				logger.Warningf("udphopNat: ranges %s and %s overlap but redirect to different ports (%d vs %d); "+
+					"the first rule wins and the other inbound's hopping is dropped — make the remotePorts ranges disjoint",
+					a.String(), b.String(), a.ToPort, b.ToPort)
+			}
+		}
+	}
 }

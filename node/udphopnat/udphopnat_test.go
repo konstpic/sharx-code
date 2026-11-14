@@ -118,6 +118,33 @@ func TestReconcileExistingChainFlushesAndKeepsJump(t *testing.T) {
 	}
 }
 
+func TestReconcileExistingChainWithoutJumpAddsJump(t *testing.T) {
+	// Chain present but the PREROUTING jump lost (e.g. a host firewall reload):
+	// reconcile must reinstall only the jump, not recreate the chain.
+	run := &fakeRunner{chainMissing: false}
+	warnings := Reconcile(run.run, []finalmask.UDPHopNatIntent{
+		{FromPortMin: 39620, FromPortMax: 39629, ToPort: 39615},
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", warnings)
+	}
+	want := []string{
+		"-t nat -nL " + ChainName,
+		"-t nat -F " + ChainName,
+		"-t nat -A " + ChainName + " -p udp --dport 39620:39629 -j REDIRECT --to-ports 39615",
+		"-t nat -C PREROUTING -j " + ChainName,
+		"-t nat -A PREROUTING -j " + ChainName,
+	}
+	if got := iptablesCalls(run.calls); !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %v, want %v", got, want)
+	}
+	for _, c := range run.calls {
+		if strings.Contains(c, "-N "+ChainName) {
+			t.Fatalf("existing chain must not be recreated: %s", c)
+		}
+	}
+}
+
 func TestReconcileIsIdempotent(t *testing.T) {
 	intents := []finalmask.UDPHopNatIntent{
 		{FromPortMin: 20000, FromPortMax: 30000, ToPort: 39612},

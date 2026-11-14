@@ -18,10 +18,13 @@
 package udphopnat
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/finalmask"
@@ -34,6 +37,18 @@ const ChainName = "SHARX_UDPHOP"
 // natBinaries are reconciled in order: iptables for IPv4, ip6tables best-effort.
 var natBinaries = []string{"iptables", "ip6tables"}
 
+// execTimeout bounds one netfilter invocation. iptables blocks while the
+// xtables lock is held by another writer; without a deadline a stuck call
+// would wedge apply-config's HTTP handler for its whole request timeout.
+const execTimeout = 10 * time.Second
+
+// reconcileMu serializes Reconcile calls. The panel pushes apply-config from
+// several paths at once (worker config recover, telemt session sync, multi
+// node apply), and two interleaved reconciles — e.g. an empty list racing a
+// non-empty one — could flush or remove the chain mid-install, silently
+// leaving rules absent that both callers believed applied.
+var reconcileMu sync.Mutex
+
 // Runner executes one netfilter binary with args; it returns an error that
 // already carries the combined output. Swapping it in tests makes the command
 // sequence assertable without touching the host firewall.
@@ -42,9 +57,12 @@ type Runner func(binary string, args ...string) error
 // lg tags this package's journal entries.
 var lg = logger.WithComponent("udphopnat")
 
-// ExecRunner is the production Runner: exec + combined output in the error.
+// ExecRunner is the production Runner: exec with a deadline + combined output
+// in the error.
 func ExecRunner(binary string, args ...string) error {
-	out, err := exec.Command(binary, args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), execTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
@@ -58,8 +76,11 @@ func ExecRunner(binary string, args ...string) error {
 // Reconcile brings the host nat table to exactly the desired intent list and
 // returns the warnings collected on the way (nil when everything succeeded).
 // It is idempotent: repeating the same list produces the same command sequence
-// and the same resulting ruleset.
+// and the same resulting ruleset. Calls are serialized (see reconcileMu)
+// because the panel can reach apply-config from several paths concurrently.
 func Reconcile(run Runner, intents []finalmask.UDPHopNatIntent) []string {
+	reconcileMu.Lock()
+	defer reconcileMu.Unlock()
 	if run == nil {
 		run = ExecRunner
 	}
