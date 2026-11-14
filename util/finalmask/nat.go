@@ -141,7 +141,7 @@ func UDPHopNatIntentsForStream(protocol string, stream map[string]any, inboundPo
 	// single listener. The key survives in the raw database row even though
 	// BuildInboundXrayConfig strips it from the Xray config.
 	if hysteria.IsMultiPort(protocol) {
-		if mp, ok := hysteria.MultiPortFromStream(stream); ok {
+		if mp, ok := hysteria.MultiPortFromStream(stream); ok && hysteria.UsableForListener(mp, inboundPort) {
 			intents = append(intents, UDPHopNatIntent{FromPortMin: mp.Min, FromPortMax: mp.Max, ToPort: inboundPort})
 		}
 	}

@@ -2713,6 +2713,12 @@ func (s *NodeService) AssignInboundToNodesWithBindings(inboundId int, bindings [
 	if err := s.CheckInboundPortConflictOnNodes(inbound.Port, inbound.Listen, string(inbound.Protocol), nodeIds, inboundId); err != nil {
 		return err
 	}
+	// A hysteria2 port-hopping range must not capture another UDP listener (or
+	// overlap another range) on any of the target nodes: the REDIRECT would
+	// silently steal that inbound's traffic. Checked before any mapping write.
+	if err := ValidateHysteriaMultiPortOnNodes(&inbound, nodeIds); err != nil {
+		return err
+	}
 
 	var oldMappings []model.InboundNodeMapping
 	if err := db.Where("inbound_id = ?", inboundId).Find(&oldMappings).Error; err != nil {

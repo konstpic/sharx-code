@@ -92,6 +92,24 @@ func MultiPortFromStream(stream map[string]any) (MultiPort, bool) {
 	return ParseMultiPort(s)
 }
 
+// UsableForListener reports whether the range may be used for an inbound that
+// listens on listenerPort: it must respect the panel limits (at most
+// MaxMultiPortRange ports) and must not swallow the listener itself. Consumers
+// (NAT intents, share links) use it so a value that bypassed the save-time
+// validation (manual SQL, imported streamSettings) cannot create a huge
+// REDIRECT rule or a link the node can never serve.
+func UsableForListener(r MultiPort, listenerPort int) bool {
+	if !r.Valid() || r.Count() > MaxMultiPortRange {
+		return false
+	}
+	return !(validPort(listenerPort) && r.Contains(listenerPort))
+}
+
+// Intersects reports whether two valid ranges share at least one port.
+func (r MultiPort) Intersects(other MultiPort) bool {
+	return r.Valid() && other.Valid() && r.Min <= other.Max && other.Min <= r.Max
+}
+
 // ValidateMultiPort checks the panel constraints for one inbound and returns
 // the normalized range. An empty value is valid and yields ok=false.
 func ValidateMultiPort(raw string, listenerPort int) (MultiPort, bool, error) {

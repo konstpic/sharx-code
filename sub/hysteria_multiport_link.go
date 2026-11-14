@@ -94,7 +94,7 @@ func hysteriaLinkAuthorityPort(version int, stream map[string]interface{}, port 
 	if version == 1 {
 		return strconv.Itoa(port)
 	}
-	if mp, ok := hysteria.MultiPortFromStream(stream); ok {
+	if mp, ok := hysteria.MultiPortFromStream(stream); ok && hysteria.UsableForListener(mp, port) {
 		return mp.String()
 	}
 	return strconv.Itoa(port)

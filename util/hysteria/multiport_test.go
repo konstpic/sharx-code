@@ -131,3 +131,44 @@ func TestIsMultiPort(t *testing.T) {
 		}
 	}
 }
+
+func TestUsableForListener(t *testing.T) {
+	tests := []struct {
+		name     string
+		r        MultiPort
+		listener int
+		want     bool
+	}{
+		{"valid disjoint", MultiPort{Min: 39640, Max: 39649}, 443, true},
+		{"contains listener", MultiPort{Min: 400, Max: 500}, 443, false},
+		{"too large", MultiPort{Min: 1000, Max: 3000}, 443, false},
+		{"invalid range", MultiPort{Min: 500, Max: 400}, 443, false},
+		{"invalid listener still usable", MultiPort{Min: 39640, Max: 39649}, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := UsableForListener(tt.r, tt.listener); got != tt.want {
+				t.Fatalf("UsableForListener(%v, %d) = %v, want %v", tt.r, tt.listener, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMultiPortIntersects(t *testing.T) {
+	a := MultiPort{Min: 39640, Max: 39649}
+	for _, tc := range []struct {
+		name string
+		b    MultiPort
+		want bool
+	}{
+		{"overlap", MultiPort{Min: 39645, Max: 39655}, true},
+		{"touch at edge", MultiPort{Min: 39649, Max: 39660}, true},
+		{"disjoint", MultiPort{Min: 39650, Max: 39660}, false},
+		{"inside", MultiPort{Min: 39641, Max: 39642}, true},
+		{"invalid other", MultiPort{Min: 0, Max: 5}, false},
+	} {
+		if got := a.Intersects(tc.b); got != tc.want {
+			t.Fatalf("%s: Intersects = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -116,3 +116,20 @@ func TestParseClashHysteria2MultiPort(t *testing.T) {
 		t.Fatalf("obfs lost: %v", p)
 	}
 }
+
+func TestHysteriaLinkAuthorityPortPolicy(t *testing.T) {
+	// A range that swallows the listener or exceeds the panel limit must fall
+	// back to the plain port: the node never installs such a rule.
+	for _, tc := range []struct {
+		name   string
+		stream map[string]interface{}
+		port   int
+	}{
+		{"range contains listener", map[string]interface{}{"hysteriaMultiPort": "400-500"}, 443},
+		{"range over limit", map[string]interface{}{"hysteriaMultiPort": "1000-3000"}, 443},
+	} {
+		if got := hysteriaLinkAuthorityPort(2, tc.stream, tc.port); got != "443" {
+			t.Fatalf("%s: authority port = %q, want 443", tc.name, got)
+		}
+	}
+}

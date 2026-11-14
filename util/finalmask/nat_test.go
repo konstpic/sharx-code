@@ -311,3 +311,32 @@ func TestUDPHopNatIntentsForStreamHysteriaMultiPort(t *testing.T) {
 		})
 	}
 }
+
+func TestUDPHopNatIntentsForStreamHysteriaMultiPortPolicy(t *testing.T) {
+	tests := []struct {
+		name   string
+		stream map[string]any
+		port   int
+		want   []UDPHopNatIntent
+	}{
+		{
+			name:   "range covering own listener ignored",
+			stream: hy2MultiPortStream("400-500"),
+			port:   443,
+			want:   nil,
+		},
+		{
+			name:   "range over the panel limit ignored",
+			stream: hy2MultiPortStream("1000-3000"),
+			port:   443,
+			want:   nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := UDPHopNatIntentsForStream("hysteria2", tt.stream, tt.port); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("intents = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

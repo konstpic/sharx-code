@@ -135,3 +135,33 @@ func TestBuildUDPHopNatIntentsForNodeHysteriaMultiPort(t *testing.T) {
 		t.Fatalf("intents = %v, want %v", got, want)
 	}
 }
+
+// One range must never capture another inbound's UDP listener on the same node
+// (the REDIRECT would silently steal its traffic). The preferred gate is the
+// save path; this pins the builder safety net for rows that bypassed it.
+func TestBuildUDPHopNatIntentsForNodeDropsRangeCoveringPeer(t *testing.T) {
+	ibs := []*model.Inbound{
+		natInbound(true, 443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"39640-39649"}`),
+		natInbound(true, 39645, "vless", `{"network":"kcp"}`),
+		natInbound(true, 9443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"40000-40010"}`),
+	}
+	want := []finalmask.UDPHopNatIntent{{FromPortMin: 40000, FromPortMax: 40010, ToPort: 9443}}
+	if got := BuildUDPHopNatIntentsForNode(ibs); !reflect.DeepEqual(got, want) {
+		t.Fatalf("intents = %v, want %v", got, want)
+	}
+}
+
+func TestBuildUDPHopNatIntentsForNodeDropsOverlappingRanges(t *testing.T) {
+	ibs := []*model.Inbound{
+		natInbound(true, 443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"39640-39649"}`),
+		natInbound(true, 8443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"39645-39655"}`),
+		natInbound(true, 9443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"40000-40010"}`),
+	}
+	want := []finalmask.UDPHopNatIntent{
+		{FromPortMin: 39640, FromPortMax: 39649, ToPort: 443},
+		{FromPortMin: 40000, FromPortMax: 40010, ToPort: 9443},
+	}
+	if got := BuildUDPHopNatIntentsForNode(ibs); !reflect.DeepEqual(got, want) {
+		t.Fatalf("intents = %v, want %v", got, want)
+	}
+}

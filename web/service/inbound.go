@@ -670,6 +670,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	if err := ApplyHysteriaMultiPortOnSave(inbound); err != nil {
 		return inbound, false, err
 	}
+	if err := ValidateHysteriaMultiPortDeployment(inbound, multiMode); err != nil {
+		return inbound, false, err
+	}
 
 	if model.NormalizeProtocol(inbound.Protocol) == model.Shadowsocks {
 		sanitized, errSS := SanitizeShadowsocksInboundSettings(inbound.Settings)
@@ -1079,6 +1082,12 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		return inbound, false, err
 	}
 	if err := ApplyHysteriaMultiPortOnSave(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ValidateHysteriaMultiPortDeployment(inbound, multiMode); err != nil {
+		return inbound, false, err
+	}
+	if err := validateHysteriaMultiPortForSavedInbound(inbound); err != nil {
 		return inbound, false, err
 	}
 

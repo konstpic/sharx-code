@@ -1122,7 +1122,7 @@ export function InboundsPage() {
     if (tagValidation) {
       return { ok: false, message: tagValidation };
     }
-    if (form.protocol === "hysteria2") {
+    if (form.protocol === "hysteria2" && multiNodeMode === true) {
       const mpError = hysteriaMultiPortRangeError(
         form.streamForm.hysteriaMultiPortMin,
         form.streamForm.hysteriaMultiPortMax,
@@ -1159,9 +1159,16 @@ export function InboundsPage() {
     }
     const isSidecar =
       form.protocol === "telemt" || form.protocol === "amneziawg";
+    // Port hopping only works where the node agent installs the NAT rules
+    // (multi-node mode). Outside it a stored range is dropped on save instead
+    // of shipping a link with no rules behind it.
+    const streamFormForBuild =
+      multiNodeMode === true
+        ? form.streamForm
+        : { ...form.streamForm, hysteriaMultiPortMin: "", hysteriaMultiPortMax: "" };
     let streamSettingsStr = isSidecar
       ? "{}"
-      : buildStreamSettingsFromForm(form.streamForm, form.protocol);
+      : buildStreamSettingsFromForm(streamFormForBuild, form.protocol);
     let sniffingStr = isSidecar
       ? JSON.stringify({
           enabled: false,
@@ -2908,7 +2915,7 @@ export function InboundsPage() {
                       </p>
                     </div>
                   ) : null}
-                  {form.protocol === "hysteria2" ? (
+                  {form.protocol === "hysteria2" && multiNodeMode === true ? (
                     <div className="rounded-lg border border-[var(--border)]/80 p-3">
                       <p className="mb-1 text-xs font-semibold text-[var(--fg)]">
                         {t("pages.inbounds.hysteriaMultiPort", {

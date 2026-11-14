@@ -2920,8 +2920,10 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 			}
 			epRemark, _ := ep["remark"].(string)
 
-			authorityPort := hysteriaLinkAuthorityPort(int(version), stream, int(portF))
-			u := buildCredentialShareURLAuthority(protocol, auth, dest, authorityPort)
+			// An external proxy is a separate endpoint (the admin chose its
+			// host and port): the port hopping range describes the inbound's
+			// node listener only, so the configured external port is kept.
+			u := buildCredentialShareURL(protocol, auth, dest, int(portF))
 			q := u.Query()
 			for k, v := range params {
 				q.Add(k, v)
