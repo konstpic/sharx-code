@@ -16,6 +16,12 @@ import (
 //
 // The panel ships the desired rule list to the node with apply-config and the
 // node agent reconciles its own chain (node/udphopnat).
+//
+// Firewall note: because the REDIRECT sits in nat PREROUTING, a packet sent to
+// any remotePorts value reaches the INPUT filter already rewritten to the
+// inbound port. Operators therefore only have to open the INBOUND port
+// ("ufw allow <inbound port>/udp"); opening the remotePorts range is neither
+// required nor useful, and a closed range does not block the hopping client.
 
 // UDPHopNatIntent is one desired REDIRECT rule: UDP datagrams addressed to
 // FromPortMin..FromPortMax are redirected to ToPort (the inbound listen port).

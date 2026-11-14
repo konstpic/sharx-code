@@ -10,6 +10,10 @@
 // flushes and refills it (or removes it when the desired list is empty) and
 // never touches any other chain or rule, so coexisting tooling is safe.
 //
+// Firewall note: the jump runs in nat PREROUTING, so the INPUT filter only ever
+// sees the rewritten inbound port. Host firewalls must allow the INBOUND port
+// ("ufw allow <inbound port>/udp"); the remotePorts range itself needs no rule.
+//
 // Reconcile is best-effort by design: every failure is returned as a warning
 // string for the node log / apply-config response, because a NAT problem must
 // not prevent the Xray config itself from being applied. All argv values are

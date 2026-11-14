@@ -6219,7 +6219,7 @@ viaObfs = "salamander is configured by the Obfuscation fields above."
 [finalmask.udphop]
 title = "Port hopping"
 hint = "Client-side mask — it is never written into the server config; on the node, DNAT the port range to the inbound port."
-natAutoHint = "REDIRECT rules on the node are applied automatically with the config; the firewall only needs the inbound port open (REDIRECT runs before the filter) — if the range is still blocked, open it:"
+natAutoHint = "REDIRECT rules on the node are applied automatically with the config. Only the inbound port itself has to be open in the firewall (ufw allow <inbound port>/udp); the remotePorts range does NOT need to be opened — REDIRECT rewrites the destination port to the inbound port before the INPUT filter sees the packet."
 localModeHint = "Nothing to configure on the node — only the client's outgoing port changes."
 notRequiredHint = "Not required for this mode"
 viaJsonOnly = "udphop is not delivered by the Hysteria 2 share link — use the subscription JSON template instead."

@@ -709,7 +709,7 @@ export function FinalmaskEditor({
               hopRemote
                 ? t("finalmask.udphop.natAutoHint", {
                     defaultValue:
-                      "REDIRECT rules on the node are applied automatically with the config; the firewall only needs the inbound port open (REDIRECT runs before the filter) — if the range is still blocked, open it:",
+                      "REDIRECT rules on the node are applied automatically with the config. Only the inbound port itself has to be open in the firewall (ufw allow <inbound port>/udp); the remotePorts range does NOT need to be opened — REDIRECT rewrites the destination port to the inbound port before the INPUT filter sees the packet.",
                   })
                 : hopRemoteOptional
                   ? t("finalmask.udphop.localModeHint", {
