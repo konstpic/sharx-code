@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -111,6 +112,40 @@ func TestPullReconcilesNatEvenWhenXrayRuns(t *testing.T) {
 	out := pullAndApplyOnce(srv.URL, "http://127.0.0.1:8082", [32]byte{}, false, mgr, nil, nil, nil)
 	if !out.applied {
 		t.Fatalf("pull outcome applied=false, want true")
+	}
+	if mgr.applied != 0 {
+		t.Fatalf("running Xray config was reapplied (%d time(s)), want 0", mgr.applied)
+	}
+	if rec.count() == 0 {
+		t.Fatal("NAT reconcile was skipped although the envelope carried intents")
+	}
+	if !strings.Contains(strings.Join(rec.snapshot(), "\n"), "--dport 39620:39629") {
+		t.Fatalf("REDIRECT rule missing from runner calls: %v", rec.snapshot())
+	}
+}
+
+// TestTryPullAndApplyReconcilesWhenRunning pins the startup-path regression: the
+// retry gate used to short-circuit before the very first pull, so on a container
+// restart with a local bin/config.json cache (xray already running) the panel was
+// never contacted and the host udphop NAT rules stayed lost. Attempt 0 must always
+// pull exactly once; a live Xray then ends the burst instead of retrying.
+func TestTryPullAndApplyReconcilesWhenRunning(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"inbounds":[]},"udphopNat":[{"fromPortMin":39620,"fromPortMax":39629,"toPort":39615}],"nodeId":110}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	rec := &natRecorder{}
+	withNatRunner(t, rec)
+	mgr := &fakeXray{running: true}
+
+	TryPullAndApply(srv.URL, "http://127.0.0.1:8082", [32]byte{}, mgr, nil, nil, nil)
+
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("panel pull hits = %d, want 1 (attempt 0 must pull even when xray runs)", got)
 	}
 	if mgr.applied != 0 {
 		t.Fatalf("running Xray config was reapplied (%d time(s)), want 0", mgr.applied)

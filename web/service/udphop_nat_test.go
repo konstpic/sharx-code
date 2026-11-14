@@ -2,7 +2,9 @@ package service
 
 import (
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/util/finalmask"
@@ -58,5 +60,60 @@ func TestBuildUDPHopNatIntentsForNodeAlwaysList(t *testing.T) {
 	got = BuildUDPHopNatIntentsForNode([]*model.Inbound{natInbound(true, 1, "vless", "")})
 	if got == nil || len(got) != 0 {
 		t.Fatalf("want non-nil empty slice, got %#v", got)
+	}
+}
+
+// TestNodeNatPushLockSerializes pins the ordering guarantee behind the per-node
+// udphopNat push lock: pushes for the same node never overlap, and the queued
+// pusher reads the state left by the current holder (i.e. the read happens
+// inside the lock, so a late goroutine cannot ship an older full list last).
+func TestNodeNatPushLockSerializes(t *testing.T) {
+	const nodeID = 900001
+	// Stand-in for the DB: the "commit" happens outside the push lock, the read
+	// inside it (as UDPHopNatIntentsForNode does), so the fake store guards itself.
+	var stateMu sync.Mutex
+	state := 1
+	setState := func(v int) { stateMu.Lock(); state = v; stateMu.Unlock() }
+	getState := func() int { stateMu.Lock(); defer stateMu.Unlock(); return state }
+
+	var got []int
+	var gotMu sync.Mutex
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = withNodeNatPushLock(nodeID, func() error {
+			snap := getState()                // list is read at lock entry
+			time.Sleep(50 * time.Millisecond) // hold the lock long enough to queue the next push
+			gotMu.Lock()
+			got = append(got, snap)
+			gotMu.Unlock()
+			return nil
+		})
+	}()
+	time.Sleep(10 * time.Millisecond) // let the first pusher take the lock
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		setState(2) // "DB commit" of the newer change, done while the first push is in flight
+		_ = withNodeNatPushLock(nodeID, func() error {
+			gotMu.Lock()
+			got = append(got, getState()) // queued pusher sees the newer state, never overlaps
+			gotMu.Unlock()
+			return nil
+		})
+	}()
+	wg.Wait()
+
+	if !reflect.DeepEqual(got, []int{1, 2}) {
+		t.Fatalf("push order/observed state = %v, want [1 2]", got)
+	}
+}
+
+func TestWithNodeNatPushLockNilFn(t *testing.T) {
+	if err := withNodeNatPushLock(900002, nil); err != nil {
+		t.Fatalf("nil fn must be a no-op, got %v", err)
 	}
 }

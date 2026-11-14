@@ -2857,7 +2857,9 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 				recordErr(fmt.Errorf("load node %d for inbound removal: %w", nid, err))
 				return
 			}
-			if err := s.RemoveInboundFromNode(node, inbound.Tag, s.UDPHopNatIntentsForNode(node)); err != nil {
+			if err := withNodeNatPushLock(node.Id, func() error {
+				return s.RemoveInboundFromNode(node, inbound.Tag, s.UDPHopNatIntentsForNode(node))
+			}); err != nil {
 				recordErr(fmt.Errorf("remove inbound %s from node %s: %w", inbound.Tag, node.Name, err))
 				return
 			}
@@ -2876,7 +2878,11 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 					recordErr(fmt.Errorf("load node %d for inbound apply: %w", nid, err))
 					return
 				}
-				if err := s.UpdateInboundOnNodeWithFallback(node, inboundJSON, s.UDPHopNatIntentsForNode(node)); err != nil {
+				// The fallback inside also ships a full udphopNat list, so the
+				// whole update+fallback stays under one per-node lock.
+				if err := withNodeNatPushLock(node.Id, func() error {
+					return s.UpdateInboundOnNodeWithFallback(node, inboundJSON, s.UDPHopNatIntentsForNode(node))
+				}); err != nil {
 					recordErr(fmt.Errorf("apply inbound %s to node %s: %w", inbound.Tag, node.Name, err))
 					return
 				}
@@ -3410,6 +3416,37 @@ func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundC
 	return nil
 }
 
+// nodeNatPushMu serializes the "read the current udphopNat list + push it" pair per
+// node. The panel ships FULL intent lists from several independent places (instant
+// update/remove-inbound, their apply-config fallback, reassignment goroutines), and a
+// late goroutine carrying an older list could land last and leave the node with the
+// REDIRECT rules of an already removed inbound forever (the node has no periodic
+// full sync). Reading the list INSIDE the lock makes the last lock holder ship the
+// newest DB state, so the wire order follows the DB commit order.
+// Scope: instant update/remove-inbound, their apply-config fallback and the
+// reassignment goroutines. Plain full apply-config pushes (xray.go, node.go
+// ApplyConfigToNode sweep, telemt_session_sync.go) are still unlocked — they carry
+// the list built at their own call site, which is acceptable because they are not
+// chained with the instant paths per node.
+// Key = node id; value = *sync.Mutex.
+var nodeNatPushMu sync.Map
+
+// withNodeNatPushLock runs fn while holding the node's udphopNat push lock. Callers
+// must compute the intent list inside fn (before the HTTP call), not pass it in.
+func withNodeNatPushLock(nodeID int, fn func() error) error {
+	if fn == nil {
+		return nil
+	}
+	m, _ := nodeNatPushMu.LoadOrStore(nodeID, &sync.Mutex{})
+	mu, ok := m.(*sync.Mutex)
+	if !ok { // defensive: never panic on a poisoned map entry
+		return fn()
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
+}
+
 // UDPHopNatIntentsForNode loads the node's assigned inbounds and derives the
 // desired udphop NAT intents (full set, not a delta — the node reconcile is
 // idempotent). Returns nil when the inbounds cannot be loaded; callers then
@@ -3476,10 +3513,14 @@ func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte
 	}
 	defer resp.Body.Close()
 
+	// The node answers 200 even when it could not reconcile its udphop NAT chain
+	// (e.g. missing CAP_NET_ADMIN) — it reports that in udphopNatErrors, so the
+	// body has to be read on success too, not only on errors.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
+	warnInstantUDPHopNatErrors(node, "update-inbound "+tag, body)
 
 	logger.Infof("[Node: %s] Inbound %s updated successfully via API (instant)", node.Name, tag)
 	return nil
@@ -3524,13 +3565,32 @@ func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string, udphop
 	}
 	defer resp.Body.Close()
 
+	// See UpdateInboundOnNode: udphopNatErrors rides a 200 response.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
+	warnInstantUDPHopNatErrors(node, "remove-inbound "+tag, body)
 
 	logger.Infof("[Node: %s] Inbound %s removed successfully via API (instant)", node.Name, tag)
 	return nil
+}
+
+// warnInstantUDPHopNatErrors logs a node-side udphop NAT reconcile failure carried
+// by the instant inbound endpoints (update-inbound/remove-inbound). Non-fatal: the
+// inbound change itself succeeded, only the host REDIRECT chain is stale.
+func warnInstantUDPHopNatErrors(node *model.Node, action string, body []byte) {
+	if len(body) == 0 || node == nil {
+		return
+	}
+	var resp struct {
+		UdphopNatErrors []string `json:"udphopNatErrors,omitempty"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || len(resp.UdphopNatErrors) == 0 {
+		return
+	}
+	logger.Warningf("[Node: %s] %s ok, but udphop NAT reconcile reported: %s",
+		node.Name, action, strings.Join(resp.UdphopNatErrors, "; "))
 }
 
 // getPanelURL constructs the panel URL from settings.

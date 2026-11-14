@@ -978,8 +978,13 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		// after the commit instead of before it).
 		for _, node := range delFromNodes {
 			go func(n *model.Node) {
-				if rmErr := delNodeService.RemoveInboundFromNode(n, tag, delNodeService.UDPHopNatIntentsForNode(n)); rmErr != nil {
-					logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, rmErr)
+				// Read-before-send under the per-node lock: concurrent pushes of other
+				// inbounds must not let this older-state goroutine land last.
+				natErr := withNodeNatPushLock(n.Id, func() error {
+					return delNodeService.RemoveInboundFromNode(n, tag, delNodeService.UDPHopNatIntentsForNode(n))
+				})
+				if natErr != nil {
+					logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, natErr)
 				} else {
 					logger.Infof("DelInbound: removed inbound %s from node %s via API (instant)", tag, n.Name)
 				}
@@ -1273,7 +1278,10 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		if len(nodesForFastPush) > 0 && inboundJSONFast != nil {
 			nodeService := NodeService{}
 			for _, node := range nodesForFastPush {
-				if pushErr := nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast, nodeService.UDPHopNatIntentsForNode(node)); pushErr != nil {
+				pushErr := withNodeNatPushLock(node.Id, func() error {
+					return nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast, nodeService.UDPHopNatIntentsForNode(node))
+				})
+				if pushErr != nil {
 					logger.Warningf("Failed to update inbound %s on node %s via API: %v", tag, node.Name, pushErr)
 					needRestart = true
 				} else {
