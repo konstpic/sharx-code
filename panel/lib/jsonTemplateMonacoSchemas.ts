@@ -114,7 +114,8 @@ export function getJsonTemplateMonacoSchemaBundle(
         properties: {
           tcp: {
             type: "array",
-            description: "TCP-side masks: fragment, sudoku, xmc, header-custom",
+            description:
+              "TCP-side masks. Only fragment is applied from this slot (client-transparent); other types must be set on the inbound.",
             items: {
               type: "object",
               required: ["type"],
@@ -127,7 +128,8 @@ export function getJsonTemplateMonacoSchemaBundle(
           },
           udp: {
             type: "array",
-            description: "UDP-side masks: salamander, udphop, sudoku, realm, header-custom, …",
+            description:
+              "UDP-side masks. Only udphop is applied from this slot (client-only); other types must be set on the inbound.",
             items: {
               type: "object",
               required: ["type"],
@@ -138,7 +140,11 @@ export function getJsonTemplateMonacoSchemaBundle(
               },
             },
           },
-          quicParams: { type: "object", additionalProperties: true },
+          quicParams: {
+            type: "object",
+            additionalProperties: true,
+            description: "Applied from this slot only to xhttp subscriptions with ALPN h3.",
+          },
         },
       },
     },

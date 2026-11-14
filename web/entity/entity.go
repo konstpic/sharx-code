@@ -82,6 +82,7 @@ type AllSetting struct {
 	SubJsonNoises               string `json:"subJsonNoises" form:"subJsonNoises"`                             // JSON subscription noise configuration
 	SubJsonMux                  string `json:"subJsonMux" form:"subJsonMux"`                                   // JSON subscription mux configuration
 	SubJsonRules                string `json:"subJsonRules" form:"subJsonRules"`                               // JSON subscription rules configuration
+	SubJsonFinalMask            string `json:"subJsonFinalMask" form:"subJsonFinalMask"`                       // JSON subscription default finalmask object (legacy flat key of jsonTemplates.finalMask)
 	SubHeaders                  string `json:"subHeaders" form:"subHeaders"`                                   // JSON string containing subscription headers configuration
 	SubProviderID               string `json:"subProviderID" form:"subProviderID"`                             // Provider ID for Happ extended headers (required for new-url, new-domain, etc.)
 	SubProviderIDMethod         string `json:"subProviderIDMethod" form:"subProviderIDMethod"`                 // Method to send Provider ID: "url" (query parameter), "header" (HTTP header), "none" (disabled)

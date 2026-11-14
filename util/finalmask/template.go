@@ -13,6 +13,122 @@ import (
 // The merge runs on the client side of the tunnel (the JSON subscription is a
 // client config), so it keeps client-only masks such as udphop: ServerView is
 // deliberately NOT applied here.
+//
+// Policy: only client-transparent masks may be filled from the slot (see
+// templateSlotMasks). Payload-transforming masks must match on the server, and
+// the slot is applied exactly to inbounds whose server side has no mask, so
+// shipping those types from the slot would produce a silently dead
+// subscription (probe: kcp server without masks + client udp salamander accepts
+// the SOCKS connection and returns nothing until timeout).
+
+// templateSlotMasks lists the finalmask types the subscription slot may fill,
+// per side. They are transparent for the peer:
+//   - tcp fragment: the kernel only splits writes into TCP segments, the byte
+//     stream (and therefore the TLS/REALITY handshake) is unchanged;
+//   - udp udphop: client-only (the kernel refuses to wrap the server side), the
+//     peer sees plain UDP from varying source ports.
+//
+// Everything else (salamander, sudoku, xmc, header-custom, noise, realm, …)
+// changes bytes on the wire and needs the same mask on the server side, which
+// the slot cannot guarantee, so it is dropped from the slot.
+var templateSlotMasks = map[string]map[string]struct{}{
+	"tcp": {"fragment": {}},
+	"udp": {"udphop": {}},
+}
+
+// TemplateSlotView returns the part of the slot object that may be applied to a
+// client stream, plus the names of the dropped entries for the operator log.
+// quicParams are kept only on the xhttp QUIC path (StreamUsesQUIC): there they
+// tune the local QUIC stack and a probe against a server without quicParams
+// served traffic normally, while on hysteria/hysteria2 they are symmetric
+// connection knobs the operator must set on the inbound itself.
+func TemplateSlotView(template, stream map[string]any) (map[string]any, []string) {
+	if !HasContent(template) {
+		return nil, nil
+	}
+	var out map[string]any
+	var dropped []string
+	ensure := func() map[string]any {
+		if out == nil {
+			out = map[string]any{}
+		}
+		return out
+	}
+	for _, side := range []string{"tcp", "udp"} {
+		arr, ok := template[side].([]any)
+		if !ok || len(arr) == 0 {
+			continue
+		}
+		kept := make([]any, 0, len(arr))
+		for _, item := range arr {
+			el, ok := item.(map[string]any)
+			if !ok {
+				dropped = append(dropped, "unknown")
+				continue
+			}
+			typ := strings.ToLower(strings.TrimSpace(strValue(el["type"])))
+			if _, ok := templateSlotMasks[side][typ]; !ok {
+				dropped = append(dropped, typ)
+				continue
+			}
+			if cp, ok := deepCopyValue(el); ok {
+				kept = append(kept, cp)
+			}
+		}
+		if len(kept) > 0 {
+			ensure()[side] = kept
+		}
+	}
+	if qp, ok := template["quicParams"].(map[string]any); ok && len(qp) > 0 {
+		if StreamUsesQUIC(stream) {
+			if cp, ok := deepCopyMap(qp); ok {
+				ensure()["quicParams"] = cp
+			}
+		} else {
+			dropped = append(dropped, "quicParams")
+		}
+	}
+	if !HasContent(out) {
+		return nil, dropped
+	}
+	return out, dropped
+}
+
+// SlotUnappliedTypes lists the slot mask types that are never applied from the
+// "default masks" slot regardless of the inbound transport (payload-transforming
+// types and unknown entries). Used at settings-save time to warn the operator
+// that such types must be configured on the inbound instead.
+func SlotUnappliedTypes(fm map[string]any) []string {
+	if fm == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, side := range []string{"tcp", "udp"} {
+		arr, ok := fm[side].([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range arr {
+			el, ok := item.(map[string]any)
+			typ := "unknown"
+			if ok {
+				if t := strings.ToLower(strings.TrimSpace(strValue(el["type"]))); t != "" {
+					typ = t
+				}
+			}
+			if _, ok := templateSlotMasks[side][typ]; ok {
+				continue
+			}
+			if _, dup := seen[typ]; dup {
+				continue
+			}
+			seen[typ] = struct{}{}
+			out = append(out, typ)
+		}
+	}
+	return out
+}
 
 // MergeTemplate overlays the subscription template masks under the inbound's
 // own finalmask. Rules:
@@ -80,7 +196,8 @@ func WithoutForbiddenSides(protocol string, stream map[string]any, fm map[string
 	if !ok {
 		// Fail safe: a mask set that cannot be copied cannot be checked either,
 		// so drop it instead of shipping a side the subscription cannot carry.
-		return nil, []string{"all"}
+		// "*" tells the caller the whole finalmask went away.
+		return nil, []string{"*"}
 	}
 	var dropped []string
 	for _, is := range issues {

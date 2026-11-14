@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -85,9 +87,16 @@ func ApplyFinalmaskOnSave(inbound *model.Inbound) error {
 		// the first handshake into a process-wide panic (XTLS/Xray-core#6453).
 		// Checked after the transport gate so the operator sees the transport
 		// mismatch first when both apply. udp[] and quicParams-only stay allowed.
+		// The issue code is embedded in the message so API clients (and the UI
+		// toast) can match reality_tcp_forbidden instead of parsing prose.
 		security, _ := normalized["security"].(string)
 		if err := finalmask.ValidateRealityCombination(security, fm); err != nil {
-			return common.NewError("invalid finalmask:", "streamSettings.finalmask.tcp: "+err.Error())
+			msg := "streamSettings.finalmask.tcp: " + err.Error()
+			var realityErr *finalmask.RealityCombinationError
+			if errors.As(err, &realityErr) && realityErr.Code != "" {
+				msg = fmt.Sprintf("streamSettings.finalmask.tcp (%s): %s", realityErr.Code, realityErr.Message)
+			}
+			return common.NewError("invalid finalmask:", msg)
 		}
 	}
 

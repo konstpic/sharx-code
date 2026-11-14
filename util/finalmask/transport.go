@@ -242,20 +242,24 @@ func (e *RealityCombinationError) Error() string { return e.Message }
 
 // ValidateRealityCombination rejects TCP-side masks on a REALITY stream.
 //
-// Facts this rule is pinned to (Xray 26.10.31, live probes 14.11, see
-// XTLS/Xray-core#6453):
-//   - the REALITY server wraps the accepted TCP connection and asserts
-//     reality.CloseWriteConn on it (reality/tls.go:187); a tcp[] mask replaces
-//     that conn with a wrapper (fragmentConn implements no CloseWrite), so the
-//     assertion panics and takes the whole xray process down on the first
-//     incoming connection;
-//   - reproduced with network=tcp + security=reality + tcp[] fragment: the
-//     config passes `xray -test`, the first client triggers
+// Facts this rule is pinned to (see XTLS/Xray-core#6453):
+//   - the REALITY handshake asserts that the accepted connection implements
+//     CloseWriteConn: github.com/xtls/reality `raw.(CloseWriteConn)` runs on the
+//     connection handed to reality.Server (the interface and the assertion live
+//     in the reality module's tls.go, which the pinned core pulls in through
+//     `github.com/xtls/reality v0.0.0-20260908062103`; the 26.10.31 probe binary
+//     uses a newer reality build with the same assertion);
+//   - live probe, Xray 26.10.31 (sha256 cc4b84d3…, binary /tmp/xray-261031):
+//     network=tcp + security=reality + tcp[] fragment passes `xray -test`, then
+//     the first incoming connection logs
 //     "panic: interface conversion: *fragment.fragmentConn is not
-//     reality.CloseWriteConn" and the process dies; the same mask on the client
-//     (outbound) side works, and a udp[]-only or quicParams-only finalmask on a
-//     REALITY inbound serves traffic normally (the TCP transport never wraps
-//     those layers).
+//     reality.CloseWriteConn: missing method CloseWrite" and the whole process
+//     exits (remotely triggerable DoS, reproduced with matched and unmatched
+//     client configs);
+//   - the same tcp[] fragment on the client (outbound) side against a mask-free
+//     REALITY inbound serves traffic normally (curl 200, no panic), and a
+//     udp[]-only or quicParams-only finalmask on a REALITY inbound also serves
+//     traffic normally (the TCP transport never wraps those layers).
 //
 // Hence only tcp[] is rejected: udp[] and quicParams remain allowed.
 func ValidateRealityCombination(security string, fm map[string]any) error {
@@ -291,6 +295,14 @@ func maskTypeNames(arr []any) []string {
 		return []string{"unknown"}
 	}
 	return out
+}
+
+// StreamUsesQUIC reports whether the streamSettings select the QUIC transport
+// path of xhttp (network xhttp with ALPN exactly ["h3"], see alpnIsH3). On that
+// path finalmask and quicParams are applied by the UDP/QUIC dialer, which is
+// why the JSON-subscription defaults may ship quicParams there.
+func StreamUsesQUIC(stream map[string]any) bool {
+	return StreamNetwork(stream) == "xhttp" && alpnIsH3(StreamALPN(stream))
 }
 
 // ValidateTransportCompatibility checks that the finalmask sides match the

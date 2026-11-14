@@ -30,6 +30,11 @@ func TestApplyFinalmaskOnSaveRejectsTCPMaskWithReality(t *testing.T) {
 	if !strings.Contains(err.Error(), "REALITY") || !strings.Contains(err.Error(), "XTLS/Xray-core#6453") {
 		t.Fatalf("unexpected error message: %v", err)
 	}
+	// The issue code travels in the API message so the UI/client can match the
+	// finalmask.error.reality_tcp_forbidden translation instead of the prose.
+	if !strings.Contains(err.Error(), "reality_tcp_forbidden") {
+		t.Fatalf("error must carry the issue code: %v", err)
+	}
 }
 
 // A udp[] mask is harmless next to REALITY (the TCP transport never wraps it),
