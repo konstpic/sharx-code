@@ -52,12 +52,15 @@ var pullNatRunner udphopnat.Runner
 // required to reconcile the host udphop NAT rules the cache knows nothing about.
 // Retries with backoff on transient errors; clears stale nodeId and retries by address after HTTP 401.
 func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApplier, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
+	if mgr == nil {
+		return
+	}
 	for attempt, delay := range startupPullDelays {
 		if attempt > 0 {
 			// Retries are pointless once Xray runs: pullAndApplyOnce on a live Xray
 			// only reconciles NAT and reports applied=true, but a running process
 			// means the startup burst already had its chance.
-			if mgr != nil && mgr.IsRunning() {
+			if mgr.IsRunning() {
 				return
 			}
 			time.Sleep(delay)
@@ -77,7 +80,7 @@ func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApp
 				return
 			}
 		}
-		if mgr != nil && mgr.IsRunning() {
+		if mgr.IsRunning() {
 			// Xray came up while we were pulling (another goroutine/watchdog):
 			// stop burning the remaining backoff slots.
 			return
@@ -89,10 +92,11 @@ func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApp
 	}
 }
 
-// StartBackgroundPull retries pull-xray-config until Xray is running or the worker stops trying.
-// The pull runs BEFORE the IsRunning gate on purpose: a live Xray started from the local cache
-// still needs one reconcile pass for the host udphop NAT rules, and pullAndApplyOnce returns
-// immediately in that case — so the loop exits after the first tick instead of idling 30 minutes.
+// StartBackgroundPull retries pull-xray-config while Xray is not running.
+// It exists only for the case "Xray never came up" (no local cache, cold start):
+// the startup pull — including the NAT reconcile on a live cached Xray — is done
+// synchronously by main before this is called, so a running Xray means there is
+// nothing left for this loop to do and it returns immediately.
 func StartBackgroundPull(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApplier, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
 	panelURL = strings.TrimSpace(panelURL)
 	nodeAddress = strings.TrimSpace(nodeAddress)
@@ -100,6 +104,9 @@ func StartBackgroundPull(panelURL, nodeAddress string, hmacKey [32]byte, mgr xra
 		return
 	}
 	go func() {
+		if mgr.IsRunning() {
+			return
+		}
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		const maxTicks = 30 // ~30 minutes
@@ -107,6 +114,7 @@ func StartBackgroundPull(panelURL, nodeAddress string, hmacKey [32]byte, mgr xra
 			<-ticker.C
 			TryPullAndApply(panelURL, nodeAddress, hmacKey, mgr, telemtMgr, awgMgr, telemtWebMgr)
 			if mgr.IsRunning() {
+				// Xray is up now: later ticks would only re-pull the same config.
 				return
 			}
 			logger.Infof("Config pull: background retry (%d/%d), xray not running", i+1, maxTicks)

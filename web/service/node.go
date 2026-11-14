@@ -3111,22 +3111,18 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 	}
 
 	var applyResp struct {
-		AppliedAt         int64    `json:"appliedAt"`
-		ConfigSha256      string   `json:"configSha256"`
-		CoreProfileHash   string   `json:"coreProfileHash,omitempty"`
-		ConfigSha256Match *bool    `json:"configSha256Match,omitempty"`
-		XrayVersion       string   `json:"xrayVersion"`
-		XrayRunning       bool     `json:"xrayRunning"`
-		Message           string   `json:"message"`
-		UdphopNatErrors   []string `json:"udphopNatErrors,omitempty"`
+		AppliedAt         int64  `json:"appliedAt"`
+		ConfigSha256      string `json:"configSha256"`
+		CoreProfileHash   string `json:"coreProfileHash,omitempty"`
+		ConfigSha256Match *bool  `json:"configSha256Match,omitempty"`
+		XrayVersion       string `json:"xrayVersion"`
+		XrayRunning       bool   `json:"xrayRunning"`
+		Message           string `json:"message"`
 	}
 	parseOK := json.Unmarshal(respBody, &applyResp) == nil
-	if parseOK && len(applyResp.UdphopNatErrors) > 0 {
-		// The node applied the config but could not reconcile its udphop NAT
-		// chain (e.g. missing CAP_NET_ADMIN): surfaced, never fatal for xray.
-		logger.Warningf("[Node: %s] apply-config ok, but udphop NAT reconcile reported: %s",
-			node.Name, strings.Join(applyResp.UdphopNatErrors, "; "))
-	}
+	// The node applied the config but could not reconcile its udphop NAT chain
+	// (e.g. missing CAP_NET_ADMIN): surfaced, never fatal for xray.
+	logUDPHopNatErrors(node, "apply-config", parseUDPHopNatErrors(respBody))
 	if parseOK && (applyResp.AppliedAt != 0 || applyResp.ConfigSha256 != "") {
 		var matchStr string
 		if applyResp.ConfigSha256Match != nil {
@@ -3417,17 +3413,19 @@ func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundC
 }
 
 // nodeNatPushMu serializes the "read the current udphopNat list + push it" pair per
-// node. The panel ships FULL intent lists from several independent places (instant
-// update/remove-inbound, their apply-config fallback, reassignment goroutines), and a
-// late goroutine carrying an older list could land last and leave the node with the
-// REDIRECT rules of an already removed inbound forever (the node has no periodic
-// full sync). Reading the list INSIDE the lock makes the last lock holder ship the
-// newest DB state, so the wire order follows the DB commit order.
-// Scope: instant update/remove-inbound, their apply-config fallback and the
-// reassignment goroutines. Plain full apply-config pushes (xray.go, node.go
-// ApplyConfigToNode sweep, telemt_session_sync.go) are still unlocked — they carry
-// the list built at their own call site, which is acceptable because they are not
-// chained with the instant paths per node.
+// node for the INSTANT inbound paths. The panel ships FULL intent lists from several
+// independent places, and a late goroutine carrying an older list could land last
+// and leave the node with the REDIRECT rules of an already removed inbound forever
+// (the node has no periodic full sync). Reading the list INSIDE the lock makes the
+// last lock holder ship the newest DB state, so on these paths the wire order
+// follows the DB commit order.
+// Scope guarantee: instant update/remove-inbound, their apply-config fallback and the
+// reassignment goroutines are serialized. The plain full apply-config pushes
+// (xray.go:983, node.go:1186 sweep, telemt_session_sync.go:71) are NOT under this
+// lock: they carry the list built at their own call site, so a theoretical inversion
+// with an instant push is still possible within their (sub-second) build+send window.
+// Closing that fully requires routing every apply-config sender through the same
+// lock — deliberately out of scope for this change.
 // Key = node id; value = *sync.Mutex.
 var nodeNatPushMu sync.Map
 
@@ -3516,11 +3514,16 @@ func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte
 	// The node answers 200 even when it could not reconcile its udphop NAT chain
 	// (e.g. missing CAP_NET_ADMIN) — it reports that in udphopNatErrors, so the
 	// body has to be read on success too, not only on errors.
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
-	warnInstantUDPHopNatErrors(node, "update-inbound "+tag, body)
+	if readErr != nil {
+		// A truncated body would silently drop udphopNatErrors: say so instead.
+		logger.Warningf("[Node: %s] update-inbound %s: read response body: %v (udphop NAT status unknown)",
+			node.Name, tag, readErr)
+	}
+	logUDPHopNatErrors(node, "update-inbound "+tag, parseUDPHopNatErrors(body))
 
 	logger.Infof("[Node: %s] Inbound %s updated successfully via API (instant)", node.Name, tag)
 	return nil
@@ -3566,31 +3569,48 @@ func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string, udphop
 	defer resp.Body.Close()
 
 	// See UpdateInboundOnNode: udphopNatErrors rides a 200 response.
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(body))
 	}
-	warnInstantUDPHopNatErrors(node, "remove-inbound "+tag, body)
+	if readErr != nil {
+		logger.Warningf("[Node: %s] remove-inbound %s: read response body: %v (udphop NAT status unknown)",
+			node.Name, tag, readErr)
+	}
+	logUDPHopNatErrors(node, "remove-inbound "+tag, parseUDPHopNatErrors(body))
 
 	logger.Infof("[Node: %s] Inbound %s removed successfully via API (instant)", node.Name, tag)
 	return nil
 }
 
-// warnInstantUDPHopNatErrors logs a node-side udphop NAT reconcile failure carried
-// by the instant inbound endpoints (update-inbound/remove-inbound). Non-fatal: the
-// inbound change itself succeeded, only the host REDIRECT chain is stale.
-func warnInstantUDPHopNatErrors(node *model.Node, action string, body []byte) {
-	if len(body) == 0 || node == nil {
-		return
+// udphopNatErrorsPayload is the node-side envelope field that reports NAT
+// reconcile failures; it rides 200 responses of both apply-config and the
+// instant inbound endpoints (a failed reconcile is never fatal for xray).
+type udphopNatErrorsPayload struct {
+	UdphopNatErrors []string `json:"udphopNatErrors,omitempty"`
+}
+
+// parseUDPHopNatErrors extracts the node-reported udphop NAT reconcile errors
+// from a node response body. Unparseable bodies yield nil (nothing to report).
+func parseUDPHopNatErrors(body []byte) []string {
+	if len(body) == 0 {
+		return nil
 	}
-	var resp struct {
-		UdphopNatErrors []string `json:"udphopNatErrors,omitempty"`
+	var p udphopNatErrorsPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil
 	}
-	if err := json.Unmarshal(body, &resp); err != nil || len(resp.UdphopNatErrors) == 0 {
+	return p.UdphopNatErrors
+}
+
+// logUDPHopNatErrors logs a node-side udphop NAT reconcile failure: the inbound
+// or config change itself succeeded, only the host REDIRECT chain is stale.
+func logUDPHopNatErrors(node *model.Node, action string, errs []string) {
+	if node == nil || len(errs) == 0 {
 		return
 	}
 	logger.Warningf("[Node: %s] %s ok, but udphop NAT reconcile reported: %s",
-		node.Name, action, strings.Join(resp.UdphopNatErrors, "; "))
+		node.Name, action, strings.Join(errs, "; "))
 }
 
 // getPanelURL constructs the panel URL from settings.
