@@ -71,9 +71,9 @@ const FIELDS: FieldMeta[] = [
     labelDefault: "Default masks",
     hintKey: "subBuilder.jsonTemplates.finalMaskHint",
     hintDefault:
-      "streamSettings.finalmask applied to JSON-subscription outbounds when the inbound does not define that side. Inbound masks win; sides the inbound transport cannot carry are dropped.",
+      "Client-transparent masks only: tcp fragment and udp udphop. Payload-transforming masks (salamander, sudoku, xmc, header-custom, noise…) must be set on the inbound and are ignored here. quicParams apply only to xhttp subscriptions with ALPN h3.",
     placeholder:
-      '{ "tcp": [{ "type": "fragment", "settings": { "packets": "tlshello", "lengths": ["100-200"], "delays": ["1-2"] } }], "quicParams": { "congestion": "bbr" } }',
+      '{ "tcp": [{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"],"delays":["1-2"]}}], "udp": [{"type":"udphop","settings":{"mode":"intervallocal","interval":"10-20"}}] }',
   },
 ];
 
