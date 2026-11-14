@@ -117,3 +117,21 @@ func TestWithNodeNatPushLockNilFn(t *testing.T) {
 		t.Fatalf("nil fn must be a no-op, got %v", err)
 	}
 }
+
+func TestBuildUDPHopNatIntentsForNodeHysteriaMultiPort(t *testing.T) {
+	const hy2Stream = `{"network":"hysteria","security":"tls","hysteriaMultiPort":"39640-39649"}`
+	ibs := []*model.Inbound{
+		natInbound(true, 443, "hysteria2", hy2Stream),
+		// empty range: no intent, but the always-list contract still holds
+		natInbound(true, 8443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":""}`),
+		// the key on a non-hysteria protocol is ignored
+		natInbound(true, 9443, "vless", `{"network":"kcp","hysteriaMultiPort":"30000-30100"}`),
+		// disabled inbound: skipped even though it carries a valid range
+		natInbound(false, 4430, "hysteria2", hy2Stream),
+	}
+	want := []finalmask.UDPHopNatIntent{{FromPortMin: 39640, FromPortMax: 39649, ToPort: 443}}
+	got := BuildUDPHopNatIntentsForNode(ibs)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("intents = %v, want %v", got, want)
+	}
+}

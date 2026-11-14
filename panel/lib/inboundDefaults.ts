@@ -1093,6 +1093,14 @@ export type StreamFormState = {
   hysteriaObfsType: "" | "salamander";
   hysteriaObfsPassword: string;
   /**
+   * hysteria2 client port-hopping range ("min-max"). Panel-only
+   * `streamSettings.hysteriaMultiPort`: it is never shipped to Xray (the node
+   * redirects the whole range onto the single inbound port) and is delivered to
+   * clients inside the hysteria2:// authority.
+   */
+  hysteriaMultiPortMin: string;
+  hysteriaMultiPortMax: string;
+  /**
    * `streamSettings.finalmask` (transport masquerade layers). Kept as a
    * structural state so that it survives the JSON round-trip for every
    * protocol; `settings` stays a raw JSON object (lossless for advanced keys).
@@ -1216,6 +1224,8 @@ export function defaultStreamForm(): StreamFormState {
     hysteriaUdpIdleTimeout: 60,
     hysteriaObfsType: "",
     hysteriaObfsPassword: "",
+    hysteriaMultiPortMin: "",
+    hysteriaMultiPortMax: "",
     ...emptyFinalmaskState(),
     tlsMaxVersion: "",
     tlsRejectUnknownSni: false,
@@ -1259,6 +1269,8 @@ export function defaultStreamFormHysteria(): StreamFormState {
     hysteriaUdpIdleTimeout: 60,
     hysteriaObfsType: "",
     hysteriaObfsPassword: "",
+    hysteriaMultiPortMin: "",
+    hysteriaMultiPortMax: "",
   };
 }
 
@@ -1348,6 +1360,13 @@ function parseHysteriaTlsFormFields(
     }
   }
   if (typeof root.masquerade === "string") base.hysteria2Masquerade = root.masquerade;
+  if (typeof root.hysteriaMultiPort === "string") {
+    const m = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(root.hysteriaMultiPort);
+    if (m) {
+      base.hysteriaMultiPortMin = m[1];
+      base.hysteriaMultiPortMax = m[2];
+    }
+  }
   // Keep every other mask / custom quicParams lossless (salamander is shared
   // with the legacy obfuscation selector above).
   const fmState = parseFinalmask(root);
@@ -1473,6 +1492,11 @@ function buildHysteriaStreamSettingsFromForm(
   if (version === 2) {
     const masquerade = state.hysteria2Masquerade.trim();
     if (masquerade) out.masquerade = masquerade;
+    const multiPortMin = state.hysteriaMultiPortMin.trim();
+    const multiPortMax = state.hysteriaMultiPortMax.trim();
+    if (multiPortMin && multiPortMax) {
+      out.hysteriaMultiPort = `${multiPortMin}-${multiPortMax}`;
+    }
   }
   return JSON.stringify(out);
 }

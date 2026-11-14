@@ -46,9 +46,17 @@ func tlsAllowInsecureFromSettings(tlsSetting map[string]any) bool {
 
 // buildCredentialShareURL builds scheme://auth@host:port with proper userinfo escaping.
 func buildCredentialShareURL(scheme, auth, host string, port int) *url.URL {
+	return buildCredentialShareURLAuthority(scheme, auth, host, strconv.Itoa(port))
+}
+
+// buildCredentialShareURLAuthority is buildCredentialShareURL with a raw
+// authority port. Hysteria2 puts its multi-port range ("39640-39649") into the
+// authority itself (official URI scheme: hostname[:port] with the Port Hopping
+// syntax), so the port is not always a plain integer.
+func buildCredentialShareURLAuthority(scheme, auth, host, authorityPort string) *url.URL {
 	u := &url.URL{
 		Scheme: scheme,
-		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
+		Host:   net.JoinHostPort(host, authorityPort),
 	}
 	if auth != "" {
 		u.User = url.User(auth)

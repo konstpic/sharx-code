@@ -12,6 +12,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/finalmask"
+	"github.com/konstpic/sharx-code/v2/util/hysteria"
 	"github.com/konstpic/sharx-code/v2/util/json_util"
 	"github.com/konstpic/sharx-code/v2/util/random"
 	"github.com/konstpic/sharx-code/v2/web/service"
@@ -207,6 +208,11 @@ func (s *SubJsonService) GetJson(subId string, host string, c *gin.Context) (str
 func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, host string, warned map[int]struct{}) []json_util.RawMessage {
 	var newJsonArray []json_util.RawMessage
 	stream := s.streamData(inbound.StreamSettings)
+	// Panel-only key: the hysteria2 multi-port range is carried by the share
+	// link (authority "host:min-max"). Xray's outbound has a single integer
+	// port and the JSON subscription is an Xray config, so the key is dropped
+	// instead of leaking an unknown field into the client config.
+	delete(stream, hysteria.MultiPortKey)
 	// The inbound's own (already normalized) mask set is the base for every
 	// external proxy. The default masks slot is layered on inside the loop,
 	// because forceTls can change the effective transport (security/ALPN) and

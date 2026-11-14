@@ -226,3 +226,88 @@ func TestUDPHopNatIntentValid(t *testing.T) {
 		}
 	}
 }
+
+func hy2MultiPortStream(rangeValue string) map[string]any {
+	return map[string]any{
+		"network":           "hysteria",
+		"hysteriaMultiPort": rangeValue,
+	}
+}
+
+func TestUDPHopNatIntentsForStreamHysteriaMultiPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol string
+		stream   map[string]any
+		port     int
+		want     []UDPHopNatIntent
+	}{
+		{
+			name:     "hysteria2 range",
+			protocol: "hysteria2",
+			stream:   hy2MultiPortStream("39640-39649"),
+			port:     443,
+			want:     []UDPHopNatIntent{{FromPortMin: 39640, FromPortMax: 39649, ToPort: 443}},
+		},
+		{
+			name:     "hysteria v2 stored under legacy protocol id",
+			protocol: "hysteria",
+			stream:   hy2MultiPortStream("39640-39649"),
+			port:     8443,
+			want:     []UDPHopNatIntent{{FromPortMin: 39640, FromPortMax: 39649, ToPort: 8443}},
+		},
+		{
+			name:     "empty range",
+			protocol: "hysteria2",
+			stream:   hy2MultiPortStream(""),
+			port:     443,
+			want:     nil,
+		},
+		{
+			name:     "invalid range token",
+			protocol: "hysteria2",
+			stream:   hy2MultiPortStream("39649-39640"),
+			port:     443,
+			want:     nil,
+		},
+		{
+			name:     "non-hysteria protocol ignores the key",
+			protocol: "vless",
+			stream:   map[string]any{"network": "kcp", "hysteriaMultiPort": "39640-39649"},
+			port:     443,
+			want:     nil,
+		},
+		{
+			name:     "invalid listener port",
+			protocol: "hysteria2",
+			stream:   hy2MultiPortStream("39640-39649"),
+			port:     0,
+			want:     nil,
+		},
+		{
+			name:     "range plus udphop dedupes overlap",
+			protocol: "hysteria2",
+			stream: map[string]any{
+				"network":           "hysteria",
+				"hysteriaMultiPort": "39640-39649",
+				"finalmask": map[string]any{"udp": []any{map[string]any{
+					"type":     "udphop",
+					"settings": map[string]any{"mode": "intervalremote", "remotePorts": "39640-39649,40000"},
+				}}},
+			},
+			port: 443,
+			want: []UDPHopNatIntent{
+				{FromPortMin: 39640, FromPortMax: 39649, ToPort: 443},
+				{FromPortMin: 40000, FromPortMax: 40000, ToPort: 443},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := UDPHopNatIntentsForStream(tt.protocol, tt.stream, tt.port)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("intents = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

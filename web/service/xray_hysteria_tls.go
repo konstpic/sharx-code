@@ -8,6 +8,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/util/finalmask"
+	"github.com/konstpic/sharx-code/v2/util/hysteria"
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
@@ -222,6 +223,9 @@ func BuildInboundXrayConfig(inbound *model.Inbound, defaultCertFile, defaultKeyF
 	if len(ib.StreamSettings) > 0 {
 		var stream map[string]any
 		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err == nil {
+			// Panel-only key: the hysteria2 multi-port range is consumed by the
+			// panel (share link) and the node NAT rules, never by Xray.
+			delete(stream, hysteria.MultiPortKey)
 			if model.IsHysteria(ib.Protocol) {
 				patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
 			}

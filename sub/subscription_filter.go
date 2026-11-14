@@ -2,6 +2,7 @@ package sub
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -142,17 +143,36 @@ func rewriteHysteriaLinkForINCY(link string) string {
 	}
 	u, err := url.Parse(trimmed)
 	if err != nil || u == nil {
+		// A hysteria2 multi-port authority is not a valid net/url port: parse a
+		// collapsed copy and put the original range back before returning.
+		if mp, ok := hysteriaMultiPortAuthority(trimmed); ok {
+			parseable := replaceHysteriaAuthorityPort(trimmed, strconv.Itoa(mp.Min))
+			if pu, perr := url.Parse(parseable); perr == nil && pu != nil {
+				if rewritten := rewriteINCYPinQuery(pu); rewritten != nil {
+					return replaceHysteriaAuthorityPort(rewritten.String(), mp.String())
+				}
+			}
+		}
 		return link
 	}
+	if rewritten := rewriteINCYPinQuery(u); rewritten != nil {
+		return rewritten.String()
+	}
+	return link
+}
+
+// rewriteINCYPinQuery drops the pin query keys and adds insecure=1. It returns
+// nil when the link had no pin (nothing to rewrite).
+func rewriteINCYPinQuery(u *url.URL) *url.URL {
 	q := u.Query()
 	if strings.TrimSpace(q.Get("pinSHA256")) == "" && strings.TrimSpace(q.Get("pcs")) == "" {
-		return link
+		return nil
 	}
 	q.Del("pinSHA256")
 	q.Del("pcs")
 	q.Set("insecure", "1")
 	u.RawQuery = q.Encode()
-	return u.String()
+	return u
 }
 
 // filterSubscriptionLinksForClient drops or normalizes entries the target client cannot use.

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/konstpic/sharx-code/v2/util/hysteria"
 )
 
 // This file derives host-level NAT intents from the udphop mask. The kernel
@@ -119,6 +121,9 @@ func parsePortToken(tok string) (min, max int, ok bool) {
 // stored streamSettings map (the raw database row, not the server view: the
 // udphop mask is stripped from the Xray config by ServerView because the
 // kernel is client-only there, but the intents must still be derived from it).
+// Two sources are read: the client-only udphop mask (remote modes) and the
+// hysteria2 panel key streamSettings.hysteriaMultiPort, which is likewise
+// stripped from the Xray config but needs the same REDIRECT rules.
 // Inbounds whose transport has no UDP side (SidesFor) carry no server-visible
 // hopping, so they produce no intents. The result is sorted by
 // (FromPortMin, FromPortMax, ToPort) and free of duplicates.
@@ -126,19 +131,28 @@ func UDPHopNatIntentsForStream(protocol string, stream map[string]any, inboundPo
 	if !validPort(inboundPort) || stream == nil {
 		return nil
 	}
-	fm, ok := stream["finalmask"].(map[string]any)
-	if !ok || fm == nil {
-		return nil
-	}
-	arr, ok := fm["udp"].([]any)
-	if !ok {
-		return nil
-	}
 	_, udpOK := SidesFor(protocol, StreamNetwork(stream), StreamALPN(stream))
 	if !udpOK {
 		return nil
 	}
 	var intents []UDPHopNatIntent
+	// Hysteria2 multi-port: the panel-only range is delivered to clients in the
+	// share link, while the node redirects every port of the range onto the
+	// single listener. The key survives in the raw database row even though
+	// BuildInboundXrayConfig strips it from the Xray config.
+	if hysteria.IsMultiPort(protocol) {
+		if mp, ok := hysteria.MultiPortFromStream(stream); ok {
+			intents = append(intents, UDPHopNatIntent{FromPortMin: mp.Min, FromPortMax: mp.Max, ToPort: inboundPort})
+		}
+	}
+	fm, ok := stream["finalmask"].(map[string]any)
+	if !ok || fm == nil {
+		return SortAndDedupIntents(intents)
+	}
+	arr, ok := fm["udp"].([]any)
+	if !ok {
+		return SortAndDedupIntents(intents)
+	}
 	for _, item := range arr {
 		el, ok := item.(map[string]any)
 		if !ok || typeOf(el) != "udphop" {

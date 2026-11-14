@@ -579,6 +579,29 @@ const defaultForm = () => ({
   vlessTrojanFallbacks: [] as VlessTrojanFallbackFormRow[],
 });
 
+/**
+ * hysteria2 multi-port (port hopping) range validation, mirrored by
+ * ApplyHysteriaMultiPortOnSave on the server. Returns null when the range is
+ * absent or valid.
+ */
+function hysteriaMultiPortRangeError(
+  minStr: string,
+  maxStr: string,
+  listenerPort: number,
+): "incomplete" | "range" | "order" | "count" | "listener" | null {
+  const min = minStr.trim();
+  const max = maxStr.trim();
+  if (!min && !max) return null;
+  if (!min || !max || !/^\d+$/.test(min) || !/^\d+$/.test(max)) return "incomplete";
+  const minPort = Number(min);
+  const maxPort = Number(max);
+  if (minPort < 1 || maxPort < 1 || minPort > 65535 || maxPort > 65535) return "range";
+  if (minPort >= maxPort) return "order";
+  if (maxPort - minPort + 1 > 1000) return "count";
+  if (listenerPort >= minPort && listenerPort <= maxPort) return "listener";
+  return null;
+}
+
 export function InboundsPage() {
   const { t } = useTranslation();
   const canCreate = useCan("inbounds:create");
@@ -1098,6 +1121,33 @@ export function InboundsPage() {
     const tagValidation = validateInboundTagInput(tagTrim);
     if (tagValidation) {
       return { ok: false, message: tagValidation };
+    }
+    if (form.protocol === "hysteria2") {
+      const mpError = hysteriaMultiPortRangeError(
+        form.streamForm.hysteriaMultiPortMin,
+        form.streamForm.hysteriaMultiPortMax,
+        form.port,
+      );
+      if (mpError) {
+        const messages = {
+          incomplete: t("pages.inbounds.hysteriaMultiPortInvalid", {
+            defaultValue: "Multi-port: fill in both min and max ports (1–65535).",
+          }),
+          range: t("pages.inbounds.hysteriaMultiPortRange", {
+            defaultValue: "Multi-port: ports must be within 1–65535.",
+          }),
+          order: t("pages.inbounds.hysteriaMultiPortOrder", {
+            defaultValue: "Multi-port: min port must be less than max port.",
+          }),
+          count: t("pages.inbounds.hysteriaMultiPortTooMany", {
+            defaultValue: "Multi-port: a range may cover at most 1000 ports.",
+          }),
+          listener: t("pages.inbounds.hysteriaMultiPortListener", {
+            defaultValue: "Multi-port: the range must not include the inbound listen port.",
+          }),
+        } as const;
+        return { ok: false, message: messages[mpError] };
+      }
     }
     if (form.protocol === "telemt" && form.enable && form.telemtForm.webEnabled && !form.telemtForm.webVhostHost.trim()) {
       return {
@@ -2854,6 +2904,63 @@ export function InboundsPage() {
                       <p className="mt-1 text-xs text-[var(--fg-subtle)]">
                         {t("pages.inbounds.hysteria2MasqueradeHint", {
                           defaultValue: "When set, Hysteria2 will proxy browser requests to this URL — the server looks like a real HTTPS site.",
+                        })}
+                      </p>
+                    </div>
+                  ) : null}
+                  {form.protocol === "hysteria2" ? (
+                    <div className="rounded-lg border border-[var(--border)]/80 p-3">
+                      <p className="mb-1 text-xs font-semibold text-[var(--fg)]">
+                        {t("pages.inbounds.hysteriaMultiPort", {
+                          defaultValue: "multi-port (port range)",
+                        })}
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor="in-hy2-mport-min"
+                          >
+                            {t("pages.inbounds.hysteriaMultiPortMin", { defaultValue: "Min port" })}
+                          </label>
+                          <Input
+                            id="in-hy2-mport-min"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            className="font-mono text-xs"
+                            value={form.streamForm.hysteriaMultiPortMin}
+                            onChange={(e) =>
+                              setStreamFormField("hysteriaMultiPortMin", e.target.value)
+                            }
+                            placeholder="39640"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor="in-hy2-mport-max"
+                          >
+                            {t("pages.inbounds.hysteriaMultiPortMax", { defaultValue: "Max port" })}
+                          </label>
+                          <Input
+                            id="in-hy2-mport-max"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            className="font-mono text-xs"
+                            value={form.streamForm.hysteriaMultiPortMax}
+                            onChange={(e) =>
+                              setStreamFormField("hysteriaMultiPortMax", e.target.value)
+                            }
+                            placeholder="39649"
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                        {t("pages.inbounds.hysteriaMultiPortHint", {
+                          defaultValue:
+                            "For port hopping only: the client picks a random port from this range (it must support port hopping) and the panel adds the NAT rules that redirect the range to the inbound port. On the node it is enough to open the inbound port (ufw allow <port>/udp) — the range does not have to be opened.",
                         })}
                       </p>
                     </div>

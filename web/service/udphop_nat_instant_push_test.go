@@ -201,3 +201,43 @@ func TestInstantInboundUpdateShipsUDPHopNat(t *testing.T) {
 		t.Fatalf("update list must carry both inbounds, got %v", got)
 	}
 }
+
+// A hysteria2 inbound with the panel-only multi-port range must reach the node
+// through the same instant path: the panel derives the range->listener intent
+// from the stored streamSettings even though the Xray config never carries the
+// key (BuildInboundXrayConfig strips it).
+func TestInstantInboundAddShipsHysteriaMultiPortNat(t *testing.T) {
+	db := testdb.New(t)
+	ss := SettingService{}
+	if err := ss.SetMultiNodeMode(true); err != nil {
+		t.Fatal(err)
+	}
+	_, ch, srv := captureNodeServer(t)
+	n := &model.Node{Name: "hy2-nat-node", Address: srv.URL, Enable: true, Status: "online", ApiKey: "hy2-nat-key"}
+	if err := db.Create(n).Error; err != nil {
+		t.Fatal(err)
+	}
+	is := &InboundService{}
+	ib := &model.Inbound{
+		UserId: 1, Enable: true, Port: 443, Protocol: model.Hysteria2,
+		Remark: "hy2-hop", Settings: `{"version":2,"clients":[]}`, Sniffing: "{}",
+		StreamSettings: `{"network":"hysteria","security":"tls","hysteriaMultiPort":"39640-39649"}`,
+	}
+	created, _, err := is.AddInbound(ib)
+	if err != nil {
+		t.Fatalf("AddInbound: %v", err)
+	}
+	ns := &NodeService{}
+	if err := ns.AssignInboundToNodesWithBindings(created.Id, []InboundNodeBindingInput{{NodeId: n.Id}}); err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	req := awaitNodeRequest(t, ch)
+	if req.path != "/api/v1/update-inbound" {
+		t.Fatalf("expected update-inbound push, got %s", req.path)
+	}
+	intents := decodeNatIntents(t, req)
+	want := []finalmask.UDPHopNatIntent{{FromPortMin: 39640, FromPortMax: 39649, ToPort: 443}}
+	if len(intents) != 1 || intents[0] != want[0] {
+		t.Fatalf("udphopNat = %v, want %v", intents, want)
+	}
+}

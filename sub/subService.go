@@ -2920,7 +2920,8 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 			}
 			epRemark, _ := ep["remark"].(string)
 
-			u := buildCredentialShareURL(protocol, auth, dest, int(portF))
+			authorityPort := hysteriaLinkAuthorityPort(int(version), stream, int(portF))
+			u := buildCredentialShareURLAuthority(protocol, auth, dest, authorityPort)
 			q := u.Query()
 			for k, v := range params {
 				q.Add(k, v)
@@ -2951,7 +2952,11 @@ func (s *SubService) hysteriaLinkForAuth(inbound *model.Inbound, email, auth str
 			applyHostOverridesToHysteriaParams(h, rowParams)
 		}
 
-		u := buildCredentialShareURL(protocol, auth, addr, linkPort)
+		// Hysteria2 multi-port: the range replaces the port inside the
+		// authority (host:min-max, official Port Hopping syntax). There is no
+		// query parameter for it; an empty range keeps the plain port.
+		authorityPort := hysteriaLinkAuthorityPort(int(version), stream, linkPort)
+		u := buildCredentialShareURLAuthority(protocol, auth, addr, authorityPort)
 		q := u.Query()
 		for k, v := range rowParams {
 			q.Add(k, v)
