@@ -1216,10 +1216,16 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
           issue("udphop_interval", `${path}.settings.interval`, "error", "udphop interval must be at least 5 seconds"),
         );
       }
+      // The kernel reads remoteIPs/remotePorts only in the remote modes
+      // (intervalremote/perconnremote); intervallocal rewrites just the
+      // client's outgoing port, so the fields are optional there.
+      const remoteRequired = modes.some((m) => m === "intervalremote" || m === "perconnremote");
       if (!nonEmptyList(st.remoteIPs)) {
-        issues.push(
-          issue("udphop_remote_ips", `${path}.settings.remoteIPs`, "error", "udphop requires a non-empty remoteIPs list"),
-        );
+        if (remoteRequired) {
+          issues.push(
+            issue("udphop_remote_ips", `${path}.settings.remoteIPs`, "error", "udphop requires a non-empty remoteIPs list"),
+          );
+        }
       } else if (Array.isArray(st.remoteIPs)) {
         const bad = st.remoteIPs.filter((ip) => typeof ip !== "string" || !isIpOrCidr(ip.trim()));
         if (bad.length > 0) {
@@ -1235,9 +1241,11 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
       }
       const ports = udphopPortTokens(st.remotePorts);
       if (ports.length === 0) {
-        issues.push(
-          issue("udphop_remote_ports", `${path}.settings.remotePorts`, "error", "udphop requires a non-empty remotePorts list"),
-        );
+        if (remoteRequired) {
+          issues.push(
+            issue("udphop_remote_ports", `${path}.settings.remotePorts`, "error", "udphop requires a non-empty remotePorts list"),
+          );
+        }
       } else if (!ports.every(isValidPortToken)) {
         issues.push(
           issue(

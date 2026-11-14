@@ -490,6 +490,58 @@ describe("validateFinalmask", () => {
     ).toEqual([]);
   });
 
+  it("accepts udphop intervallocal without remoteIPs/remotePorts", () => {
+    expect(
+      validateFinalmask(
+        fmState({
+          finalmaskUdp: [{ type: "udphop", settings: { mode: "intervallocal", interval: 30 } }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps udphop intervallocal valid with remote fields set (round-trip)", () => {
+    expect(
+      validateFinalmask(
+        fmState({
+          finalmaskUdp: [
+            {
+              type: "udphop",
+              settings: {
+                mode: "intervallocal",
+                interval: 30,
+                remoteIPs: ["1.2.3.4"],
+                remotePorts: "20000-30000",
+              },
+            },
+          ],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("requires remoteIPs/remotePorts for the remote udphop modes", () => {
+    for (const mode of ["intervalremote", "perconnremote"]) {
+      const codes = validateFinalmask(
+        fmState({
+          finalmaskUdp: [{ type: "udphop", settings: { mode, interval: 30 } }],
+        }),
+      ).map((i) => i.code);
+      expect(codes).toContain("udphop_remote_ips");
+      expect(codes).toContain("udphop_remote_ports");
+    }
+  });
+
+  it("still flags a bad remotePorts format in intervallocal", () => {
+    const codes = validateFinalmask(
+      fmState({
+        finalmaskUdp: [{ type: "udphop", settings: { mode: "intervallocal", interval: 30, remotePorts: "443-abc" } }],
+      }),
+    ).map((i) => i.code);
+    expect(codes).toContain("udphop_remote_ports_format");
+    expect(codes).not.toContain("udphop_remote_ports");
+  });
+
   it("flags unknown types, missing required fields and socket ordering", () => {
     const issues = validateFinalmask(
       fmState({

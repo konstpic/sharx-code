@@ -21,7 +21,7 @@ import {
   type FinalmaskSide,
   type FinalmaskState,
 } from "@/lib/finalmaskDefaults";
-import { Input, PillTag, SelectNative, Switch } from "@/components/ui";
+import { Button, Input, PillTag, SelectNative, Switch } from "@/components/ui";
 
 type Props = {
   streamForm: Pick<StreamFormState, "finalmaskTcp" | "finalmaskUdp" | "finalmaskQuicParams">;
@@ -58,6 +58,31 @@ function splitList(text: string): string[] {
     .split(/[,\n;]/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * Overall "min:max" (or "port") span of udphop remotePorts tokens, for the
+ * copyable firewall hint. Null when the value holds no valid port token.
+ */
+function ufwAllowSpec(value: unknown): string | null {
+  const raw = Array.isArray(value)
+    ? value.flatMap((v) => (typeof v === "string" || typeof v === "number" ? String(v).split(",") : []))
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  let min: number | null = null;
+  let max: number | null = null;
+  for (const tok of raw) {
+    const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(tok.trim());
+    if (!m) continue;
+    const from = Number(m[1]);
+    const to = m[2] === undefined ? from : Number(m[2]);
+    if (from < 1 || from > to || to > 65535) continue;
+    if (min === null || from < min) min = from;
+    if (max === null || to > max) max = to;
+  }
+  if (min === null || max === null) return null;
+  return min === max ? String(min) : `${min}:${max}`;
 }
 
 /** Number / range / string setting rendered as text. */
@@ -311,6 +336,11 @@ export function FinalmaskEditor({
 
   const hopMode = udphop ? textValue(udphop.settings.mode) : "";
   const hopModeIsKnown = ["intervalremote", "intervallocal", "perconnremote"].includes(hopMode);
+  const hopModes = hopMode.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  // Only the remote modes read remoteIPs/remotePorts in the kernel; intervallocal
+  // rewrites just the client's outgoing port.
+  const hopRemote = hopModes.some((m) => m === "intervalremote" || m === "perconnremote");
+  const hopRemoteOptional = hopModes.length > 0 && !hopRemote;
 
   return (
     <div className="space-y-2.5">
@@ -675,10 +705,22 @@ export function FinalmaskEditor({
             enabled={Boolean(udphop)}
             disabled={disabled}
             onToggle={() => toggleMask("udp", "udphop")}
-            note={t("finalmask.udphop.hint", {
-              defaultValue:
-                "Client-side mask — it is never written into the server config; on the node, DNAT the port range to the inbound port.",
-            })}
+            note={
+              hopRemote
+                ? t("finalmask.udphop.natAutoHint", {
+                    defaultValue:
+                      "REDIRECT rules on the node are applied automatically with the config; the firewall only needs the inbound port open (REDIRECT runs before the filter) — if the range is still blocked, open it:",
+                  })
+                : hopRemoteOptional
+                  ? t("finalmask.udphop.localModeHint", {
+                      defaultValue:
+                        "Nothing to configure on the node — only the client's outgoing port changes.",
+                    })
+                  : t("finalmask.udphop.hint", {
+                      defaultValue:
+                        "Client-side mask — it is never written into the server config; on the node, DNAT the port range to the inbound port.",
+                    })
+            }
           >
             {udphop ? (
               <>
@@ -741,10 +783,16 @@ export function FinalmaskEditor({
                 <Field
                   id={`${idPrefix}-fm-udphop-ips`}
                   label={t("finalmask.udphop.remoteIPs", { defaultValue: "Remote IPs" })}
-                  required
-                  hint={t("finalmask.udphop.remoteIPsHint", {
-                    defaultValue: "IP or CIDR, comma separated",
-                  })}
+                  required={hopRemote}
+                  hint={
+                    hopRemoteOptional
+                      ? t("finalmask.udphop.notRequiredHint", {
+                          defaultValue: "Not required for this mode",
+                        })
+                      : t("finalmask.udphop.remoteIPsHint", {
+                          defaultValue: "IP or CIDR, comma separated",
+                        })
+                  }
                   errors={fieldErrors(udphopIssues, "remoteIPs")}
                   className="sm:col-span-2"
                 >
@@ -759,10 +807,16 @@ export function FinalmaskEditor({
                 <Field
                   id={`${idPrefix}-fm-udphop-ports`}
                   label={t("finalmask.udphop.remotePorts", { defaultValue: "Remote ports" })}
-                  required
-                  hint={t("finalmask.udphop.remotePortsHint", {
-                    defaultValue: 'Ranges or lists, e.g. "20000-30000" or "443,8443"',
-                  })}
+                  required={hopRemote}
+                  hint={
+                    hopRemoteOptional
+                      ? t("finalmask.udphop.notRequiredHint", {
+                          defaultValue: "Not required for this mode",
+                        })
+                      : t("finalmask.udphop.remotePortsHint", {
+                          defaultValue: 'Ranges or lists, e.g. "20000-30000" or "443,8443"',
+                        })
+                  }
                   errors={fieldErrors(udphopIssues, "remotePorts")}
                   className="sm:col-span-2"
                 >
@@ -779,6 +833,25 @@ export function FinalmaskEditor({
                     }
                   />
                 </Field>
+                {hopRemote && ufwAllowSpec(udphop.settings.remotePorts) ? (
+                  <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-[var(--surface-strong)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--fg-muted)]">
+                      ufw allow {ufwAllowSpec(udphop.settings.remotePorts)}/udp
+                    </code>
+                    <Button
+                      variant="ghost"
+                      className="h-auto px-1.5 py-0.5 text-[11px]"
+                      disabled={disabled}
+                      onClick={() =>
+                        void navigator.clipboard
+                          ?.writeText(`ufw allow ${ufwAllowSpec(udphop.settings.remotePorts)}/udp`)
+                          .catch(() => undefined)
+                      }
+                    >
+                      {t("copy", { defaultValue: "Copy" })}
+                    </Button>
+                  </div>
+                ) : null}
               </>
             ) : null}
           </MaskCard>
