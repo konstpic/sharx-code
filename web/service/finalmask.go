@@ -80,6 +80,15 @@ func ApplyFinalmaskOnSave(inbound *model.Inbound) error {
 		if len(transportProblems) > 0 {
 			return common.NewError("invalid finalmask:", strings.Join(transportProblems, "; "))
 		}
+
+		// REALITY wraps the accepted TCP connection itself: a tcp[] mask turns
+		// the first handshake into a process-wide panic (XTLS/Xray-core#6453).
+		// Checked after the transport gate so the operator sees the transport
+		// mismatch first when both apply. udp[] and quicParams-only stay allowed.
+		security, _ := normalized["security"].(string)
+		if err := finalmask.ValidateRealityCombination(security, fm); err != nil {
+			return common.NewError("invalid finalmask:", "streamSettings.finalmask.tcp: "+err.Error())
+		}
 	}
 
 	oldFM, hadOld := stream["finalmask"]

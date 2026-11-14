@@ -1253,12 +1253,39 @@ export function validateFinalmask(
   transport?: FinalmaskSidesQuery,
 ): FinalmaskIssue[] {
   const issues: FinalmaskIssue[] = [];
-  if (transport) issues.push(...validateFinalmaskTransport(state, transport));
+  if (transport) {
+    issues.push(...validateFinalmaskTransport(state, transport));
+    issues.push(...validateFinalmaskReality(state, transport));
+  }
   state.finalmaskTcp.forEach((item, i) => issues.push(...validateElement("tcp", i, item)));
   state.finalmaskUdp.forEach((item, i) => issues.push(...validateElement("udp", i, item)));
   issues.push(...validateOrdering("udp", state.finalmaskUdp));
   issues.push(...validateQuicParams(state.finalmaskQuicParams));
   return issues;
+}
+
+/**
+ * REALITY wraps the accepted TCP connection itself, so a tcp[] mask makes the
+ * kernel panic on the first handshake (XTLS/Xray-core#6453). Mirror of
+ * `util/finalmask/transport.go: ValidateRealityCombination`: udp[] and
+ * quicParams-only stay allowed.
+ */
+export function validateFinalmaskReality(
+  state: FinalmaskState,
+  query: FinalmaskSidesQuery,
+): FinalmaskIssue[] {
+  if (state.finalmaskTcp.length === 0) return [];
+  const security = typeof query.security === "string" ? query.security.trim().toLowerCase() : "";
+  if (security !== "reality") return [];
+  const types = state.finalmaskTcp.map((item) => normType(item.type)).filter(Boolean);
+  return [
+    issue(
+      "reality_tcp_forbidden",
+      "streamSettings.finalmask.tcp",
+      "error",
+      `tcp masks (${types.join(", ") || "unknown"}) are not compatible with REALITY: the kernel crashes on the first connection (XTLS/Xray-core#6453); remove tcp[] or switch security to tls/none`,
+    ),
+  ];
 }
 
 /** Byte length of a string (salamander requires >= 4 bytes, not chars). */

@@ -65,6 +65,16 @@ const FIELDS: FieldMeta[] = [
     hintDefault: "Extra routing rules prepended to the routing section of JSON sub.",
     placeholder: '[{ "type": "field", "outboundTag": "direct", "domain": ["geosite:private"] }]',
   },
+  {
+    key: "finalMask",
+    labelKey: "subBuilder.jsonTemplates.finalMask",
+    labelDefault: "Default masks",
+    hintKey: "subBuilder.jsonTemplates.finalMaskHint",
+    hintDefault:
+      "streamSettings.finalmask applied to JSON-subscription outbounds when the inbound does not define that side. Inbound masks win; sides the inbound transport cannot carry are dropped.",
+    placeholder:
+      '{ "tcp": [{ "type": "fragment", "settings": { "packets": "tlshello", "lengths": ["100-200"], "delays": ["1-2"] } }], "quicParams": { "congestion": "bbr" } }',
+  },
 ];
 
 export function JsonTemplatesEditor({ config, onChange }: Props) {

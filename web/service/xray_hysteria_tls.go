@@ -96,6 +96,21 @@ func patchFinalmask(stream map[string]any, protocol string, inboundID int, tag s
 		delete(stream, "finalmask")
 		return
 	}
+	// Legacy rows (saved before the REALITY gate existed) may still carry a
+	// tcp[] mask next to security=reality. Such a config makes the kernel panic
+	// on the first handshake (XTLS/Xray-core#6453), so drop the tcp side and
+	// tell the operator which mask types were thrown away.
+	security, _ := pruned["security"].(string)
+	if err := finalmask.ValidateRealityCombination(security, fm); err != nil {
+		before := map[string]any{"tcp": fm["tcp"]}
+		delete(fm, "tcp")
+		logger.Warningf("finalmask: inbound %d (%s): dropped tcp masks for REALITY (XTLS/Xray-core#6453): %s",
+			inboundID, tag, strings.Join(droppedMaskTypes(before, fm), ", "))
+		if !finalmask.HasContent(fm) {
+			delete(stream, "finalmask")
+			return
+		}
+	}
 	serverFM := finalmask.ServerView(fm)
 	if !finalmask.HasContent(serverFM) {
 		delete(stream, "finalmask")

@@ -47,7 +47,7 @@ func NewSUBController(
 		subJsonPath:    jsonPath,
 		jsonEnabled:    jsonEnabled,
 		subService:     sub,
-		subJsonService: NewSubJsonService("", "", "", "", sub),
+		subJsonService: NewSubJsonService("", "", "", "", "", sub),
 	}
 	a.initRouter(g)
 	return a
@@ -331,7 +331,7 @@ func (a *SUBController) subJsons(c *gin.Context) {
 		subEncrypt = cfg.AppSettings.Encrypt
 	}
 	if cfg != nil && cfg.JsonTemplates != nil {
-		a.subJsonService.applyTemplates(cfg.JsonTemplates.Fragment, cfg.JsonTemplates.Noises, cfg.JsonTemplates.Mux, cfg.JsonTemplates.Rules)
+		a.subJsonService.applyTemplates(cfg.JsonTemplates.Fragment, cfg.JsonTemplates.Noises, cfg.JsonTemplates.Mux, cfg.JsonTemplates.Rules, cfg.JsonTemplates.FinalMask)
 	}
 
 	uaClient, _ := DispatchByUA(c)

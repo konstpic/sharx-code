@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 )
 
 // SharxSubpageConfigV1 is the legacy flat shape of the subscription page config.
@@ -171,6 +173,9 @@ type SharxSubpageJsonTemplates struct {
 	Mux      string `json:"mux"`
 	Noises   string `json:"noises"`
 	Rules    string `json:"rules"`
+	// FinalMask is the default streamSettings.finalmask object applied to the
+	// outbounds of the JSON subscription (client side). Empty = no defaults.
+	FinalMask string `json:"finalMask"`
 }
 
 // SharxSubpageCustomRemarks are short lines embedded into subscription output as
@@ -381,6 +386,9 @@ func validateV2(raw string) error {
 		if err := validateOptionalJSON("jsonTemplates.rules", cfg.JsonTemplates.Rules); err != nil {
 			return err
 		}
+		if err := validateOptionalFinalmask("jsonTemplates.finalMask", cfg.JsonTemplates.FinalMask); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -392,6 +400,28 @@ func validateOptionalJSON(field, raw string) error {
 	}
 	if !json.Valid([]byte(s)) {
 		return errors.New(field + " is not valid JSON")
+	}
+	return nil
+}
+
+// validateOptionalFinalmask validates the "default masks" slot of the JSON
+// subscription with the shared finalmask module (types, element fields, udp[]
+// ordering). The transport gate is intentionally not applied: the inbound a
+// mask ends up on is unknown at settings-save time (the transport check runs
+// per inbound when the subscription is built). REALITY is not checked either:
+// the JSON subscription is a client config, where tcp[] masks work.
+func validateOptionalFinalmask(field, raw string) error {
+	fm, err := finalmask.ParseObject(raw)
+	if err != nil {
+		return errors.New(field + ": " + err.Error())
+	}
+	if fm == nil {
+		return nil
+	}
+	for _, is := range finalmask.Validate(map[string]any{"finalmask": fm}, "") {
+		if is.Severity == finalmask.SeverityError {
+			return errors.New(field + ": " + is.String())
+		}
 	}
 	return nil
 }

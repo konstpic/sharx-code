@@ -7,12 +7,14 @@ const FRAG = "https://sharx.internal/json-template/fragment.json";
 const MUX = "https://sharx.internal/json-template/mux.json";
 const NOISES = "https://sharx.internal/json-template/noises.json";
 const RULES = "https://sharx.internal/json-template/rules.json";
+const FINALMASK = "https://sharx.internal/json-template/finalmask.json";
 
 const FILE: Record<FieldKey, string> = {
   fragment: "sharx-json-template-fragment.json",
   mux: "sharx-json-template-mux.json",
   noises: "sharx-json-template-noises.json",
   rules: "sharx-json-template-rules.json",
+  finalMask: "sharx-json-template-finalmask.json",
 };
 
 /**
@@ -97,6 +99,46 @@ export function getJsonTemplateMonacoSchemaBundle(
             inboundTag: { type: "string" },
             balancerTag: { type: "string" },
           },
+        },
+      },
+    },
+    {
+      uri: FINALMASK,
+      fileMatch: [FILE.finalMask],
+      schema: {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        title: "Default masks",
+        description: fieldDescription("finalMask"),
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          tcp: {
+            type: "array",
+            description: "TCP-side masks: fragment, sudoku, xmc, header-custom",
+            items: {
+              type: "object",
+              required: ["type"],
+              additionalProperties: true,
+              properties: {
+                type: { type: "string" },
+                settings: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          udp: {
+            type: "array",
+            description: "UDP-side masks: salamander, udphop, sudoku, realm, header-custom, …",
+            items: {
+              type: "object",
+              required: ["type"],
+              additionalProperties: true,
+              properties: {
+                type: { type: "string" },
+                settings: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          quicParams: { type: "object", additionalProperties: true },
         },
       },
     },

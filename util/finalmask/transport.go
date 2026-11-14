@@ -226,6 +226,73 @@ func listLen(v any) int {
 	return 0
 }
 
+// CodeRealityTCPForbidden is the issue code of the REALITY × TCP-mask
+// combination (see ValidateRealityCombination).
+const CodeRealityTCPForbidden = "reality_tcp_forbidden"
+
+// RealityCombinationError reports a finalmask/security combination the kernel
+// cannot serve. Code is machine readable and matches the i18n key suffix
+// (finalmask.error.<code>).
+type RealityCombinationError struct {
+	Code    string
+	Message string
+}
+
+func (e *RealityCombinationError) Error() string { return e.Message }
+
+// ValidateRealityCombination rejects TCP-side masks on a REALITY stream.
+//
+// Facts this rule is pinned to (Xray 26.10.31, live probes 14.11, see
+// XTLS/Xray-core#6453):
+//   - the REALITY server wraps the accepted TCP connection and asserts
+//     reality.CloseWriteConn on it (reality/tls.go:187); a tcp[] mask replaces
+//     that conn with a wrapper (fragmentConn implements no CloseWrite), so the
+//     assertion panics and takes the whole xray process down on the first
+//     incoming connection;
+//   - reproduced with network=tcp + security=reality + tcp[] fragment: the
+//     config passes `xray -test`, the first client triggers
+//     "panic: interface conversion: *fragment.fragmentConn is not
+//     reality.CloseWriteConn" and the process dies; the same mask on the client
+//     (outbound) side works, and a udp[]-only or quicParams-only finalmask on a
+//     REALITY inbound serves traffic normally (the TCP transport never wraps
+//     those layers).
+//
+// Hence only tcp[] is rejected: udp[] and quicParams remain allowed.
+func ValidateRealityCombination(security string, fm map[string]any) error {
+	if fm == nil || !strings.EqualFold(strings.TrimSpace(security), "reality") {
+		return nil
+	}
+	arr, ok := fm["tcp"].([]any)
+	if !ok || len(arr) == 0 {
+		return nil
+	}
+	return &RealityCombinationError{
+		Code: CodeRealityTCPForbidden,
+		Message: fmt.Sprintf("TCP masks (%s) are not compatible with REALITY: the kernel wraps the accepted "+
+			"TLS connection and the process crashes on the first handshake (XTLS/Xray-core#6453); "+
+			"remove tcp[] or switch security to tls/none", strings.Join(maskTypeNames(arr), ", ")),
+	}
+}
+
+// maskTypeNames lists the finalmask types of an array in order, lowercased,
+// for operator-facing messages.
+func maskTypeNames(arr []any) []string {
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		el, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if typ := strings.ToLower(strings.TrimSpace(strValue(el["type"]))); typ != "" {
+			out = append(out, typ)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"unknown"}
+	}
+	return out
+}
+
 // ValidateTransportCompatibility checks that the finalmask sides match the
 // transport of streamSettings for protocol. Only severity=error issues are
 // produced: a mask the kernel would silently ignore is rejected at save time.

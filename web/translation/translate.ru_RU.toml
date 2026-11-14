@@ -3606,6 +3606,8 @@ desc = "Только Happ / v2raytun / браузер; остальные кли
   noisesHint = "Массив noise рядом с фрагментацией."
   rules = "Правила"
   rulesHint = "Доп. правила маршрутизации в начало секции routing JSON-подписки."
+  finalMask = "Маски по умолчанию"
+  finalMaskHint = "streamSettings.finalmask для исходящих JSON-подписки, если у инбаунда эта сторона не задана. Маски инбаунда приоритетнее; стороны, которые транспорт инбаунда не несёт, отбрасываются."
   valid = "JSON корректен"
   invalid = "JSON с ошибкой"
   empty = "Необязательно"
@@ -6693,6 +6695,7 @@ remotePortsHint = "Диапазоны или списки, например \"20
 [finalmask.error]
 transport_unsupported = "Finalmask нельзя использовать с этим транспортом — удалите маски."
 transport_tcp_forbidden = "TCP-маски не поддерживаются этим транспортом."
+reality_tcp_forbidden = "TCP-маски несовместимы с REALITY: ядро падает на первом подключении."
 transport_tcp_on_quic = "TCP-маски на QUIC не применяются; используйте UDP-маски (salamander/udphop)."
 transport_udp_forbidden = "UDP-маски не поддерживаются этим транспортом."
 fragment_lengths_required = "Нужны lengths, например 100-200."

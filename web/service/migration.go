@@ -452,6 +452,7 @@ var ignoredPanelSettings = map[string]bool{
 	"subJsonNoises":               true,
 	"subJsonMux":                  true,
 	"subJsonRules":                true,
+	"subJsonFinalMask":            true,
 }
 
 func (s *MigrationService) migrateSettings(sqliteDB *sql.DB, tx *gorm.DB) (int, error) {

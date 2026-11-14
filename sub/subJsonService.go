@@ -11,6 +11,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/util/json_util"
 	"github.com/konstpic/sharx-code/v2/util/random"
 	"github.com/konstpic/sharx-code/v2/web/service"
@@ -27,23 +28,27 @@ type SubJsonService struct {
 	fragment         string
 	noises           string
 	mux              string
+	// finalMaskDefaults is the parsed "default masks" slot of the JSON
+	// templates (jsonTemplates.finalMask). Nil or empty = no defaults, which
+	// keeps the emitted subscription identical to the one without the slot.
+	finalMaskDefaults map[string]any
 
 	inboundService service.InboundService
 	SubService     *SubService
 }
 
 // NewSubJsonService creates a new JSON subscription service with the given configuration.
-func NewSubJsonService(fragment string, noises string, mux string, rules string, subService *SubService) *SubJsonService {
+func NewSubJsonService(fragment string, noises string, mux string, rules string, finalMask string, subService *SubService) *SubJsonService {
 	s := &SubJsonService{SubService: subService}
-	s.applyTemplates(fragment, noises, mux, rules)
+	s.applyTemplates(fragment, noises, mux, rules, finalMask)
 	return s
 }
 
 // applyTemplates rebuilds the inline default config from the given Xray JSON
-// fragments (fragment / noises / mux / rules). Called on first construction
-// and on every request so edits in the subscription builder apply without
-// restarting the server.
-func (s *SubJsonService) applyTemplates(fragment string, noises string, mux string, rules string) {
+// fragments (fragment / noises / mux / rules) and the finalmask defaults slot.
+// Called on first construction and on every request so edits in the
+// subscription builder apply without restarting the server.
+func (s *SubJsonService) applyTemplates(fragment string, noises string, mux string, rules string, finalMask string) {
 	var configJson map[string]any
 	var defaultOutbounds []json_util.RawMessage
 	json.Unmarshal([]byte(defaultJson), &configJson)
@@ -77,6 +82,12 @@ func (s *SubJsonService) applyTemplates(fragment string, noises string, mux stri
 	s.fragment = fragment
 	s.noises = noises
 	s.mux = mux
+	s.finalMaskDefaults = nil
+	if fm, err := finalmask.ParseObject(finalMask); err != nil {
+		logger.Warningf("JSON subscription: ignoring the default finalmask slot: %v", err)
+	} else {
+		s.finalMaskDefaults = fm
+	}
 }
 
 // GetJson generates a JSON subscription configuration for the given subscription ID and host.
@@ -192,6 +203,7 @@ func (s *SubJsonService) GetJson(subId string, host string, c *gin.Context) (str
 func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, host string) []json_util.RawMessage {
 	var newJsonArray []json_util.RawMessage
 	stream := s.streamData(inbound.StreamSettings)
+	s.applyFinalmaskDefaults(stream, inbound)
 
 	externalProxies, ok := stream["externalProxy"].([]any)
 	if !ok || len(externalProxies) == 0 {
@@ -293,6 +305,46 @@ func (s *SubJsonService) getConfig(inbound *model.Inbound, client model.Client, 
 	}
 
 	return newJsonArray
+}
+
+// finalMaskTemplateProtocols lists inbound protocols whose JSON-subscription
+// outbound can carry streamSettings.finalmask. Mixed (socks) and sidecar
+// protocols (Telemt, AmneziaWG) keep their stream settings untouched.
+var finalMaskTemplateProtocols = map[model.Protocol]struct{}{
+	model.VLESS:       {},
+	model.VMESS:       {},
+	model.Trojan:      {},
+	model.Shadowsocks: {},
+	model.Hysteria:    {},
+	model.Hysteria2:   {},
+}
+
+// applyFinalmaskDefaults overlays the "default masks" slot of the JSON
+// templates under the inbound's own finalmask (inbound wins per side, quicParams
+// deep-merge with inbound keys first) and drops the sides the inbound transport
+// cannot carry. The subscription is a client config, so client-only masks
+// (udphop) are kept and ServerView is not applied. An empty slot is a no-op.
+func (s *SubJsonService) applyFinalmaskDefaults(stream map[string]any, inbound *model.Inbound) {
+	if inbound == nil || !finalmask.HasContent(s.finalMaskDefaults) {
+		return
+	}
+	protocol := model.NormalizeProtocol(inbound.Protocol)
+	if _, ok := finalMaskTemplateProtocols[protocol]; !ok {
+		return
+	}
+	own, _ := stream["finalmask"].(map[string]any)
+	merged := finalmask.MergeTemplate(own, s.finalMaskDefaults)
+	filtered, dropped := finalmask.WithoutForbiddenSides(string(protocol), stream, merged)
+	if len(dropped) > 0 {
+		logger.Warningf("JSON subscription: inbound %d (%s): default finalmask sides dropped for protocol %s "+
+			"on transport %q: %s", inbound.Id, inbound.Tag, protocol,
+			finalmask.StreamNetwork(stream), strings.Join(dropped, ", "))
+	}
+	if !finalmask.HasContent(filtered) {
+		delete(stream, "finalmask")
+		return
+	}
+	stream["finalmask"] = filtered
 }
 
 // effectivePassword resolves ClientEntity password or falls back to inbound settings (see SubService.passwordForSubLink).
