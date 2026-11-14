@@ -76,6 +76,7 @@ var linkTCPWhitelist = map[string]struct{}{
 
 var linkUDPWhitelist = map[string]struct{}{
 	"salamander":    {},
+	"noise":         {},
 	"udphop":        {},
 	"sudoku":        {},
 	"realm":         {},

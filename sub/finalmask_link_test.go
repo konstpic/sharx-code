@@ -170,6 +170,44 @@ func TestMarshalFinalMaskLegacyFragmentRanges(t *testing.T) {
 	}
 }
 
+func TestApplyFinalMaskParamsVlessNoiseDelivered(t *testing.T) {
+	stream := map[string]any{"finalmask": map[string]any{
+		"udp": []any{map[string]any{"type": "noise", "settings": map[string]any{
+			"noise": []any{map[string]any{"type": "str", "packet": "noise"}},
+		}}},
+	}}
+	params := map[string]string{"type": "xhttp", "security": "tls"}
+	applyFinalMaskParams(stream, model.VLESS, params)
+	raw, ok := params["fm"]
+	if !ok || raw == "" {
+		t.Fatal("noise-only mask must be delivered via fm")
+	}
+	fm := decodeFM(t, raw)
+	got := udpTypesOf(fm)
+	if len(got) != 1 || got[0] != "noise" {
+		t.Fatalf("udp masks = %v, want [noise]", got)
+	}
+}
+
+func TestMarshalFinalMaskNoiseAndUDPHop(t *testing.T) {
+	fm := map[string]any{"udp": []any{
+		map[string]any{"type": "noise", "settings": map[string]any{
+			"noise": []any{map[string]any{"type": "str", "packet": "noise"}},
+		}},
+		map[string]any{"type": "udphop", "settings": map[string]any{
+			"interval": 30, "remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"27000-27100"},
+		}},
+	}}
+	raw, ok := marshalFinalMask(fm)
+	if !ok {
+		t.Fatal("expected fm")
+	}
+	got := udpTypesOf(decodeFM(t, raw))
+	if len(got) != 2 || got[0] != "noise" || got[1] != "udphop" {
+		t.Fatalf("noise+udphop: want [noise udphop], got %v", got)
+	}
+}
+
 func TestMarshalFinalMaskUDPHopLast(t *testing.T) {
 	fm := map[string]any{"udp": []any{
 		map[string]any{"type": "udphop", "settings": map[string]any{
