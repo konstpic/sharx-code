@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/konstpic/sharx-code/v2/logger"
-	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
 	"github.com/konstpic/sharx-code/v2/node/amneziawg"
+	nodeConfig "github.com/konstpic/sharx-code/v2/node/config"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
+	"github.com/konstpic/sharx-code/v2/node/udphopnat"
 	"github.com/konstpic/sharx-code/v2/node/xray"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 )
 
@@ -29,9 +31,9 @@ var startupPullDelays = []time.Duration{
 }
 
 type pullOutcome struct {
-	applied              bool
-	statusCode           int
-	retryWithoutNodeID   bool
+	applied            bool
+	statusCode         int
+	retryWithoutNodeID bool
 }
 
 // TryPullAndApply requests the latest Xray JSON (and optional Telemt payloads) from the panel and applies if Xray is not running.
@@ -164,6 +166,7 @@ func pullAndApplyOnce(
 		Telemt    json.RawMessage `json:"telemt"`
 		AmneziaWG json.RawMessage `json:"amneziawg"`
 		TelemtWeb json.RawMessage `json:"telemtWeb"`
+		UdphopNat json.RawMessage `json:"udphopNat"`
 		NodeId    int             `json:"nodeId,omitempty"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -191,7 +194,25 @@ func pullAndApplyOnce(
 	applyTelemtFromEnvelope(telemtMgr, envelope.Telemt)
 	applyAmneziaWgFromEnvelope(awgMgr, envelope.AmneziaWG)
 	applyTelemtWebFromEnvelope(telemtWebMgr, envelope.TelemtWeb)
+	applyUDPHopNatFromEnvelope(envelope.UdphopNat)
 	return pullOutcome{applied: true, statusCode: resp.StatusCode}
+}
+
+// applyUDPHopNatFromEnvelope reconciles the host udphop REDIRECT rules from the
+// pull response (same field and semantics as apply-config). Best-effort like
+// everywhere else: warnings only, never block the startup pull.
+func applyUDPHopNatFromEnvelope(raw json.RawMessage) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return
+	}
+	var intents []finalmask.UDPHopNatIntent
+	if err := json.Unmarshal(raw, &intents); err != nil {
+		logger.Warningf("Config pull: udphopNat parse: %v", err)
+		return
+	}
+	if warnings := udphopnat.Reconcile(udphopnat.ExecRunner, intents); len(warnings) > 0 {
+		logger.Warningf("Config pull: udphop NAT reconcile warnings: %v", warnings)
+	}
 }
 
 func applyTelemtWebFromEnvelope(telemtWebMgr *telemtweb.Manager, raw json.RawMessage) {

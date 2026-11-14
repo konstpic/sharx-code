@@ -16,6 +16,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 	"github.com/konstpic/sharx-code/v2/web/logsse"
 	"github.com/konstpic/sharx-code/v2/web/service"
@@ -519,12 +520,17 @@ func (a *APIController) pullWorkerXrayConfig(c *gin.Context) {
 		Telemt          []service.TelemtNodePayload    `json:"telemt"`
 		AmneziaWG       []service.AmneziaWGNodePayload `json:"amneziawg"`
 		TelemtWeb       []telemtweb.Vhost              `json:"telemtWeb"`
+		UdphopNat       []finalmask.UDPHopNatIntent    `json:"udphopNat"`
 		NodeId          int                            `json:"nodeId"`
 		CoreProfileHash string                         `json:"coreProfileHash,omitempty"`
 		ConfigSha256    string                         `json:"configSha256,omitempty"`
 	}
-	logger.Debugf("pull-xray-config: node %s (%d), %d bytes, telemt=%d amneziawg=%d telemtWeb=%d", node.Name, node.Id, len(configJSON), len(telemtPayloads), len(awgPayloads), len(webVhosts))
-	c.JSON(http.StatusOK, pullResp{Config: configJSON, Telemt: telemtPayloads, AmneziaWG: awgPayloads, TelemtWeb: webVhosts, NodeId: node.Id, CoreProfileHash: coreHash, ConfigSha256: cfgHex})
+	// Same desired NAT state as apply-config: the startup pull is the node's
+	// recovery path after a container restart, and without the intents here the
+	// udphop REDIRECT rules would stay lost until the next full push.
+	udphopNat := service.BuildUDPHopNatIntentsForNode(ibs)
+	logger.Debugf("pull-xray-config: node %s (%d), %d bytes, telemt=%d amneziawg=%d telemtWeb=%d udphopNat=%d", node.Name, node.Id, len(configJSON), len(telemtPayloads), len(awgPayloads), len(webVhosts), len(udphopNat))
+	c.JSON(http.StatusOK, pullResp{Config: configJSON, Telemt: telemtPayloads, AmneziaWG: awgPayloads, TelemtWeb: webVhosts, UdphopNat: udphopNat, NodeId: node.Id, CoreProfileHash: coreHash, ConfigSha256: cfgHex})
 }
 
 // getAPIDocsMarkdown returns the API documentation markdown file.
