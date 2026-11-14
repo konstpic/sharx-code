@@ -3,17 +3,29 @@ import { roundTripInboundStreamSettings } from "./inboundJsonSanitize";
 import {
   buildFinalmask,
   countFinalmaskMasksOutsideEditor,
+  defaultFinalmaskQuicParams,
   defaultFinalmaskSettings,
   emptyFinalmaskState,
   finalmaskShowsUdphop,
   finalmaskSidesFor,
+  finalmaskUsesQuic,
   fmSupportedInLink,
+  hasFinalmaskQuicParams,
+  normalizeFinalmaskBandwidth,
   orderFinalmaskUdp,
   parseFinalmask,
+  parseFinalmaskBandwidth,
+  patchFinalmaskQuicParams,
+  readFinalmaskQuicParams,
   validateFinalmask,
   type FinalmaskState,
 } from "./finalmaskDefaults";
-import { parseStreamSettingsToForm, buildStreamSettingsFromForm } from "./inboundDefaults";
+import {
+  buildSettingsJson,
+  buildStreamSettingsFromForm,
+  mergeFirstClientIntoSettings,
+  parseStreamSettingsToForm,
+} from "./inboundDefaults";
 
 function fmState(partial: Partial<FinalmaskState>): FinalmaskState {
   return { ...emptyFinalmaskState(), ...partial };
@@ -451,7 +463,8 @@ describe("validateFinalmask", () => {
             { type: "salamander", settings: { password: "strongpsk" } },
             { type: "xicmp", settings: {} },
           ],
-          finalmaskQuicParams: '{"congestion":"brutal"}',
+          finalmaskQuicParams:
+            '{"congestion":"brutal","brutalUp":"100mbps","brutalDown":"512k"}',
         }),
       ),
     ).toEqual([]);
@@ -636,5 +649,192 @@ describe("fmSupportedInLink", () => {
     expect(fmSupportedInLink("filter", "tcp")).toBe(false);
     expect(fmSupportedInLink("salamander", "udp")).toBe(true);
     expect(fmSupportedInLink("noise", "udp")).toBe(false);
+  });
+});
+
+describe("quicParams structural editor", () => {
+  it("enables the card with kernel defaults", () => {
+    const defaults = JSON.parse(defaultFinalmaskQuicParams()) as Record<string, unknown>;
+    expect(defaults).toEqual({ congestion: "bbr", maxIdleTimeout: 30, keepAlivePeriod: 10 });
+    expect(hasFinalmaskQuicParams("")).toBe(false);
+    expect(hasFinalmaskQuicParams("   ")).toBe(false);
+    expect(hasFinalmaskQuicParams(defaultFinalmaskQuicParams())).toBe(true);
+  });
+
+  it("reads known fields and keeps unknown keys in extra", () => {
+    const fields = readFinalmaskQuicParams(
+      JSON.stringify({
+        congestion: "brutal",
+        brutalUp: "100mbps",
+        brutalDown: "512k",
+        maxIdleTimeout: 45,
+        keepAlivePeriod: 5,
+        bbrProfile: "aggressive",
+        debug: true,
+        custom: { nested: [1] },
+      }),
+    );
+    expect(fields.invalid).toBe(false);
+    expect(fields.congestion).toBe("brutal");
+    expect(fields.brutalUp).toBe("100mbps");
+    expect(fields.brutalDown).toBe("512k");
+    expect(fields.maxIdleTimeout).toBe("45");
+    expect(fields.keepAlivePeriod).toBe("5");
+    expect(fields.extra).toEqual({
+      bbrProfile: "aggressive",
+      debug: true,
+      custom: { nested: [1] },
+    });
+  });
+
+  it("patches one field without losing unknown keys and normalizes bandwidth on build", () => {
+    const json = patchFinalmaskQuicParams(
+      JSON.stringify({
+        congestion: "brutal",
+        bbrProfile: "aggressive",
+        debug: true,
+        custom: { nested: [1] },
+      }),
+      { brutalUp: "100 MB/s", brutalDown: "1.5 gbps", maxIdleTimeout: "45" },
+    );
+    const built = buildFinalmask(fmState({ finalmaskQuicParams: json })) as {
+      quicParams: Record<string, unknown>;
+    };
+    expect(built.quicParams).toEqual({
+      congestion: "brutal",
+      bbrProfile: "aggressive",
+      debug: true,
+      custom: { nested: [1] },
+      brutalUp: "800mb",
+      brutalDown: "1.5gbps",
+      maxIdleTimeout: 45,
+    });
+  });
+
+  it("switching the card off removes quicParams entirely", () => {
+    expect(buildFinalmask(fmState({ finalmaskQuicParams: "" }))).toBeUndefined();
+  });
+
+  it("parses friendly bandwidth forms and normalizes them for the kernel", () => {
+    expect(parseFinalmaskBandwidth("100")).toEqual({
+      bitsPerSecond: 100 * 1024 ** 2,
+      bytesPerSecond: (100 * 1024 ** 2) / 8,
+      normalized: "100m",
+    });
+    expect(normalizeFinalmaskBandwidth("100 mbps")).toBe("100mbps");
+    expect(normalizeFinalmaskBandwidth("1.5 gbps")).toBe("1.5gbps");
+    expect(normalizeFinalmaskBandwidth("100 MB/s")).toBe("800mb");
+    expect(normalizeFinalmaskBandwidth("100B/s")).toBe("800b");
+    expect(parseFinalmaskBandwidth("fast")).toBeNull();
+  });
+
+  it("validates congestion, numeric ranges and brutal bandwidth", () => {
+    expect(
+      validateFinalmask(
+        fmState({
+          finalmaskQuicParams: JSON.stringify({
+            congestion: "force-brutal",
+            brutalUp: "512k",
+            brutalDown: "512k",
+            maxIdleTimeout: 120,
+            keepAlivePeriod: 2,
+          }),
+        }),
+      ),
+    ).toEqual([]);
+
+    const codes = validateFinalmask(
+      fmState({
+        finalmaskQuicParams: JSON.stringify({
+          congestion: "brutal",
+          maxIdleTimeout: 3,
+          keepAlivePeriod: 2.5,
+        }),
+      }),
+    ).map((issue) => issue.code);
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        "quic_brutal_up_required",
+        "quic_brutal_down_required",
+        "quic_number_range",
+        "quic_number_integer",
+      ]),
+    );
+    expect(
+      validateFinalmask(
+        fmState({
+          finalmaskQuicParams: JSON.stringify({ brutalUp: "fast", brutalDown: "512k" }),
+        }),
+      ).map((issue) => issue.code),
+    ).toContain("quic_bandwidth_value");
+  });
+
+  it("mirrors the server type/range codes for quicParams", () => {
+    const codes = validateFinalmask(
+      fmState({
+        finalmaskQuicParams: JSON.stringify({
+          congestion: "cubic",
+          maxIdleTimeout: "30",
+          keepAlivePeriod: 100,
+          brutalUp: 1000000,
+        }),
+      }),
+    ).map((issue) => issue.code);
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        "quic_congestion",
+        "quic_number_type",
+        "quic_number_range",
+        "quic_bandwidth_type",
+      ]),
+    );
+  });
+
+  it("keeps the QUIC card gated on xhttp + tls + exactly h3", () => {
+    expect(finalmaskUsesQuic({ network: "xhttp", security: "tls", alpn: "h3" })).toBe(true);
+    expect(finalmaskUsesQuic({ network: "xhttp", security: "tls", alpn: "h2,h3" })).toBe(false);
+    expect(finalmaskUsesQuic({ network: "ws", security: "tls", alpn: "h3" })).toBe(false);
+  });
+});
+
+describe("vless settings fallbacks", () => {
+  const patch = {
+    clientEmail: "user@example.com",
+    vlessFlow: "",
+    trojanPassword: "",
+    hysteriaAuth: "",
+    ssMethod: "",
+    ssPassword: "",
+  };
+
+  it("does not emit an empty fallbacks array next to decryption", () => {
+    const built = JSON.parse(
+      buildSettingsJson("vless", { ...patch, vlessDecryption: "mlkem768x25519plus.native.0rtt" }),
+    ) as Record<string, unknown>;
+    expect(built.decryption).toBe("mlkem768x25519plus.native.0rtt");
+    expect(built).not.toHaveProperty("fallbacks");
+  });
+
+  it("still emits a non-empty fallbacks array", () => {
+    const built = JSON.parse(
+      buildSettingsJson("vless", {
+        ...patch,
+        vlessTrojanFallbacks: [{ name: "", alpn: "", path: "", dest: "8080", xver: "0" }],
+      }),
+    ) as Record<string, unknown>;
+    expect(built.fallbacks).toEqual([{ dest: 8080, xver: 0 }]);
+  });
+
+  it("drops an empty fallbacks array from an existing settings object", () => {
+    const existing = JSON.stringify({
+      clients: [{ id: "00000000-0000-0000-0000-000000000000", email: "old@example.com" }],
+      decryption: "mlkem768x25519plus.native.0rtt",
+      fallbacks: [],
+    });
+    const merged = JSON.parse(mergeFirstClientIntoSettings(existing, "vless", patch)) as Record<
+      string,
+      unknown
+    >;
+    expect(merged).not.toHaveProperty("fallbacks");
   });
 });

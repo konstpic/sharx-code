@@ -5,18 +5,23 @@ import { useTranslation } from "react-i18next";
 import type { StreamFormState } from "@/lib/inboundDefaults";
 import {
   countFinalmaskMasksOutsideEditor,
+  defaultFinalmaskQuicParams,
   defaultFinalmaskSettings,
   finalmaskShowsUdphop,
   finalmaskSidesFor,
   finalmaskUsesQuic,
+  hasFinalmaskQuicParams,
   orderFinalmaskUdp,
+  patchFinalmaskQuicParams,
+  readFinalmaskQuicParams,
   validateFinalmask,
   type FMItem,
   type FinalmaskIssue,
+  type FinalmaskQuicFields,
   type FinalmaskSide,
   type FinalmaskState,
 } from "@/lib/finalmaskDefaults";
-import { Input, SelectNative, Switch } from "@/components/ui";
+import { Input, PillTag, SelectNative, Switch } from "@/components/ui";
 
 type Props = {
   streamForm: Pick<StreamFormState, "finalmaskTcp" | "finalmaskUdp" | "finalmaskQuicParams">;
@@ -145,6 +150,7 @@ function Field({
 function MaskCard({
   title,
   type,
+  badge,
   enabled,
   disabled,
   onToggle,
@@ -153,6 +159,7 @@ function MaskCard({
 }: {
   title: string;
   type: string;
+  badge?: ReactNode;
   enabled: boolean;
   disabled: boolean;
   onToggle: (next: boolean) => void;
@@ -163,7 +170,10 @@ function MaskCard({
     <div className={cardCls}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-[var(--fg)]">{title}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-xs font-medium text-[var(--fg)]">{title}</p>
+            {badge}
+          </div>
           <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
             {type}
           </p>
@@ -259,6 +269,26 @@ export function FinalmaskEditor({
 
   const transportIssues = issues.filter((is) => is.code.startsWith("transport_"));
   const quicIssues = issues.filter((is) => is.path.startsWith("streamSettings.finalmask.quicParams"));
+  const quicGeneralIssues = quicIssues.filter(
+    (is) =>
+      !["congestion", "brutalUp", "brutalDown", "maxIdleTimeout", "keepAlivePeriod"].some((field) =>
+        is.path.endsWith(`.${field}`),
+      ),
+  );
+
+  const usesQuic = finalmaskUsesQuic(sidesQuery);
+  const quicPresent = hasFinalmaskQuicParams(state.finalmaskQuicParams);
+  const quic = readFinalmaskQuicParams(state.finalmaskQuicParams);
+  const brutalMode = quic.congestion === "brutal" || quic.congestion === "force-brutal";
+  const quicOptions = ["bbr", "brutal", "force-brutal"];
+  const patchQuic = (
+    patch: Partial<
+      Pick<
+        FinalmaskQuicFields,
+        "congestion" | "brutalUp" | "brutalDown" | "maxIdleTimeout" | "keepAlivePeriod"
+      >
+    >,
+  ) => setStreamFormField("finalmaskQuicParams", patchFinalmaskQuicParams(state.finalmaskQuicParams, patch));
 
   const fragment = findItem("tcp", "fragment");
   const salamander = findItem("udp", "salamander");
@@ -318,16 +348,154 @@ export function FinalmaskEditor({
           })}
         </p>
       ) : null}
-      {quicIssues.length > 0 ? (
+      {quicPresent && !usesQuic ? (
         <p className="text-[11px] text-amber-400">
           {t("finalmask.quicParamsInvalid", {
             defaultValue:
-              "QUIC params in the saved config are invalid — fix them in the JSON template.",
+              "QUIC params are stored in the config but this transport does not use QUIC — they are kept as is.",
+          })}
+        </p>
+      ) : null}
+      {sides.tcp || sides.udp ? (
+        <p className="text-[11px] leading-snug text-[var(--fg-subtle)]">
+          {t("finalmask.orderHint", {
+            defaultValue:
+              "Order matters: the first array entry is the outermost layer; socket-replacing masks (xicmp/udphop) go last.",
           })}
         </p>
       ) : null}
 
       <div className="space-y-2.5">
+        {usesQuic ? (
+          <MaskCard
+            title={t("finalmask.quic.title", { defaultValue: "QUIC params" })}
+            type="quicParams"
+            enabled={quicPresent}
+            disabled={disabled}
+            onToggle={(next) =>
+              setStreamFormField(
+                "finalmaskQuicParams",
+                next ? defaultFinalmaskQuicParams() : "",
+              )
+            }
+            note={t("finalmask.quic.hint", {
+              defaultValue: "Tuning for the QUIC transport (xhttp + TLS + ALPN h3).",
+            })}
+          >
+            {quicPresent ? (
+              <>
+                {quicGeneralIssues.length > 0 ? (
+                  <div className="sm:col-span-2">
+                    <IssueList issues={quicGeneralIssues} />
+                  </div>
+                ) : null}
+                <Field
+                  id={`${idPrefix}-fm-quic-congestion`}
+                  label={t("finalmask.quic.congestion", { defaultValue: "Congestion control" })}
+                  errors={fieldErrors(quicIssues, "congestion")}
+                >
+                  <SelectNative
+                    id={`${idPrefix}-fm-quic-congestion`}
+                    value={quic.congestion}
+                    disabled={disabled}
+                    onChange={(e) => patchQuic({ congestion: e.target.value })}
+                  >
+                    {quic.congestion === "" ? (
+                      <option value="">
+                        {t("finalmask.quic.congestionDefault", { defaultValue: "default (bbr)" })}
+                      </option>
+                    ) : null}
+                    <option value="bbr">bbr</option>
+                    <option value="brutal">brutal</option>
+                    <option value="force-brutal">force-brutal</option>
+                    {quic.congestion !== "" && !quicOptions.includes(quic.congestion) ? (
+                      <option value={quic.congestion}>{quic.congestion}</option>
+                    ) : null}
+                  </SelectNative>
+                </Field>
+                <Field
+                  id={`${idPrefix}-fm-quic-idle`}
+                  label={t("finalmask.quic.maxIdleTimeout", { defaultValue: "Idle timeout (sec)" })}
+                  hint={t("finalmask.quic.maxIdleTimeoutHint", { defaultValue: "4–120, default 30" })}
+                  errors={fieldErrors(quicIssues, "maxIdleTimeout")}
+                >
+                  <Input
+                    id={`${idPrefix}-fm-quic-idle`}
+                    type="number"
+                    inputMode="numeric"
+                    min={4}
+                    max={120}
+                    step={1}
+                    value={quic.maxIdleTimeout}
+                    placeholder="30"
+                    disabled={disabled}
+                    onChange={(e) => patchQuic({ maxIdleTimeout: e.target.value })}
+                  />
+                </Field>
+                <Field
+                  id={`${idPrefix}-fm-quic-keepalive`}
+                  label={t("finalmask.quic.keepAlivePeriod", { defaultValue: "Keep-alive (sec)" })}
+                  hint={t("finalmask.quic.keepAlivePeriodHint", { defaultValue: "2–60, default 10" })}
+                  errors={fieldErrors(quicIssues, "keepAlivePeriod")}
+                >
+                  <Input
+                    id={`${idPrefix}-fm-quic-keepalive`}
+                    type="number"
+                    inputMode="numeric"
+                    min={2}
+                    max={60}
+                    step={1}
+                    value={quic.keepAlivePeriod}
+                    placeholder="10"
+                    disabled={disabled}
+                    onChange={(e) => patchQuic({ keepAlivePeriod: e.target.value })}
+                  />
+                </Field>
+                {brutalMode ? (
+                  <>
+                    <Field
+                      id={`${idPrefix}-fm-quic-brutal-up`}
+                      label={t("finalmask.quic.brutalUp", { defaultValue: "Upload limit" })}
+                      required
+                      hint={t("finalmask.quic.bandwidthHint", {
+                        defaultValue: "e.g. 100mbps, 100 MB/s or 1.5 gbps; a bare number means Mbps",
+                      })}
+                      errors={fieldErrors(quicIssues, "brutalUp")}
+                    >
+                      <Input
+                        id={`${idPrefix}-fm-quic-brutal-up`}
+                        value={quic.brutalUp}
+                        placeholder="100mbps"
+                        disabled={disabled}
+                        spellCheck={false}
+                        onChange={(e) => patchQuic({ brutalUp: e.target.value })}
+                      />
+                    </Field>
+                    <Field
+                      id={`${idPrefix}-fm-quic-brutal-down`}
+                      label={t("finalmask.quic.brutalDown", { defaultValue: "Download limit" })}
+                      required
+                      hint={t("finalmask.quic.bandwidthHint", {
+                        defaultValue: "e.g. 100mbps, 100 MB/s or 1.5 gbps; a bare number means Mbps",
+                      })}
+                      errors={fieldErrors(quicIssues, "brutalDown")}
+                    >
+                      <Input
+                        id={`${idPrefix}-fm-quic-brutal-down`}
+                        value={quic.brutalDown}
+                        placeholder="100mbps"
+                        disabled={disabled}
+                        spellCheck={false}
+                        onChange={(e) => patchQuic({ brutalDown: e.target.value })}
+                      />
+                    </Field>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </MaskCard>
+        ) : null}
+
         {sides.tcp ? (
           <MaskCard
             title={t("finalmask.fragment.title", { defaultValue: "TLS fragmentation" })}
@@ -503,6 +671,7 @@ export function FinalmaskEditor({
           <MaskCard
             title={t("finalmask.udphop.title", { defaultValue: "Port hopping" })}
             type="udphop"
+            badge={<PillTag tone="neutral">{t("finalmask.clientOnly")}</PillTag>}
             enabled={Boolean(udphop)}
             disabled={disabled}
             onToggle={() => toggleMask("udp", "udphop")}

@@ -2237,7 +2237,8 @@ export function buildSettingsJson(
 
   switch (protocol) {
     case "vless": {
-      const o = {
+      const fallbacks = fallbackRowsSettingsToJson(opts.vlessTrojanFallbacks ?? []);
+      const o: Record<string, unknown> = {
         clients: [
           {
             id: newClientUUID(),
@@ -2257,8 +2258,10 @@ export function buildSettingsJson(
         ],
         decryption: opts.vlessDecryption || "none",
         encryption: opts.vlessEncryption || "none",
-        fallbacks: fallbackRowsSettingsToJson(opts.vlessTrojanFallbacks ?? []),
       };
+      // The kernel rejects a config where an empty `fallbacks` sits next to a
+      // real `decryption` (e.g. ML-KEM), so an empty array is never emitted.
+      if (fallbacks.length > 0) o.fallbacks = fallbacks;
       return JSON.stringify(o);
     }
     case "vmess": {

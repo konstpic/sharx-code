@@ -522,6 +522,237 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+// ---- quicParams (structural editor state) ---------------------------------
+
+/** Numeric quicParams fields the card edits, with kernel-accepted ranges. */
+export const FINALMASK_QUIC_NUMBER_RULES = {
+  maxIdleTimeout: { min: 4, max: 120 },
+  keepAlivePeriod: { min: 2, max: 60 },
+} as const;
+
+export type FinalmaskQuicNumberField = keyof typeof FINALMASK_QUIC_NUMBER_RULES;
+
+/** Kernel minimum for brutal congestion (bytes/s); 0 disables the limit. */
+const QUIC_MIN_BANDWIDTH_BYTES = 65536;
+
+/**
+ * Bandwidth input: `<number><unit>?` with an optional space. Units are the
+ * kernel's bits/s family (b/k/kb/kbps/m/mb/mbps/g/gb/gbps/t/tb/tbps) plus
+ * friendly byte/s forms (B/s, KB/s, MB/s, GB/s, TB/s). A bare number is read
+ * as Mbps, which is what users type into a bandwidth field.
+ */
+const QUIC_BANDWIDTH_RE =
+  /^(\d+(?:\.\d+)?)\s*(b\/s|kb\/s|mb\/s|gb\/s|tb\/s|kbps|mbps|gbps|tbps|bps|kb|mb|gb|tb|k|m|g|t|b)?$/i;
+
+/** Bit multipliers for the kernel's Bandwidth units. */
+const QUIC_BIT_UNITS: Record<string, number> = {
+  b: 1,
+  k: 1024,
+  kb: 1024,
+  kbps: 1024,
+  m: 1024 ** 2,
+  mb: 1024 ** 2,
+  mbps: 1024 ** 2,
+  g: 1024 ** 3,
+  gb: 1024 ** 3,
+  gbps: 1024 ** 3,
+  t: 1024 ** 4,
+  tb: 1024 ** 4,
+  tbps: 1024 ** 4,
+};
+
+function formatBandwidthValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
+}
+
+/**
+ * Parse a Bandwidth value for validation and emission. Returns the value in
+ * bits/s (as the kernel's `Bandwidth.Bps` divides by 8 later) and the
+ * kernel-canonical string. Byte/s units are converted to bits, a bare number
+ * becomes Mbps; unknown input returns null.
+ */
+export function parseFinalmaskBandwidth(
+  input: string,
+): { bitsPerSecond: number; bytesPerSecond: number; normalized: string } | null {
+  const text = (input || "").trim();
+  const match = QUIC_BANDWIDTH_RE.exec(text);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  const rawUnit = (match[2] ?? "").toLowerCase();
+  let bitsPerSecond: number;
+  let normalizedValue = value;
+  let unit: string;
+  if (rawUnit === "") {
+    // A bare number is read as Mbps.
+    bitsPerSecond = value * 1024 ** 2;
+    unit = "m";
+  } else if (rawUnit.endsWith("/s")) {
+    // Byte/s units (B/s, KB/s, ...) → the matching bits/s unit.
+    unit = rawUnit.slice(0, -2);
+    normalizedValue = value * 8;
+    bitsPerSecond = normalizedValue * (QUIC_BIT_UNITS[unit] ?? 1);
+  } else {
+    bitsPerSecond = value * (QUIC_BIT_UNITS[rawUnit] ?? 1);
+    unit = rawUnit === "bps" ? "b" : rawUnit;
+  }
+  return {
+    bitsPerSecond,
+    bytesPerSecond: bitsPerSecond / 8,
+    normalized: `${formatBandwidthValue(normalizedValue)}${unit}`,
+  };
+}
+
+/** Kernel-canonical Bandwidth string; unparsable input is returned trimmed. */
+export function normalizeFinalmaskBandwidth(input: string): string {
+  return parseFinalmaskBandwidth(input)?.normalized ?? input.trim();
+}
+
+/** Structured state of the QUIC card; `extra` keeps keys the card cannot edit. */
+export type FinalmaskQuicFields = {
+  congestion: string;
+  brutalUp: string;
+  brutalDown: string;
+  maxIdleTimeout: string;
+  keepAlivePeriod: string;
+  /** Unknown/advanced quicParams keys, written back verbatim. */
+  extra: Record<string, unknown>;
+  /** The stored string is not a JSON object (render-only fallback). */
+  invalid: boolean;
+};
+
+const QUIC_STRUCTURED_KEYS = [
+  "congestion",
+  "brutalUp",
+  "brutalDown",
+  "maxIdleTimeout",
+  "keepAlivePeriod",
+] as const;
+
+function quicTextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return "";
+}
+
+/** Defaults written when the QUIC card is switched on. */
+export function defaultFinalmaskQuicParams(): string {
+  return JSON.stringify(
+    { congestion: "bbr", maxIdleTimeout: 30, keepAlivePeriod: 10 },
+    null,
+    2,
+  );
+}
+
+/** True when the form carries a quicParams block (even an unparsable one). */
+export function hasFinalmaskQuicParams(json: string): boolean {
+  return (json || "").trim() !== "";
+}
+
+/**
+ * Read the known QUIC fields from the form string. Unknown keys are collected
+ * into `extra` so a round-trip never loses them.
+ */
+export function readFinalmaskQuicParams(json: string): FinalmaskQuicFields {
+  const empty: FinalmaskQuicFields = {
+    congestion: "",
+    brutalUp: "",
+    brutalDown: "",
+    maxIdleTimeout: "",
+    keepAlivePeriod: "",
+    extra: {},
+    invalid: false,
+  };
+  const text = (json || "").trim();
+  if (!text) return empty;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ...empty, invalid: true };
+  }
+  const qp = asRecord(parsed);
+  if (!qp) return { ...empty, invalid: true };
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(qp)) {
+    if (!(QUIC_STRUCTURED_KEYS as readonly string[]).includes(key)) extra[key] = cloneJson(value);
+  }
+  return {
+    congestion: quicTextValue(qp.congestion),
+    brutalUp: quicTextValue(qp.brutalUp),
+    brutalDown: quicTextValue(qp.brutalDown),
+    maxIdleTimeout: quicTextValue(qp.maxIdleTimeout),
+    keepAlivePeriod: quicTextValue(qp.keepAlivePeriod),
+    extra,
+    invalid: false,
+  };
+}
+
+function setQuicNumberField(
+  qp: Record<string, unknown>,
+  key: FinalmaskQuicNumberField,
+  raw: string,
+): void {
+  const text = raw.trim();
+  if (!text) {
+    delete qp[key];
+    return;
+  }
+  qp[key] = /^-?\d+(?:\.\d+)?$/.test(text) ? Number(text) : text;
+}
+
+/**
+ * Apply a single field edit, preserving every unknown key. An unparsable
+ * string is left untouched (the validator reports it).
+ */
+export function patchFinalmaskQuicParams(
+  json: string,
+  patch: Partial<
+    Pick<
+      FinalmaskQuicFields,
+      "congestion" | "brutalUp" | "brutalDown" | "maxIdleTimeout" | "keepAlivePeriod"
+    >
+  >,
+): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse((json || "").trim() || "{}");
+  } catch {
+    return json;
+  }
+  const qp = asRecord(parsed);
+  if (!qp) return json;
+  if (patch.congestion !== undefined) {
+    if (patch.congestion === "") delete qp.congestion;
+    else qp.congestion = patch.congestion;
+  }
+  if (patch.brutalUp !== undefined) {
+    if (patch.brutalUp === "") delete qp.brutalUp;
+    else qp.brutalUp = patch.brutalUp;
+  }
+  if (patch.brutalDown !== undefined) {
+    if (patch.brutalDown === "") delete qp.brutalDown;
+    else qp.brutalDown = patch.brutalDown;
+  }
+  if (patch.maxIdleTimeout !== undefined) {
+    setQuicNumberField(qp, "maxIdleTimeout", patch.maxIdleTimeout);
+  }
+  if (patch.keepAlivePeriod !== undefined) {
+    setQuicNumberField(qp, "keepAlivePeriod", patch.keepAlivePeriod);
+  }
+  return JSON.stringify(qp, null, 2);
+}
+
+/** Normalize bandwidth strings before emission (unknown keys stay verbatim). */
+function normalizeQuicParamsForBuild(qp: Record<string, unknown>): void {
+  for (const key of ["brutalUp", "brutalDown"]) {
+    const value = qp[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      qp[key] = normalizeFinalmaskBandwidth(value);
+    }
+  }
+}
+
 /** Legacy item-level keys the kernel still accepts; migrate them into settings. */
 const LEGACY_ITEM_SETTING_KEYS: Record<string, readonly string[]> = {
   salamander: ["password"],
@@ -592,7 +823,11 @@ export function buildFinalmask(state: FinalmaskState): Record<string, unknown> |
   if (qpText) {
     try {
       const parsed: unknown = JSON.parse(qpText);
-      if (asRecord(parsed)) fm.quicParams = parsed;
+      const qp = asRecord(parsed);
+      if (qp) {
+        normalizeQuicParamsForBuild(qp);
+        fm.quicParams = qp;
+      }
     } catch {
       /* invalid JSON is reported by validateFinalmask; omit it on build */
     }
@@ -1172,10 +1407,83 @@ function validateQuicParams(json: string): FinalmaskIssue[] {
       issue("quic_bbr_profile", `${base}.bbrProfile`, "error", "bbrProfile must be one of conservative, standard, aggressive"),
     );
   }
-  for (const [key, value] of Object.entries(qp)) {
-    const n = typeof value === "number" ? value : null;
-    if (n != null && n <= 0) {
+  // Numeric fields: integers inside the kernel range (0 is the "default" value
+  // the card never emits, but it is reported as invalid here so the editor
+  // always writes an explicit, meaningful value).
+  for (const [key, rule] of Object.entries(FINALMASK_QUIC_NUMBER_RULES)) {
+    if (!(key in qp) || qp[key] == null) continue;
+    const value = qp[key];
+    const n = num(value);
+    if (n == null) {
+      issues.push(issue("quic_number_type", `${base}.${key}`, "error", `${key} must be a number`));
+      continue;
+    }
+    if (n <= 0) {
       issues.push(issue("quic_number_positive", `${base}.${key}`, "error", `${key} must be greater than 0`));
+      continue;
+    }
+    if (!Number.isInteger(n)) {
+      issues.push(issue("quic_number_integer", `${base}.${key}`, "error", `${key} must be an integer`));
+      continue;
+    }
+    if (n < rule.min || n > rule.max) {
+      issues.push(
+        issue(
+          "quic_number_range",
+          `${base}.${key}`,
+          "error",
+          `${key} must be between ${rule.min} and ${rule.max}`,
+        ),
+      );
+    }
+  }
+  const congestion = str(qp.congestion).trim().toLowerCase();
+  const brutalRequired = congestion === "brutal" || congestion === "force-brutal";
+  for (const key of ["brutalUp", "brutalDown"] as const) {
+    if (!(key in qp) || qp[key] == null) {
+      if (brutalRequired) {
+        issues.push(
+          issue(
+            key === "brutalUp" ? "quic_brutal_up_required" : "quic_brutal_down_required",
+            `${base}.${key}`,
+            "error",
+            `${congestion} congestion requires a ${key} bandwidth string`,
+          ),
+        );
+      }
+      continue;
+    }
+    const raw = qp[key];
+    if (typeof raw !== "string") {
+      issues.push(
+        issue("quic_bandwidth_type", `${base}.${key}`, "error", `${key} must be a bandwidth string like "100mbps"`),
+      );
+      continue;
+    }
+    if (raw.trim() === "") {
+      if (brutalRequired) {
+        issues.push(
+          issue(
+            key === "brutalUp" ? "quic_brutal_up_required" : "quic_brutal_down_required",
+            `${base}.${key}`,
+            "error",
+            `${congestion} congestion requires a ${key} bandwidth string`,
+          ),
+        );
+      }
+      continue;
+    }
+    const bandwidth = parseFinalmaskBandwidth(raw);
+    if (!bandwidth) {
+      issues.push(
+        issue("quic_bandwidth_value", `${base}.${key}`, "error", `${key} must be a bandwidth string like "100mbps"`),
+      );
+      continue;
+    }
+    if (bandwidth.bytesPerSecond !== 0 && bandwidth.bytesPerSecond < QUIC_MIN_BANDWIDTH_BYTES) {
+      issues.push(
+        issue("quic_bandwidth_min", `${base}.${key}`, "error", `${key} must be 0 or at least 65536 bytes/s`),
+      );
     }
   }
   return issues;
