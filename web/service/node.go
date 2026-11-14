@@ -27,6 +27,7 @@ import (
 	"github.com/konstpic/sharx-code/v2/logger"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/util/common"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/xray"
 
 	"gorm.io/gorm"
@@ -1180,7 +1181,9 @@ func (s *NodeService) MaybePushWorkerConfigIfCoresDown(node *model.Node) {
 			logger.Warningf("[Node: %s] Worker config recover: build sidecars: %v", n.Name, terr)
 		}
 		meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
-		if err := s.ApplyConfigToNode(n, cfgJSON, &telm, &awg, &webv, meta); err != nil {
+		// NAT intents ride the same envelope so a node-container restart also
+		// restores the udphop REDIRECT rules, not just xray/telemt.
+		if err := s.ApplyConfigToNode(n, cfgJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); err != nil {
 			logger.Warningf("[Node: %s] Worker config recover: apply-config: %v", n.Name, err)
 			return
 		}
@@ -3001,8 +3004,10 @@ func NewApplyWorkerConfigMeta(workerJSON []byte, coreProfileHashHex string) *App
 
 // ApplyConfigToNode sends XRAY JSON and optional Telemt / AmneziaWG payloads to a node.
 // When telemt or amneziawg is non-nil, the array is always sent (empty slice stops all sidecars of that type).
+// udphopNat is the desired udphop REDIRECT rule list; a nil slice is sent as an
+// empty list so the node removes stale rules (see BuildUDPHopNatIntentsForNode).
 // meta may be nil; when set, coreProfileHash and expectedConfigSha256 are included in the apply-config body.
-func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, meta *ApplyWorkerConfigMeta) (err error) {
+func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, udphopNat []finalmask.UDPHopNatIntent, meta *ApplyWorkerConfigMeta) (err error) {
 	defer logNodeAction(node, "config", "apply config", time.Now())(&err)
 	// Use reasonable timeout for apply-config (30 seconds should be enough for most cases)
 	// If config is very large or node is slow, this can be increased
@@ -3044,6 +3049,12 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 		}
 		requestBody["telemtWeb"] = payload
 	}
+	// Always a list (never null): the node reconciles its own iptables chain to
+	// exactly this state, so an empty list must mean "remove the stale rules".
+	if udphopNat == nil {
+		udphopNat = []finalmask.UDPHopNatIntent{}
+	}
+	requestBody["udphopNat"] = udphopNat
 	if meta != nil {
 		if meta.CoreProfileHash != "" {
 			requestBody["coreProfileHash"] = meta.CoreProfileHash
@@ -3094,15 +3105,22 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 	}
 
 	var applyResp struct {
-		AppliedAt         int64  `json:"appliedAt"`
-		ConfigSha256      string `json:"configSha256"`
-		CoreProfileHash   string `json:"coreProfileHash,omitempty"`
-		ConfigSha256Match *bool  `json:"configSha256Match,omitempty"`
-		XrayVersion       string `json:"xrayVersion"`
-		XrayRunning       bool   `json:"xrayRunning"`
-		Message           string `json:"message"`
+		AppliedAt         int64    `json:"appliedAt"`
+		ConfigSha256      string   `json:"configSha256"`
+		CoreProfileHash   string   `json:"coreProfileHash,omitempty"`
+		ConfigSha256Match *bool    `json:"configSha256Match,omitempty"`
+		XrayVersion       string   `json:"xrayVersion"`
+		XrayRunning       bool     `json:"xrayRunning"`
+		Message           string   `json:"message"`
+		UdphopNatErrors   []string `json:"udphopNatErrors,omitempty"`
 	}
 	parseOK := json.Unmarshal(respBody, &applyResp) == nil
+	if parseOK && len(applyResp.UdphopNatErrors) > 0 {
+		// The node applied the config but could not reconcile its udphop NAT
+		// chain (e.g. missing CAP_NET_ADMIN): surfaced, never fatal for xray.
+		logger.Warningf("[Node: %s] apply-config ok, but udphop NAT reconcile reported: %s",
+			node.Name, strings.Join(applyResp.UdphopNatErrors, "; "))
+	}
 	if parseOK && (applyResp.AppliedAt != 0 || applyResp.ConfigSha256 != "") {
 		var matchStr string
 		if applyResp.ConfigSha256Match != nil {
@@ -3352,7 +3370,7 @@ func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node, forceReload 
 	if meta != nil {
 		meta.ForceReload = forceReload
 	}
-	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, meta); apErr != nil {
+	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); apErr != nil {
 		return apErr
 	}
 	if forceReload {

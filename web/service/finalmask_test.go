@@ -237,6 +237,32 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			}},
 		},
 		{
+			name: "udphop intervallocal without remote fields",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "udphop", "settings": map[string]any{
+					"mode": "intervallocal", "interval": 30,
+				}},
+			}},
+		},
+		{
+			name: "udphop intervallocal keeps remote fields (round-trip)",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "udphop", "settings": map[string]any{
+					"mode": "intervallocal", "interval": 30,
+					"remoteIPs": []any{"1.2.3.4"}, "remotePorts": "20000-30000",
+				}},
+			}},
+		},
+		{
+			name: "udphop intervalremote missing remote fields",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "udphop", "settings": map[string]any{
+					"mode": "intervalremote", "interval": 30,
+				}},
+			}},
+			wantErrIn: "udphop_remote_ips",
+		},
+		{
 			name: "udphop short interval",
 			fm: map[string]any{"udp": []any{
 				map[string]any{"type": "udphop", "settings": map[string]any{

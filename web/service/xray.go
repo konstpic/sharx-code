@@ -980,7 +980,7 @@ func (s *XrayService) applyWorkerConfigToNodeIDsMulti(nodeIDs []int) error {
 				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
 			}
 			meta := NewApplyWorkerConfigMeta(configJSON, coreH)
-			if err := s.nodeService.ApplyConfigToNode(n, configJSON, &telm, &awg, &webv, meta); err != nil {
+			if err := s.nodeService.ApplyConfigToNode(n, configJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); err != nil {
 				logger.Errorf("[Node: %s] Failed to apply config: %v", n.Name, err)
 				mu.Lock()
 				failures = append(failures, fmt.Errorf("node %s: %w", n.Name, err))

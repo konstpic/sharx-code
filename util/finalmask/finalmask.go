@@ -509,9 +509,12 @@ func validateUDPHop(path string, el, st map[string]any, transport string) []Issu
 	// it is valid on an inbound as well.
 	rawMode := strings.TrimSpace(strValue(firstNonNil(st["mode"], el["mode"])))
 	modeOK := rawMode != ""
+	remoteMode := false
 	for _, mode := range strings.Split(rawMode, ",") {
 		switch strings.ToLower(strings.TrimSpace(mode)) {
-		case "intervallocal", "intervalremote", "perconnremote":
+		case "intervalremote", "perconnremote":
+			remoteMode = true
+		case "intervallocal":
 		default:
 			modeOK = false
 		}
@@ -531,13 +534,18 @@ func validateUDPHop(path string, el, st map[string]any, transport string) []Issu
 		issues = append(issues, issue("udphop_interval", path+".settings.interval", SeverityError,
 			"udphop requires a single interval number or \"min-max\" range (>= 5 seconds)"))
 	}
-	if !hasNonEmptyList(firstNonNil(st["remoteIPs"], el["remoteIPs"])) {
-		issues = append(issues, issue("udphop_remote_ips", path+".settings.remoteIPs", SeverityError,
-			"udphop requires a non-empty remoteIPs list"))
-	}
-	if !hasNonEmptyList(firstNonNil(st["remotePorts"], el["remotePorts"])) {
-		issues = append(issues, issue("udphop_remote_ports", path+".settings.remotePorts", SeverityError,
-			"udphop requires a non-empty remotePorts list"))
+	// The kernel reads remoteIPs/remotePorts only in the remote branches
+	// (conn.go touches the lists inside `if c.Remote || c.RemoteOnce`);
+	// intervallocal only rewrites the client's source port and needs neither.
+	if remoteMode {
+		if !hasNonEmptyList(firstNonNil(st["remoteIPs"], el["remoteIPs"])) {
+			issues = append(issues, issue("udphop_remote_ips", path+".settings.remoteIPs", SeverityError,
+				"udphop requires a non-empty remoteIPs list"))
+		}
+		if !hasNonEmptyList(firstNonNil(st["remotePorts"], el["remotePorts"])) {
+			issues = append(issues, issue("udphop_remote_ports", path+".settings.remotePorts", SeverityError,
+				"udphop requires a non-empty remotePorts list"))
+		}
 	}
 	return issues
 }
