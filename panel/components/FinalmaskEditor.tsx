@@ -6,6 +6,7 @@ import type { StreamFormState } from "@/lib/inboundDefaults";
 import {
   countFinalmaskMasksOutsideEditor,
   defaultFinalmaskSettings,
+  finalmaskShowsUdphop,
   finalmaskSidesFor,
   finalmaskUsesQuic,
   orderFinalmaskUdp,
@@ -403,13 +404,13 @@ export function FinalmaskEditor({
                       })
                     }
                   >
-                    <option value="">
-                      {t("finalmask.fragment.packetsAll", { defaultValue: "All packets" })}
-                    </option>
                     <option value="tlshello">
                       {t("finalmask.fragment.packetsTlsHello", {
                         defaultValue: "tlshello (ClientHello)",
                       })}
+                    </option>
+                    <option value="">
+                      {t("finalmask.fragment.packetsAll", { defaultValue: "All packets" })}
                     </option>
                     {textValue(fragment.settings.packets) !== "" &&
                     textValue(fragment.settings.packets).toLowerCase() !== "tlshello" ? (
@@ -425,11 +426,19 @@ export function FinalmaskEditor({
         ) : null}
 
         {sides.udp && isHysteria ? (
-          <p className="text-[11px] text-[var(--fg-subtle)]">
-            {t("finalmask.salamander.viaObfs", {
-              defaultValue: "salamander is configured by the Obfuscation fields above.",
-            })}
-          </p>
+          <div className="space-y-1">
+            <p className="text-[11px] text-[var(--fg-subtle)]">
+              {t("finalmask.salamander.viaObfs", {
+                defaultValue: "salamander is configured by the Obfuscation fields above.",
+              })}
+            </p>
+            <p className="text-[11px] text-[var(--fg-subtle)]">
+              {t("finalmask.udphop.viaJsonOnly", {
+                defaultValue:
+                  "udphop is not delivered by the Hysteria 2 share link — use the subscription JSON template instead.",
+              })}
+            </p>
+          </div>
         ) : null}
 
         {sides.udp && !isHysteria ? (
@@ -490,7 +499,7 @@ export function FinalmaskEditor({
           </MaskCard>
         ) : null}
 
-        {sides.udp ? (
+        {sides.udp && finalmaskShowsUdphop(protocol) ? (
           <MaskCard
             title={t("finalmask.udphop.title", { defaultValue: "Port hopping" })}
             type="udphop"

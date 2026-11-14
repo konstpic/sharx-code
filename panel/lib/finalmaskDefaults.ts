@@ -103,8 +103,10 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
     fields: [
       { name: "lengths", label: "lengths", kind: "list", required: true, placeholder: "100-200, 150-250" },
       { name: "delays", label: "delays", kind: "list", placeholder: "1-2, 3-4" },
+      { name: "maxSplit", label: "maxSplit", kind: "string", placeholder: "10-20" },
+      { name: "packets", label: "packets", kind: "string", placeholder: "tlshello" },
     ],
-    preset: { lengths: ["100-200"], delays: ["1-2"] },
+    preset: { packets: "tlshello", lengths: ["100-200"], delays: ["1-2"] },
   },
   {
     side: "tcp",
@@ -316,13 +318,18 @@ export function countFinalmaskMasksOutsideEditor(
   query?: FinalmaskSidesQuery,
 ): number {
   const sides = query ? finalmaskSidesFor(query) : { tcp: true, udp: true };
+  // udphop has no card for Hysteria/Hysteria2, so a stored mask is outside the
+  // editor there and must be reported as preserved.
+  const udphopHidden = query ? !finalmaskShowsUdphop(query.protocol ?? "") : false;
+  const isUiType = (side: FinalmaskSide, type: string): boolean =>
+    isUiFinalmaskType(side, type) && !(udphopHidden && side === "udp" && type === "udphop");
   const countSide = (side: FinalmaskSide, items: FMItem[], allowed: boolean): number => {
     if (!allowed) return items.length;
     const seen = new Set<string>();
     let hidden = 0;
     for (const item of items) {
       const type = normType(item.type);
-      if (!isUiFinalmaskType(side, type)) {
+      if (!isUiType(side, type)) {
         hidden += 1;
       } else if (seen.has(type)) {
         hidden += 1;
@@ -465,6 +472,17 @@ export function orderFinalmaskUdp(items: FMItem[]): FMItem[] {
     else head.push(item);
   }
   return [...head, ...tail];
+}
+
+/**
+ * Hysteria / Hysteria2 subscription links carry no `fm=` block at all
+ * (3x-ui PR #6048), so udphop can never reach a client through the link.
+ * The mask stays valid for the JSON subscription path, hence the editor hides
+ * the card and points at the template instead of dropping the stored entry.
+ */
+export function finalmaskShowsUdphop(protocol: string): boolean {
+  const p = typeof protocol === "string" ? protocol.trim().toLowerCase() : "";
+  return p !== "hysteria" && p !== "hysteria2";
 }
 
 /** True when the mask is emitted by subscription `fm=` share links. */

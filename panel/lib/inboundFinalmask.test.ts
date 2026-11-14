@@ -3,7 +3,9 @@ import { roundTripInboundStreamSettings } from "./inboundJsonSanitize";
 import {
   buildFinalmask,
   countFinalmaskMasksOutsideEditor,
+  defaultFinalmaskSettings,
   emptyFinalmaskState,
+  finalmaskShowsUdphop,
   finalmaskSidesFor,
   fmSupportedInLink,
   orderFinalmaskUdp,
@@ -166,6 +168,62 @@ describe("finalmask round-trip", () => {
       finalmask?: { udp?: unknown[] };
     };
     expect(rebuilt.finalmask?.udp).toBeUndefined();
+  });
+});
+
+describe("fragment editor defaults", () => {
+  it("enables fragment with tlshello packets by default", () => {
+    expect(defaultFinalmaskSettings("tcp", "fragment")).toEqual({
+      packets: "tlshello",
+      lengths: ["100-200"],
+      delays: ["1-2"],
+    });
+  });
+
+  it("keeps a saved fragment without packets as all-packets (no injection)", () => {
+    const form = parseStreamSettingsToForm(
+      JSON.stringify({
+        network: "tcp",
+        security: "none",
+        finalmask: {
+          tcp: [{ type: "fragment", settings: { lengths: ["100-200"], delays: ["1-2"] } }],
+        },
+      }),
+      "vless",
+    );
+    expect(form.finalmaskTcp[0].settings).not.toHaveProperty("packets");
+
+    const rebuilt = JSON.parse(buildStreamSettingsFromForm(form, "vless")) as {
+      finalmask: { tcp: { settings: Record<string, unknown> }[] };
+    };
+    expect(rebuilt.finalmask.tcp[0].settings).not.toHaveProperty("packets");
+  });
+
+  it("round-trips an explicit tlshello packets value", () => {
+    const form = parseStreamSettingsToForm(
+      JSON.stringify({
+        network: "tcp",
+        security: "none",
+        finalmask: {
+          tcp: [
+            { type: "fragment", settings: { packets: "tlshello", lengths: ["100-200"] } },
+          ],
+        },
+      }),
+      "vless",
+    );
+    expect(form.finalmaskTcp[0].settings.packets).toBe("tlshello");
+  });
+});
+
+describe("finalmaskShowsUdphop", () => {
+  it("hides udphop for the hysteria family only", () => {
+    expect(finalmaskShowsUdphop("hysteria")).toBe(false);
+    expect(finalmaskShowsUdphop("hysteria2")).toBe(false);
+    expect(finalmaskShowsUdphop(" Hysteria2 ")).toBe(false);
+    expect(finalmaskShowsUdphop("vless")).toBe(true);
+    expect(finalmaskShowsUdphop("wireguard")).toBe(true);
+    expect(finalmaskShowsUdphop("")).toBe(true);
   });
 });
 
@@ -332,6 +390,25 @@ describe("countFinalmaskMasksOutsideEditor", () => {
     expect(countFinalmaskMasksOutsideEditor(state)).toBe(1);
     // On kcp the whole TCP side is hidden.
     expect(countFinalmaskMasksOutsideEditor(state, { protocol: "vless", network: "kcp" })).toBe(2);
+  });
+
+  it("counts a stored udphop as outside the editor for hysteria", () => {
+    const state = fmState({
+      finalmaskUdp: [
+        { type: "salamander", settings: { password: "strongpsk" } },
+        {
+          type: "udphop",
+          settings: {
+            mode: "intervalremote",
+            interval: 30,
+            remoteIPs: ["1.2.3.4"],
+            remotePorts: "443",
+          },
+        },
+      ],
+    });
+    expect(countFinalmaskMasksOutsideEditor(state, { protocol: "hysteria2", network: "tcp" })).toBe(1);
+    expect(countFinalmaskMasksOutsideEditor(state, { protocol: "vless", network: "kcp" })).toBe(0);
   });
 });
 

@@ -6240,6 +6240,7 @@ viaObfs = "salamander is configured by the Obfuscation fields above."
 [finalmask.udphop]
 title = "Port hopping"
 hint = "Client-side mask — it is never written into the server config; on the node, DNAT the port range to the inbound port."
+viaJsonOnly = "udphop is not delivered by the Hysteria 2 share link — use the subscription JSON template instead."
 mode = "Mode"
 modeEmpty = "Select a mode"
 modeIntervalRemote = "intervalremote (default)"

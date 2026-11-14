@@ -6677,6 +6677,7 @@ viaObfs = "salamander задаётся полем Obfuscation выше."
 [finalmask.udphop]
 title = "Прыжки по портам"
 hint = "Маска клиентская — в конфиг сервера не попадает; на ноде нужен DNAT диапазона портов на порт инбаунда."
+viaJsonOnly = "udphop для Hysteria 2 не доставляется ссылкой — только через JSON-шаблон подписки."
 mode = "Режим"
 modeEmpty = "Выберите режим"
 modeIntervalRemote = "intervalremote (по умолчанию)"
