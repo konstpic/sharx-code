@@ -13,6 +13,15 @@
  *  - the first array element is the outermost layer
  *  - xicmp/udphop must be the last udp[] entry (socket-replacing masks)
  *  - `type` is case-insensitive; unknown settings keys are ignored by the core
+ *
+ * The inbound editor exposes only a fixed subset (`UI_TCP_TYPES` /
+ * `UI_UDP_TYPES`): TLS fragmentation, QUIC obfuscation and port hopping. Every
+ * other registry type is preserved verbatim on save (lossless round-trip) and
+ * is editable only through the JSON templates.
+ *
+ * `finalmaskSidesFor` mirrors `util/finalmask/transport.go: SidesFor` so the
+ * panel hides (and the validator rejects) masks on transports that cannot
+ * carry them.
  */
 
 export type FinalmaskSide = "tcp" | "udp";
@@ -245,13 +254,21 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
     label: "udphop",
     clientOnly: true,
     linkSupported: true,
-    hint: "Client-only mask; cannot be used in an inbound. Must be the last udp[] entry.",
+    hint:
+      "Client-side mask: kept in the inbound for share links, stripped from the node config. Must be the last udp[] entry; DNAT the remote port range to the inbound port on the node.",
     fields: [
+      {
+        name: "mode",
+        label: "mode",
+        kind: "enum",
+        required: true,
+        options: ["intervalremote", "intervallocal", "perconnremote"],
+      },
       { name: "interval", label: "interval (sec)", kind: "number", required: true, placeholder: "30" },
       { name: "remoteIPs", label: "remoteIPs", kind: "list", required: true, placeholder: "1.2.3.4" },
-      { name: "remotePorts", label: "remotePorts", kind: "list", required: true, placeholder: "443" },
+      { name: "remotePorts", label: "remotePorts", kind: "string", required: true, placeholder: "20000-30000" },
     ],
-    preset: { interval: 30, remoteIPs: ["1.2.3.4"], remotePorts: ["443"] },
+    preset: { mode: "intervalremote", interval: 30, remoteIPs: [], remotePorts: "" },
   },
   {
     side: "udp",
@@ -268,6 +285,187 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
 const LINK_TCP_WHITELIST = new Set(["header-custom", "fragment", "sudoku", "xmc"]);
 const LINK_UDP_WHITELIST = new Set(["salamander", "udphop", "sudoku", "realm", "header-custom"]);
 const SOCKET_REPLACING = new Set(["xicmp", "udphop"]);
+
+/**
+ * Mask types rendered by the compact inbound editor. Everything else stays in
+ * the config untouched (see `countFinalmaskMasksOutsideEditor`).
+ */
+export const UI_TCP_TYPES = ["fragment"] as const;
+export const UI_UDP_TYPES = ["salamander", "udphop"] as const;
+
+const UI_TCP_SET = new Set<string>(UI_TCP_TYPES);
+const UI_UDP_SET = new Set<string>(UI_UDP_TYPES);
+
+function normType(type: unknown): string {
+  return typeof type === "string" ? type.trim().toLowerCase() : "";
+}
+
+/** True when the editor renders an editable card for this mask. */
+export function isUiFinalmaskType(side: FinalmaskSide, type: string): boolean {
+  return side === "tcp" ? UI_TCP_SET.has(normType(type)) : UI_UDP_SET.has(normType(type));
+}
+
+/**
+ * Masks stored in the config that the compact editor does not render: types
+ * outside the UI subset, duplicate entries of a UI type (only the first is
+ * edited) and — when a transport context is given — every mask on a side the
+ * transport cannot carry (the whole card is hidden there).
+ */
+export function countFinalmaskMasksOutsideEditor(
+  state: FinalmaskState,
+  query?: FinalmaskSidesQuery,
+): number {
+  const sides = query ? finalmaskSidesFor(query) : { tcp: true, udp: true };
+  const countSide = (side: FinalmaskSide, items: FMItem[], allowed: boolean): number => {
+    if (!allowed) return items.length;
+    const seen = new Set<string>();
+    let hidden = 0;
+    for (const item of items) {
+      const type = normType(item.type);
+      if (!isUiFinalmaskType(side, type)) {
+        hidden += 1;
+      } else if (seen.has(type)) {
+        hidden += 1;
+      } else {
+        seen.add(type);
+      }
+    }
+    return hidden;
+  };
+  return (
+    countSide("tcp", state.finalmaskTcp, sides.tcp) + countSide("udp", state.finalmaskUdp, sides.udp)
+  );
+}
+
+// ---- transport matrix (mirror of util/finalmask/transport.go) ---------------
+
+export type FinalmaskSides = { tcp: boolean; udp: boolean };
+
+export type FinalmaskSidesQuery = {
+  protocol?: string | null;
+  network?: string | null;
+  /** `streamSettings.security` (“tls” enables the ALPN h3 QUIC path). */
+  security?: string | null;
+  /** `streamSettings.tlsSettings.alpn` as a form string or a token list. */
+  alpn?: string | readonly string[] | null;
+};
+
+/** Panel/3x-ui transport aliases → kernel names. */
+export function normalizeFinalmaskNetwork(network: unknown): string {
+  switch (typeof network === "string" ? network.trim().toLowerCase() : "") {
+    case "raw":
+      return "tcp";
+    case "mkcp":
+      return "kcp";
+    case "splithttp":
+      return "xhttp";
+    case "websocket":
+      return "ws";
+    default:
+      return typeof network === "string" ? network.trim().toLowerCase() : "";
+  }
+}
+
+function alpnTokens(alpn: FinalmaskSidesQuery["alpn"]): string[] {
+  const values = Array.isArray(alpn) ? alpn : [alpn ?? ""];
+  return values
+    .flatMap((value) => String(value).split(/[,\s;]+/))
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The kernel compares ALPN to "h3" case-sensitively and only takes the QUIC
+ * path when it is exactly one "h3" entry: "H3" stays on the TCP path,
+ * ["h3", "h2"] negotiates h2/TCP and h3-29 is not accepted.
+ */
+export function alpnIsH3Only(alpn: FinalmaskSidesQuery["alpn"]): boolean {
+  const tokens = alpnTokens(alpn);
+  return tokens.length === 1 && tokens[0] === "h3";
+}
+
+/**
+ * xhttp runs over QUIC only with TLS + exactly ["h3"]; its dialer then calls
+ * FinalMask.DialUDP, so UDP masks apply and TCP masks are a no-op.
+ */
+export function finalmaskUsesQuic(query: FinalmaskSidesQuery): boolean {
+  const security = typeof query.security === "string" ? query.security.trim().toLowerCase() : "";
+  return (
+    security === "tls" &&
+    normalizeFinalmaskNetwork(query.network) === "xhttp" &&
+    alpnIsH3Only(query.alpn)
+  );
+}
+
+/**
+ * Which finalmask sides a protocol/transport can carry (kernel 26.10.31):
+ *
+ *   wireguard                   -> UDP only (InboundsPage still hides the block)
+ *   amneziawg|telemt            -> none
+ *   hysteria|hysteria2          -> UDP only (network ignored)
+ *   tcp|ws|httpupgrade|grpc     -> TCP only
+ *   xhttp                       -> TCP only; TLS + exactly ["h3"] -> UDP only (QUIC)
+ *   kcp (hysteria network)      -> UDP only
+ *   quic|h2|h3|http             -> none (removed from the kernel)
+ *   masque                      -> both
+ *   xdrive                      -> TCP only (dials through FinalMask.DialTCP)
+ *   empty/unknown               -> TCP only (kernel default is raw/tcp)
+ *
+ * ALPN is ignored unless security is "tls": h3 without TLS is impossible.
+ */
+export function finalmaskSidesFor(query: FinalmaskSidesQuery): FinalmaskSides {
+  const protocol = typeof query.protocol === "string" ? query.protocol.trim().toLowerCase() : "";
+  switch (protocol) {
+    case "wireguard":
+      return { tcp: false, udp: true };
+    case "amneziawg":
+    case "telemt":
+      return { tcp: false, udp: false };
+    case "hysteria":
+    case "hysteria2":
+      return { tcp: false, udp: true };
+    default:
+      break;
+  }
+  switch (normalizeFinalmaskNetwork(query.network)) {
+    case "tcp":
+    case "ws":
+    case "httpupgrade":
+    case "grpc":
+      return { tcp: true, udp: false };
+    case "xhttp":
+      return finalmaskUsesQuic(query) ? { tcp: false, udp: true } : { tcp: true, udp: false };
+    case "kcp":
+    case "hysteria":
+      return { tcp: false, udp: true };
+    case "quic":
+    case "h2":
+    case "h3":
+    case "http":
+      return { tcp: false, udp: false };
+    case "masque":
+      return { tcp: true, udp: true };
+    case "xdrive":
+      return { tcp: true, udp: false };
+    default:
+      return { tcp: true, udp: false };
+  }
+}
+
+/**
+ * Stable `udp[]` order with socket-replacing masks (xicmp/udphop) last: they
+ * wrap the connection itself, so the kernel reports "incorrect index" when a
+ * layer follows them. The input array is not mutated.
+ */
+export function orderFinalmaskUdp(items: FMItem[]): FMItem[] {
+  const head: FMItem[] = [];
+  const tail: FMItem[] = [];
+  for (const item of items) {
+    if (SOCKET_REPLACING.has(normType(item.type))) tail.push(item);
+    else head.push(item);
+  }
+  return [...head, ...tail];
+}
 
 /** True when the mask is emitted by subscription `fm=` share links. */
 export function fmSupportedInLink(type: string, side: FinalmaskSide): boolean {
@@ -371,7 +569,7 @@ function itemsToJson(items: FMItem[]): unknown[] {
 export function buildFinalmask(state: FinalmaskState): Record<string, unknown> | undefined {
   const fm: Record<string, unknown> = {};
   if (state.finalmaskTcp.length > 0) fm.tcp = itemsToJson(state.finalmaskTcp);
-  if (state.finalmaskUdp.length > 0) fm.udp = itemsToJson(state.finalmaskUdp);
+  if (state.finalmaskUdp.length > 0) fm.udp = itemsToJson(orderFinalmaskUdp(state.finalmaskUdp));
   const qpText = (state.finalmaskQuicParams || "").trim();
   if (qpText) {
     try {
@@ -452,6 +650,78 @@ function nonEmptyList(v: unknown): boolean {
   return false;
 }
 
+/**
+ * `Int32Range` as accepted by the kernel: a number, "30" or "5-30".
+ * Returns sorted bounds, or null when the value cannot be parsed.
+ */
+function parseRangeBounds(v: unknown): { min: number; max: number } | null {
+  if (typeof v === "number" && Number.isFinite(v)) return { min: v, max: v };
+  if (typeof v !== "string") return null;
+  const m = /^\s*(-?\d+)\s*(?:-\s*(-?\d+))?\s*$/.exec(v);
+  if (!m) return null;
+  const a = Number(m[1]);
+  const b = m[2] === undefined ? a : Number(m[2]);
+  return { min: Math.min(a, b), max: Math.max(a, b) };
+}
+
+function isIPv4(value: string): boolean {
+  const parts = value.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)
+  );
+}
+
+function isIPv6Loose(value: string): boolean {
+  return value.includes(":") && /^[0-9a-fA-F:.]+$/.test(value);
+}
+
+/** IP address or CIDR prefix (what `udphop.remoteIPs` accepts). */
+function isIpOrCidr(value: string): boolean {
+  const slash = value.split("/");
+  if (slash.length > 2) return false;
+  const addr = slash[0];
+  const v4 = isIPv4(addr);
+  if (!v4 && !isIPv6Loose(addr)) return false;
+  if (slash.length === 1) return true;
+  if (!/^\d{1,3}$/.test(slash[1])) return false;
+  const prefix = Number(slash[1]);
+  return v4 ? prefix <= 32 : prefix <= 128;
+}
+
+/** Port or port range ("443", "20000-30000"), 1..65535. */
+function isValidPortToken(token: string): boolean {
+  const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(token);
+  if (!m) return false;
+  const from = Number(m[1]);
+  const to = m[2] === undefined ? from : Number(m[2]);
+  return from >= 1 && from <= to && to <= 65535;
+}
+
+/** `remotePorts` as the kernel accepts it: "443,8443" or a legacy array. */
+function udphopPortTokens(v: unknown): string[] {
+  if (Array.isArray(v)) {
+    return v
+      .flatMap((item) =>
+        typeof item === "string" || typeof item === "number" ? String(item).split(",") : [],
+      )
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (typeof v === "string") return v.split(",").map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
+const UDPHOP_MODES = new Set(["intervallocal", "intervalremote", "perconnremote"]);
+
+function udphopModeTokens(v: unknown): string[] {
+  if (typeof v !== "string") return [];
+  return v
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function issue(
   code: string,
   path: string,
@@ -517,6 +787,41 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
           );
         }
       }
+      const packets = str(st.packets).trim();
+      if (packets !== "" && packets.toLowerCase() !== "tlshello") {
+        const bounds = parseRangeBounds(packets);
+        if (bounds == null) {
+          issues.push(
+            issue(
+              "fragment_packets",
+              `${path}.settings.packets`,
+              "error",
+              'fragment packets must be "", "tlshello" or a packet range like "2-4"',
+            ),
+          );
+        } else if (bounds.min === 0) {
+          issues.push(
+            issue("fragment_packets", `${path}.settings.packets`, "error", "fragment packets range must start above 0"),
+          );
+        }
+      }
+      if (st.maxSplit != null && st.maxSplit !== "") {
+        const split = parseRangeBounds(st.maxSplit);
+        if (split == null) {
+          issues.push(
+            issue(
+              "fragment_max_split",
+              `${path}.settings.maxSplit`,
+              "error",
+              "fragment maxSplit must be a number or a range",
+            ),
+          );
+        } else if (split.min < 0) {
+          issues.push(
+            issue("fragment_max_split", `${path}.settings.maxSplit`, "error", "fragment maxSplit must not be negative"),
+          );
+        }
+      }
       break;
     }
     case "xmc": {
@@ -568,6 +873,28 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
           issue("salamander_password", `${path}.settings.password`, "error", "salamander requires a PSK of at least 4 bytes"),
         );
       }
+      if (st.packetSize != null && st.packetSize !== "") {
+        const bounds = parseRangeBounds(st.packetSize);
+        if (bounds == null) {
+          issues.push(
+            issue(
+              "salamander_packet_size",
+              `${path}.settings.packetSize`,
+              "error",
+              'salamander packetSize must be a number or a range like "1200-1400"',
+            ),
+          );
+        } else if (bounds.max > 0 && (bounds.min <= 0 || bounds.max > 2048)) {
+          issues.push(
+            issue(
+              "salamander_packet_size",
+              `${path}.settings.packetSize`,
+              "error",
+              "salamander packetSize must satisfy 0 < min <= max <= 2048",
+            ),
+          );
+        }
+      }
       break;
     }
     case "xdns": {
@@ -612,15 +939,26 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
       break;
     }
     case "udphop": {
-      issues.push(
-        issue("udphop_client_only", `${path}.type`, "error", "udphop is a client-only mask and cannot be used in an inbound"),
-      );
-      const interval = num(st.interval);
+      // udphop is client-side: it is kept in the inbound for share links and
+      // stripped from the node config (util/finalmask/transport.go: ServerView),
+      // so it is valid on an inbound as well.
+      const modes = udphopModeTokens(st.mode);
+      if (modes.length === 0 || modes.some((m) => !UDPHOP_MODES.has(m))) {
+        issues.push(
+          issue(
+            "udphop_mode",
+            `${path}.settings.mode`,
+            "error",
+            "udphop mode must be one of intervalremote, intervallocal, perconnremote",
+          ),
+        );
+      }
+      const interval = parseRangeBounds(st.interval);
       if (interval == null) {
         issues.push(
           issue("udphop_interval", `${path}.settings.interval`, "error", "udphop requires interval (>= 5 seconds)"),
         );
-      } else if (interval < 5) {
+      } else if (interval.min < 5) {
         issues.push(
           issue("udphop_interval", `${path}.settings.interval`, "error", "udphop interval must be at least 5 seconds"),
         );
@@ -629,10 +967,32 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
         issues.push(
           issue("udphop_remote_ips", `${path}.settings.remoteIPs`, "error", "udphop requires a non-empty remoteIPs list"),
         );
+      } else if (Array.isArray(st.remoteIPs)) {
+        const bad = st.remoteIPs.filter((ip) => typeof ip !== "string" || !isIpOrCidr(ip.trim()));
+        if (bad.length > 0) {
+          issues.push(
+            issue(
+              "udphop_remote_ips_format",
+              `${path}.settings.remoteIPs`,
+              "error",
+              "udphop remoteIPs must be IP addresses or CIDR prefixes",
+            ),
+          );
+        }
       }
-      if (!nonEmptyList(st.remotePorts)) {
+      const ports = udphopPortTokens(st.remotePorts);
+      if (ports.length === 0) {
         issues.push(
           issue("udphop_remote_ports", `${path}.settings.remotePorts`, "error", "udphop requires a non-empty remotePorts list"),
+        );
+      } else if (!ports.every(isValidPortToken)) {
+        issues.push(
+          issue(
+            "udphop_remote_ports_format",
+            `${path}.settings.remotePorts`,
+            "error",
+            'udphop remotePorts must be ports or ranges (1-65535), e.g. "443,8443" or "20000-30000"',
+          ),
         );
       }
       break;
@@ -803,9 +1163,79 @@ function validateQuicParams(json: string): FinalmaskIssue[] {
   return issues;
 }
 
-/** Validate the form state; mirrors the Go rules (order + required fields). */
-export function validateFinalmask(state: FinalmaskState): FinalmaskIssue[] {
+function allowedSidesText(sides: FinalmaskSides): string {
+  if (sides.tcp && sides.udp) return "TCP and UDP";
+  if (sides.tcp) return "TCP only";
+  if (sides.udp) return "UDP only";
+  return "none";
+}
+
+/**
+ * Rejects masks on a transport that cannot carry them (mirror of
+ * `util/finalmask/transport.go: ValidateTransportCompatibility`). An empty
+ * finalmask yields no issues.
+ */
+export function validateFinalmaskTransport(
+  state: FinalmaskState,
+  query: FinalmaskSidesQuery,
+): FinalmaskIssue[] {
+  const hasTcp = state.finalmaskTcp.length > 0;
+  const hasUdp = state.finalmaskUdp.length > 0;
+  if (!hasTcp && !hasUdp) return [];
+
+  const network = normalizeFinalmaskNetwork(query.network);
+  const protocol = typeof query.protocol === "string" ? query.protocol.trim().toLowerCase() : "";
+  if (network === "quic" || network === "h2" || network === "h3" || network === "http") {
+    return [
+      issue(
+        "transport_unsupported",
+        "streamSettings.finalmask",
+        "error",
+        `finalmask cannot be used with protocol "${protocol}": transport "${network}" was removed from the Xray kernel; remove the finalmask block`,
+      ),
+    ];
+  }
+
+  const sides = finalmaskSidesFor(query);
+  const quicH3 = finalmaskUsesQuic(query);
   const issues: FinalmaskIssue[] = [];
+  if (hasTcp && !sides.tcp) {
+    issues.push(
+      quicH3
+        ? issue(
+            "transport_tcp_on_quic",
+            "streamSettings.finalmask.tcp",
+            "error",
+            'TCP masks are not applied on QUIC; use UDP masks (salamander/udphop) for xhttp with ALPN "h3"',
+          )
+        : issue(
+            "transport_tcp_forbidden",
+            "streamSettings.finalmask.tcp",
+            "error",
+            `tcp masks are not supported for protocol "${protocol}" on transport "${network}" (allowed finalmask sides: ${allowedSidesText(sides)})`,
+          ),
+    );
+  }
+  if (hasUdp && !sides.udp) {
+    issues.push(
+      issue(
+        "transport_udp_forbidden",
+        "streamSettings.finalmask.udp",
+        "error",
+        `udp masks are not supported for protocol "${protocol}" on transport "${network}" (allowed finalmask sides: ${allowedSidesText(sides)})`,
+      ),
+    );
+  }
+  return issues;
+}
+
+/** Validate the form state; mirrors the Go rules (order + required fields). */
+export function validateFinalmask(
+  state: FinalmaskState,
+  transport?: FinalmaskSidesQuery,
+): FinalmaskIssue[] {
+  const issues: FinalmaskIssue[] = [];
+  if (transport) issues.push(...validateFinalmaskTransport(state, transport));
   state.finalmaskTcp.forEach((item, i) => issues.push(...validateElement("tcp", i, item)));
   state.finalmaskUdp.forEach((item, i) => issues.push(...validateElement("udp", i, item)));
   issues.push(...validateOrdering("udp", state.finalmaskUdp));

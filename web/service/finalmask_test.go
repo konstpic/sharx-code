@@ -228,22 +228,33 @@ func TestValidateFinalmaskTable(t *testing.T) {
 			wantErrIn: "realm_stun_required",
 		},
 		{
-			name: "udphop on inbound",
+			name: "udphop on inbound is kept for client links",
 			fm: map[string]any{"udp": []any{
 				map[string]any{"type": "udphop", "settings": map[string]any{
-					"interval": 30, "remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"443"},
+					"mode": "intervalremote", "interval": 30,
+					"remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"443"},
 				}},
 			}},
-			wantErrIn: "udphop_client_only",
 		},
 		{
 			name: "udphop short interval",
 			fm: map[string]any{"udp": []any{
 				map[string]any{"type": "udphop", "settings": map[string]any{
-					"interval": 3, "remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"443"},
+					"mode": "intervalremote", "interval": 3,
+					"remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"443"},
 				}},
 			}},
 			wantErrIn: "udphop_interval",
+		},
+		{
+			name: "udphop bad mode",
+			fm: map[string]any{"udp": []any{
+				map[string]any{"type": "udphop", "settings": map[string]any{
+					"mode": "bogus", "interval": 30,
+					"remoteIPs": []any{"1.2.3.4"}, "remotePorts": []any{"443"},
+				}},
+			}},
+			wantErrIn: "udphop_mode",
 		},
 		{
 			name: "header-custom tcp empty settings",

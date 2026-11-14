@@ -65,6 +65,23 @@ func ApplyFinalmaskOnSave(inbound *model.Inbound) error {
 	}
 
 	normalized := NormalizeFinalmask(stream, true)
+
+	// A mask on the wrong side of the tunnel (or on a carrier the kernel cannot
+	// wrap at all) produces a config the node cannot start with: reject the save.
+	if fm, has := normalized["finalmask"].(map[string]any); has {
+		var transportProblems []string
+		for _, is := range finalmask.ValidateTransportCompatibility(protocol, normalized, fm) {
+			if is.Severity == finalmask.SeverityError {
+				transportProblems = append(transportProblems, is.String())
+				continue
+			}
+			logger.Infof("finalmask warning (inbound %q, protocol %s): %s", inbound.Tag, protocol, is.String())
+		}
+		if len(transportProblems) > 0 {
+			return common.NewError("invalid finalmask:", strings.Join(transportProblems, "; "))
+		}
+	}
+
 	oldFM, hadOld := stream["finalmask"]
 	newFM, hasNew := normalized["finalmask"]
 	if hadOld == hasNew && reflect.DeepEqual(oldFM, newFM) {

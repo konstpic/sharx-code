@@ -504,16 +504,32 @@ func validateUDPHop(path string, el, st map[string]any, transport string) []Issu
 		// Already reported as an unknown type for tcp.
 		return nil
 	}
-	issues = append(issues, issue("udphop_client_only", path+".type", SeverityError,
-		"udphop is a client-only mask and cannot be used in an inbound"))
-	if interval, ok := numberValue(firstNonNil(st["interval"], el["interval"])); ok {
+	// udphop is client-side: the stored inbound row keeps it for share links
+	// while ServerView strips it from the node config (see patchFinalmask), so
+	// it is valid on an inbound as well.
+	rawMode := strings.TrimSpace(strValue(firstNonNil(st["mode"], el["mode"])))
+	modeOK := rawMode != ""
+	for _, mode := range strings.Split(rawMode, ",") {
+		switch strings.ToLower(strings.TrimSpace(mode)) {
+		case "intervallocal", "intervalremote", "perconnremote":
+		default:
+			modeOK = false
+		}
+	}
+	if !modeOK {
+		issues = append(issues, issue("udphop_mode", path+".settings.mode", SeverityError,
+			"udphop mode must be one of intervalremote, intervallocal, perconnremote"))
+	}
+	// interval is a single Int32Range: a number or one "min-max" string. Arrays
+	// and comma separated lists are not part of the kernel schema.
+	if interval, ok := singleRangeMin(firstNonNil(st["interval"], el["interval"])); ok {
 		if interval < 5 {
 			issues = append(issues, issue("udphop_interval", path+".settings.interval", SeverityError,
 				"udphop interval must be at least 5 seconds"))
 		}
 	} else {
 		issues = append(issues, issue("udphop_interval", path+".settings.interval", SeverityError,
-			"udphop requires interval (>= 5 seconds)"))
+			"udphop requires a single interval number or \"min-max\" range (>= 5 seconds)"))
 	}
 	if !hasNonEmptyList(firstNonNil(st["remoteIPs"], el["remoteIPs"])) {
 		issues = append(issues, issue("udphop_remote_ips", path+".settings.remoteIPs", SeverityError,
@@ -1349,6 +1365,23 @@ func minNumberExists(v any) (float64, bool) {
 		return 0, false
 	}
 	return minNumber(v)
+}
+
+// singleRangeMin parses one Int32Range value as used by udphop: a number or a
+// single "min-max" string. Arrays and comma/semicolon lists are rejected
+// because the kernel schema accepts only one range there.
+func singleRangeMin(v any) (float64, bool) {
+	if v == nil {
+		return 0, false
+	}
+	if s, ok := v.(string); ok {
+		s = strings.TrimSpace(s)
+		if s == "" || strings.ContainsAny(s, ",;") {
+			return 0, false
+		}
+		return minFromString(s)
+	}
+	return numberValue(v)
 }
 
 func minFromString(s string) (float64, bool) {

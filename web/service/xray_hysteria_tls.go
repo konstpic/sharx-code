@@ -2,10 +2,12 @@ package service
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
@@ -72,23 +74,73 @@ func patchHysteriaStreamTLS(stream map[string]any, defaultCertFile, defaultKeyFi
 	ensureHysteriaDefaultALPN(stream)
 }
 
-// patchHysteriaFinalmask normalizes the finalmask block for a Hysteria inbound
-// and drops entries the kernel would reject (safety net for configs stored
-// before validation existed). Valid masks of any supported type are preserved.
-func patchHysteriaFinalmask(stream map[string]any, protocol string) {
+// patchFinalmask prepares the finalmask block for the Xray (node / local core)
+// config: the block is normalized, entries the kernel would reject are dropped
+// (safety net for configs stored before validation existed) and the server view
+// removes client-only masks (udphop answers "udphop: client only" on listen).
+// The database row and the subscription keep the full mask set.
+func patchFinalmask(stream map[string]any, protocol string, inboundID int, tag string) {
 	if _, ok := stream["finalmask"]; !ok {
 		return
 	}
 	normalized := NormalizeFinalmask(stream, true)
+	beforeFM, _ := normalized["finalmask"].(map[string]any)
 	pruned, dropped := dropInvalidFinalmaskElements(normalized, protocol)
 	if dropped > 0 {
-		logger.Warningf("Hysteria inbound: dropped %d invalid finalmask entr(ies).", dropped)
+		afterFM, _ := pruned["finalmask"].(map[string]any)
+		logger.Warningf("finalmask: inbound %d (%s): dropped finalmask entries for protocol %s: %s",
+			inboundID, tag, protocol, strings.Join(droppedMaskTypes(beforeFM, afterFM), ", "))
 	}
-	if fm, ok := pruned["finalmask"]; ok {
-		stream["finalmask"] = fm
-	} else {
+	fm, _ := pruned["finalmask"].(map[string]any)
+	if fm == nil {
 		delete(stream, "finalmask")
+		return
 	}
+	serverFM := finalmask.ServerView(fm)
+	if !finalmask.HasContent(serverFM) {
+		delete(stream, "finalmask")
+		return
+	}
+	stream["finalmask"] = serverFM
+}
+
+// droppedMaskTypes lists the finalmask types present in before but missing in
+// after (DropInvalidElements output), sorted and deduplicated, for the warning
+// log. It keeps the operator able to see which masks were thrown away.
+func droppedMaskTypes(before, after map[string]any) []string {
+	counts := func(fm map[string]any) map[string]int {
+		out := map[string]int{}
+		for _, transport := range []string{"tcp", "udp"} {
+			arr, ok := fm[transport].([]any)
+			if !ok {
+				continue
+			}
+			for _, item := range arr {
+				el, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				typ, _ := el["type"].(string)
+				typ = strings.ToLower(strings.TrimSpace(typ))
+				if typ != "" {
+					out[typ]++
+				}
+			}
+		}
+		return out
+	}
+	beforeCounts, afterCounts := counts(before), counts(after)
+	var types []string
+	for typ, n := range beforeCounts {
+		if left := n - afterCounts[typ]; left > 0 {
+			types = append(types, typ)
+		}
+	}
+	sort.Strings(types)
+	if len(types) == 0 {
+		return []string{"unknown"}
+	}
+	return types
 }
 
 func ensureHysteriaDefaultALPN(stream map[string]any) {
@@ -152,11 +204,13 @@ func BuildInboundXrayConfig(inbound *model.Inbound, defaultCertFile, defaultKeyF
 	acceptProxy, cleanedStream := extractAcceptProxyProtocol(ib.StreamSettings)
 	ib.StreamSettings = cleanedStream
 
-	if model.IsHysteria(ib.Protocol) && len(ib.StreamSettings) > 0 {
+	if len(ib.StreamSettings) > 0 {
 		var stream map[string]any
 		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err == nil {
-			patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
-			patchHysteriaFinalmask(stream, string(model.NormalizeProtocol(ib.Protocol)))
+			if model.IsHysteria(ib.Protocol) {
+				patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
+			}
+			patchFinalmask(stream, string(model.NormalizeProtocol(ib.Protocol)), ib.Id, ib.Tag)
 			if out, err := json.MarshalIndent(stream, "", "  "); err == nil {
 				ib.StreamSettings = string(out)
 			}

@@ -5245,6 +5245,10 @@ export function InboundsPage() {
                     streamForm={form.streamForm}
                     setStreamFormField={setStreamFormField}
                     idPrefix="in-finalmask"
+                    protocol={form.protocol}
+                    network={form.streamForm.network}
+                    security={form.streamForm.security}
+                    alpn={form.streamForm.tlsAlpn}
                   />
                 </div>
               ) : null}

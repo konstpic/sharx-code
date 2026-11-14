@@ -1443,21 +1443,29 @@ function buildHysteriaStreamSettingsFromForm(
       udpIdleTimeout: Math.max(1, Math.round(state.hysteriaUdpIdleTimeout) || 60),
     },
   };
-  // Preserve every extra mask and custom quicParams; the legacy obfuscation
-  // selector only contributes a salamander entry when one is not already set.
+  // Preserve every extra mask and custom quicParams. For hysteria the
+  // Obfuscation selector is the single source of truth for salamander: its
+  // password is synced into udp[].salamander (other settings keys kept) and
+  // the mask is dropped when obfuscation is off.
   // Match common Xray Hy2 setups (e.g. other panels): BBR on QUIC stack.
   const finalmask = buildFinalmask(state) ?? {};
   const udpItems: FMItem[] = Array.isArray(finalmask.udp) ? (finalmask.udp as FMItem[]) : [];
   const obfsPwd = state.hysteriaObfsPassword.trim();
-  if (state.hysteriaObfsType === "salamander" && [...obfsPwd].length >= 4) {
-    const hasSalamander = udpItems.some(
-      (item) => (item.type || "").trim().toLowerCase() === "salamander",
-    );
-    if (!hasSalamander) {
-      udpItems.unshift({ type: "salamander", settings: { password: obfsPwd } });
-    }
-  }
-  if (udpItems.length > 0) finalmask.udp = udpItems;
+  const obfsActive = state.hysteriaObfsType === "salamander" && obfsPwd !== "";
+  const isSalamander = (item: FMItem) => (item.type || "").trim().toLowerCase() === "salamander";
+  const previousSalamander = udpItems.find(isSalamander);
+  const otherUdp = udpItems.filter((item) => !isSalamander(item));
+  const nextUdp: FMItem[] = obfsActive
+    ? [
+        {
+          type: "salamander",
+          settings: { ...(previousSalamander?.settings ?? {}), password: obfsPwd },
+        },
+        ...otherUdp,
+      ]
+    : otherUdp;
+  if (nextUdp.length > 0) finalmask.udp = nextUdp;
+  else delete finalmask.udp;
   if (version === 2 && !("quicParams" in finalmask)) {
     finalmask.quicParams = { debug: false, congestion: "bbr" };
   }
