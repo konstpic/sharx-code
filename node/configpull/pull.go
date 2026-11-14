@@ -16,7 +16,6 @@ import (
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
 	"github.com/konstpic/sharx-code/v2/node/udphopnat"
-	"github.com/konstpic/sharx-code/v2/node/xray"
 	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	"github.com/konstpic/sharx-code/v2/util/pairing_outbound"
 )
@@ -36,9 +35,20 @@ type pullOutcome struct {
 	retryWithoutNodeID bool
 }
 
+// xrayApplier is the slice of *xray.Manager the pull path needs; an interface
+// keeps pullAndApplyOnce unit-testable without a real Xray process.
+type xrayApplier interface {
+	IsRunning() bool
+	ApplyConfig(configJSON []byte) error
+}
+
+// pullNatRunner, when set, replaces the production netfilter runner in the
+// pull path (tests inject a recorder here; nil = udphopnat.ExecRunner).
+var pullNatRunner udphopnat.Runner
+
 // TryPullAndApply requests the latest Xray JSON (and optional Telemt payloads) from the panel and applies if Xray is not running.
 // Retries with backoff on transient errors; clears stale nodeId and retries by address after HTTP 401.
-func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr *xray.Manager, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
+func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApplier, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
 	for attempt, delay := range startupPullDelays {
 		if attempt > 0 {
 			time.Sleep(delay)
@@ -72,7 +82,7 @@ func TryPullAndApply(panelURL, nodeAddress string, hmacKey [32]byte, mgr *xray.M
 }
 
 // StartBackgroundPull retries pull-xray-config until Xray is running or the worker stops trying.
-func StartBackgroundPull(panelURL, nodeAddress string, hmacKey [32]byte, mgr *xray.Manager, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
+func StartBackgroundPull(panelURL, nodeAddress string, hmacKey [32]byte, mgr xrayApplier, telemtMgr *telemt.Manager, awgMgr *amneziawg.Manager, telemtWebMgr *telemtweb.Manager) {
 	panelURL = strings.TrimSpace(panelURL)
 	nodeAddress = strings.TrimSpace(nodeAddress)
 	if panelURL == "" || nodeAddress == "" || mgr == nil {
@@ -100,7 +110,7 @@ func pullAndApplyOnce(
 	panelURL, nodeAddress string,
 	hmacKey [32]byte,
 	omitNodeID bool,
-	mgr *xray.Manager,
+	mgr xrayApplier,
 	telemtMgr *telemt.Manager,
 	awgMgr *amneziawg.Manager,
 	telemtWebMgr *telemtweb.Manager,
@@ -110,9 +120,14 @@ func pullAndApplyOnce(
 	if panelURL == "" || nodeAddress == "" {
 		return pullOutcome{}
 	}
-	if mgr == nil || mgr.IsRunning() {
-		return pullOutcome{applied: mgr != nil && mgr.IsRunning()}
+	if mgr == nil {
+		return pullOutcome{}
 	}
+	// NOTE: no early return on mgr.IsRunning() any more. The node may have
+	// started Xray from the local bin/config.json cache while the host
+	// netfilter still lost the udphop REDIRECT rules (container restart);
+	// the pull response below reconciles them even when the Xray config
+	// itself is then left untouched.
 
 	type pullBody struct {
 		NodeAddress string `json:"nodeAddress"`
@@ -180,9 +195,21 @@ func pullAndApplyOnce(
 			logger.Infof("Config pull: panel assigned nodeId=%d", envelope.NodeId)
 		}
 	}
+	// Reconcile the host udphop NAT rules on every pull, running or not: the
+	// rules live outside Xray and survive nothing between container restarts.
+	applyUDPHopNatFromEnvelope(envelope.UdphopNat, pullNatRunner)
+
 	if len(envelope.Config) == 0 {
 		logger.Warningf("Config pull: empty config in response")
 		return pullOutcome{statusCode: resp.StatusCode}
+	}
+
+	if mgr.IsRunning() {
+		// Xray already runs from the local cache: keep its config untouched
+		// (the panel's config equals the cache in the steady state) — only the
+		// NAT rules above were reconciled.
+		logger.Info("Config pull: Xray already running, config not reapplied (udphop NAT reconciled)")
+		return pullOutcome{applied: true, statusCode: resp.StatusCode}
 	}
 
 	if err := mgr.ApplyConfig(envelope.Config); err != nil {
@@ -194,14 +221,15 @@ func pullAndApplyOnce(
 	applyTelemtFromEnvelope(telemtMgr, envelope.Telemt)
 	applyAmneziaWgFromEnvelope(awgMgr, envelope.AmneziaWG)
 	applyTelemtWebFromEnvelope(telemtWebMgr, envelope.TelemtWeb)
-	applyUDPHopNatFromEnvelope(envelope.UdphopNat)
 	return pullOutcome{applied: true, statusCode: resp.StatusCode}
 }
 
 // applyUDPHopNatFromEnvelope reconciles the host udphop REDIRECT rules from the
 // pull response (same field and semantics as apply-config). Best-effort like
-// everywhere else: warnings only, never block the startup pull.
-func applyUDPHopNatFromEnvelope(raw json.RawMessage) {
+// everywhere else: warnings only, never block the startup pull. A nil/absent/
+// "null" field means the panel sent no desired state and nothing is touched.
+// run may be nil (production: udphopnat.ExecRunner).
+func applyUDPHopNatFromEnvelope(raw json.RawMessage, run udphopnat.Runner) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return
 	}
@@ -210,7 +238,7 @@ func applyUDPHopNatFromEnvelope(raw json.RawMessage) {
 		logger.Warningf("Config pull: udphopNat parse: %v", err)
 		return
 	}
-	if warnings := udphopnat.Reconcile(udphopnat.ExecRunner, intents); len(warnings) > 0 {
+	if warnings := udphopnat.Reconcile(run, intents); len(warnings) > 0 {
 		logger.Warningf("Config pull: udphop NAT reconcile warnings: %v", warnings)
 	}
 }

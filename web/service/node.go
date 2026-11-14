@@ -2857,7 +2857,7 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 				recordErr(fmt.Errorf("load node %d for inbound removal: %w", nid, err))
 				return
 			}
-			if err := s.RemoveInboundFromNode(node, inbound.Tag); err != nil {
+			if err := s.RemoveInboundFromNode(node, inbound.Tag, s.UDPHopNatIntentsForNode(node)); err != nil {
 				recordErr(fmt.Errorf("remove inbound %s from node %s: %w", inbound.Tag, node.Name, err))
 				return
 			}
@@ -2876,7 +2876,7 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 					recordErr(fmt.Errorf("load node %d for inbound apply: %w", nid, err))
 					return
 				}
-				if err := s.UpdateInboundOnNodeWithFallback(node, inboundJSON); err != nil {
+				if err := s.UpdateInboundOnNodeWithFallback(node, inboundJSON, s.UDPHopNatIntentsForNode(node)); err != nil {
 					recordErr(fmt.Errorf("apply inbound %s to node %s: %w", inbound.Tag, node.Name, err))
 					return
 				}
@@ -3393,8 +3393,10 @@ func inboundAPIFailureWarrantsFullConfigFallback(err error) bool {
 }
 
 // UpdateInboundOnNodeWithFallback updates one inbound via API; on hard failure applies full worker config.
-func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundConfig []byte) error {
-	err := s.UpdateInboundOnNode(node, inboundConfig)
+// udphopNat (may be nil) rides the instant request so the node reconciles its NAT rules
+// without waiting for the next full apply-config (see UDPHopNatIntentsForNode).
+func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundConfig []byte, udphopNat []finalmask.UDPHopNatIntent) error {
+	err := s.UpdateInboundOnNode(node, inboundConfig, udphopNat)
 	if err == nil {
 		return nil
 	}
@@ -3408,9 +3410,27 @@ func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundC
 	return nil
 }
 
+// UDPHopNatIntentsForNode loads the node's assigned inbounds and derives the
+// desired udphop NAT intents (full set, not a delta — the node reconcile is
+// idempotent). Returns nil when the inbounds cannot be loaded; callers then
+// omit the field and the node leaves its rules untouched (never removes rules
+// on a transient panel-side DB error).
+func (s *NodeService) UDPHopNatIntentsForNode(node *model.Node) []finalmask.UDPHopNatIntent {
+	if node == nil {
+		return nil
+	}
+	ibs, err := s.GetInboundsForNode(node.Id)
+	if err != nil {
+		logger.Warningf("[Node: %s] udphopNat: load inbounds: %v (NAT rules left untouched)", node.Name, err)
+		return nil
+	}
+	return BuildUDPHopNatIntentsForNode(ibs)
+}
+
 // UpdateInboundOnNode updates an inbound configuration on a node via Xray API (instant, no restart).
 // This is faster than full config reload - it uses DelInbound + AddInbound.
-func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte) error {
+// udphopNat != nil adds the desired NAT rule list to the envelope (nil omits the field).
+func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte, udphopNat []finalmask.UDPHopNatIntent) error {
 	client, err := s.createHTTPClient(node, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
@@ -3418,6 +3438,9 @@ func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte
 
 	requestBody := map[string]interface{}{
 		"inboundConfig": json.RawMessage(inboundConfig),
+	}
+	if udphopNat != nil {
+		requestBody["udphopNat"] = udphopNat
 	}
 
 	requestJSON, err := json.Marshal(requestBody)
@@ -3463,7 +3486,8 @@ func (s *NodeService) UpdateInboundOnNode(node *model.Node, inboundConfig []byte
 }
 
 // RemoveInboundFromNode removes an inbound configuration on a node via Xray API (instant, no restart).
-func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string) error {
+// udphopNat != nil adds the desired NAT rule list (post-removal state) to the envelope.
+func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string, udphopNat []finalmask.UDPHopNatIntent) error {
 	client, err := s.createHTTPClient(node, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP client: %w", err)
@@ -3471,6 +3495,9 @@ func (s *NodeService) RemoveInboundFromNode(node *model.Node, tag string) error 
 
 	requestBody := map[string]interface{}{
 		"tag": tag,
+	}
+	if udphopNat != nil {
+		requestBody["udphopNat"] = udphopNat
 	}
 
 	requestJSON, err := json.Marshal(requestBody)

@@ -1241,7 +1241,8 @@ func (s *Server) removeUser(c *gin.Context) {
 // removeInbound removes an inbound configuration via Xray API (instant, no restart).
 func (s *Server) removeInbound(c *gin.Context) {
 	var req struct {
-		Tag string `json:"tag" binding:"required"`
+		Tag       string          `json:"tag" binding:"required"`
+		UdphopNat json.RawMessage `json:"udphopNat"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1251,6 +1252,9 @@ func (s *Server) removeInbound(c *gin.Context) {
 	}
 
 	logger.Infof("Remove inbound request received: tag=%s", req.Tag)
+
+	// Reconcile the udphop NAT rules before the xray liveness gate (see updateInbound).
+	natWarnings := s.reconcileUDPHopNat(req.UdphopNat)
 
 	if !s.xrayManager.IsRunning() {
 		logger.Warningf("Cannot remove inbound %s: XRAY is not running", req.Tag)
@@ -1266,13 +1270,18 @@ func (s *Server) removeInbound(c *gin.Context) {
 	}
 
 	logger.Infof("Inbound removed successfully via API: %s", req.Tag)
-	c.JSON(http.StatusOK, gin.H{"message": "Inbound removed successfully"})
+	resp := gin.H{"message": "Inbound removed successfully"}
+	if len(natWarnings) > 0 {
+		resp["udphopNatErrors"] = natWarnings
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // updateInbound updates an inbound configuration via Xray API (instant, no restart).
 func (s *Server) updateInbound(c *gin.Context) {
 	var req struct {
 		InboundConfig json.RawMessage `json:"inboundConfig" binding:"required"`
+		UdphopNat     json.RawMessage `json:"udphopNat"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1289,6 +1298,11 @@ func (s *Server) updateInbound(c *gin.Context) {
 		}
 	}
 
+	// Reconcile the udphop NAT rules before the xray liveness gate: the rules
+	// follow the panel's desired state even when xray is down (and the panel
+	// then falls back to a full apply-config, which reconciles again anyway).
+	natWarnings := s.reconcileUDPHopNat(req.UdphopNat)
+
 	if !s.xrayManager.IsRunning() {
 		logger.Warningf("Cannot update inbound: XRAY is not running")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "XRAY is not running"})
@@ -1304,5 +1318,9 @@ func (s *Server) updateInbound(c *gin.Context) {
 
 	tag, _ := inboundJSON["tag"].(string)
 	logger.Infof("Inbound updated successfully via API: %s", tag)
-	c.JSON(http.StatusOK, gin.H{"message": "Inbound updated successfully"})
+	resp := gin.H{"message": "Inbound updated successfully"}
+	if len(natWarnings) > 0 {
+		resp["udphopNatErrors"] = natWarnings
+	}
+	c.JSON(http.StatusOK, resp)
 }
