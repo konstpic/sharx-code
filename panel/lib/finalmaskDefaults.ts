@@ -15,9 +15,9 @@
  *  - `type` is case-insensitive; unknown settings keys are ignored by the core
  *
  * The inbound editor exposes only a fixed subset (`UI_TCP_TYPES` /
- * `UI_UDP_TYPES`): TLS fragmentation, QUIC obfuscation and port hopping. Every
- * other registry type is preserved verbatim on save (lossless round-trip) and
- * is editable only through the JSON templates.
+ * `UI_UDP_TYPES`): TLS fragmentation, UDP noise, QUIC obfuscation and port
+ * hopping. Every other registry type is preserved verbatim on save (lossless
+ * round-trip) and is editable only through the JSON templates.
  *
  * `finalmaskSidesFor` mirrors `util/finalmask/transport.go: SidesFor` so the
  * panel hides (and the validator rejects) masks on transports that cannot
@@ -183,8 +183,9 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
     side: "udp",
     type: "noise",
     label: "noise",
-    linkSupported: false,
-    hint: "Each item: {type: \"\",str,hex,base64,exp, packet, delay}. `exp` requires core 26.9.30+.",
+    linkSupported: true,
+    hint:
+      "UDP-side mask: applies where the transport socket is UDP (mKCP, xhttp over TLS+h3, Hysteria 2). Each item: {type: \"\",str,hex,base64,exp, packet|rand|randRange, delay}. `exp` requires core 26.9.30+.",
     fields: [
       {
         name: "noise",
@@ -285,7 +286,14 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
 ];
 
 const LINK_TCP_WHITELIST = new Set(["header-custom", "fragment", "sudoku", "xmc"]);
-const LINK_UDP_WHITELIST = new Set(["salamander", "udphop", "sudoku", "realm", "header-custom"]);
+const LINK_UDP_WHITELIST = new Set([
+  "noise",
+  "salamander",
+  "udphop",
+  "sudoku",
+  "realm",
+  "header-custom",
+]);
 const SOCKET_REPLACING = new Set(["xicmp", "udphop"]);
 
 /**
@@ -293,7 +301,7 @@ const SOCKET_REPLACING = new Set(["xicmp", "udphop"]);
  * the config untouched (see `countFinalmaskMasksOutsideEditor`).
  */
 export const UI_TCP_TYPES = ["fragment"] as const;
-export const UI_UDP_TYPES = ["salamander", "udphop"] as const;
+export const UI_UDP_TYPES = ["noise", "salamander", "udphop"] as const;
 
 const UI_TCP_SET = new Set<string>(UI_TCP_TYPES);
 const UI_UDP_SET = new Set<string>(UI_UDP_TYPES);
@@ -1324,16 +1332,19 @@ function validateElement(side: FinalmaskSide, idx: number, item: FMItem): Finalm
         }
         const packet = str(im.packet).trim();
         if (packet === "") {
-          issues.push(issue("noise_item_packet", `${npath}.packet`, "error", "noise item requires a non-empty packet"));
+          // rand/randRange generate the packet at runtime; only a fully empty
+          // item is invalid (mirror of util/finalmask validateNoise).
+          if (nonEmptyValue(im.rand) || nonEmptyValue(im.randRange)) return;
+          issues.push(issue("noise_item_packet", `${npath}.packet`, "error", "noise item requires packet, rand or randRange"));
           return;
         }
-        if (typ === "exp" && !packet.toLowerCase().startsWith("exp:")) {
+        if (typ === "exp" && !/^(?:<[^<>]+>)+$/.test(packet)) {
           issues.push(
             issue(
               "noise_exp_packet",
               `${npath}.packet`,
               "warning",
-              'exp packet does not look like "exp:<payload>" and may be rejected by the kernel',
+              'exp packet does not match the "<...>" syntax and may be rejected by the kernel',
             ),
           );
         }

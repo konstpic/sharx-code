@@ -717,9 +717,9 @@ func validateNoise(path string, el, st map[string]any) []Issue {
 	return issues
 }
 
-// noiseExpPacketRe matches the kernel noise "exp" packet syntax: an expression
-// wrapped in angle brackets, e.g. "<t:2s,rand:8-16>".
-var noiseExpPacketRe = regexp.MustCompile(`^<[^<>]+>$`)
+// noiseExpPacketRe matches the kernel noise "exp" packet syntax: one or more
+// angle-bracket groups, e.g. "<t:2s,rand:8-16>" or "<b 0x1234><r 16>".
+var noiseExpPacketRe = regexp.MustCompile(`^(?:<[^<>]+>)+$`)
 
 func validateSudoku(path string, el, st map[string]any) []Issue {
 	pwd := strings.TrimSpace(strValue(firstNonNil(st["password"], el["password"])))

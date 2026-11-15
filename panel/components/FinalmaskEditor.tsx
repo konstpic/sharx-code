@@ -48,6 +48,37 @@ const cardCls = "rounded-lg border border-[var(--border)]/60 bg-[var(--surface)]
 
 const HYSTERIA_PROTOCOLS = new Set(["hysteria", "hysteria2"]);
 
+/** Kernel noise item types: "" == str (kernel default). */
+const NOISE_ITEM_TYPES = ["", "str", "hex", "base64", "exp"] as const;
+
+type NoiseRow = Record<string, unknown>;
+
+/** settings.noise[] as mutable row objects (non-object entries become empty). */
+function noiseEntries(value: unknown): NoiseRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) =>
+    entry !== null && typeof entry === "object" && !Array.isArray(entry)
+      ? { ...(entry as NoiseRow) }
+      : {},
+  );
+}
+
+/** Which field carries the payload: packet (fixed) | rand | randRange. Key
+ * presence decides, so switching the selector keeps the choice even while the
+ * input is still empty. */
+function noiseSource(row: NoiseRow): "packet" | "rand" | "randRange" {
+  if ("rand" in row) return "rand";
+  if ("randRange" in row) return "randRange";
+  return "packet";
+}
+
+/** reset accepts a bare number or a range string; numbers must stay numbers. */
+function noiseNumberOrRange(value: string): number | string | undefined {
+  const text = value.trim();
+  if (text === "") return undefined;
+  return /^\d+$/.test(text) ? Number(text) : text;
+}
+
 function normType(type: unknown): string {
   return typeof type === "string" ? type.trim().toLowerCase() : "";
 }
@@ -316,13 +347,48 @@ export function FinalmaskEditor({
   ) => setStreamFormField("finalmaskQuicParams", patchFinalmaskQuicParams(state.finalmaskQuicParams, patch));
 
   const fragment = findItem("tcp", "fragment");
+  const noise = findItem("udp", "noise");
   const salamander = findItem("udp", "salamander");
   const udphop = findItem("udp", "udphop");
   const isHysteria = HYSTERIA_PROTOCOLS.has(protocol.trim().toLowerCase());
 
   const fragmentIssues = issuesForMask("tcp", "fragment");
+  const noiseIssues = issuesForMask("udp", "noise");
   const salamanderIssues = issuesForMask("udp", "salamander");
   const udphopIssues = issuesForMask("udp", "udphop");
+
+  const noiseRows = noise ? noiseEntries(noise.settings.noise) : [];
+
+  const patchNoiseRows = (rows: NoiseRow[]) => patchMask("udp", "noise", { noise: rows });
+
+  const patchNoiseRow = (index: number, patch: Record<string, unknown>) => {
+    patchNoiseRows(
+      noiseRows.map((row, i) => {
+        if (i !== index) return row;
+        const next = { ...row };
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === undefined) delete next[key];
+          else next[key] = value;
+        }
+        return next;
+      }),
+    );
+  };
+
+  /** Switching the payload source clears the other two fields. */
+  const setNoiseSource = (index: number, source: string) => {
+    const row = noiseRows[index] ?? {};
+    const key = source === "rand" || source === "randRange" ? source : "packet";
+    patchNoiseRow(index, {
+      packet: undefined,
+      rand: undefined,
+      randRange: undefined,
+      [key]: textValue(row[key]),
+    });
+  };
+
+  const noiseRowIssues = (index: number): FinalmaskIssue[] =>
+    noiseIssues.filter((is) => is.path.includes(`.noise[${index}]`));
 
   const networkLabel = finalmaskUsesQuic(sidesQuery)
     ? t("finalmask.networkUdpQuic", { defaultValue: "UDP (QUIC)" })
@@ -618,6 +684,202 @@ export function FinalmaskEditor({
                     ) : null}
                   </SelectNative>
                 </Field>
+              </>
+            ) : null}
+          </MaskCard>
+        ) : null}
+
+        {sides.udp ? (
+          <MaskCard
+            title={t("finalmask.noise.title", { defaultValue: "UDP noise" })}
+            type="noise"
+            enabled={Boolean(noise)}
+            disabled={disabled}
+            onToggle={() => toggleMask("udp", "noise")}
+            note={t("finalmask.noise.hint", {
+              defaultValue:
+                "Injects extra packets into the UDP flow (mKCP, xhttp over TLS+h3, Hysteria 2). No key is exchanged: a client without the mask still connects.",
+            })}
+          >
+            {noise ? (
+              <>
+                <div className="sm:col-span-2">
+                  <IssueList issues={fieldErrors(noiseIssues, "noise")} />
+                </div>
+                {isHysteria ? (
+                  <p className="sm:col-span-2 text-[11px] text-amber-400">
+                    {t("finalmask.noise.hysteriaNote", {
+                      defaultValue:
+                        "Hysteria 2 share links carry no fm block — this mask reaches clients only through the JSON subscription.",
+                    })}
+                  </p>
+                ) : null}
+                {noiseRows.length === 0 ? (
+                  <p className="sm:col-span-2 text-[11px] text-[var(--fg-subtle)]">
+                    {t("finalmask.noise.empty", {
+                      defaultValue: "No packets yet — add at least one.",
+                    })}
+                  </p>
+                ) : null}
+                {noiseRows.map((row, index) => {
+                  const rowIssues = noiseRowIssues(index);
+                  const itemType = textValue(row.type).trim().toLowerCase();
+                  const source = noiseSource(row);
+                  return (
+                    <div
+                      key={index}
+                      className="rounded-md border border-[var(--border)]/50 p-2 sm:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-mono text-[10px] uppercase tracking-wide text-[var(--fg-subtle)]">
+                          #{index + 1}
+                        </p>
+                        <Button
+                          variant="ghost"
+                          className="h-auto px-1.5 py-0.5 text-[11px]"
+                          disabled={disabled}
+                          onClick={() => patchNoiseRows(noiseRows.filter((_, i) => i !== index))}
+                        >
+                          {t("finalmask.noise.removeItem", { defaultValue: "Remove" })}
+                        </Button>
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <Field
+                          id={`${idPrefix}-fm-noise-${index}-type`}
+                          label={t("finalmask.noise.itemType", { defaultValue: "Encoding" })}
+                          errors={rowIssues.filter((is) => is.path.endsWith(".type"))}
+                        >
+                          <SelectNative
+                            id={`${idPrefix}-fm-noise-${index}-type`}
+                            value={itemType}
+                            disabled={disabled}
+                            onChange={(e) =>
+                              patchNoiseRow(index, { type: e.target.value || undefined })
+                            }
+                          >
+                            {NOISE_ITEM_TYPES.map((value) => (
+                              <option key={value || "default"} value={value}>
+                                {value === ""
+                                  ? t("finalmask.noise.itemTypeDefault", {
+                                      defaultValue: "default (str)",
+                                    })
+                                  : value}
+                              </option>
+                            ))}
+                            {itemType && !(NOISE_ITEM_TYPES as readonly string[]).includes(itemType) ? (
+                              <option value={itemType}>{itemType}</option>
+                            ) : null}
+                          </SelectNative>
+                        </Field>
+                        <Field
+                          id={`${idPrefix}-fm-noise-${index}-source`}
+                          label={t("finalmask.noise.source", { defaultValue: "Payload source" })}
+                          errors={[]}
+                        >
+                          <SelectNative
+                            id={`${idPrefix}-fm-noise-${index}-source`}
+                            value={source}
+                            disabled={disabled}
+                            onChange={(e) => setNoiseSource(index, e.target.value)}
+                          >
+                            <option value="packet">
+                              {t("finalmask.noise.sourcePacket", {
+                                defaultValue: "packet (fixed)",
+                              })}
+                            </option>
+                            <option value="rand">rand</option>
+                            <option value="randRange">randRange</option>
+                          </SelectNative>
+                        </Field>
+                        <Field
+                          id={`${idPrefix}-fm-noise-${index}-value`}
+                          label={t("finalmask.noise.packet", { defaultValue: "Packet" })}
+                          hint={
+                            itemType === "exp"
+                              ? t("finalmask.noise.expHint", {
+                                  defaultValue: "Template, e.g. <b 0x1234><r 16> (core 26.9.30+)",
+                                })
+                              : t("finalmask.noise.packetHint", {
+                                  defaultValue: "str: text, hex: deadbeef, base64: b64; rand: size",
+                                })
+                          }
+                          errors={rowIssues.filter((is) => is.path.endsWith(`.${source}`))}
+                          className="sm:col-span-2"
+                        >
+                          <Input
+                            id={`${idPrefix}-fm-noise-${index}-value`}
+                            className="font-mono"
+                            value={textValue(row[source])}
+                            placeholder={
+                              itemType === "exp"
+                                ? "<b 0x1234><r 16>"
+                                : itemType === "hex"
+                                  ? "deadbeef"
+                                  : source === "packet"
+                                    ? "hello"
+                                    : "8-32"
+                            }
+                            disabled={disabled}
+                            spellCheck={false}
+                            onChange={(e) => patchNoiseRow(index, { [source]: e.target.value })}
+                          />
+                        </Field>
+                        <Field
+                          id={`${idPrefix}-fm-noise-${index}-delay`}
+                          label={t("finalmask.noise.delay", { defaultValue: "Delay (optional)" })}
+                          hint={t("finalmask.noise.delayHint", {
+                            defaultValue: "Number or range, e.g. 10-20",
+                          })}
+                          errors={rowIssues.filter((is) => is.path.endsWith(".delay"))}
+                          className="sm:col-span-2"
+                        >
+                          <Input
+                            id={`${idPrefix}-fm-noise-${index}-delay`}
+                            value={textValue(row.delay)}
+                            placeholder="10-20"
+                            disabled={disabled}
+                            spellCheck={false}
+                            onChange={(e) =>
+                              patchNoiseRow(index, {
+                                delay: e.target.value.trim() ? e.target.value : undefined,
+                              })
+                            }
+                          />
+                        </Field>
+                      </div>
+                    </div>
+                  );
+                })}
+                <Field
+                  id={`${idPrefix}-fm-noise-reset`}
+                  label={t("finalmask.noise.reset", { defaultValue: "Reset interval (optional)" })}
+                  hint={t("finalmask.noise.resetHint", {
+                    defaultValue: "Number or range, e.g. 30-60",
+                  })}
+                  errors={fieldErrors(noiseIssues, "reset")}
+                  className="sm:col-span-2"
+                >
+                  <Input
+                    id={`${idPrefix}-fm-noise-reset`}
+                    value={textValue(noise.settings.reset)}
+                    placeholder="30-60"
+                    disabled={disabled}
+                    spellCheck={false}
+                    onChange={(e) =>
+                      patchMask("udp", "noise", { reset: noiseNumberOrRange(e.target.value) })
+                    }
+                  />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Button
+                    variant="ghost"
+                    className="h-auto px-1.5 py-0.5 text-[11px]"
+                    disabled={disabled}
+                    onClick={() => patchNoiseRows([...noiseRows, { type: "str", packet: "hello" }])}
+                  >
+                    {t("finalmask.noise.addItem", { defaultValue: "+ Add packet" })}
+                  </Button>
+                </div>
               </>
             ) : null}
           </MaskCard>
