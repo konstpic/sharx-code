@@ -279,6 +279,20 @@ export type TelemtFormState = {
   webDecoyDirectory: string;
   webDecoyIndex: string;
   webProfileSecretMode: "plain" | "dd";
+  /** [web].retryJitterEnabled — empty = omit (Telemt default false). Telemt ≥ 3.5.16. */
+  webRetryJitterEnabled: TelemtTriBool;
+  /** [web].retryJitterMinMs — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterMinMs: string;
+  /** [web].retryJitterMaxMs — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterMaxMs: string;
+  /** [web].retryJitterDistribution — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterDistribution: "" | "uniform" | "triangular";
+  /** [web].retryJitterPeakMs — empty = omit; only meaningful for triangular. Telemt ≥ 3.5.16. */
+  webRetryJitterPeakMs: string;
+  /** [web].decoyResolveSecs — per-host DNS timeout for the decoy resolver (1..3600). Telemt ≥ 3.5.15. */
+  webDecoyResolveSecs: string;
+  /** [access].userQuotaPeriod — empty = omit (Telemt default). Telemt ≥ 3.5.15. */
+  accessUserQuotaPeriod: "" | "daily" | "weekly" | "monthly";
   /** Extra config.toml keys from Telemt's parameter catalog ("section.key" -> value). */
   params: Record<string, unknown>;
   /** Operator [[upstreams]] entries. */
@@ -352,6 +366,13 @@ export function defaultTelemtForm(): TelemtFormState {
     webDecoyDirectory: "",
     webDecoyIndex: "index.html",
     webProfileSecretMode: "dd",
+    webRetryJitterEnabled: "",
+    webRetryJitterMinMs: "",
+    webRetryJitterMaxMs: "",
+    webRetryJitterDistribution: "",
+    webRetryJitterPeakMs: "",
+    webDecoyResolveSecs: "",
+    accessUserQuotaPeriod: "",
     params: {},
     upstreams: [],
   };
@@ -494,6 +515,13 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       );
       base.accessRateLimitUpBps = parseTelemtOptionalIntField(acc.rateLimitUpBps);
       base.accessRateLimitDownBps = parseTelemtOptionalIntField(acc.rateLimitDownBps);
+      if (
+        acc.userQuotaPeriod === "daily" ||
+        acc.userQuotaPeriod === "weekly" ||
+        acc.userQuotaPeriod === "monthly"
+      ) {
+        base.accessUserQuotaPeriod = acc.userQuotaPeriod;
+      }
     }
     if (typeof tm.metricsPort === "number" && tm.metricsPort > 0) {
       base.metricsPort = String(tm.metricsPort);
@@ -551,6 +579,17 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       if (web.profileSecretMode === "plain" || web.profileSecretMode === "dd") {
         base.webProfileSecretMode = web.profileSecretMode;
       }
+      base.webRetryJitterEnabled = parseTelemtTriBool(web.retryJitterEnabled);
+      base.webRetryJitterMinMs = parseTelemtOptionalIntField(web.retryJitterMinMs);
+      base.webRetryJitterMaxMs = parseTelemtOptionalIntField(web.retryJitterMaxMs);
+      if (web.retryJitterDistribution === "uniform" || web.retryJitterDistribution === "triangular") {
+        base.webRetryJitterDistribution = web.retryJitterDistribution;
+      }
+      // peak_ms only applies to triangular; ignore a stale value for any other mode.
+      if (base.webRetryJitterDistribution === "triangular") {
+        base.webRetryJitterPeakMs = parseTelemtOptionalIntField(web.retryJitterPeakMs);
+      }
+      base.webDecoyResolveSecs = parseTelemtOptionalIntField(web.decoyResolveSecs);
     }
   } catch {
     /* keep base */
@@ -704,6 +743,7 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     access.rateLimitUpBps = rateUp;
     access.rateLimitDownBps = rateDown;
   }
+  if (form.accessUserQuotaPeriod) access.userQuotaPeriod = form.accessUserQuotaPeriod;
   if (Object.keys(access).length > 0) telemt.access = access;
 
   if (form.webEnabled) {
@@ -723,6 +763,30 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
       if (form.webDecoyIndex.trim()) web.decoyIndex = form.webDecoyIndex.trim();
     } else {
       web.decoyUpstream = form.webDecoyUpstream.trim();
+    }
+    applyTelemtTriBoolToJson(web, "retryJitterEnabled", form.webRetryJitterEnabled);
+    const jitterMin = parseInt(form.webRetryJitterMinMs.trim(), 10);
+    if (Number.isFinite(jitterMin) && jitterMin >= 0 && jitterMin <= 30000) {
+      web.retryJitterMinMs = jitterMin;
+    }
+    const jitterMax = parseInt(form.webRetryJitterMaxMs.trim(), 10);
+    if (Number.isFinite(jitterMax) && jitterMax >= 0 && jitterMax <= 30000) {
+      web.retryJitterMaxMs = jitterMax;
+    }
+    if (form.webRetryJitterDistribution) {
+      web.retryJitterDistribution = form.webRetryJitterDistribution;
+    }
+    // peak_ms is only valid for the triangular distribution; the backend rejects
+    // it otherwise, so never emit a hidden/stale value.
+    if (form.webRetryJitterDistribution === "triangular") {
+      const jitterPeak = parseInt(form.webRetryJitterPeakMs.trim(), 10);
+      if (Number.isFinite(jitterPeak) && jitterPeak >= 0 && jitterPeak <= 30000) {
+        web.retryJitterPeakMs = jitterPeak;
+      }
+    }
+    const decoyResolve = parseInt(form.webDecoyResolveSecs.trim(), 10);
+    if (Number.isFinite(decoyResolve) && decoyResolve >= 1 && decoyResolve <= 3600) {
+      web.decoyResolveSecs = decoyResolve;
     }
     telemt.web = web;
   }

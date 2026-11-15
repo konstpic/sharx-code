@@ -407,3 +407,58 @@ func TestTelemtMultiEnumDefaultIsOmitted(t *testing.T) {
 		t.Fatalf("web params must be skipped without WEB: %q %v", out, err)
 	}
 }
+
+func TestTelemtCatalog315316Params(t *testing.T) {
+	cat := TelemtParamCatalog()
+	if len(cat) != 443 {
+		t.Fatalf("catalog size = %d, want 443 (428 + 15 new 3.5.15/3.5.16 keys)", len(cat))
+	}
+	want := map[string]string{
+		"web.allow_wildcard_hosts":                     "3.5.15",
+		"web.limits.wildcard.max_rules":                "3.5.15",
+		"web.limits.wildcard.max_profiles_per_request": "3.5.15",
+		"web.limits.wildcard.cache_hosts":              "3.5.15",
+		"web.limits.wildcard.cache_bytes":              "3.5.15",
+		"web.limits.wildcard.cold_hmac_per_minute":     "3.5.15",
+		"web.limits.wildcard.cold_hmac_burst":          "3.5.15",
+		"web.vhosts.hosts":                             "3.5.15",
+		"web.timeouts.decoy_resolve_secs":              "3.5.15",
+		"access.user_quota_periods":                    "3.5.15",
+		"web.retry_jitter.enabled":                     "3.5.16",
+		"web.retry_jitter.min_ms":                      "3.5.16",
+		"web.retry_jitter.max_ms":                      "3.5.16",
+		"web.retry_jitter.distribution":                "3.5.16",
+		"web.retry_jitter.peak_ms":                     "3.5.16",
+	}
+	for id, since := range want {
+		p := telemtCatalogByID[id]
+		if p == nil {
+			t.Errorf("catalog lacks %s", id)
+			continue
+		}
+		if p.Since != since {
+			t.Errorf("%s: since = %q, want %q", id, p.Since, since)
+		}
+	}
+	// The panel writes these structurally, so the generic params map must not accept them.
+	for _, id := range []string{"web.allow_wildcard_hosts", "web.vhosts.hosts", "web.retry_jitter.enabled",
+		"web.retry_jitter.peak_ms", "web.timeouts.decoy_resolve_secs", "access.user_quota_periods"} {
+		if p := telemtCatalogByID[id]; p != nil && !p.Managed {
+			t.Errorf("%s must be managed (rendered from the typed form)", id)
+		}
+	}
+}
+
+func TestValidateTelemtParamsRejectsVhostsHostsWithClearMessage(t *testing.T) {
+	params := map[string]json.RawMessage{"web.vhosts.hosts": json.RawMessage(`["a.example.com"]`)}
+	err := ValidateTelemtParams(params)
+	if err == nil {
+		t.Fatal("web.vhosts.hosts must be rejected")
+	}
+	if !strings.Contains(err.Error(), "not supported by SharX") || !strings.Contains(err.Error(), "public domain") {
+		t.Fatalf("expected the operator-facing message, got %v", err)
+	}
+	if _, err := ApplyTelemtExtras("[web]\nenabled = true\n", params, nil); err == nil {
+		t.Fatal("ApplyTelemtExtras must reject web.vhosts.hosts too")
+	}
+}
