@@ -1182,8 +1182,10 @@ func (s *NodeService) MaybePushWorkerConfigIfCoresDown(node *model.Node) {
 		}
 		meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
 		// NAT intents ride the same envelope so a node-container restart also
-		// restores the udphop REDIRECT rules, not just xray/telemt.
-		if err := s.ApplyConfigToNode(n, cfgJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); err != nil {
+		// restores the udphop REDIRECT rules, not just xray/telemt. The list is
+		// re-read under the per-node push lock (this is a background ticker, so
+		// a stale list here must never land after a newer instant push).
+		if err := s.applyConfigToNodeWithFreshUDPHopNat(n, cfgJSON, &telm, &awg, &webv, meta); err != nil {
 			logger.Warningf("[Node: %s] Worker config recover: apply-config: %v", n.Name, err)
 			return
 		}
@@ -2864,7 +2866,10 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 				return
 			}
 			if err := withNodeNatPushLock(node.Id, func() error {
-				return s.RemoveInboundFromNode(node, inbound.Tag, s.UDPHopNatIntentsForNode(node))
+				// ok=false (DB error) leaves intents nil: the field is omitted and
+				// the node keeps its NAT rules untouched.
+				intents, _ := s.UDPHopNatIntentsForNode(node)
+				return s.RemoveInboundFromNode(node, inbound.Tag, intents)
 			}); err != nil {
 				recordErr(fmt.Errorf("remove inbound %s from node %s: %w", inbound.Tag, node.Name, err))
 				return
@@ -2887,7 +2892,8 @@ func (s *NodeService) syncInboundAssignmentToNodes(inboundId int, oldNodeIds, ne
 				// The fallback inside also ships a full udphopNat list, so the
 				// whole update+fallback stays under one per-node lock.
 				if err := withNodeNatPushLock(node.Id, func() error {
-					return s.UpdateInboundOnNodeWithFallback(node, inboundJSON, s.UDPHopNatIntentsForNode(node))
+					intents, _ := s.UDPHopNatIntentsForNode(node) // nil on load error = field omitted
+					return s.UpdateInboundOnNodeWithFallback(node, inboundJSON, intents)
 				}); err != nil {
 					recordErr(fmt.Errorf("apply inbound %s to node %s: %w", inbound.Tag, node.Name, err))
 					return
@@ -3014,18 +3020,44 @@ func NewApplyWorkerConfigMeta(workerJSON []byte, coreProfileHashHex string) *App
 	}
 }
 
-// ApplyConfigToNode sends XRAY JSON and optional Telemt / AmneziaWG payloads to a node.
-// When telemt or amneziawg is non-nil, the array is always sent (empty slice stops all sidecars of that type).
-// udphopNat is the desired udphop REDIRECT rule list; a nil slice is sent as an
-// empty list so the node removes stale rules (see BuildUDPHopNatIntentsForNode).
-// meta may be nil; when set, coreProfileHash and expectedConfigSha256 are included in the apply-config body.
-func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, udphopNat []finalmask.UDPHopNatIntent, meta *ApplyWorkerConfigMeta) (err error) {
+// applyConfigNodeResult is the part of the node's apply-config answer the panel
+// caches locally. nil means the body did not parse, so state has to be probed.
+type applyConfigNodeResult struct {
+	XrayRunning bool
+}
+
+// applyNodeStateAfterApplyConfig caches the state the node reported, or probes the
+// worker when the answer did not parse. The probes can cost seconds (status/health
+// HTTP calls), so callers holding the per-node NAT push lock must call this only
+// after releasing it. Cached state is not versioned: an out-of-order touch can
+// leave it briefly stale until the next health tick rewrites it — best effort.
+func (s *NodeService) applyNodeStateAfterApplyConfig(node *model.Node, result *applyConfigNodeResult) {
+	if result != nil {
+		if result.XrayRunning {
+			_ = s.SetNodeXrayState(node.Id, model.NodeXrayRunning)
+		} else {
+			_ = s.SetNodeXrayState(node.Id, model.NodeXrayStopped)
+		}
+	} else {
+		_ = s.RefreshNodeXrayStateFromWorker(node)
+	}
+	_ = s.RefreshNodeTelemtStateFromWorker(node)
+	_ = s.RefreshNodeAmneziaWgStateFromWorker(node)
+}
+
+// sendApplyConfigToNode performs the apply-config HTTP call and logs the answer.
+// It deliberately does not touch cached node state; that belongs to
+// applyNodeStateAfterApplyConfig, which a locked caller must call after unlocking.
+// udphopNat is a pointer with an explicit contract: nil OMITS the field (the node
+// leaves its NAT chain untouched — used when the panel cannot load the desired
+// rules), non-nil is sent as-is and an empty list means "remove every rule".
+func (s *NodeService) sendApplyConfigToNode(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, udphopNat *[]finalmask.UDPHopNatIntent, meta *ApplyWorkerConfigMeta) (result *applyConfigNodeResult, err error) {
 	defer logNodeAction(node, "config", "apply config", time.Now())(&err)
 	// Use reasonable timeout for apply-config (30 seconds should be enough for most cases)
 	// If config is very large or node is slow, this can be increased
 	client, err := s.createHTTPClient(node, 30*time.Second)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP client: %w", err)
+		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
 	panelURL := s.getPanelURL()
@@ -3061,12 +3093,15 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 		}
 		requestBody["telemtWeb"] = payload
 	}
-	// Always a list (never null): the node reconciles its own iptables chain to
-	// exactly this state, so an empty list must mean "remove the stale rules".
-	if udphopNat == nil {
-		udphopNat = []finalmask.UDPHopNatIntent{}
+	// Explicit contract: a nil pointer means "do not send the field" so the node
+	// keeps its current chain; a non-nil empty list means "remove all rules".
+	if udphopNat != nil {
+		payload := *udphopNat
+		if payload == nil {
+			payload = []finalmask.UDPHopNatIntent{}
+		}
+		requestBody["udphopNat"] = payload
 	}
-	requestBody["udphopNat"] = udphopNat
 	if meta != nil {
 		if meta.CoreProfileHash != "" {
 			requestBody["coreProfileHash"] = meta.CoreProfileHash
@@ -3087,7 +3122,7 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 
 	requestJSON, err := json.Marshal(requestBody)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	url := fmt.Sprintf("%s/api/v1/apply-config", nodeRequestBaseURL(node))
@@ -3095,25 +3130,25 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(requestJSON))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	if err := s.setNodeAuthHeader(node, req); err != nil {
-		return err
+		return nil, err
 	}
 	logger.Debugf("[Node: %s] Request headers: Content-Type=%s, Authorization=Bearer %s...", node.Name, req.Header.Get("Content-Type"), authDebugPrefix(node))
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		_ = s.SetNodeXrayState(node.Id, model.NodeXrayError)
-		return fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("node returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var applyResp struct {
@@ -3138,17 +3173,55 @@ func (s *NodeService) ApplyConfigToNode(node *model.Node, xrayConfig []byte, tel
 			node.Name, applyResp.AppliedAt, applyResp.ConfigSha256, applyResp.CoreProfileHash, matchStr, applyResp.XrayVersion, applyResp.XrayRunning)
 	}
 	if parseOK {
-		if applyResp.XrayRunning {
-			_ = s.SetNodeXrayState(node.Id, model.NodeXrayRunning)
-		} else {
-			_ = s.SetNodeXrayState(node.Id, model.NodeXrayStopped)
-		}
-	} else {
-		_ = s.RefreshNodeXrayStateFromWorker(node)
+		result = &applyConfigNodeResult{XrayRunning: applyResp.XrayRunning}
 	}
-	_ = s.RefreshNodeTelemtStateFromWorker(node)
-	_ = s.RefreshNodeAmneziaWgStateFromWorker(node)
+	return result, nil
+}
 
+// udphopNatPreLockHook is a test seam called immediately before the full-apply
+// helper takes the per-node push lock — after the caller's config build, before
+// the NAT list is read. Production leaves it nil (one nil check per full apply).
+var udphopNatPreLockHook func()
+
+// applyConfigToNodeWithFreshUDPHopNat pushes a full apply-config envelope and
+// re-reads the udphopNat intent list INSIDE the per-node push lock. Every sender
+// of a full apply-config must go through this helper and never pass a list built
+// before the lock: the node reconciles its NAT chain last-writer-wins with no
+// version/epoch check, so a stale list that lands after a newer instant
+// remove/update push resurrects (or drops) REDIRECT rules for good — there is no
+// periodic full sync in the steady state.
+//
+// Scope of the guarantee: only the NAT list is fresh — it reflects every DB
+// commit up to the moment the lock is taken. xrayConfig and the sidecar payloads
+// are built by the caller BEFORE the lock and may be older than a concurrent
+// change (same last-writer-wins caveat as any apply-config).
+// The lock covers the intent read and the apply-config HTTP call only; the state
+// refresh afterwards (worker probes) runs after unlocking, because it can cost
+// seconds and must not queue instant pushes on this node.
+// If the intent list cannot be loaded, the field is omitted (natPtr stays nil)
+// and the node keeps its current rules: a transient DB error must never clear
+// the whole chain.
+func (s *NodeService) applyConfigToNodeWithFreshUDPHopNat(node *model.Node, xrayConfig []byte, telemt *[]TelemtNodePayload, amneziawg *[]AmneziaWGNodePayload, telemtWeb *[]telemtweb.Vhost, meta *ApplyWorkerConfigMeta) error {
+	if node == nil {
+		return fmt.Errorf("node is nil")
+	}
+	if udphopNatPreLockHook != nil {
+		udphopNatPreLockHook()
+	}
+	var natPtr *[]finalmask.UDPHopNatIntent
+	var result *applyConfigNodeResult
+	err := withNodeNatPushLock(node.Id, func() error {
+		if intents, ok := s.UDPHopNatIntentsForNode(node); ok {
+			natPtr = &intents
+		}
+		var sendErr error
+		result, sendErr = s.sendApplyConfigToNode(node, xrayConfig, telemt, amneziawg, telemtWeb, natPtr, meta)
+		return sendErr
+	})
+	if err != nil {
+		return err
+	}
+	s.applyNodeStateAfterApplyConfig(node, result)
 	return nil
 }
 
@@ -3366,6 +3439,10 @@ func (s *NodeService) RemoveUserFromNode(node *model.Node, inboundTag, email str
 }
 
 // applyFullWorkerConfigToNode pushes the full Xray + sidecar payload (apply-config).
+// Its only caller (UpdateInboundOnNodeWithFallback) runs under the per-node NAT
+// push lock, so the udphopNat list is read from the DB while that lock is held.
+// The post-send state refresh is handed to a goroutine: the worker probes can
+// cost seconds and must not extend the caller's critical section.
 func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node, forceReload bool) error {
 	xs := NewXrayService()
 	cfgJSON, coreH, cfgErr := xs.BuildWorkerXrayConfigForNodeWithMeta(node)
@@ -3378,9 +3455,16 @@ func (s *NodeService) applyFullWorkerConfigToNode(node *model.Node, forceReload 
 	if meta != nil {
 		meta.ForceReload = forceReload
 	}
-	if apErr := s.ApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); apErr != nil {
+	intents, ok := s.UDPHopNatIntentsForNode(node)
+	var natPtr *[]finalmask.UDPHopNatIntent
+	if ok {
+		natPtr = &intents
+	}
+	result, apErr := s.sendApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, natPtr, meta)
+	if apErr != nil {
 		return apErr
 	}
+	go s.applyNodeStateAfterApplyConfig(node, result)
 	if forceReload {
 		logger.Infof("[Node: %s] Full worker config applied via apply-config (force reload)", node.Name)
 	} else {
@@ -3403,6 +3487,8 @@ func inboundAPIFailureWarrantsFullConfigFallback(err error) bool {
 // UpdateInboundOnNodeWithFallback updates one inbound via API; on hard failure applies full worker config.
 // udphopNat (may be nil) rides the instant request so the node reconciles its NAT rules
 // without waiting for the next full apply-config (see UDPHopNatIntentsForNode).
+// Both the instant attempt and the fallback are called by paths that hold the
+// per-node NAT push lock, so the list read stays inside the callers' critical section.
 func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundConfig []byte, udphopNat []finalmask.UDPHopNatIntent) error {
 	err := s.UpdateInboundOnNode(node, inboundConfig, udphopNat)
 	if err == nil {
@@ -3419,19 +3505,34 @@ func (s *NodeService) UpdateInboundOnNodeWithFallback(node *model.Node, inboundC
 }
 
 // nodeNatPushMu serializes the "read the current udphopNat list + push it" pair per
-// node for the INSTANT inbound paths. The panel ships FULL intent lists from several
-// independent places, and a late goroutine carrying an older list could land last
-// and leave the node with the REDIRECT rules of an already removed inbound forever
-// (the node has no periodic full sync). Reading the list INSIDE the lock makes the
-// last lock holder ship the newest DB state, so on these paths the wire order
-// follows the DB commit order.
-// Scope guarantee: instant update/remove-inbound, their apply-config fallback and the
-// reassignment goroutines are serialized. The plain full apply-config pushes
-// (xray.go:983, node.go:1186 sweep, telemt_session_sync.go:71) are NOT under this
-// lock: they carry the list built at their own call site, so a theoretical inversion
-// with an instant push is still possible within their (sub-second) build+send window.
-// Closing that fully requires routing every apply-config sender through the same
-// lock — deliberately out of scope for this change.
+// node. The panel ships FULL intent lists from several independent places, and a
+// late goroutine carrying an older list could land last and leave the node with the
+// REDIRECT rules of an already removed inbound forever (the node has no periodic
+// full sync in the steady state; last writer wins, there is no epoch/version).
+// Reading the list INSIDE the lock makes the last lock holder ship the newest DB
+// state, so for the udphopNat list the wire order follows the DB commit order.
+// Scope guarantee (every sender of a NAT-bearing envelope):
+//   - instant update/remove-inbound: inbound.go DelInbound / UpdateInbound;
+//   - reassignment add/remove goroutines (AssignInboundToNodesWithBindings);
+//   - their apply-config fallback (applyFullWorkerConfigToNode, called under the lock;
+//     it hands the post-send state refresh to a goroutine so probes stay off the lock);
+//   - full apply-config senders: xray.go applyWorkerConfigToNodeIDsMulti (incl. the
+//     async ApplyWorkerConfigToNodeIDs/ApplyWorkerConfigToNodeIDsAsync path),
+//     node.go MaybePushWorkerConfigIfCoresDown and telemt_session_sync.go — all three
+//     go through applyConfigToNodeWithFreshUDPHopNat.
+//
+// NOT under the lock: the node-initiated pull-xray-config handler
+// (web/controller/api.go) — it answers a node request rather than pushing, and
+// panel-side locking cannot order the node's own apply of that response; it is
+// startup-only in practice. Closing it needs node-side versioning, not this lock.
+//
+// Lock ordering: the lock is acquired at the top of the push goroutines (no DB
+// transaction or other service mutex is held at that point) and guards the intent
+// read plus the apply-config/instant HTTP call to the node (the fallback also
+// builds its config under it). Never call withNodeNatPushLock re-entrantly:
+// sync.Mutex is not reentrant, and locked instant paths must call
+// UpdateInboundOnNode / RemoveInboundFromNode / applyFullWorkerConfigToNode
+// directly, not the fresh-NAT helper.
 // Key = node id; value = *sync.Mutex.
 var nodeNatPushMu sync.Map
 
@@ -3453,19 +3554,21 @@ func withNodeNatPushLock(nodeID int, fn func() error) error {
 
 // UDPHopNatIntentsForNode loads the node's assigned inbounds and derives the
 // desired udphop NAT intents (full set, not a delta — the node reconcile is
-// idempotent). Returns nil when the inbounds cannot be loaded; callers then
-// omit the field and the node leaves its rules untouched (never removes rules
-// on a transient panel-side DB error).
-func (s *NodeService) UDPHopNatIntentsForNode(node *model.Node) []finalmask.UDPHopNatIntent {
+// idempotent). ok is false when the inbounds cannot be loaded: callers must then
+// OMIT the udphopNat field instead of sending an empty list, because the node
+// reads an empty list as "reconcile to nothing" and would drop every REDIRECT
+// rule on a transient panel-side DB error. The success case is always a non-nil
+// slice (an empty list there means "the node should truly have no rules").
+func (s *NodeService) UDPHopNatIntentsForNode(node *model.Node) (intents []finalmask.UDPHopNatIntent, ok bool) {
 	if node == nil {
-		return nil
+		return nil, false
 	}
 	ibs, err := s.GetInboundsForNode(node.Id)
 	if err != nil {
 		logger.Warningf("[Node: %s] udphopNat: load inbounds: %v (NAT rules left untouched)", node.Name, err)
-		return nil
+		return nil, false
 	}
-	return BuildUDPHopNatIntentsForNode(ibs)
+	return BuildUDPHopNatIntentsForNode(ibs), true
 }
 
 // UpdateInboundOnNode updates an inbound configuration on a node via Xray API (instant, no restart).

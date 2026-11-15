@@ -68,7 +68,9 @@ func SyncTelemtAfterClientSessionBlocksChanged(clientId int) {
 					continue
 				}
 				meta := NewApplyWorkerConfigMeta(cfgJSON, coreH)
-				if err := ns.ApplyConfigToNode(node, cfgJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); err != nil {
+				// Background full apply: the udphopNat list is read under the
+				// per-node push lock so it cannot land after a newer instant push.
+				if err := ns.applyConfigToNodeWithFreshUDPHopNat(node, cfgJSON, &telm, &awg, &webv, meta); err != nil {
 					logger.Warningf("telemt session sync: apply node %s: %v", node.Name, err)
 				}
 			}

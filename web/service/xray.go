@@ -633,7 +633,7 @@ func (s *XrayService) ApplySessionIPBlockHotAfterDB(clientId int, email, normali
 	}()
 }
 
-// buildNodeWorkerConfigJSON builds the same Xray JSON that ApplyConfigToNode sends for one node.
+// buildNodeWorkerConfigJSON builds the same Xray JSON that the apply-config envelope carries for one node.
 // The returned core profile hash is SHA-256 hex of the selected profile's ConfigJson (DB), or "" if none.
 func (s *XrayService) buildNodeWorkerConfigJSON(node *model.Node, inbounds []*model.Inbound, baseConfig *xray.Config, hyCert, hyKey string) ([]byte, string, error) {
 	sortInboundsForWorkerConfig(inbounds)
@@ -980,7 +980,11 @@ func (s *XrayService) applyWorkerConfigToNodeIDsMulti(nodeIDs []int) error {
 				logger.Warningf("[Node: %s] Sidecar payload build: %v", n.Name, terr)
 			}
 			meta := NewApplyWorkerConfigMeta(configJSON, coreH)
-			if err := s.nodeService.ApplyConfigToNode(n, configJSON, &telm, &awg, &webv, BuildUDPHopNatIntentsForNode(ibs), meta); err != nil {
+			// Full apply must ship the NAT intents read inside the per-node push
+			// lock: this is an async background push, so a list built from the
+			// pre-lock snapshot could otherwise land after a newer instant
+			// remove/update push (node reconcile is last-writer-wins).
+			if err := s.nodeService.applyConfigToNodeWithFreshUDPHopNat(n, configJSON, &telm, &awg, &webv, meta); err != nil {
 				logger.Errorf("[Node: %s] Failed to apply config: %v", n.Name, err)
 				mu.Lock()
 				failures = append(failures, fmt.Errorf("node %s: %w", n.Name, err))

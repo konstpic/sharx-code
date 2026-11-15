@@ -987,7 +987,10 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 				// Read-before-send under the per-node lock: concurrent pushes of other
 				// inbounds must not let this older-state goroutine land last.
 				natErr := withNodeNatPushLock(n.Id, func() error {
-					return delNodeService.RemoveInboundFromNode(n, tag, delNodeService.UDPHopNatIntentsForNode(n))
+					// ok=false (DB error) leaves intents nil: the field is omitted and
+					// the node keeps its NAT rules untouched.
+					intents, _ := delNodeService.UDPHopNatIntentsForNode(n)
+					return delNodeService.RemoveInboundFromNode(n, tag, intents)
 				})
 				if natErr != nil {
 					logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, natErr)
@@ -1294,7 +1297,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 			nodeService := NodeService{}
 			for _, node := range nodesForFastPush {
 				pushErr := withNodeNatPushLock(node.Id, func() error {
-					return nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast, nodeService.UDPHopNatIntentsForNode(node))
+					intents, _ := nodeService.UDPHopNatIntentsForNode(node) // nil on load error = field omitted
+					return nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast, intents)
 				})
 				if pushErr != nil {
 					logger.Warningf("Failed to update inbound %s on node %s via API: %v", tag, node.Name, pushErr)
