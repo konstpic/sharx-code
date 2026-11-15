@@ -13,12 +13,15 @@ func happBodyMetaComment(headerKey, value string) string {
 }
 
 // prependSubscriptionBodyMetaComments prepends Happ body meta comments for configured
-// response rules (canonical fields, routing, and extra parameters).
+// response rules (canonical fields, routing, and extra parameters). subID is the
+// subId of the client that requested the subscription; it expands the subId
+// placeholder in the profile web page URL.
 func prependSubscriptionBodyMetaComments(
 	result string,
 	client UAClient,
 	cfg *service.SharxSubpageConfigV2,
 	clientAnnounce string,
+	subID string,
 ) string {
 	if client != UAHapp {
 		return result
@@ -46,7 +49,7 @@ func prependSubscriptionBodyMetaComments(
 			}
 		}
 		if service.ResponseHeaderDeliversBody(rr.ProfileWebPageURLDelivery) {
-			if v := strings.TrimSpace(rr.ProfileWebPageURL); v != "" {
+			if v := strings.TrimSpace(service.ExpandSubscriptionPlaceholders(rr.ProfileWebPageURL, subID)); v != "" {
 				prefix.WriteString(service.SubscriptionBodyMetaLine("profile-web-page-url", v))
 			}
 		}

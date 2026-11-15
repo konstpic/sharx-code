@@ -28,15 +28,15 @@ func TestPrependSubscriptionBodyMetaComments(t *testing.T) {
 	body := "vless://example\n"
 	cfg := &service.SharxSubpageConfigV2{
 		ResponseRules: &service.SharxSubpageResponseRules{
-			ProfileTitle:          "My VPN",
-			ProfileTitleDelivery:  service.ResponseHeaderDeliveryBody,
+			ProfileTitle:         "My VPN",
+			ProfileTitleDelivery: service.ResponseHeaderDeliveryBody,
 			ExtraHeaders: []service.SharxSubpageResponseHeader{
 				{Key: "Hide-Settings", Value: "1", Delivery: service.ResponseHeaderDeliveryBody},
 			},
 		},
 	}
 
-	got := prependSubscriptionBodyMetaComments(body, UAHapp, cfg, "")
+	got := prependSubscriptionBodyMetaComments(body, UAHapp, cfg, "", "")
 	if !strings.Contains(got, "#hide-settings: 1\n") {
 		t.Fatalf("missing hide-settings comment: %q", got)
 	}
@@ -47,8 +47,26 @@ func TestPrependSubscriptionBodyMetaComments(t *testing.T) {
 		t.Fatalf("missing subscription link: %q", got)
 	}
 
-	unchanged := prependSubscriptionBodyMetaComments(body, UAV2RayTun, cfg, "")
+	unchanged := prependSubscriptionBodyMetaComments(body, UAV2RayTun, cfg, "", "")
 	if unchanged != body {
 		t.Fatalf("non-Happ client should not get body comments: %q", unchanged)
+	}
+}
+
+func TestPrependSubscriptionBodyMetaCommentsExpandsProfileWebPageSubID(t *testing.T) {
+	body := "vless://example\n"
+	cfg := &service.SharxSubpageConfigV2{
+		ResponseRules: &service.SharxSubpageResponseRules{
+			ProfileWebPageURL:         "https://ex.com/panel/sub/?id={subid}",
+			ProfileWebPageURLDelivery: service.ResponseHeaderDeliveryBody,
+		},
+	}
+
+	got := prependSubscriptionBodyMetaComments(body, UAHapp, cfg, "", "abc123")
+	if !strings.Contains(got, "#profile-web-page-url: https://ex.com/panel/sub/?id=abc123\n") {
+		t.Fatalf("profile-web-page-url comment was not expanded: %q", got)
+	}
+	if strings.Contains(got, "{subid}") {
+		t.Fatalf("placeholder left unexpanded: %q", got)
 	}
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IconButton, Input, SelectNative, Switch } from "@/components/ui";
@@ -184,6 +185,14 @@ export function ResponseRulesEditor({ config, onChange }: Props) {
           hint={t("subBuilder.responseRules.profileWebPageUrlHint", {
             defaultValue: "Profile-Web-Page-Url, shown as a link in some clients.",
           })}
+          hintExtra={
+            <TokenHint
+              text={t("subBuilder.responseRules.profileWebPageUrlTokenHint", {
+                defaultValue:
+                  "The {subid} placeholder is supported: the panel inserts the subId of the client requesting the subscription, so every user gets their own link.",
+              })}
+            />
+          }
           delivery={rules.profileWebPageUrlDelivery ?? "header"}
           onDeliveryChange={(delivery) => set({ profileWebPageUrlDelivery: delivery })}
         >
@@ -191,7 +200,9 @@ export function ResponseRulesEditor({ config, onChange }: Props) {
             value={rules.profileWebPageUrl}
             onChange={(e) => set({ profileWebPageUrl: e.target.value })}
             placeholder={t("subBuilder.responseRules.profileWebPageUrlPlaceholder")}
-            type="url"
+            type="text"
+            inputMode="url"
+            className="font-mono"
           />
         </ParamRow>
       </div>
@@ -266,12 +277,14 @@ export function ResponseRulesEditor({ config, onChange }: Props) {
 function ParamRow({
   label,
   hint,
+  hintExtra,
   delivery,
   onDeliveryChange,
   children,
 }: {
   label: string;
   hint?: string;
+  hintExtra?: React.ReactNode;
   delivery: ResponseHeaderDelivery;
   onDeliveryChange: (v: ResponseHeaderDelivery) => void;
   children: React.ReactNode;
@@ -292,6 +305,29 @@ function ParamRow({
       </div>
       {children}
       {hint ? <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">{hint}</p> : null}
+      {hintExtra ? (
+        <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">{hintExtra}</p>
+      ) : null}
     </label>
+  );
+}
+
+// TokenHint renders a hint text where the {subid} token is shown monospaced.
+function TokenHint({ text }: { text: string }) {
+  const parts = text.split("{subid}");
+  if (parts.length === 1) {
+    return <>{text}</>;
+  }
+  return (
+    <>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {i > 0 ? (
+            <code className="rounded bg-[var(--bg)] px-1 font-mono text-[10px]">{"{subid}"}</code>
+          ) : null}
+          {part}
+        </Fragment>
+      ))}
+    </>
   );
 }
