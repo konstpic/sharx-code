@@ -69,6 +69,11 @@ func telemtWebProxyLink(settingsJSON string, raw16 []byte) (string, bool) {
 				ProfileSecretMode string `json:"profileSecretMode"`
 			} `json:"web"`
 			Params map[string]json.RawMessage `json:"params"`
+			Links  struct {
+				// PublicHost is the concrete hostname a wildcard vhost publishes to clients
+				// (the vhost itself may be "*.example.com", which a tg:// link cannot carry).
+				PublicHost string `json:"publicHost"`
+			} `json:"links"`
 		} `json:"telemt"`
 	}
 	if err := json.Unmarshal([]byte(settingsJSON), &cfg); err != nil || !cfg.Telemt.Web.Enabled {
@@ -79,6 +84,15 @@ func telemtWebProxyLink(settingsJSON string, raw16 []byte) (string, bool) {
 	// Telegram WEB requires HTTPS on port 443; there is no port field in its link.
 	if host == "" || len(raw16) != 16 || (web.FrontPort > 0 && web.FrontPort != 443) {
 		return "", true
+	}
+	// A wildcard vhost ("*.example.com") is not a usable client endpoint: publish the concrete
+	// links.publicHost the operator named instead. Enabled-but-incomplete WEB mode never falls
+	// back to a TCP link.
+	if strings.HasPrefix(host, "*.") {
+		host = strings.ToLower(strings.TrimSpace(cfg.Telemt.Links.PublicHost))
+		if host == "" || strings.Contains(host, "*") {
+			return "", true
+		}
 	}
 	// Match the config generator: unknown/omitted profileSecretMode defaults to dd.
 	secure := strings.TrimSpace(web.ProfileSecretMode) != "plain"
