@@ -65,6 +65,16 @@ const FIELDS: FieldMeta[] = [
     hintDefault: "Extra routing rules prepended to the routing section of JSON sub.",
     placeholder: '[{ "type": "field", "outboundTag": "direct", "domain": ["geosite:private"] }]',
   },
+  {
+    key: "finalMask",
+    labelKey: "subBuilder.jsonTemplates.finalMask",
+    labelDefault: "Default masks",
+    hintKey: "subBuilder.jsonTemplates.finalMaskHint",
+    hintDefault:
+      "Client-transparent masks only: tcp fragment and udp udphop. Payload-transforming masks (salamander, sudoku, xmc, header-custom, noise…) must be set on the inbound and are ignored here. quicParams apply only to xhttp subscriptions with ALPN h3.",
+    placeholder:
+      '{ "tcp": [{"type":"fragment","settings":{"packets":"tlshello","lengths":["100-200"],"delays":["1-2"]}}], "udp": [{"type":"udphop","settings":{"mode":"intervallocal","interval":"10-20"}}] }',
+  },
 ];
 
 export function JsonTemplatesEditor({ config, onChange }: Props) {

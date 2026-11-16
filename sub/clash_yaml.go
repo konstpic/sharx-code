@@ -412,6 +412,11 @@ func parseClashSS(raw string) clashProxyMap {
 func parseClashHysteria2(raw string) clashProxyMap {
 	// Normalize hy2:// to hysteria2://
 	normalized := strings.Replace(raw, "hy2://", "hysteria2://", 1)
+	// The multi-port range ("host:39640-39649") is not a valid net/url port.
+	// Clash has a single port, so collapse the range to its first member
+	// (every port of the range reaches the same listener via the node NAT
+	// rules) instead of dropping the whole profile.
+	normalized = collapseHysteriaMultiPortLink(normalized)
 	u, err := url.Parse(normalized)
 	if err != nil {
 		return nil

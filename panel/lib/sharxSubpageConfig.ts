@@ -821,6 +821,8 @@ export const jsonTemplatesSchema = z.object({
   mux: z.string().default(""),
   noises: z.string().default(""),
   rules: z.string().default(""),
+  /** Default streamSettings.finalmask object for JSON-subscription outbounds. */
+  finalMask: z.string().default(""),
 });
 export type JsonTemplates = z.infer<typeof jsonTemplatesSchema>;
 
@@ -990,6 +992,7 @@ export function defaultJsonTemplates(): JsonTemplates {
     mux: "",
     noises: "",
     rules: "",
+    finalMask: "",
   };
 }
 

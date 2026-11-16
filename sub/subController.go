@@ -47,7 +47,7 @@ func NewSUBController(
 		subJsonPath:    jsonPath,
 		jsonEnabled:    jsonEnabled,
 		subService:     sub,
-		subJsonService: NewSubJsonService("", "", "", "", sub),
+		subJsonService: NewSubJsonService("", "", "", "", "", sub),
 	}
 	a.initRouter(g)
 	return a
@@ -281,7 +281,7 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 	}
 
-	result = prependSubscriptionBodyMetaComments(result, uaClient, cfg, clientAnnounce)
+	result = prependSubscriptionBodyMetaComments(result, uaClient, cfg, clientAnnounce, subId)
 
 	a.ApplyCommonHeaders(c, cfg, header, subId, clientAnnounce, clientRouting)
 	c.Writer.Header().Set("Content-Type", ContentTypeForClient(uaClient, uaFormat))
@@ -331,7 +331,7 @@ func (a *SUBController) subJsons(c *gin.Context) {
 		subEncrypt = cfg.AppSettings.Encrypt
 	}
 	if cfg != nil && cfg.JsonTemplates != nil {
-		a.subJsonService.applyTemplates(cfg.JsonTemplates.Fragment, cfg.JsonTemplates.Noises, cfg.JsonTemplates.Mux, cfg.JsonTemplates.Rules)
+		a.subJsonService.applyTemplates(cfg.JsonTemplates.Fragment, cfg.JsonTemplates.Noises, cfg.JsonTemplates.Mux, cfg.JsonTemplates.Rules, cfg.JsonTemplates.FinalMask)
 	}
 
 	uaClient, _ := DispatchByUA(c)
@@ -415,7 +415,8 @@ func (a *SUBController) ApplyCommonHeaders(c *gin.Context, cfg *service.SharxSub
 		}
 	}
 	if rr != nil && service.ResponseHeaderDeliversHTTP(rr.ProfileWebPageURLDelivery) {
-		if v := strings.TrimSpace(rr.ProfileWebPageURL); v != "" {
+		// The page URL may carry a subId placeholder so every client gets its own link.
+		if v := strings.TrimSpace(service.ExpandSubscriptionPlaceholders(rr.ProfileWebPageURL, subId)); v != "" {
 			c.Writer.Header().Set("Profile-Web-Page-Url", v)
 		}
 	}

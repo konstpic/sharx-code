@@ -66,6 +66,9 @@ func TestTelemtWebProxyLink(t *testing.T) {
 		{"disabled preserves TCP path", `{"telemt":{"web":{"enabled":false,"vhostHost":"proxy.example.com"}}}`, "", false},
 		{"legacy preserves TCP path", `{"telemt":{"modes":{"tls":true}}}`, "", false},
 		{"malformed settings", `{`, "", false},
+		{"wildcard uses concrete publicHost", `{"telemt":{"web":{"enabled":true,"vhostHost":"*.example.com","profileSecretMode":"plain"},"links":{"publicHost":"Client.Example.com"}}}`, "tg://webproxy?server=client.example.com&secret=00112233445566778899aabbccddeeff", true},
+		{"wildcard without publicHost has no link", `{"telemt":{"web":{"enabled":true,"vhostHost":"*.example.com","profileSecretMode":"plain"}}}`, "", true},
+		{"wildcard publicHost is never published", `{"telemt":{"web":{"enabled":true,"vhostHost":"*.example.com","profileSecretMode":"plain"},"links":{"publicHost":"*.example.com"}}}`, "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, enabled := telemtWebProxyLink(tc.settings, raw)
@@ -79,6 +82,11 @@ func TestTelemtWebProxyLink(t *testing.T) {
 	got, _ := telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com","profileSecretMode":"plain"},"params":{"web.vhosts.base_path":"telegram/web"}}}`, doc)
 	if want := "tg://webproxy?server=proxy.example.com%2Ftelegram%2Fweb&secret=cAABAgMEBQYHCAkKCwwNDg8"; got != want {
 		t.Fatalf("base_path link: got %q want %q", got, want)
+	}
+	// The wildcard vhost's concrete publicHost is used in the base_path form too.
+	got, _ = telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"*.example.com","profileSecretMode":"plain"},"links":{"publicHost":"client.example.com"},"params":{"web.vhosts.base_path":"telegram/web"}}}`, doc)
+	if want := "tg://webproxy?server=client.example.com%2Ftelegram%2Fweb&secret=cAABAgMEBQYHCAkKCwwNDg8"; got != want {
+		t.Fatalf("wildcard base_path link: got %q want %q", got, want)
 	}
 	link, enabled := telemtWebProxyLink(`{"telemt":{"web":{"enabled":true,"vhostHost":"proxy.example.com"}}}`, nil)
 	if link != "" || !enabled {

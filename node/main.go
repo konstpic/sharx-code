@@ -164,7 +164,15 @@ func main() {
 		}
 	}()
 	if panelURL != "" {
-		configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
+		if xrayManager.IsRunning() {
+			// Xray is already up from the local config cache: the pull is needed only
+			// to reconcile the host udphop NAT rules, so it must not block the node
+			// API from starting when the panel is slow/unreachable (up to 90s per
+			// attempt, 180s with a stale nodeId retry).
+			go configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
+		} else {
+			configpull.TryPullAndApply(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
+		}
 		configpull.StartBackgroundPull(panelURL, nodeAddress, h, xrayManager, telemtManager, amneziawgManager, telemtWebManager)
 	}
 	// Xray has no auto-restart on an unexpected crash (unrelated to the panel — see

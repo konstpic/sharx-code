@@ -114,6 +114,7 @@ var defaultValueMap = map[string]string{
 	"subJsonNoises":               "",
 	"subJsonMux":                  "",
 	"subJsonRules":                "",
+	"subJsonFinalMask":            "",
 	"subHeaders":                  "{}",  // JSON string for subscription headers
 	"subProviderID":               "",    // Provider ID for Happ extended headers
 	"subProviderIDMethod":         "url", // Method to send Provider ID: "url" (query parameter), "header" (HTTP header), "none" (disabled)
@@ -1150,6 +1151,13 @@ func (s *SettingService) GetSubJsonMux() (string, error) {
 
 func (s *SettingService) GetSubJsonRules() (string, error) {
 	return s.getString("subJsonRules")
+}
+
+// GetSubJsonFinalMask returns the default finalmask object of the JSON
+// subscription (legacy flat key; the v2 subscription config keeps it under
+// jsonTemplates.finalMask).
+func (s *SettingService) GetSubJsonFinalMask() (string, error) {
+	return s.getString("subJsonFinalMask")
 }
 
 func (s *SettingService) GetSubProviderID() (string, error) {

@@ -104,6 +104,10 @@ type telemtSettingsJSON struct {
 		// yet, so this is an inbound-wide throttle, not a per-client one.
 		RateLimitUpBps   *uint64 `json:"rateLimitUpBps"`
 		RateLimitDownBps *uint64 `json:"rateLimitDownBps"`
+		// UserQuotaPeriod turns the per-user data quota into a recurring one: "" keeps the
+		// manual-reset quota, "daily"/"weekly"/"monthly" reset it on the UTC calendar boundary.
+		// Rendered as [access.user_quota_periods] alongside [access.user_data_quota].
+		UserQuotaPeriod string `json:"userQuotaPeriod"`
 	} `json:"access"`
 	Web *TelemtWebSettings `json:"web"`
 	// Params are extra config.toml keys ("section.key" -> value) from the parameter catalog
@@ -149,6 +153,20 @@ type TelemtWebSettings struct {
 	// ProfileSecretMode is "plain" or "dd" (Telegram Desktop secret representation; "ee"
 	// fake-TLS is not supported over WEB since TLS is handled by the front, not Telemt).
 	ProfileSecretMode string `json:"profileSecretMode"`
+	// RetryJitter* add a random delay to every existing bridge HTTP retry (Telemt >= 3.5.16).
+	// Enabled is the switch; min/max bound the ADDITIONAL delay (0..30000 ms, min <= max),
+	// Distribution is "uniform" or "triangular", PeakMs is only valid for "triangular" and must
+	// fall inside [MinMs, MaxMs]. Any min/max/distribution/peak value WITHOUT
+	// retryJitterEnabled=true is a save error (the values require the switch); unset/disabled
+	// values are not rendered at all.
+	RetryJitterEnabled      *bool  `json:"retryJitterEnabled"`
+	RetryJitterMinMs        *int   `json:"retryJitterMinMs"`
+	RetryJitterMaxMs        *int   `json:"retryJitterMaxMs"`
+	RetryJitterDistribution string `json:"retryJitterDistribution"`
+	RetryJitterPeakMs       *int   `json:"retryJitterPeakMs"`
+	// DecoyResolveSecs bounds the DNS lookup for each unique name/port of an http_upstream
+	// decoy (1..3600 seconds, Telemt >= 3.5.15); unset = Telemt's own default.
+	DecoyResolveSecs *int `json:"decoyResolveSecs"`
 }
 
 // DefaultTelemtWebFrontPort is the shared public HTTPS port telemtweb.Manager listens on
@@ -230,6 +248,9 @@ func TelemtWebResolvePublicIP(host string, port int) (string, error) {
 
 var telemtBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// telemtDNSNameRe matches a concrete DNS hostname (RFC 1123 labels, at least one dot).
+var telemtDNSNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
+
 // telemtValidUsernameRe mirrors Telemt's own route validation (src/api/model/users.rs
 // is_valid_username: ASCII alphanumeric plus '_' '-' '.', 1-64 chars). Telemt's Control
 // API rejects any other username in the URL path with 400 before it even looks the user
@@ -308,6 +329,10 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		return "", fmt.Errorf("inbound is nil")
 	}
 	cfg := parseTelemtSettings(inbound.Settings)
+	quotaPeriod := telemtQuotaPeriod(cfg)
+	if err := validateTelemtQuotaPeriod(quotaPeriod); err != nil {
+		return "", err
+	}
 	useMiddle := true
 	if cfg.UseMiddleProxy != nil {
 		useMiddle = *cfg.UseMiddleProxy
@@ -326,18 +351,25 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 	if cfg.Links != nil && strings.TrimSpace(cfg.Links.Show) != "" {
 		show = cfg.Links.Show
 	}
-	if strings.TrimSpace(publicHost) != "" {
-		// node binding overrides JSON
-		if cfg.Links == nil {
-			cfg.Links = &struct {
-				Show       string `json:"show"`
-				PublicHost string `json:"publicHost"`
-				PublicPort int    `json:"publicPort"`
-			}{}
-		}
-		cfg.Links.PublicHost = strings.TrimSpace(publicHost)
-		if publicPort > 0 {
-			cfg.Links.PublicPort = publicPort
+	if bindingHost := strings.TrimSpace(publicHost); bindingHost != "" {
+		// A node's published address may be a raw IP, while a wildcard WEB vhost publishes client
+		// links through links.publicHost (a DNS name). For wildcard vhosts the persisted settings
+		// value wins, so the override cannot turn a valid config into a skipped inbound.
+		wildcardVhost := cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled &&
+			strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Web.VhostHost)), "*.")
+		if !wildcardVhost {
+			// node binding overrides JSON
+			if cfg.Links == nil {
+				cfg.Links = &struct {
+					Show       string `json:"show"`
+					PublicHost string `json:"publicHost"`
+					PublicPort int    `json:"publicPort"`
+				}{}
+			}
+			cfg.Links.PublicHost = bindingHost
+			if publicPort > 0 {
+				cfg.Links.PublicPort = publicPort
+			}
 		}
 	}
 	tlsDomain := "petrovich.ru"
@@ -475,7 +507,18 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 
 	webEnabled := cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled
 	if webEnabled {
-		if err := appendTelemtWebListenerAndSection(&b, cfg.Web, inbound, users); err != nil {
+		if err := validateTelemtWildcardHost(cfg.Web); err != nil {
+			return "", err
+		}
+		// Client links for a wildcard vhost need one concrete host (sub/telemt_tg.go cannot
+		// publish "*"), so refuse to build/push such a config without links.publicHost.
+		if err := validateTelemtWildcardPublicHost(cfg.Web.VhostHost, telemtLinksPublicHost(cfg)); err != nil {
+			return "", err
+		}
+		if err := validateTelemtWildcardMemoryEnvelope(cfg.Web, cfg.Params); err != nil {
+			return "", err
+		}
+		if err := appendTelemtWebListenerAndSection(&b, cfg.Web, inbound, users, cfg.Params); err != nil {
 			return "", err
 		}
 	} else {
@@ -629,6 +672,16 @@ func BuildTelemtToml(inbound *model.Inbound, users []TelemtAccessUser, publicHos
 		for _, line := range quotaLines {
 			fmt.Fprint(&b, line)
 		}
+		// A recurring period only makes sense for users that actually have a data quota.
+		if quotaPeriod != "" {
+			fmt.Fprintf(&b, "\n[access.user_quota_periods]\n")
+			for _, u := range written {
+				if u.DataQuotaBytes == 0 {
+					continue
+				}
+				fmt.Fprintf(&b, "%s = %q\n", telemtTomlUserKey(u.Username), quotaPeriod)
+			}
+		}
 	}
 	if len(expLines) > 0 {
 		fmt.Fprintf(&b, "\n[access.user_expirations]\n")
@@ -707,11 +760,44 @@ func ValidateTelemtInbound(in *model.Inbound) error {
 	if err := validateTelemtParamVersions(in, cfg.Params); err != nil {
 		return err
 	}
+	if err := validateTelemtStructuredVersions(in, cfg); err != nil {
+		return err
+	}
 	if err := validateTelemtParamsWithBinary(cfg.Params, cfg.Upstreams); err != nil {
 		return err
 	}
-	if cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled && strings.TrimSpace(cfg.Web.VhostHost) == "" {
-		return fmt.Errorf("telemt web mode: the public domain (vhostHost) is required")
+	if err := validateTelemtQuotaPeriod(telemtQuotaPeriod(cfg)); err != nil {
+		return err
+	}
+	webEnabled := cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled
+	if webEnabled {
+		if strings.TrimSpace(cfg.Web.VhostHost) == "" {
+			return fmt.Errorf("telemt web mode: the public domain (vhostHost) is required")
+		}
+		if err := validateTelemtWildcardHost(cfg.Web); err != nil {
+			return err
+		}
+		if err := validateTelemtWildcardPublicHost(cfg.Web.VhostHost, telemtLinksPublicHost(cfg)); err != nil {
+			return err
+		}
+		if err := validateTelemtWildcardMemoryEnvelope(cfg.Web, cfg.Params); err != nil {
+			return err
+		}
+		if err := validateTelemtWebStructured(cfg.Web); err != nil {
+			return err
+		}
+		// Telemt refuses to start with an empty [[web.vhosts.profiles]] list, so saving a WEB
+		// inbound whose config would render none must fail here instead of crash-looping there.
+		// A brand-new inbound (Id 0) has no mappings yet; clients are attached right after create.
+		if in.Id > 0 {
+			n, err := telemtWebProfileUserCount(in.Id)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				return fmt.Errorf("telemt web mode: at least one client is required (Telemt rejects web.vhosts.profiles when empty and crash-loops)")
+			}
+		}
 	}
 	return nil
 }
@@ -721,14 +807,25 @@ func ValidateTelemtInbound(in *model.Inbound) error {
 // a private address (loopback by default); the operator's own NGINX/HAProxy must terminate TLS
 // on the public vhost host/port and reverse-proxy to this private listener, setting
 // X-Forwarded-For for the configured trusted CIDRs. See TelemtWebSettings doc comment.
-func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSettings, inbound *model.Inbound, users []TelemtAccessUser) error {
+func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSettings, inbound *model.Inbound, users []TelemtAccessUser, params map[string]json.RawMessage) error {
 	host := strings.ToLower(strings.TrimSpace(web.VhostHost))
 	if host == "" {
 		return fmt.Errorf("telemt web mode: vhostHost is required")
 	}
-	publicAddr, err := TelemtWebResolvePublicIP(host, TelemtWebPublicPort)
+	if err := validateTelemtWildcardHost(web); err != nil {
+		return err
+	}
+	if err := validateTelemtWebStructured(web); err != nil {
+		return err
+	}
+	// A wildcard vhost ("*.example.com") needs a wildcard certificate, which the built-in front
+	// cannot issue (validateTelemtWildcardHost already forced an external terminator). The
+	// public_addr must still be the concrete apex address Telemt relays to.
+	wildcardHost := strings.HasPrefix(host, "*.")
+	resolveHost := strings.TrimPrefix(host, "*.")
+	publicAddr, err := TelemtWebResolvePublicIP(resolveHost, TelemtWebPublicPort)
 	if err != nil {
-		return fmt.Errorf("telemt web mode: resolve vhostHost %q: %w", host, err)
+		return fmt.Errorf("telemt web mode: resolve vhostHost %q: %w", resolveHost, err)
 	}
 	// The front (node/telemtweb.Manager) and Telemt always run co-located on the same
 	// host/container, so the bind and trust boundary are fixed internal values, not
@@ -749,7 +846,19 @@ func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSetting
 	fmt.Fprintf(b, "proxy_protocol = false\n")
 	fmt.Fprintf(b, "web_trusted_proxy_cidrs = [\"127.0.0.1/32\"]\n\n")
 
-	fmt.Fprintf(b, "[web]\nenabled = true\n\n")
+	fmt.Fprintf(b, "[web]\nenabled = true\n")
+	if wildcardHost {
+		fmt.Fprintf(b, "allow_wildcard_hosts = true\n")
+	}
+	fmt.Fprintf(b, "\n")
+	appendTelemtWebStructuredSections(b, web)
+	if wildcardHost {
+		// Telemt's default envelope does not fit wildcard memory reservations; render 2 GiB
+		// unless the operator chose a value (ApplyTelemtExtras then merges theirs).
+		if _, set, err := telemtMemoryEnvelopeParam(params); err == nil && !set {
+			fmt.Fprintf(b, "[web.limits]\nmemory_envelope_bytes = %d\n\n", telemtWildcardMemoryEnvelopeBytes)
+		}
+	}
 
 	fmt.Fprintf(b, "[[web.vhosts]]\n")
 	fmt.Fprintf(b, "host = %q\n", host)
@@ -787,6 +896,244 @@ func appendTelemtWebListenerAndSection(b *strings.Builder, web *TelemtWebSetting
 		fmt.Fprintf(b, "secret_mode = %q\n\n", secretMode)
 	}
 	return nil
+}
+
+// validateTelemtWildcardHost validates the selector shape of a wildcard vhost: a concrete DNS
+// suffix is required (so public_addr can be resolved), and TLS must be terminated externally
+// because the built-in telemtweb front obtains a certificate for one concrete domain and cannot
+// issue a wildcard one. Returns nil for an ordinary host.
+func validateTelemtWildcardHost(web *TelemtWebSettings) error {
+	if web == nil {
+		return nil
+	}
+	host := strings.ToLower(strings.TrimSpace(web.VhostHost))
+	if host == "*" {
+		return fmt.Errorf("telemt web mode: catch-all wildcard host \"*\" is not supported (a concrete DNS suffix is required for DNS resolution and public_addr)")
+	}
+	if !strings.HasPrefix(host, "*.") {
+		return nil
+	}
+	if !telemtValidDNSName(strings.TrimPrefix(host, "*.")) {
+		return fmt.Errorf("telemt web mode: wildcard host %q has no valid DNS suffix", host)
+	}
+	if web.ExternalTerminator == nil || !*web.ExternalTerminator {
+		return fmt.Errorf("telemt web mode: wildcard host %q requires an external TLS terminator (the built-in front cannot issue a wildcard certificate)", host)
+	}
+	return nil
+}
+
+// validateTelemtWildcardPublicHost enforces a concrete links.publicHost for a wildcard vhost:
+// Telegram client links cannot carry "*.example.com", and the wildcard selector only matches
+// descendants of its suffix (never the apex), so publicHost must be a strict subdomain of that
+// suffix. A wildcard in publicHost itself is never valid.
+func validateTelemtWildcardPublicHost(host, publicHost string) error {
+	ph := strings.ToLower(strings.TrimSpace(publicHost))
+	if strings.Contains(ph, "*") {
+		return fmt.Errorf("telemt web mode: links.publicHost %q must not be a wildcard", strings.TrimSpace(publicHost))
+	}
+	h := strings.ToLower(strings.TrimSpace(host))
+	if !strings.HasPrefix(h, "*.") {
+		return nil
+	}
+	if !telemtValidDNSName(ph) {
+		return fmt.Errorf("telemt web mode: wildcard host %q requires links.publicHost with a concrete subdomain (client links cannot use a wildcard)", host)
+	}
+	suffix := strings.TrimPrefix(h, "*.")
+	if !strings.HasSuffix(ph, "."+suffix) {
+		return fmt.Errorf("telemt web mode: links.publicHost %q must be a strict subdomain of %q for wildcard host %q (the apex and other domains are not routed)",
+			strings.TrimSpace(publicHost), suffix, host)
+	}
+	return nil
+}
+
+// telemtValidDNSName reports whether h is a concrete DNS hostname suitable for a client link.
+func telemtValidDNSName(h string) bool {
+	h = strings.ToLower(strings.TrimSpace(h))
+	return h != "" && len(h) <= 253 && net.ParseIP(h) == nil && telemtDNSNameRe.MatchString(h)
+}
+
+// telemtLinksPublicHost returns the operator's [general.links].public_host, if set.
+func telemtLinksPublicHost(cfg telemtSettingsJSON) string {
+	if cfg.Links == nil {
+		return ""
+	}
+	return cfg.Links.PublicHost
+}
+
+// telemtWildcardMemoryEnvelopeBytes is the minimum [web.limits].memory_envelope_bytes a wildcard
+// WEB vhost needs. Telemt 3.5.15+ reserves extra static-cache memory per wildcard group and
+// rejects the default 1280 MiB envelope for wildcard configs (startup loops with "memory
+// reservations must fit memory_envelope_bytes"); 2 GiB starts cleanly (measured on 3.5.17).
+const telemtWildcardMemoryEnvelopeBytes = int64(2147483648)
+
+// telemtMemoryEnvelopeParam reads the operator's web.limits.memory_envelope_bytes param, if any.
+func telemtMemoryEnvelopeParam(params map[string]json.RawMessage) (int64, bool, error) {
+	raw, ok := params["web.limits.memory_envelope_bytes"]
+	if !ok {
+		return 0, false, nil
+	}
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return 0, false, nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, true, fmt.Errorf("telemt web mode: web.limits.memory_envelope_bytes must be an integer")
+	}
+	v, err := n.Int64()
+	if err != nil {
+		f, ferr := n.Float64()
+		if ferr != nil || f != math.Trunc(f) || f < 0 || f >= math.MaxInt64 {
+			return 0, true, fmt.Errorf("telemt web mode: web.limits.memory_envelope_bytes must be an integer")
+		}
+		v = int64(f)
+	}
+	return v, true, nil
+}
+
+// validateTelemtWildcardMemoryEnvelope enforces that an operator-set memory envelope is large
+// enough for wildcard memory reservations. An unset value gets the 2 GiB default rendered by
+// appendTelemtWebListenerAndSection.
+func validateTelemtWildcardMemoryEnvelope(web *TelemtWebSettings, params map[string]json.RawMessage) error {
+	if web == nil || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(web.VhostHost)), "*.") {
+		return nil
+	}
+	v, set, err := telemtMemoryEnvelopeParam(params)
+	if err != nil {
+		return err
+	}
+	if set && v < telemtWildcardMemoryEnvelopeBytes {
+		return fmt.Errorf("telemt web mode: wildcard hosts require web.limits.memory_envelope_bytes >= 2147483648 (currently %d)", v)
+	}
+	return nil
+}
+
+// telemtWebHasProfiles reports whether at least one client would be rendered as a
+// [[web.vhosts.profiles]] entry (Telemt crash-loops on an empty profiles list).
+func telemtWebHasProfiles(users []TelemtAccessUser) bool {
+	for _, u := range users {
+		if u.Enable && strings.TrimSpace(u.Username) != "" && len(strings.TrimSpace(u.Secret)) == 32 {
+			return true
+		}
+	}
+	return false
+}
+
+// telemtInboundWebEnabled reports whether the inbound's settings enable WEB mode.
+func telemtInboundWebEnabled(settingsJSON string) bool {
+	cfg := parseTelemtSettings(settingsJSON)
+	return cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled
+}
+
+// telemtRetryJitterConfigured reports whether any retry-jitter field is set. enabled=true alone
+// counts (it turns the feature on with Telemt defaults); enabled=false alone does not.
+func telemtRetryJitterConfigured(web *TelemtWebSettings) bool {
+	if web == nil {
+		return false
+	}
+	if web.RetryJitterEnabled != nil && *web.RetryJitterEnabled {
+		return true
+	}
+	return web.RetryJitterMinMs != nil || web.RetryJitterMaxMs != nil ||
+		strings.TrimSpace(web.RetryJitterDistribution) != "" || web.RetryJitterPeakMs != nil
+}
+
+// validateTelemtWebStructured checks the WEB fields SharX renders itself (retry jitter and the
+// decoy DNS timeout). Unset fields keep Telemt's own defaults.
+func validateTelemtWebStructured(web *TelemtWebSettings) error {
+	if web == nil {
+		return nil
+	}
+	dist := strings.ToLower(strings.TrimSpace(web.RetryJitterDistribution))
+	jitterSet := telemtRetryJitterConfigured(web)
+	if jitterSet && (web.RetryJitterEnabled == nil || !*web.RetryJitterEnabled) {
+		return fmt.Errorf("telemt web mode: set retryJitterEnabled=true or clear the jitter values")
+	}
+	if jitterSet {
+		minMs, maxMs := 0, 250
+		if web.RetryJitterMinMs != nil {
+			minMs = *web.RetryJitterMinMs
+		}
+		if web.RetryJitterMaxMs != nil {
+			maxMs = *web.RetryJitterMaxMs
+		}
+		if minMs < 0 || minMs > 30000 {
+			return fmt.Errorf("telemt web mode: retryJitterMinMs %d out of range (0-30000)", minMs)
+		}
+		if maxMs < 0 || maxMs > 30000 {
+			return fmt.Errorf("telemt web mode: retryJitterMaxMs %d out of range (0-30000)", maxMs)
+		}
+		if minMs > maxMs {
+			return fmt.Errorf("telemt web mode: retryJitterMinMs %d must not exceed retryJitterMaxMs %d", minMs, maxMs)
+		}
+		switch dist {
+		case "", "uniform", "triangular":
+		default:
+			return fmt.Errorf("telemt web mode: retryJitterDistribution %q must be \"uniform\" or \"triangular\"", web.RetryJitterDistribution)
+		}
+		if web.RetryJitterPeakMs != nil {
+			if dist != "triangular" {
+				return fmt.Errorf("telemt web mode: retryJitterPeakMs is only valid with retryJitterDistribution \"triangular\"")
+			}
+			if *web.RetryJitterPeakMs < minMs || *web.RetryJitterPeakMs > maxMs {
+				return fmt.Errorf("telemt web mode: retryJitterPeakMs %d must be within [%d, %d]", *web.RetryJitterPeakMs, minMs, maxMs)
+			}
+		}
+	}
+	if web.DecoyResolveSecs != nil && (*web.DecoyResolveSecs < 1 || *web.DecoyResolveSecs > 3600) {
+		return fmt.Errorf("telemt web mode: decoyResolveSecs %d out of range (1-3600)", *web.DecoyResolveSecs)
+	}
+	return nil
+}
+
+// appendTelemtWebStructuredSections renders the optional [web.retry_jitter] and [web.timeouts]
+// subtables. They must sit after [web] and before [[web.vhosts]] to keep the TOML unambiguous.
+func appendTelemtWebStructuredSections(b *strings.Builder, web *TelemtWebSettings) {
+	if web.RetryJitterEnabled != nil && *web.RetryJitterEnabled {
+		dist := strings.ToLower(strings.TrimSpace(web.RetryJitterDistribution))
+		fmt.Fprintf(b, "[web.retry_jitter]\nenabled = true\n")
+		if web.RetryJitterMinMs != nil {
+			fmt.Fprintf(b, "min_ms = %d\n", *web.RetryJitterMinMs)
+		}
+		if web.RetryJitterMaxMs != nil {
+			fmt.Fprintf(b, "max_ms = %d\n", *web.RetryJitterMaxMs)
+		}
+		if dist != "" {
+			fmt.Fprintf(b, "distribution = %q\n", dist)
+		}
+		if dist == "triangular" && web.RetryJitterPeakMs != nil {
+			fmt.Fprintf(b, "peak_ms = %d\n", *web.RetryJitterPeakMs)
+		}
+		fmt.Fprintf(b, "\n")
+	}
+	if web.DecoyResolveSecs != nil {
+		fmt.Fprintf(b, "[web.timeouts]\ndecoy_resolve_secs = %d\n\n", *web.DecoyResolveSecs)
+	}
+}
+
+// telemtQuotaPeriod returns the normalized recurring quota period ("" = manual reset).
+func telemtQuotaPeriod(cfg telemtSettingsJSON) string {
+	if cfg.Access == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(cfg.Access.UserQuotaPeriod))
+}
+
+func validateTelemtQuotaPeriod(period string) error {
+	switch period {
+	case "", "daily", "weekly", "monthly":
+		return nil
+	}
+	return fmt.Errorf("telemt access: userQuotaPeriod %q must be \"daily\", \"weekly\" or \"monthly\"", period)
+}
+
+// telemtSettingsHasWildcardHost reports whether the inbound's WEB vhost uses a wildcard selector.
+func telemtSettingsHasWildcardHost(settingsJSON string) bool {
+	cfg := parseTelemtSettings(settingsJSON)
+	if cfg.Web == nil || cfg.Web.Enabled == nil || !*cfg.Web.Enabled {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Web.VhostHost)), "*.")
 }
 
 // TelemtAccessUsersForInbound loads enabled clients with a Telemt secret for the inbound.
@@ -958,6 +1305,20 @@ func BuildTelemtPayloadsForNode(node *model.Node, ibs []*model.Inbound) ([]Telem
 			}
 		}
 		workDir := fmt.Sprintf("/app/telemt/%s", ib.Tag)
+		// Telemt refuses to start with an empty [[web.vhosts.profiles]] list (config error,
+		// crash loop); do not push such a config, keep the rest of the node's inbounds.
+		if telemtInboundWebEnabled(ib.Settings) && !telemtWebHasProfiles(users) {
+			logger.Warningf("telemt inbound %d (%s) on node %s: WEB mode has no client with a 32-hex secret; Telemt rejects empty web.vhosts.profiles — skipping this inbound only",
+				ib.Id, ib.Tag, node.Name)
+			continue
+		}
+		// A wildcard vhost cannot fall back to an exact host: sending it to an old build would
+		// either be rejected or, worse, silently match nothing. Skip just this inbound.
+		if telemtVersionLess(node.TelemtVersion, "3.5.15") && telemtSettingsHasWildcardHost(ib.Settings) {
+			logger.Warningf("telemt inbound %d (%s) on node %s (Telemt %s): wildcard WEB vhost host requires Telemt >= 3.5.15 — skipping this inbound only",
+				ib.Id, ib.Tag, node.Name, node.TelemtVersion)
+			continue
+		}
 		ibForNode := ib
 		if cleaned, dropped := stripUnsupportedTelemtParams(ib.Settings, node.TelemtVersion); len(dropped) > 0 {
 			logger.Warningf("telemt inbound %d (%s) on node %s (Telemt %s): not sending parameters this build does not support: %s",
@@ -1000,6 +1361,11 @@ func BuildTelemtPayloadsStandalone() ([]TelemtNodePayload, error) {
 			return nil, err
 		}
 		workDir := filepath.Join(base, ib.Tag)
+		if telemtInboundWebEnabled(ib.Settings) && !telemtWebHasProfiles(users) {
+			logger.Warningf("telemt inbound %d (%s): WEB mode has no client with a 32-hex secret; Telemt rejects empty web.vhosts.profiles — skipping this inbound only",
+				ib.Id, ib.Tag)
+			continue
+		}
 		tomlStr, err := BuildTelemtToml(ib, users, "", 0, workDir)
 		if err != nil {
 			// See BuildTelemtPayloadsForNode: isolate one inbound's config error instead of
@@ -1114,34 +1480,140 @@ func validateTelemtParamVersions(in *model.Inbound, params map[string]json.RawMe
 			need[id] = p.Since
 		}
 	}
-	if len(need) == 0 {
-		return nil
-	}
-	type target struct{ name, version string }
-	var targets []target
+	return validateTelemtNeedsVersions(in, need)
+}
+
+// telemtVersionTarget is one Telemt build an inbound is written for (a node, or the panel host).
+type telemtVersionTarget struct{ name, version string }
+
+// telemtVersionTargetsForInbound lists the Telemt builds this inbound's config is pushed to: the
+// enabled nodes it is assigned to in multi-node mode, otherwise the panel's own Telemt.
+func telemtVersionTargetsForInbound(in *model.Inbound) []telemtVersionTarget {
+	var targets []telemtVersionTarget
 	multi, _ := (&SettingService{}).GetMultiNodeMode()
 	if multi {
 		if in.Id > 0 {
 			nodes, _ := (&NodeService{}).GetNodesForInbound(in.Id)
 			for _, n := range nodes {
 				if n != nil && n.Enable {
-					targets = append(targets, target{n.Name, n.TelemtVersion})
+					targets = append(targets, telemtVersionTarget{n.Name, n.TelemtVersion})
 				}
 			}
 		}
 	} else {
-		targets = append(targets, target{"panel", telemtinstall.ReadVersion("")})
+		targets = append(targets, telemtVersionTarget{"panel", telemtinstall.ReadVersion("")})
 	}
-	for _, t := range targets {
-		if bad := telemtParamsNeedingVersion(params, t.version); len(bad) > 0 {
-			ids := make([]string, 0, len(bad))
-			for id, since := range bad {
-				ids = append(ids, id+" (Telemt >= "+since+")")
+	return targets
+}
+
+// validateTelemtNeedsVersions rejects the configured fields (id -> minimum release) that any
+// target Telemt build is too old for. Unknown versions are never treated as a problem.
+func validateTelemtNeedsVersions(in *model.Inbound, need map[string]string) error {
+	if len(need) == 0 {
+		return nil
+	}
+	for _, t := range telemtVersionTargetsForInbound(in) {
+		bad := map[string]string{}
+		for id, since := range need {
+			if telemtVersionLess(t.version, since) {
+				bad[id] = since
 			}
-			sort.Strings(ids)
-			return fmt.Errorf("telemt params: %s runs Telemt %s, which does not support: %s — update Telemt there first",
-				t.name, t.version, strings.Join(ids, ", "))
+		}
+		if len(bad) > 0 {
+			return formatTelemtVersionGateError(t.name, t.version, bad)
 		}
 	}
 	return nil
+}
+
+func formatTelemtVersionGateError(name, version string, bad map[string]string) error {
+	ids := make([]string, 0, len(bad))
+	for id, since := range bad {
+		ids = append(ids, id+" (Telemt >= "+since+")")
+	}
+	sort.Strings(ids)
+	return fmt.Errorf("telemt params: %s runs Telemt %s, which does not support: %s — update Telemt there first",
+		name, version, strings.Join(ids, ", "))
+}
+
+// telemtStructuredNeed collects the first-class settings fields (rendered by SharX itself, not
+// from the generic params map) that require a newer Telemt. WEB fields only matter when WEB mode
+// is on, since otherwise they are not written to the config at all.
+func telemtStructuredNeed(cfg telemtSettingsJSON) map[string]string {
+	need := map[string]string{}
+	if cfg.Web != nil && cfg.Web.Enabled != nil && *cfg.Web.Enabled {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.Web.VhostHost)), "*.") {
+			need["web.vhosts.host (wildcard)"] = "3.5.15"
+		}
+		if cfg.Web.DecoyResolveSecs != nil {
+			need["web.timeouts.decoy_resolve_secs"] = "3.5.15"
+		}
+		if telemtRetryJitterConfigured(cfg.Web) {
+			need["web.retry_jitter"] = "3.5.16"
+		}
+	}
+	if telemtQuotaPeriod(cfg) != "" {
+		need["access.user_quota_periods"] = "3.5.15"
+	}
+	return need
+}
+
+func validateTelemtStructuredVersions(in *model.Inbound, cfg telemtSettingsJSON) error {
+	need := telemtStructuredNeed(cfg)
+	// [access.user_quota_periods] is only rendered for written users that have a data quota; a
+	// period configured without any such user writes nothing, so it must not block an old Telemt.
+	if _, ok := need["access.user_quota_periods"]; ok && !telemtInboundHasQuotaUsers(in) {
+		delete(need, "access.user_quota_periods")
+	}
+	return validateTelemtNeedsVersions(in, need)
+}
+
+// telemtWebProfileUserCount counts enabled clients with a 32-hex Telemt secret on an inbound;
+// tests override it.
+var telemtWebProfileUserCount = func(inboundId int) (int64, error) {
+	db := database.GetDB()
+	if db == nil {
+		return 0, nil
+	}
+	var n int64
+	mapped := db.Model(&model.ClientInboundMapping{}).Select("client_id").
+		Where("inbound_id = ? AND LENGTH(telemt_secret) = 32", inboundId)
+	err := db.Model(&model.ClientEntity{}).
+		Where("enable = ?", true).
+		Where("id IN (?)", mapped).
+		Count(&n).Error
+	return n, err
+}
+
+// telemtQuotaUserCount is the single aggregate query behind telemtInboundHasQuotaUsers; tests
+// override it to exercise the error path.
+var telemtQuotaUserCount = func(in *model.Inbound) (int64, error) {
+	db := database.GetDB()
+	if db == nil {
+		return 0, nil
+	}
+	var n int64
+	mapped := db.Model(&model.ClientInboundMapping{}).Select("client_id").
+		Where("inbound_id = ? AND telemt_secret <> ''", in.Id)
+	err := db.Model(&model.ClientEntity{}).
+		Where("enable = ? AND total_gb > 0", true).
+		Where("id IN (?)", mapped).
+		Count(&n).Error
+	return n, err
+}
+
+// telemtInboundHasQuotaUsers reports whether any enabled client with a Telemt secret on this
+// inbound carries a data quota (i.e. would land in [access.user_data_quota]). One aggregate
+// query, no per-client round trips. It fails closed: if the lookup cannot run, the caller keeps
+// the version gate instead of letting an old Telemt receive a config it may reject.
+func telemtInboundHasQuotaUsers(in *model.Inbound) bool {
+	if in == nil || in.Id <= 0 {
+		return false
+	}
+	n, err := telemtQuotaUserCount(in)
+	if err != nil {
+		logger.Warningf("telemt inbound %d: quota user lookup failed, keeping the version gate: %v", in.Id, err)
+		return true
+	}
+	return n > 0
 }

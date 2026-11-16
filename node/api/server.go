@@ -33,9 +33,11 @@ import (
 	nodeLogs "github.com/konstpic/sharx-code/v2/node/logs"
 	"github.com/konstpic/sharx-code/v2/node/telemt"
 	"github.com/konstpic/sharx-code/v2/node/telemtweb"
+	"github.com/konstpic/sharx-code/v2/node/udphopnat"
 	"github.com/konstpic/sharx-code/v2/node/xray"
 	telemtinstall "github.com/konstpic/sharx-code/v2/telemt/install"
 	"github.com/konstpic/sharx-code/v2/util/dockerupdater"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
 	corexray "github.com/konstpic/sharx-code/v2/xray"
 )
 
@@ -343,6 +345,7 @@ func (s *Server) applyConfig(c *gin.Context) {
 	var telemtRaw json.RawMessage
 	var amneziawgRaw json.RawMessage
 	var telemtWebRaw json.RawMessage
+	var udphopNatRaw json.RawMessage
 	reqCoreProfileHash := ""
 	reqExpectedSHA := ""
 
@@ -353,6 +356,7 @@ func (s *Server) applyConfig(c *gin.Context) {
 		Telemt               json.RawMessage `json:"telemt"`
 		AmneziaWG            json.RawMessage `json:"amneziawg"`
 		TelemtWeb            json.RawMessage `json:"telemtWeb"`
+		UdphopNat            json.RawMessage `json:"udphopNat"`
 		CoreProfileHash      string          `json:"coreProfileHash,omitempty"`
 		ExpectedConfigSha256 string          `json:"expectedConfigSha256,omitempty"`
 		ForceReload          bool            `json:"forceReload,omitempty"`
@@ -360,12 +364,13 @@ func (s *Server) applyConfig(c *gin.Context) {
 	}
 
 	configBytes := body
-	// Envelope: { "config": {...}, "panelUrl", "telemt": [...], "amneziawg": [...], "telemtWeb": [...] }
+	// Envelope: { "config": {...}, "panelUrl", "telemt": [...], "amneziawg": [...], "telemtWeb": [...], "udphopNat": [...] }
 	if err := json.Unmarshal(body, &requestData); err == nil && len(requestData.Config) > 0 {
 		configBytes = requestData.Config
 		telemtRaw = requestData.Telemt
 		amneziawgRaw = requestData.AmneziaWG
 		telemtWebRaw = requestData.TelemtWeb
+		udphopNatRaw = requestData.UdphopNat
 		reqCoreProfileHash = strings.TrimSpace(requestData.CoreProfileHash)
 		reqExpectedSHA = strings.TrimSpace(requestData.ExpectedConfigSha256)
 		if len(requestData.LogRotate) > 0 {
@@ -432,6 +437,12 @@ func (s *Server) applyConfig(c *gin.Context) {
 	// stale sidecar/inbound by hand, and reapply.
 	s.applySidecarPayloads(telemtRaw, amneziawgRaw, telemtWebRaw)
 
+	// udphop NAT intents ride the same envelope (an empty list means "remove
+	// the stale rules"). Reconcile is best-effort: warnings go to the log and
+	// the response, they never fail apply-config (the Xray config is not the
+	// reason the firewall might be broken).
+	natWarnings := s.reconcileUDPHopNat(udphopNatRaw)
+
 	logger.Infof("Applying XRAY configuration...")
 	var applyErr error
 	if requestData.ForceReload {
@@ -461,9 +472,28 @@ func (s *Server) applyConfig(c *gin.Context) {
 	if reqExpectedSHA != "" {
 		resp["configSha256Match"] = strings.EqualFold(reqExpectedSHA, cfgHashHex)
 	}
+	if len(natWarnings) > 0 {
+		resp["udphopNatErrors"] = natWarnings
+	}
 	logger.Infof("Configuration applied successfully, sending response")
 	c.JSON(http.StatusOK, resp)
 	logger.Infof("Apply config response sent")
+}
+
+// reconcileUDPHopNat reconciles the host udphop REDIRECT chain to the desired
+// intents from the apply-config envelope. A missing/null field means the panel
+// did not send any desired state — nothing is touched (same convention as the
+// sidecar payloads); an empty list removes the rules.
+func (s *Server) reconcileUDPHopNat(udphopNatRaw json.RawMessage) []string {
+	if len(udphopNatRaw) == 0 || string(udphopNatRaw) == "null" {
+		return nil
+	}
+	var intents []finalmask.UDPHopNatIntent
+	if err := json.Unmarshal(udphopNatRaw, &intents); err != nil {
+		logger.Warningf("udphopNat: invalid JSON, rules not reconciled: %v", err)
+		return []string{fmt.Sprintf("invalid udphopNat JSON: %v", err)}
+	}
+	return udphopnat.Reconcile(udphopnat.ExecRunner, intents)
 }
 
 func (s *Server) applySidecarPayloads(telemtRaw, amneziawgRaw, telemtWebRaw json.RawMessage) {
@@ -1211,7 +1241,8 @@ func (s *Server) removeUser(c *gin.Context) {
 // removeInbound removes an inbound configuration via Xray API (instant, no restart).
 func (s *Server) removeInbound(c *gin.Context) {
 	var req struct {
-		Tag string `json:"tag" binding:"required"`
+		Tag       string          `json:"tag" binding:"required"`
+		UdphopNat json.RawMessage `json:"udphopNat"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1221,6 +1252,9 @@ func (s *Server) removeInbound(c *gin.Context) {
 	}
 
 	logger.Infof("Remove inbound request received: tag=%s", req.Tag)
+
+	// Reconcile the udphop NAT rules before the xray liveness gate (see updateInbound).
+	natWarnings := s.reconcileUDPHopNat(req.UdphopNat)
 
 	if !s.xrayManager.IsRunning() {
 		logger.Warningf("Cannot remove inbound %s: XRAY is not running", req.Tag)
@@ -1236,13 +1270,18 @@ func (s *Server) removeInbound(c *gin.Context) {
 	}
 
 	logger.Infof("Inbound removed successfully via API: %s", req.Tag)
-	c.JSON(http.StatusOK, gin.H{"message": "Inbound removed successfully"})
+	resp := gin.H{"message": "Inbound removed successfully"}
+	if len(natWarnings) > 0 {
+		resp["udphopNatErrors"] = natWarnings
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // updateInbound updates an inbound configuration via Xray API (instant, no restart).
 func (s *Server) updateInbound(c *gin.Context) {
 	var req struct {
 		InboundConfig json.RawMessage `json:"inboundConfig" binding:"required"`
+		UdphopNat     json.RawMessage `json:"udphopNat"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1259,6 +1298,11 @@ func (s *Server) updateInbound(c *gin.Context) {
 		}
 	}
 
+	// Reconcile the udphop NAT rules before the xray liveness gate: the rules
+	// follow the panel's desired state even when xray is down (and the panel
+	// then falls back to a full apply-config, which reconciles again anyway).
+	natWarnings := s.reconcileUDPHopNat(req.UdphopNat)
+
 	if !s.xrayManager.IsRunning() {
 		logger.Warningf("Cannot update inbound: XRAY is not running")
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "XRAY is not running"})
@@ -1274,5 +1318,9 @@ func (s *Server) updateInbound(c *gin.Context) {
 
 	tag, _ := inboundJSON["tag"].(string)
 	logger.Infof("Inbound updated successfully via API: %s", tag)
-	c.JSON(http.StatusOK, gin.H{"message": "Inbound updated successfully"})
+	resp := gin.H{"message": "Inbound updated successfully"}
+	if len(natWarnings) > 0 {
+		resp["udphopNatErrors"] = natWarnings
+	}
+	c.JSON(http.StatusOK, resp)
 }

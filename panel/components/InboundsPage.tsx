@@ -106,6 +106,7 @@ import {
 import { InboundColumnFiltersBar } from "@/components/inbounds/InboundColumnFiltersBar";
 import { InboundTlsCertPinBlock } from "@/components/inbounds/InboundTlsCertPinBlock";
 import { VlessEncryptionSection } from "@/components/inbounds/VlessEncryptionSection";
+import { FinalmaskEditor } from "@/components/FinalmaskEditor";
 import {
   roundTripInboundCoreConfig,
   roundTripInboundSniffing,
@@ -578,6 +579,85 @@ const defaultForm = () => ({
   vlessTrojanFallbacks: [] as VlessTrojanFallbackFormRow[],
 });
 
+/**
+ * hysteria2 multi-port (port hopping) range validation, mirrored by
+ * ApplyHysteriaMultiPortOnSave on the server. Returns null when the range is
+ * absent or valid.
+ */
+function hysteriaMultiPortRangeError(
+  minStr: string,
+  maxStr: string,
+  listenerPort: number,
+): "incomplete" | "range" | "order" | "count" | "listener" | null {
+  const min = minStr.trim();
+  const max = maxStr.trim();
+  if (!min && !max) return null;
+  if (!min || !max || !/^\d+$/.test(min) || !/^\d+$/.test(max)) return "incomplete";
+  const minPort = Number(min);
+  const maxPort = Number(max);
+  if (minPort < 1 || maxPort < 1 || minPort > 65535 || maxPort > 65535) return "range";
+  if (minPort >= maxPort) return "order";
+  if (maxPort - minPort + 1 > 1000) return "count";
+  if (listenerPort >= minPort && listenerPort <= maxPort) return "listener";
+  return null;
+}
+
+/**
+ * Telemt WEB retry-jitter range checks (Telemt ≥ 3.5.16). Mirrors what the backend
+ * accepts so invalid values are surfaced inline instead of being silently dropped
+ * from the generated settings JSON.
+ */
+function telemtJitterIssue(input: {
+  minMs: string;
+  maxMs: string;
+  distribution: "" | "uniform" | "triangular";
+  peakMs: string;
+}): "range" | "order" | "peak" | null {
+  const parseMs = (raw: string): number | null => {
+    const s = raw.trim();
+    if (!s) return null;
+    if (!/^\d+$/.test(s)) return Number.NaN;
+    return Number(s);
+  };
+  const min = parseMs(input.minMs);
+  const max = parseMs(input.maxMs);
+  for (const v of [min, max]) {
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 30000)) return "range";
+  }
+  if (min != null && max != null && min > max) return "order";
+  if (input.distribution === "triangular") {
+    const peak = parseMs(input.peakMs);
+    if (peak != null) {
+      if (!Number.isFinite(peak) || peak < 0 || peak > 30000) return "range";
+      if (min != null && peak < min) return "peak";
+      if (max != null && peak > max) return "peak";
+    }
+  }
+  return null;
+}
+
+/** Telemt [web].decoyResolveSecs range check (1..3600 seconds, Telemt ≥ 3.5.15). */
+function telemtDecoyResolveIssue(value: string): "range" | null {
+  const s = value.trim();
+  if (!s) return null;
+  if (!/^\d+$/.test(s)) return "range";
+  const n = Number(s);
+  return n < 1 || n > 3600 ? "range" : null;
+}
+
+/**
+ * Wildcard WEB vhosts reserve extra memory; Telemt 3.5.17 needs an envelope of at
+ * least 2 GiB. The backend auto-writes it when unset, so only an explicitly set
+ * smaller value has to be rejected here.
+ */
+function telemtWebEnvelopeTooSmall(params: Record<string, unknown>): boolean {
+  const raw = params["web.limits.memory_envelope_bytes"];
+  if (raw == null || raw === "") return false;
+  const n =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw.trim()) : Number.NaN;
+  return Number.isFinite(n) && n < 2147483648;
+}
+
 export function InboundsPage() {
   const { t } = useTranslation();
   const canCreate = useCan("inbounds:create");
@@ -611,6 +691,24 @@ export function InboundsPage() {
   const [step, setStep] = useState<InboundStepId>("basics");
   const [nodes, setNodes] = useState<NodeRow[]>([]);
   const [form, setForm] = useState(defaultForm);
+  const telemtJitterIssueCode = telemtJitterIssue({
+    minMs: form.telemtForm.webRetryJitterMinMs,
+    maxMs: form.telemtForm.webRetryJitterMaxMs,
+    distribution: form.telemtForm.webRetryJitterDistribution,
+    peakMs: form.telemtForm.webRetryJitterPeakMs,
+  });
+  const telemtDecoyResolveIssueCode = telemtDecoyResolveIssue(
+    form.telemtForm.webDecoyResolveSecs,
+  );
+  /** Any jitter option set while Enabled is not true — the backend rejects that combination. */
+  const telemtJitterNeedsEnabled =
+    form.telemtForm.webRetryJitterEnabled !== "true" &&
+    Boolean(
+      form.telemtForm.webRetryJitterMinMs.trim() ||
+        form.telemtForm.webRetryJitterMaxMs.trim() ||
+        form.telemtForm.webRetryJitterPeakMs.trim() ||
+        form.telemtForm.webRetryJitterDistribution,
+    );
   const [nodeBindings, setNodeBindings] = useState<NodeBindingFormRow[]>([]);
   // the text overrides of a node that was just unticked: when the inbound is moved to another node they follow it
   const removedBindingRef = useRef<NodeBindingFormRow | null>(null);
@@ -1098,6 +1196,33 @@ export function InboundsPage() {
     if (tagValidation) {
       return { ok: false, message: tagValidation };
     }
+    if (form.protocol === "hysteria2" && multiNodeMode === true) {
+      const mpError = hysteriaMultiPortRangeError(
+        form.streamForm.hysteriaMultiPortMin,
+        form.streamForm.hysteriaMultiPortMax,
+        form.port,
+      );
+      if (mpError) {
+        const messages = {
+          incomplete: t("pages.inbounds.hysteriaMultiPortInvalid", {
+            defaultValue: "Multi-port: fill in both min and max ports (1–65535).",
+          }),
+          range: t("pages.inbounds.hysteriaMultiPortRange", {
+            defaultValue: "Multi-port: ports must be within 1–65535.",
+          }),
+          order: t("pages.inbounds.hysteriaMultiPortOrder", {
+            defaultValue: "Multi-port: min port must be less than max port.",
+          }),
+          count: t("pages.inbounds.hysteriaMultiPortTooMany", {
+            defaultValue: "Multi-port: a range may cover at most 1000 ports.",
+          }),
+          listener: t("pages.inbounds.hysteriaMultiPortListener", {
+            defaultValue: "Multi-port: the range must not include the inbound listen port.",
+          }),
+        } as const;
+        return { ok: false, message: messages[mpError] };
+      }
+    }
     if (form.protocol === "telemt" && form.enable && form.telemtForm.webEnabled && !form.telemtForm.webVhostHost.trim()) {
       return {
         ok: false,
@@ -1106,11 +1231,113 @@ export function InboundsPage() {
         }),
       };
     }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      form.telemtForm.webVhostHost.trim().startsWith("*.") &&
+      !form.telemtForm.webExternalTerminator
+    ) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtWebWildcardExternalOnly", {
+          defaultValue:
+            "A wildcard domain (*.example.com) is only allowed when the external TLS terminator is enabled.",
+        }),
+      };
+    }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      form.telemtForm.webVhostHost.trim().startsWith("*.") &&
+      (!form.telemtForm.linksPublicHost.trim() ||
+        form.telemtForm.linksPublicHost.includes("*"))
+    ) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtWebWildcardLinkHostRequired", {
+          defaultValue:
+            "For a wildcard host, set a concrete public host in the Links section — client links cannot use *.",
+        }),
+      };
+    }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      form.telemtForm.webVhostHost.trim().startsWith("*.")
+    ) {
+      const wildcardApex = form.telemtForm.webVhostHost.trim().slice(2).toLowerCase();
+      const linkHost = form.telemtForm.linksPublicHost.trim().toLowerCase();
+      if (
+        wildcardApex &&
+        (linkHost === wildcardApex || !linkHost.endsWith(`.${wildcardApex}`))
+      ) {
+        return {
+          ok: false,
+          message: t("pages.inbounds.telemtWebWildcardLinkHostNotSubdomain", {
+            defaultValue:
+              "The link host must be a subdomain of the wildcard domain (the apex is not accepted).",
+          }),
+        };
+      }
+    }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      form.telemtForm.webVhostHost.trim().startsWith("*.") &&
+      telemtWebEnvelopeTooSmall(form.telemtForm.params)
+    ) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtWebWildcardEnvelopeTooSmall", {
+          defaultValue:
+            "A wildcard host requires web.limits.memory_envelope_bytes ≥ 2147483648 (2 GiB).",
+        }),
+      };
+    }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      telemtJitterIssueCode
+    ) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtRetryJitterRangeInvalid", {
+          defaultValue:
+            "Retry jitter values must be 0–30000 ms, min must not exceed max, and peak must lie between them.",
+        }),
+      };
+    }
+    if (
+      form.protocol === "telemt" &&
+      form.enable &&
+      form.telemtForm.webEnabled &&
+      telemtDecoyResolveIssueCode
+    ) {
+      return {
+        ok: false,
+        message: t("pages.inbounds.telemtDecoyResolveRangeInvalid", {
+          defaultValue:
+            "Decoy DNS resolve timeout must be a whole number between 1 and 3600 seconds.",
+        }),
+      };
+    }
     const isSidecar =
       form.protocol === "telemt" || form.protocol === "amneziawg";
+    // Port hopping only works where the node agent installs the NAT rules
+    // (multi-node mode). Outside it a stored range is dropped on save instead
+    // of shipping a link with no rules behind it.
+    const streamFormForBuild =
+      multiNodeMode === true
+        ? form.streamForm
+        : { ...form.streamForm, hysteriaMultiPortMin: "", hysteriaMultiPortMax: "" };
     let streamSettingsStr = isSidecar
       ? "{}"
-      : buildStreamSettingsFromForm(form.streamForm, form.protocol);
+      : buildStreamSettingsFromForm(streamFormForBuild, form.protocol);
     let sniffingStr = isSidecar
       ? JSON.stringify({
           enabled: false,
@@ -1272,6 +1499,8 @@ export function InboundsPage() {
     nodeBindings,
     nodes.length,
     preserveTraffic,
+    telemtDecoyResolveIssueCode,
+    telemtJitterIssueCode,
     useCoreConfigDraftOnSubmit,
     t,
   ]);
@@ -2853,6 +3082,63 @@ export function InboundsPage() {
                       <p className="mt-1 text-xs text-[var(--fg-subtle)]">
                         {t("pages.inbounds.hysteria2MasqueradeHint", {
                           defaultValue: "When set, Hysteria2 will proxy browser requests to this URL — the server looks like a real HTTPS site.",
+                        })}
+                      </p>
+                    </div>
+                  ) : null}
+                  {form.protocol === "hysteria2" && multiNodeMode === true ? (
+                    <div className="rounded-lg border border-[var(--border)]/80 p-3">
+                      <p className="mb-1 text-xs font-semibold text-[var(--fg)]">
+                        {t("pages.inbounds.hysteriaMultiPort", {
+                          defaultValue: "multi-port (port range)",
+                        })}
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor="in-hy2-mport-min"
+                          >
+                            {t("pages.inbounds.hysteriaMultiPortMin", { defaultValue: "Min port" })}
+                          </label>
+                          <Input
+                            id="in-hy2-mport-min"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            className="font-mono text-xs"
+                            value={form.streamForm.hysteriaMultiPortMin}
+                            onChange={(e) =>
+                              setStreamFormField("hysteriaMultiPortMin", e.target.value)
+                            }
+                            placeholder="39640"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor="in-hy2-mport-max"
+                          >
+                            {t("pages.inbounds.hysteriaMultiPortMax", { defaultValue: "Max port" })}
+                          </label>
+                          <Input
+                            id="in-hy2-mport-max"
+                            type="number"
+                            min={1}
+                            max={65535}
+                            className="font-mono text-xs"
+                            value={form.streamForm.hysteriaMultiPortMax}
+                            onChange={(e) =>
+                              setStreamFormField("hysteriaMultiPortMax", e.target.value)
+                            }
+                            placeholder="39649"
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-[var(--fg-subtle)]">
+                        {t("pages.inbounds.hysteriaMultiPortHint", {
+                          defaultValue:
+                            "For port hopping only: the client picks a random port from this range (it must support port hopping) and the panel adds the NAT rules that redirect the range to the inbound port. On the node it is enough to open the inbound port (ufw allow <port>/udp) — the range does not have to be opened.",
                         })}
                       </p>
                     </div>
@@ -5236,6 +5522,21 @@ export function InboundsPage() {
                   ) : null}
                 </>
               )}
+              {form.protocol !== "wireguard" &&
+              form.protocol !== "telemt" &&
+              form.protocol !== "amneziawg" ? (
+                <div className="mt-4 border-t border-[var(--border)] pt-4">
+                  <FinalmaskEditor
+                    streamForm={form.streamForm}
+                    setStreamFormField={setStreamFormField}
+                    idPrefix="in-finalmask"
+                    protocol={form.protocol}
+                    network={form.streamForm.network}
+                    security={form.streamForm.security}
+                    alpn={form.streamForm.tlsAlpn}
+                  />
+                </div>
+              ) : null}
             </InboundFormSection>
             ) : null}
 
@@ -6872,6 +7173,46 @@ export function InboundsPage() {
                         />
                       </div>
                     </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                        {t("pages.inbounds.telemtQuotaPeriod", {
+                          defaultValue: "Quota reset period (clients with a traffic quota)",
+                        })}
+                      </label>
+                      <SelectNative
+                        inputSize="sm"
+                        className="w-full min-w-0 font-mono shadow-none"
+                        value={form.telemtForm.accessUserQuotaPeriod}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            telemtForm: {
+                              ...f.telemtForm,
+                              accessUserQuotaPeriod: e.target.value as
+                                | ""
+                                | "daily"
+                                | "weekly"
+                                | "monthly",
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {t("pages.inbounds.telemtQuotaPeriodDefault", {
+                            defaultValue: "default",
+                          })}
+                        </option>
+                        <option value="daily">daily</option>
+                        <option value="weekly">weekly</option>
+                        <option value="monthly">monthly</option>
+                      </SelectNative>
+                      <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                        {t("pages.inbounds.telemtQuotaPeriodHint", {
+                          defaultValue:
+                            "Periodically resets [access.user_data_quota] for clients that have a quota. Requires Telemt ≥ 3.5.15.",
+                        })}
+                      </p>
+                    </div>
                   </div>
                 </details>
                 <details className="rounded-lg border border-[var(--border)] p-3">
@@ -6901,6 +7242,12 @@ export function InboundsPage() {
                     />
                     {form.telemtForm.webEnabled ? (
                       <>
+                        <p className="text-[11px] text-[var(--fg-subtle)]">
+                          {t("pages.inbounds.telemtWebProfilesClientsHint", {
+                            defaultValue:
+                              "Telemt requires at least one client with a Telemt secret assigned to this inbound before web.vhosts.profiles can start.",
+                          })}
+                        </p>
                         <CheckboxField
                           checked={form.telemtForm.webExternalTerminator}
                           onChange={(e) =>
@@ -6944,6 +7291,12 @@ export function InboundsPage() {
                               }
                               spellCheck={false}
                             />
+                            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                              {t("pages.inbounds.telemtWebWildcardHint", {
+                                defaultValue:
+                                  "Wildcard (*.example.com) is accepted only with an external TLS terminator and your own wildcard certificate. For a wildcard host, set a concrete public host in the Links section — client links cannot use *. The public host must be a subdomain of the wildcard domain (e.g. client.example.com for *.example.com); the apex is not routed. A wildcard host also requires a memory envelope of at least 2 GiB: the panel sets web.limits.memory_envelope_bytes = 2 GiB automatically unless you override it in All Telemt parameters (the key is available there with managed=false). Requires Telemt ≥ 3.5.15.",
+                              })}
+                            </p>
                           </div>
                           {!form.telemtForm.webExternalTerminator ? (
                             <div>
@@ -7108,6 +7461,49 @@ export function InboundsPage() {
                           </div>
                         )}
                         <div>
+                          <label
+                            className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                            htmlFor="in-tm-web-decoy-resolve-secs"
+                          >
+                            {t("pages.inbounds.telemtDecoyResolveSecs", {
+                              defaultValue: "Decoy DNS resolve timeout (seconds)",
+                            })}
+                          </label>
+                          <Input
+                            id="in-tm-web-decoy-resolve-secs"
+                            type="number"
+                            min={1}
+                            max={3600}
+                            className={`font-mono text-xs${telemtDecoyResolveIssueCode ? " border-rose-400/60" : ""}`}
+                            placeholder="5"
+                            value={form.telemtForm.webDecoyResolveSecs}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                telemtForm: {
+                                  ...f.telemtForm,
+                                  webDecoyResolveSecs: e.target.value,
+                                },
+                              }))
+                            }
+                            spellCheck={false}
+                          />
+                          {telemtDecoyResolveIssueCode ? (
+                            <p className="mt-1 text-[11px] text-rose-400">
+                              {t("pages.inbounds.telemtDecoyResolveRangeInvalid", {
+                                defaultValue:
+                                  "Decoy DNS resolve timeout must be a whole number between 1 and 3600 seconds.",
+                              })}
+                            </p>
+                          ) : null}
+                          <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                            {t("pages.inbounds.telemtDecoyResolveSecsHint", {
+                              defaultValue:
+                                "Per-host DNS timeout for the decoy resolver. Requires Telemt ≥ 3.5.15.",
+                            })}
+                          </p>
+                        </div>
+                        <div>
                           <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
                             {t("pages.inbounds.telemtWebProfileSecretMode", {
                               defaultValue: "Client secret mode",
@@ -7130,6 +7526,202 @@ export function InboundsPage() {
                             <option value="dd">dd</option>
                             <option value="plain">plain</option>
                           </SelectNative>
+                        </div>
+                        <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                            {t("pages.inbounds.telemtRetryJitterTitle", {
+                              defaultValue: "Retry jitter (anti-fingerprint)",
+                            })}
+                          </p>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                              {t("pages.inbounds.telemtRetryJitterEnabled", {
+                                defaultValue: "Add jitter to WEB bridge retries",
+                              })}
+                            </label>
+                            <SelectNative
+                              inputSize="sm"
+                              className={`w-full min-w-0 font-mono shadow-none${telemtJitterNeedsEnabled ? " border-rose-400/60" : ""}`}
+                              value={form.telemtForm.webRetryJitterEnabled}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: {
+                                    ...f.telemtForm,
+                                    webRetryJitterEnabled: e.target.value as
+                                      | ""
+                                      | "true"
+                                      | "false",
+                                  },
+                                }))
+                              }
+                            >
+                              <option value="">
+                                {t("pages.inbounds.telemtUseDefault", {
+                                  defaultValue: "(default / omit)",
+                                })}
+                              </option>
+                              <option value="true">true</option>
+                              <option value="false">false</option>
+                            </SelectNative>
+                            {telemtJitterNeedsEnabled ? (
+                              <p className="mt-1 text-[11px] text-rose-400">
+                                {t("pages.inbounds.telemtRetryJitterNeedsEnabled", {
+                                  defaultValue: "Jitter values require Enabled = true.",
+                                })}
+                              </p>
+                            ) : null}
+                            <p className="mt-1 text-[11px] text-[var(--fg-subtle)]">
+                              {t("pages.inbounds.telemtRetryJitterEnabledHint", {
+                                defaultValue:
+                                  "Randomized delay before retries masks the timing fingerprint. Leave \"default\" to let Telemt decide.",
+                              })}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-jitter-min"
+                              >
+                                {t("pages.inbounds.telemtRetryJitterMinMs", {
+                                  defaultValue: "retry_jitter_min_ms (ms)",
+                                })}
+                              </label>
+                              <Input
+                                id="in-tm-web-jitter-min"
+                                type="number"
+                                min={0}
+                                max={30000}
+                                className={`font-mono text-xs${telemtJitterIssueCode === "range" || telemtJitterIssueCode === "order" ? " border-rose-400/60" : ""}`}
+                                placeholder="e.g. 50"
+                                value={form.telemtForm.webRetryJitterMinMs}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: {
+                                      ...f.telemtForm,
+                                      webRetryJitterMinMs: e.target.value,
+                                    },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                            </div>
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-jitter-max"
+                              >
+                                {t("pages.inbounds.telemtRetryJitterMaxMs", {
+                                  defaultValue: "retry_jitter_max_ms (ms)",
+                                })}
+                              </label>
+                              <Input
+                                id="in-tm-web-jitter-max"
+                                type="number"
+                                min={0}
+                                max={30000}
+                                className={`font-mono text-xs${telemtJitterIssueCode === "range" || telemtJitterIssueCode === "order" ? " border-rose-400/60" : ""}`}
+                                placeholder="e.g. 500"
+                                value={form.telemtForm.webRetryJitterMaxMs}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: {
+                                      ...f.telemtForm,
+                                      webRetryJitterMaxMs: e.target.value,
+                                    },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]">
+                              {t("pages.inbounds.telemtRetryJitterDistribution", {
+                                defaultValue: "Jitter distribution",
+                              })}
+                            </label>
+                            <SelectNative
+                              inputSize="sm"
+                              className="w-full min-w-0 font-mono shadow-none"
+                              value={form.telemtForm.webRetryJitterDistribution}
+                              onChange={(e) => {
+                                const next = e.target.value as
+                                  | ""
+                                  | "uniform"
+                                  | "triangular";
+                                setForm((f) => ({
+                                  ...f,
+                                  telemtForm: {
+                                    ...f.telemtForm,
+                                    webRetryJitterDistribution: next,
+                                    // peak_ms only exists for triangular; drop a stale
+                                    // value so a hidden field can never reach the backend.
+                                    webRetryJitterPeakMs:
+                                      next === "triangular"
+                                        ? f.telemtForm.webRetryJitterPeakMs
+                                        : "",
+                                  },
+                                }));
+                              }}
+                            >
+                              <option value="">
+                                {t("pages.inbounds.telemtUseDefault", {
+                                  defaultValue: "(default / omit)",
+                                })}
+                              </option>
+                              <option value="uniform">uniform</option>
+                              <option value="triangular">triangular</option>
+                            </SelectNative>
+                          </div>
+                          {form.telemtForm.webRetryJitterDistribution === "triangular" ? (
+                            <div>
+                              <label
+                                className="mb-1.5 block text-xs font-medium text-[var(--fg-muted)]"
+                                htmlFor="in-tm-web-jitter-peak"
+                              >
+                                {t("pages.inbounds.telemtRetryJitterPeakMs", {
+                                  defaultValue: "retry_jitter_peak_ms (ms, triangular only)",
+                                })}
+                              </label>
+                              <Input
+                                id="in-tm-web-jitter-peak"
+                                type="number"
+                                min={0}
+                                max={30000}
+                                className={`font-mono text-xs${telemtJitterIssueCode === "range" || telemtJitterIssueCode === "peak" ? " border-rose-400/60" : ""}`}
+                                placeholder="e.g. 250"
+                                value={form.telemtForm.webRetryJitterPeakMs}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    telemtForm: {
+                                      ...f.telemtForm,
+                                      webRetryJitterPeakMs: e.target.value,
+                                    },
+                                  }))
+                                }
+                                spellCheck={false}
+                              />
+                            </div>
+                          ) : null}
+                          {telemtJitterIssueCode ? (
+                            <p className="text-[11px] text-rose-400">
+                              {t("pages.inbounds.telemtRetryJitterRangeInvalid", {
+                                defaultValue:
+                                  "Retry jitter values must be 0–30000 ms, min must not exceed max, and peak must lie between them.",
+                              })}
+                            </p>
+                          ) : null}
+                          <p className="text-[11px] text-[var(--fg-subtle)]">
+                            {t("pages.inbounds.telemtRetryJitterHint", {
+                              defaultValue:
+                                "Adds randomized delay to bridge retry pauses; complicates timing fingerprinting. Requires Telemt ≥ 3.5.16.",
+                            })}
+                          </p>
                         </div>
                       </>
                     ) : null}

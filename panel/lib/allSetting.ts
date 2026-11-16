@@ -54,6 +54,7 @@ export type AllSetting = {
   subJsonNoises: string;
   subJsonMux: string;
   subJsonRules: string;
+  subJsonFinalMask: string;
   subHeaders: string;
   subProviderID: string;
   subProviderIDMethod: string;
@@ -176,6 +177,7 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     subJsonNoises: toStr(raw.subJsonNoises),
     subJsonMux: toStr(raw.subJsonMux),
     subJsonRules: toStr(raw.subJsonRules),
+    subJsonFinalMask: toStr(raw.subJsonFinalMask),
     subHeaders: toStr(raw.subHeaders, "{}"),
     subProviderID: toStr(raw.subProviderID),
     subProviderIDMethod: toStr(raw.subProviderIDMethod, "url"),

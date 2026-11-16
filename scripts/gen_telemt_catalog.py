@@ -92,11 +92,37 @@ MANAGED = {
     "timeouts.relay_idle_grace_after_downstream_activity_secs", "timeouts.me_one_retry", "timeouts.me_one_timeout_ms",
     "access.ignore_time_skew", "access.user_max_unique_ips_global_each", "access.user_max_tcp_conns_global_each",
     "access.user_max_unique_ips_mode", "access.user_max_unique_ips_window_secs",
+    # Panel writes these structurally from its own typed form: wildcard vhost groups are not
+    # supported at all (see ValidateTelemtParams), retry jitter/timeouts and the recurring quota
+    # period have dedicated fields in TelemtWebSettings / Access.
+    "web.allow_wildcard_hosts", "web.vhosts.hosts",
+    "web.retry_jitter.enabled", "web.retry_jitter.min_ms", "web.retry_jitter.max_ms",
+    "web.retry_jitter.distribution", "web.retry_jitter.peak_ms",
+    "web.timeouts.decoy_resolve_secs", "access.user_quota_periods",
 }
 # Keys the docs list but that older Telemt builds reject. Verified empirically: every catalog key
 # was run through `telemt run` with general.config_strict=true on Telemt 3.5.7; only these two were
-# reported as unknown (both first shipped in 3.5.9).
-SINCE = {"web.vhosts.base_path": "3.5.9", "web.debug.sideband": "3.5.9"}
+# reported as unknown (both first shipped in 3.5.9). The 3.5.15/3.5.16 keys are taken from the
+# CONFIG_PARAMS.ru.md tag diff (wildcard vhosts / wildcard limits / decoy DNS timeout / recurring
+# quota periods in 3.5.15; WEB retry jitter in 3.5.16).
+SINCE = {
+    "web.vhosts.base_path": "3.5.9", "web.debug.sideband": "3.5.9",
+    "web.allow_wildcard_hosts": "3.5.15",
+    "web.limits.wildcard.max_rules": "3.5.15",
+    "web.limits.wildcard.max_profiles_per_request": "3.5.15",
+    "web.limits.wildcard.cache_hosts": "3.5.15",
+    "web.limits.wildcard.cache_bytes": "3.5.15",
+    "web.limits.wildcard.cold_hmac_per_minute": "3.5.15",
+    "web.limits.wildcard.cold_hmac_burst": "3.5.15",
+    "web.vhosts.hosts": "3.5.15",
+    "web.timeouts.decoy_resolve_secs": "3.5.15",
+    "access.user_quota_periods": "3.5.15",
+    "web.retry_jitter.enabled": "3.5.16",
+    "web.retry_jitter.min_ms": "3.5.16",
+    "web.retry_jitter.max_ms": "3.5.16",
+    "web.retry_jitter.distribution": "3.5.16",
+    "web.retry_jitter.peak_ms": "3.5.16",
+}
 # Multi-value enums: the key takes `false` or a non-empty array of UNIQUE values drawn from the
 # options of a sibling enum key (optionsFrom). Order is semantic (try-order), so it is preserved.
 # Source: CONFIG_PARAMS.ru.md [web] section ("Если carriers отсутствует или равен false ...").
@@ -110,7 +136,21 @@ DESC_EXTRA = {
     "web.carriers": "false: auto-negotiation и обучение выключены, работает только carrier. Непустой массив включает стартовый перебор "
                     "в заданном порядке; carrier автоматически добавляется последним fallback-вариантом (carrier не игнорируется). "
                     "Пустой массив, дубликаты и true запрещены.",
+    "web.allow_wildcard_hosts": "Разрешает wildcard-домены (шаблоны вида *.example.com) в web.vhosts: группа делит общий decoy/static-снимок "
+                                "и profiles; включает лимиты web.limits.wildcard. Требует перезапуска процесса. SharX не создаёт такие группы.",
+    "web.limits.wildcard.max_rules": "Общее число суффиксных wildcard-селекторов и catch-all (*) во всех группах; "
+                                     "фиксируется на срок жизни процесса и действует только при allow_wildcard_hosts.",
+    "web.limits.wildcard.max_profiles_per_request": "Предел полного перебора профилей wildcard-группы и стоимости холодного HMAC на один запрос.",
+    "web.limits.wildcard.cache_hosts": "Записи положительного FIFO-кэша wildcard-хостов; 0 отключает кэширование.",
+    "web.limits.wildcard.cache_bytes": "Байты записей и индексов wildcard-кэша, включая вытесненные записи, ещё используемые запросами.",
+    "web.limits.wildcard.cold_hmac_per_minute": "Устойчивый бюджет холодных HMAC-вычислений на процесс в минуту (wildcard-режим).",
+    "web.limits.wildcard.cold_hmac_burst": "Допустимый всплеск холодных HMAC-вычислений; не меньше max_profiles_per_request.",
+    "web.vhosts.hosts": "Группа доменов с общими profiles/decoy/base_path; несовместим с host; "
+                        "SharX не поддерживает — задавайте Public domain.",
 }
+# Keys whose upstream inline description exists but must yield to DESC_EXTRA (the operator-facing
+# wording has to state that SharX cannot render this shape).
+DESC_OVERRIDE = {"web.vhosts.hosts"}
 CONTAINER_TYPES = {"Table", "Table[]", "Таблица", "таблица", "массив таблиц"}
 
 out = []
@@ -137,7 +177,10 @@ for s, rs in rows.items():
             desc = (strip_md(md.group(1)) if md else "") or desc
             example = me.group(1).strip() if me else ""
         pid = s + "." + key if s else key
-        desc = desc or DESC_EXTRA.get(pid, "")
+        if pid in DESC_OVERRIDE:
+            desc = DESC_EXTRA[pid]
+        else:
+            desc = desc or DESC_EXTRA.get(pid, "")
         extra = MULTI.get(pid, {})
         out.append({
             "section": s,

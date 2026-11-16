@@ -8,6 +8,12 @@ import {
   randomShadowsocksServerPassword,
   stripShadowsocksClientMethods,
 } from "@/lib/shadowsocksKeys";
+import {
+  buildFinalmask,
+  emptyFinalmaskState,
+  parseFinalmask,
+  type FMItem,
+} from "@/lib/finalmaskDefaults";
 
 export type InboundFormProtocol =
   | "vless"
@@ -273,6 +279,20 @@ export type TelemtFormState = {
   webDecoyDirectory: string;
   webDecoyIndex: string;
   webProfileSecretMode: "plain" | "dd";
+  /** [web].retryJitterEnabled — empty = omit (Telemt default false). Telemt ≥ 3.5.16. */
+  webRetryJitterEnabled: TelemtTriBool;
+  /** [web].retryJitterMinMs — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterMinMs: string;
+  /** [web].retryJitterMaxMs — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterMaxMs: string;
+  /** [web].retryJitterDistribution — empty = omit. Telemt ≥ 3.5.16. */
+  webRetryJitterDistribution: "" | "uniform" | "triangular";
+  /** [web].retryJitterPeakMs — empty = omit; only meaningful for triangular. Telemt ≥ 3.5.16. */
+  webRetryJitterPeakMs: string;
+  /** [web].decoyResolveSecs — per-host DNS timeout for the decoy resolver (1..3600). Telemt ≥ 3.5.15. */
+  webDecoyResolveSecs: string;
+  /** [access].userQuotaPeriod — empty = omit (Telemt default). Telemt ≥ 3.5.15. */
+  accessUserQuotaPeriod: "" | "daily" | "weekly" | "monthly";
   /** Extra config.toml keys from Telemt's parameter catalog ("section.key" -> value). */
   params: Record<string, unknown>;
   /** Operator [[upstreams]] entries. */
@@ -346,6 +366,13 @@ export function defaultTelemtForm(): TelemtFormState {
     webDecoyDirectory: "",
     webDecoyIndex: "index.html",
     webProfileSecretMode: "dd",
+    webRetryJitterEnabled: "",
+    webRetryJitterMinMs: "",
+    webRetryJitterMaxMs: "",
+    webRetryJitterDistribution: "",
+    webRetryJitterPeakMs: "",
+    webDecoyResolveSecs: "",
+    accessUserQuotaPeriod: "",
     params: {},
     upstreams: [],
   };
@@ -488,6 +515,13 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       );
       base.accessRateLimitUpBps = parseTelemtOptionalIntField(acc.rateLimitUpBps);
       base.accessRateLimitDownBps = parseTelemtOptionalIntField(acc.rateLimitDownBps);
+      if (
+        acc.userQuotaPeriod === "daily" ||
+        acc.userQuotaPeriod === "weekly" ||
+        acc.userQuotaPeriod === "monthly"
+      ) {
+        base.accessUserQuotaPeriod = acc.userQuotaPeriod;
+      }
     }
     if (typeof tm.metricsPort === "number" && tm.metricsPort > 0) {
       base.metricsPort = String(tm.metricsPort);
@@ -545,6 +579,17 @@ export function parseTelemtSettingsToForm(settingsStr: string): TelemtFormState 
       if (web.profileSecretMode === "plain" || web.profileSecretMode === "dd") {
         base.webProfileSecretMode = web.profileSecretMode;
       }
+      base.webRetryJitterEnabled = parseTelemtTriBool(web.retryJitterEnabled);
+      base.webRetryJitterMinMs = parseTelemtOptionalIntField(web.retryJitterMinMs);
+      base.webRetryJitterMaxMs = parseTelemtOptionalIntField(web.retryJitterMaxMs);
+      if (web.retryJitterDistribution === "uniform" || web.retryJitterDistribution === "triangular") {
+        base.webRetryJitterDistribution = web.retryJitterDistribution;
+      }
+      // peak_ms only applies to triangular; ignore a stale value for any other mode.
+      if (base.webRetryJitterDistribution === "triangular") {
+        base.webRetryJitterPeakMs = parseTelemtOptionalIntField(web.retryJitterPeakMs);
+      }
+      base.webDecoyResolveSecs = parseTelemtOptionalIntField(web.decoyResolveSecs);
     }
   } catch {
     /* keep base */
@@ -698,6 +743,7 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
     access.rateLimitUpBps = rateUp;
     access.rateLimitDownBps = rateDown;
   }
+  if (form.accessUserQuotaPeriod) access.userQuotaPeriod = form.accessUserQuotaPeriod;
   if (Object.keys(access).length > 0) telemt.access = access;
 
   if (form.webEnabled) {
@@ -717,6 +763,30 @@ export function buildTelemtSettingsJson(form: TelemtFormState): string {
       if (form.webDecoyIndex.trim()) web.decoyIndex = form.webDecoyIndex.trim();
     } else {
       web.decoyUpstream = form.webDecoyUpstream.trim();
+    }
+    applyTelemtTriBoolToJson(web, "retryJitterEnabled", form.webRetryJitterEnabled);
+    const jitterMin = parseInt(form.webRetryJitterMinMs.trim(), 10);
+    if (Number.isFinite(jitterMin) && jitterMin >= 0 && jitterMin <= 30000) {
+      web.retryJitterMinMs = jitterMin;
+    }
+    const jitterMax = parseInt(form.webRetryJitterMaxMs.trim(), 10);
+    if (Number.isFinite(jitterMax) && jitterMax >= 0 && jitterMax <= 30000) {
+      web.retryJitterMaxMs = jitterMax;
+    }
+    if (form.webRetryJitterDistribution) {
+      web.retryJitterDistribution = form.webRetryJitterDistribution;
+    }
+    // peak_ms is only valid for the triangular distribution; the backend rejects
+    // it otherwise, so never emit a hidden/stale value.
+    if (form.webRetryJitterDistribution === "triangular") {
+      const jitterPeak = parseInt(form.webRetryJitterPeakMs.trim(), 10);
+      if (Number.isFinite(jitterPeak) && jitterPeak >= 0 && jitterPeak <= 30000) {
+        web.retryJitterPeakMs = jitterPeak;
+      }
+    }
+    const decoyResolve = parseInt(form.webDecoyResolveSecs.trim(), 10);
+    if (Number.isFinite(decoyResolve) && decoyResolve >= 1 && decoyResolve <= 3600) {
+      web.decoyResolveSecs = decoyResolve;
     }
     telemt.web = web;
   }
@@ -1086,6 +1156,23 @@ export type StreamFormState = {
   hysteriaUdpIdleTimeout: number;
   hysteriaObfsType: "" | "salamander";
   hysteriaObfsPassword: string;
+  /**
+   * hysteria2 client port-hopping range ("min-max"). Panel-only
+   * `streamSettings.hysteriaMultiPort`: it is never shipped to Xray (the node
+   * redirects the whole range onto the single inbound port) and is delivered to
+   * clients inside the hysteria2:// authority.
+   */
+  hysteriaMultiPortMin: string;
+  hysteriaMultiPortMax: string;
+  /**
+   * `streamSettings.finalmask` (transport masquerade layers). Kept as a
+   * structural state so that it survives the JSON round-trip for every
+   * protocol; `settings` stays a raw JSON object (lossless for advanced keys).
+   */
+  finalmaskTcp: FMItem[];
+  finalmaskUdp: FMItem[];
+  /** Pretty JSON string for finalmask.quicParams; empty = absent. */
+  finalmaskQuicParams: string;
   /** Hysteria QUIC-TLS (3x-ui–style tlsSettings); unused for TCP/WS editor paths. */
   tlsMaxVersion: "" | "1.2" | "1.3";
   tlsRejectUnknownSni: boolean;
@@ -1201,6 +1288,9 @@ export function defaultStreamForm(): StreamFormState {
     hysteriaUdpIdleTimeout: 60,
     hysteriaObfsType: "",
     hysteriaObfsPassword: "",
+    hysteriaMultiPortMin: "",
+    hysteriaMultiPortMax: "",
+    ...emptyFinalmaskState(),
     tlsMaxVersion: "",
     tlsRejectUnknownSni: false,
     tlsDisableSystemRoot: false,
@@ -1243,6 +1333,8 @@ export function defaultStreamFormHysteria(): StreamFormState {
     hysteriaUdpIdleTimeout: 60,
     hysteriaObfsType: "",
     hysteriaObfsPassword: "",
+    hysteriaMultiPortMin: "",
+    hysteriaMultiPortMax: "",
   };
 }
 
@@ -1332,6 +1424,19 @@ function parseHysteriaTlsFormFields(
     }
   }
   if (typeof root.masquerade === "string") base.hysteria2Masquerade = root.masquerade;
+  if (typeof root.hysteriaMultiPort === "string") {
+    const m = /^\s*(\d+)\s*-\s*(\d+)\s*$/.exec(root.hysteriaMultiPort);
+    if (m) {
+      base.hysteriaMultiPortMin = m[1];
+      base.hysteriaMultiPortMax = m[2];
+    }
+  }
+  // Keep every other mask / custom quicParams lossless (salamander is shared
+  // with the legacy obfuscation selector above).
+  const fmState = parseFinalmask(root);
+  base.finalmaskTcp = fmState.tcp;
+  base.finalmaskUdp = fmState.udp;
+  base.finalmaskQuicParams = fmState.quicParams;
   const tls = root.tlsSettings as Record<string, unknown> | undefined;
   if (!tls) return;
   if (typeof tls.serverName === "string") base.tlsServerName = tls.serverName;
@@ -1421,21 +1526,41 @@ function buildHysteriaStreamSettingsFromForm(
       udpIdleTimeout: Math.max(1, Math.round(state.hysteriaUdpIdleTimeout) || 60),
     },
   };
-  // Match common Xray Hy2 setups (e.g. other panels): BBR on QUIC stack; keeps client/server congestion aligned.
+  // Preserve every extra mask and custom quicParams. For hysteria the
+  // Obfuscation selector is the single source of truth for salamander: its
+  // password is synced into udp[].salamander (other settings keys kept) and
+  // the mask is dropped when obfuscation is off.
+  // Match common Xray Hy2 setups (e.g. other panels): BBR on QUIC stack.
+  const finalmask = buildFinalmask(state) ?? {};
+  const udpItems: FMItem[] = Array.isArray(finalmask.udp) ? (finalmask.udp as FMItem[]) : [];
+  const obfsPwd = state.hysteriaObfsPassword.trim();
+  const obfsActive = state.hysteriaObfsType === "salamander" && obfsPwd !== "";
+  const isSalamander = (item: FMItem) => (item.type || "").trim().toLowerCase() === "salamander";
+  const previousSalamander = udpItems.find(isSalamander);
+  const otherUdp = udpItems.filter((item) => !isSalamander(item));
+  const nextUdp: FMItem[] = obfsActive
+    ? [
+        {
+          type: "salamander",
+          settings: { ...(previousSalamander?.settings ?? {}), password: obfsPwd },
+        },
+        ...otherUdp,
+      ]
+    : otherUdp;
+  if (nextUdp.length > 0) finalmask.udp = nextUdp;
+  else delete finalmask.udp;
+  if (version === 2 && !("quicParams" in finalmask)) {
+    finalmask.quicParams = { debug: false, congestion: "bbr" };
+  }
+  if (Object.keys(finalmask).length > 0) out.finalmask = finalmask;
   if (version === 2) {
-    const finalmask: Record<string, unknown> = {
-      quicParams: {
-        debug: false,
-        congestion: "bbr",
-      },
-    };
-    const obfsPwd = state.hysteriaObfsPassword.trim();
-    if (state.hysteriaObfsType === "salamander" && [...obfsPwd].length >= 4) {
-      finalmask.udp = [{ type: "salamander", settings: { password: obfsPwd } }];
-    }
-    out.finalmask = finalmask;
     const masquerade = state.hysteria2Masquerade.trim();
     if (masquerade) out.masquerade = masquerade;
+    const multiPortMin = state.hysteriaMultiPortMin.trim();
+    const multiPortMax = state.hysteriaMultiPortMax.trim();
+    if (multiPortMin && multiPortMax) {
+      out.hysteriaMultiPort = `${multiPortMin}-${multiPortMax}`;
+    }
   }
   return JSON.stringify(out);
 }
@@ -1546,6 +1671,10 @@ function parseStreamSettingsShadowsocksForm(json: string): StreamFormState {
   base.security = "none";
   try {
     const root = JSON.parse(json) as Record<string, unknown>;
+    const fmState = parseFinalmask(root);
+    base.finalmaskTcp = fmState.tcp;
+    base.finalmaskUdp = fmState.udp;
+    base.finalmaskQuicParams = fmState.quicParams;
     const net = root.network;
     base.network = net === "ws" ? "ws" : "tcp";
     if (root.acceptProxyProtocol === true) base.acceptProxyProtocol = true;
@@ -1588,6 +1717,7 @@ function buildStreamSettingsShadowsocksFromForm(state: StreamFormState): string 
       headers,
     };
   }
+  applyFinalmaskToStream(out, state);
   return JSON.stringify(out);
 }
 
@@ -1629,6 +1759,10 @@ export function parseStreamSettingsToForm(
   }
   try {
     const root = JSON.parse(json) as Record<string, unknown>;
+    const fmState = parseFinalmask(root);
+    base.finalmaskTcp = fmState.tcp;
+    base.finalmaskUdp = fmState.udp;
+    base.finalmaskQuicParams = fmState.quicParams;
     const net = root.network;
     if (
       net === "ws" ||
@@ -1882,6 +2016,13 @@ export function parseStreamSettingsToForm(
   return base;
 }
 
+/** Attach the structural finalmask state (if any) to a streamSettings object. */
+function applyFinalmaskToStream(out: Record<string, unknown>, state: StreamFormState): void {
+  const fm = buildFinalmask(state);
+  if (fm) out.finalmask = fm;
+  else delete out.finalmask;
+}
+
 /** Build streamSettings JSON string from structured form (and protocol). */
 export function buildStreamSettingsFromForm(
   state: StreamFormState,
@@ -2082,6 +2223,8 @@ export function buildStreamSettingsFromForm(
     out.tlsSettings = tlsSettings;
   }
 
+  applyFinalmaskToStream(out, state);
+
   return JSON.stringify(out);
 }
 
@@ -2182,7 +2325,8 @@ export function buildSettingsJson(
 
   switch (protocol) {
     case "vless": {
-      const o = {
+      const fallbacks = fallbackRowsSettingsToJson(opts.vlessTrojanFallbacks ?? []);
+      const o: Record<string, unknown> = {
         clients: [
           {
             id: newClientUUID(),
@@ -2202,8 +2346,10 @@ export function buildSettingsJson(
         ],
         decryption: opts.vlessDecryption || "none",
         encryption: opts.vlessEncryption || "none",
-        fallbacks: fallbackRowsSettingsToJson(opts.vlessTrojanFallbacks ?? []),
       };
+      // The kernel rejects a config where an empty `fallbacks` sits next to a
+      // real `decryption` (e.g. ML-KEM), so an empty array is never emitted.
+      if (fallbacks.length > 0) o.fallbacks = fallbacks;
       return JSON.stringify(o);
     }
     case "vmess": {

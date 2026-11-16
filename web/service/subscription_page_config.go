@@ -241,6 +241,7 @@ func enrichV2FromLegacySettings(cfg *SharxSubpageConfigV2) {
 		jt.Mux, _ = ss.GetSubJsonMux()
 		jt.Noises, _ = ss.GetSubJsonNoises()
 		jt.Rules, _ = ss.GetSubJsonRules()
+		jt.FinalMask, _ = ss.GetSubJsonFinalMask()
 		cfg.JsonTemplates = jt
 	}
 }

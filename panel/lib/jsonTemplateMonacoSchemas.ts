@@ -7,12 +7,14 @@ const FRAG = "https://sharx.internal/json-template/fragment.json";
 const MUX = "https://sharx.internal/json-template/mux.json";
 const NOISES = "https://sharx.internal/json-template/noises.json";
 const RULES = "https://sharx.internal/json-template/rules.json";
+const FINALMASK = "https://sharx.internal/json-template/finalmask.json";
 
 const FILE: Record<FieldKey, string> = {
   fragment: "sharx-json-template-fragment.json",
   mux: "sharx-json-template-mux.json",
   noises: "sharx-json-template-noises.json",
   rules: "sharx-json-template-rules.json",
+  finalMask: "sharx-json-template-finalmask.json",
 };
 
 /**
@@ -96,6 +98,52 @@ export function getJsonTemplateMonacoSchemaBundle(
             outboundTag: { type: "string" },
             inboundTag: { type: "string" },
             balancerTag: { type: "string" },
+          },
+        },
+      },
+    },
+    {
+      uri: FINALMASK,
+      fileMatch: [FILE.finalMask],
+      schema: {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        title: "Default masks",
+        description: fieldDescription("finalMask"),
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          tcp: {
+            type: "array",
+            description:
+              "TCP-side masks. Only fragment is applied from this slot (client-transparent); other types must be set on the inbound.",
+            items: {
+              type: "object",
+              required: ["type"],
+              additionalProperties: true,
+              properties: {
+                type: { type: "string" },
+                settings: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          udp: {
+            type: "array",
+            description:
+              "UDP-side masks. Only udphop is applied from this slot (client-only); other types must be set on the inbound.",
+            items: {
+              type: "object",
+              required: ["type"],
+              additionalProperties: true,
+              properties: {
+                type: { type: "string" },
+                settings: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          quicParams: {
+            type: "object",
+            additionalProperties: true,
+            description: "Applied from this slot only to xhttp subscriptions with ALPN h3.",
           },
         },
       },

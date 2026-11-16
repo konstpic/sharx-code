@@ -664,6 +664,15 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	if err := validateVLESSInboundEncryption(inbound); err != nil {
 		return inbound, false, err
 	}
+	if err := ApplyFinalmaskOnSave(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ApplyHysteriaMultiPortOnSave(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ValidateHysteriaMultiPortDeployment(inbound, multiMode); err != nil {
+		return inbound, false, err
+	}
 
 	if model.NormalizeProtocol(inbound.Protocol) == model.Shadowsocks {
 		sanitized, errSS := SanitizeShadowsocksInboundSettings(inbound.Settings)
@@ -813,6 +822,12 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 
 	var tag string
 	needRestart := false
+	// Nodes that must drop this inbound via the instant API; the push is deferred
+	// until after the DB row is gone so the udphopNat list shipped with it no
+	// longer contains the deleted inbound (otherwise the node would re-add its
+	// REDIRECT rules from the stale row).
+	var delFromNodes []*model.Node
+	var delNodeService *NodeService
 	var inboundDelRow struct {
 		Tag      string
 		Protocol model.Protocol
@@ -836,17 +851,9 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 				nodeService := NodeService{}
 				nodes, err := nodeService.GetNodesForInbound(id)
 				if err == nil && len(nodes) > 0 {
-					// Remove inbound from all nodes via API (async, non-blocking)
-					for _, node := range nodes {
-						go func(n *model.Node) {
-							if err := nodeService.RemoveInboundFromNode(n, tag); err != nil {
-								logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, err)
-							} else {
-								logger.Infof("DelInbound: removed inbound %s from node %s via API (instant)", tag, n.Name)
-							}
-						}(node)
-					}
-					logger.Debugf("DelInbound: using fast API delete for inbound %s on %d node(s)", tag, len(nodes))
+					delFromNodes = nodes
+					delNodeService = &nodeService
+					logger.Debugf("DelInbound: queued fast API delete for inbound %s on %d node(s) after DB commit", tag, len(nodes))
 				} else {
 					logger.Debugf("DelInbound: no nodes found for inbound %d, skipping API delete", id)
 				}
@@ -970,6 +977,30 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 	logger.Debugf("[DEBUG-AGENT] DelInbound: after Delete, inboundId=%d, error=%v, rowsAffected=%d", id, err, db.RowsAffected)
 	// #endregion
 
+	if err == nil && len(delFromNodes) > 0 && delNodeService != nil {
+		// The DB row is gone: push the removal to every node now, with the
+		// post-delete udphopNat list so the node also drops the REDIRECT rules
+		// of this inbound (async, non-blocking — same as before, just ordered
+		// after the commit instead of before it).
+		for _, node := range delFromNodes {
+			go func(n *model.Node) {
+				// Read-before-send under the per-node lock: concurrent pushes of other
+				// inbounds must not let this older-state goroutine land last.
+				natErr := withNodeNatPushLock(n.Id, func() error {
+					// ok=false (DB error) leaves intents nil: the field is omitted and
+					// the node keeps its NAT rules untouched.
+					intents, _ := delNodeService.UDPHopNatIntentsForNode(n)
+					return delNodeService.RemoveInboundFromNode(n, tag, intents)
+				})
+				if natErr != nil {
+					logger.Warningf("DelInbound: failed to remove inbound %s from node %s via API: %v", tag, n.Name, natErr)
+				} else {
+					logger.Infof("DelInbound: removed inbound %s from node %s via API (instant)", tag, n.Name)
+				}
+			}(node)
+		}
+	}
+
 	if err == nil && userId > 0 {
 		// Send notification about inbound deletion (only if deletion was successful)
 		if err == nil {
@@ -1048,6 +1079,18 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 
 	SanitizeVLESSFlowInInboundSettings(inbound)
 	if err := validateVLESSInboundEncryption(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ApplyFinalmaskOnSave(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ApplyHysteriaMultiPortOnSave(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := ValidateHysteriaMultiPortDeployment(inbound, multiMode); err != nil {
+		return inbound, false, err
+	}
+	if err := validateHysteriaMultiPortForSavedInbound(inbound); err != nil {
 		return inbound, false, err
 	}
 
@@ -1253,7 +1296,11 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		if len(nodesForFastPush) > 0 && inboundJSONFast != nil {
 			nodeService := NodeService{}
 			for _, node := range nodesForFastPush {
-				if pushErr := nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast); pushErr != nil {
+				pushErr := withNodeNatPushLock(node.Id, func() error {
+					intents, _ := nodeService.UDPHopNatIntentsForNode(node) // nil on load error = field omitted
+					return nodeService.UpdateInboundOnNodeWithFallback(node, inboundJSONFast, intents)
+				})
+				if pushErr != nil {
 					logger.Warningf("Failed to update inbound %s on node %s via API: %v", tag, node.Name, pushErr)
 					needRestart = true
 				} else {

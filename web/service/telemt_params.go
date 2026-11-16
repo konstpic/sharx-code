@@ -340,6 +340,12 @@ func ValidateTelemtParams(params map[string]json.RawMessage) error {
 		if !ok {
 			return fmt.Errorf("telemt params: unknown parameter %q", id)
 		}
+		// Multi-host vhost groups are a distinct selector shape (one group per decoy/base_path
+		// with its own wildcard rules) that SharX's one-public-domain form cannot express; keep
+		// the key blocked but say why instead of the generic "managed by SharX".
+		if id == "web.vhosts.hosts" {
+			return fmt.Errorf("telemt params: web.vhosts.hosts (multi-host groups) is not supported by SharX; set the public domain field instead")
+		}
 		if p.Array && !strings.HasPrefix(p.Section, "web.") {
 			return fmt.Errorf("telemt params: %q belongs to an array of tables and cannot be set here", id)
 		}
@@ -544,44 +550,129 @@ func telemtParamsNeedingVersion(params map[string]json.RawMessage, have string) 
 }
 
 // stripUnsupportedTelemtParams returns settings JSON without the params the given Telemt build
-// does not know (an old node keeps working instead of receiving a config it may reject).
+// does not know (an old node keeps working instead of receiving a config it may reject). Besides
+// the catalog "params" map it also drops the first-class settings fields added in 3.5.15/3.5.16
+// (WEB retry jitter, decoy DNS timeout, recurring quota period). A wildcard vhost host cannot be
+// degraded in place (it changes the vhost selector shape), so it is left untouched here — the
+// push path skips that inbound for old nodes instead (see BuildTelemtPayloadsForNode).
 func stripUnsupportedTelemtParams(settingsJSON, have string) (string, []string) {
 	cfg := parseTelemtSettings(settingsJSON)
-	bad := telemtParamsNeedingVersion(cfg.Params, have)
-	if len(bad) == 0 {
+	badParams := telemtParamsNeedingVersion(cfg.Params, have)
+	stripJitter := telemtVersionLess(have, "3.5.16")
+	stripPre315 := telemtVersionLess(have, "3.5.15")
+	if len(badParams) == 0 && !stripJitter && !stripPre315 {
 		return settingsJSON, nil
 	}
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(settingsJSON), &root); err != nil {
 		return settingsJSON, nil
 	}
-	var tm map[string]json.RawMessage
-	if err := json.Unmarshal(root["telemt"], &tm); err != nil {
-		return settingsJSON, nil
-	}
-	kept := map[string]json.RawMessage{}
-	names := make([]string, 0, len(bad))
-	for id, raw := range cfg.Params {
-		if _, drop := bad[id]; drop {
-			names = append(names, id)
-			continue
+	tm := root
+	nested := false
+	if raw, ok := root["telemt"]; ok {
+		var inner map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &inner); err != nil || inner == nil {
+			return settingsJSON, nil
 		}
-		kept[id] = raw
+		tm, nested = inner, true
 	}
-	sort.Strings(names)
-	if len(kept) == 0 {
-		delete(tm, "params")
-	} else if b, err := json.Marshal(kept); err == nil {
-		tm["params"] = b
+	dropped := map[string]struct{}{}
+	if len(badParams) > 0 {
+		kept := map[string]json.RawMessage{}
+		for id, raw := range cfg.Params {
+			if _, drop := badParams[id]; drop {
+				dropped[id] = struct{}{}
+				continue
+			}
+			kept[id] = raw
+		}
+		if len(kept) == 0 {
+			delete(tm, "params")
+		} else if b, err := json.Marshal(kept); err == nil {
+			tm["params"] = b
+		} else {
+			return settingsJSON, nil
+		}
 	}
-	tb, err := json.Marshal(tm)
-	if err != nil {
+	if raw, ok := tm["web"]; ok && (stripJitter || stripPre315) {
+		var web map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &web); err == nil && web != nil {
+			removed := false
+			if stripJitter {
+				// An explicit retryJitterEnabled=false with nothing else configured renders
+				// nothing at all, so an old build neither needs nor should log a strip for it.
+				active := false
+				if rawEnabled, ok := web["retryJitterEnabled"]; ok {
+					var enabled bool
+					_ = json.Unmarshal(rawEnabled, &enabled)
+					active = enabled
+				}
+				for _, k := range []string{"retryJitterMinMs", "retryJitterMaxMs", "retryJitterDistribution", "retryJitterPeakMs"} {
+					if _, ok := web[k]; ok {
+						active = true
+					}
+				}
+				if active {
+					jitterKeys := []string{"retryJitterEnabled", "retryJitterMinMs", "retryJitterMaxMs", "retryJitterDistribution", "retryJitterPeakMs"}
+					for _, k := range jitterKeys {
+						if _, ok := web[k]; ok {
+							delete(web, k)
+							removed = true
+						}
+					}
+					dropped["web.retry_jitter"] = struct{}{}
+				}
+			}
+			if stripPre315 {
+				if _, ok := web["decoyResolveSecs"]; ok {
+					delete(web, "decoyResolveSecs")
+					dropped["web.timeouts.decoy_resolve_secs"] = struct{}{}
+					removed = true
+				}
+			}
+			if removed {
+				b, err := json.Marshal(web)
+				if err != nil {
+					return settingsJSON, nil
+				}
+				tm["web"] = b
+			}
+		}
+	}
+	if stripPre315 {
+		if raw, ok := tm["access"]; ok {
+			var access map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &access); err == nil && access != nil {
+				if _, ok := access["userQuotaPeriod"]; ok {
+					delete(access, "userQuotaPeriod")
+					dropped["access.user_quota_periods"] = struct{}{}
+					b, err := json.Marshal(access)
+					if err != nil {
+						return settingsJSON, nil
+					}
+					tm["access"] = b
+				}
+			}
+		}
+	}
+	if len(dropped) == 0 {
 		return settingsJSON, nil
 	}
-	root["telemt"] = tb
+	if nested {
+		tb, err := json.Marshal(tm)
+		if err != nil {
+			return settingsJSON, nil
+		}
+		root["telemt"] = tb
+	}
 	rb, err := json.Marshal(root)
 	if err != nil {
 		return settingsJSON, nil
 	}
+	names := make([]string, 0, len(dropped))
+	for id := range dropped {
+		names = append(names, id)
+	}
+	sort.Strings(names)
 	return string(rb), names
 }

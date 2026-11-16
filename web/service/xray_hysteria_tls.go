@@ -2,10 +2,13 @@ package service
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
+	"github.com/konstpic/sharx-code/v2/util/finalmask"
+	"github.com/konstpic/sharx-code/v2/util/hysteria"
 	"github.com/konstpic/sharx-code/v2/xray"
 )
 
@@ -72,55 +75,88 @@ func patchHysteriaStreamTLS(stream map[string]any, defaultCertFile, defaultKeyFi
 	ensureHysteriaDefaultALPN(stream)
 }
 
-// patchHysteriaObfs validates finalmask.udp obfuscation entries (salamander requires password).
-func patchHysteriaObfs(stream map[string]any) {
-	fm, ok := stream["finalmask"].(map[string]any)
-	if !ok || fm == nil {
+// patchFinalmask prepares the finalmask block for the Xray (node / local core)
+// config: the block is normalized, entries the kernel would reject are dropped
+// (safety net for configs stored before validation existed) and the server view
+// removes client-only masks (udphop answers "udphop: client only" on listen).
+// The database row and the subscription keep the full mask set.
+func patchFinalmask(stream map[string]any, protocol string, inboundID int, tag string) {
+	if _, ok := stream["finalmask"]; !ok {
 		return
 	}
-	udp, ok := fm["udp"].([]any)
-	if !ok || len(udp) == 0 {
+	normalized := NormalizeFinalmask(stream, true)
+	beforeFM, _ := normalized["finalmask"].(map[string]any)
+	pruned, dropped := dropInvalidFinalmaskElements(normalized, protocol)
+	if dropped > 0 {
+		afterFM, _ := pruned["finalmask"].(map[string]any)
+		logger.Warningf("finalmask: inbound %d (%s): dropped finalmask entries for protocol %s: %s",
+			inboundID, tag, protocol, strings.Join(droppedMaskTypes(beforeFM, afterFM), ", "))
+	}
+	fm, _ := pruned["finalmask"].(map[string]any)
+	if fm == nil {
+		delete(stream, "finalmask")
 		return
 	}
-	cleaned := make([]any, 0, len(udp))
-	for _, item := range udp {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
+	// Legacy rows (saved before the REALITY gate existed) may still carry a
+	// tcp[] mask next to security=reality. Such a config makes the kernel panic
+	// on the first handshake (XTLS/Xray-core#6453), so drop the tcp side and
+	// tell the operator which mask types were thrown away.
+	security, _ := pruned["security"].(string)
+	if err := finalmask.ValidateRealityCombination(security, fm); err != nil {
+		before := map[string]any{"tcp": fm["tcp"]}
+		delete(fm, "tcp")
+		logger.Warningf("finalmask: inbound %d (%s): dropped tcp masks for REALITY (XTLS/Xray-core#6453): %s",
+			inboundID, tag, strings.Join(droppedMaskTypes(before, fm), ", "))
+		if !finalmask.HasContent(fm) {
+			delete(stream, "finalmask")
+			return
 		}
-		typ, _ := m["type"].(string)
-		switch strings.TrimSpace(typ) {
-		case "salamander":
-			settings, _ := m["settings"].(map[string]any)
-			pwd, _ := settings["password"].(string)
-			if strings.TrimSpace(pwd) == "" {
-				if legacy, ok := m["password"].(string); ok && strings.TrimSpace(legacy) != "" {
-					pwd = legacy
-				}
-			}
-			if len([]rune(strings.TrimSpace(pwd))) < 4 {
-				logger.Debug("Hysteria salamander obfs requires a password of at least 4 characters; stripping invalid entry.")
+	}
+	serverFM := finalmask.ServerView(fm)
+	if !finalmask.HasContent(serverFM) {
+		delete(stream, "finalmask")
+		return
+	}
+	stream["finalmask"] = serverFM
+}
+
+// droppedMaskTypes lists the finalmask types present in before but missing in
+// after (DropInvalidElements output), sorted and deduplicated, for the warning
+// log. It keeps the operator able to see which masks were thrown away.
+func droppedMaskTypes(before, after map[string]any) []string {
+	counts := func(fm map[string]any) map[string]int {
+		out := map[string]int{}
+		for _, transport := range []string{"tcp", "udp"} {
+			arr, ok := fm[transport].([]any)
+			if !ok {
 				continue
 			}
-			normalized := map[string]any{
-				"type":     "salamander",
-				"settings": map[string]any{"password": pwd},
-			}
-			cleaned = append(cleaned, normalized)
-		default:
-			if typ != "" {
-				logger.Debugf("Hysteria obfs type %q is not supported; stripping entry.", typ)
+			for _, item := range arr {
+				el, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				typ, _ := el["type"].(string)
+				typ = strings.ToLower(strings.TrimSpace(typ))
+				if typ != "" {
+					out[typ]++
+				}
 			}
 		}
+		return out
 	}
-	if len(cleaned) == 0 {
-		delete(fm, "udp")
-		if len(fm) == 0 {
-			delete(stream, "finalmask")
+	beforeCounts, afterCounts := counts(before), counts(after)
+	var types []string
+	for typ, n := range beforeCounts {
+		if left := n - afterCounts[typ]; left > 0 {
+			types = append(types, typ)
 		}
-		return
 	}
-	fm["udp"] = cleaned
+	sort.Strings(types)
+	if len(types) == 0 {
+		return []string{"unknown"}
+	}
+	return types
 }
 
 func ensureHysteriaDefaultALPN(stream map[string]any) {
@@ -184,11 +220,16 @@ func BuildInboundXrayConfig(inbound *model.Inbound, defaultCertFile, defaultKeyF
 	acceptProxy, cleanedStream := extractAcceptProxyProtocol(ib.StreamSettings)
 	ib.StreamSettings = cleanedStream
 
-	if model.IsHysteria(ib.Protocol) && len(ib.StreamSettings) > 0 {
+	if len(ib.StreamSettings) > 0 {
 		var stream map[string]any
 		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err == nil {
-			patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
-			patchHysteriaObfs(stream)
+			// Panel-only key: the hysteria2 multi-port range is consumed by the
+			// panel (share link) and the node NAT rules, never by Xray.
+			delete(stream, hysteria.MultiPortKey)
+			if model.IsHysteria(ib.Protocol) {
+				patchHysteriaStreamTLS(stream, defaultCertFile, defaultKeyFile)
+			}
+			patchFinalmask(stream, string(model.NormalizeProtocol(ib.Protocol)), ib.Id, ib.Tag)
 			if out, err := json.MarshalIndent(stream, "", "  "); err == nil {
 				ib.StreamSettings = string(out)
 			}
