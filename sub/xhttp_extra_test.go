@@ -54,3 +54,32 @@ func TestApplyXhttpPaddingParamsCarriesXmuxAndMinInterval(t *testing.T) {
 		t.Errorf("xmux = %v", xm)
 	}
 }
+
+func TestApplyXhttpPaddingParamsCarriesPacketLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+		want  any
+	}{
+		{"fixed", "8192", "8192"},
+		{"range", "4096-8192", "4096-8192"},
+		{"number", float64(8192), float64(8192)},
+		{"unset", "", nil},
+		{"zero", float64(0), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params := map[string]string{}
+			applyXhttpPaddingParams(map[string]any{
+				"uplinkDataPlacement": "header", "uplinkChunkSize": float64(4096),
+				"scMaxEachPostBytes": tc.value,
+			}, params)
+			var extra map[string]any
+			if err := json.Unmarshal([]byte(params["extra"]), &extra); err != nil {
+				t.Fatal(err)
+			}
+			if got := extra["scMaxEachPostBytes"]; got != tc.want {
+				t.Fatalf("client packet limit = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

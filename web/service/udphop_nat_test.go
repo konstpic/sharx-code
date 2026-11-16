@@ -153,6 +153,22 @@ func TestBuildUDPHopNatIntentsForNodeDropsRangeCoveringPeer(t *testing.T) {
 	}
 }
 
+func TestBuildUDPHopNatIntentsProtectsProtocolOwnedListeners(t *testing.T) {
+	for _, protocol := range []string{"wireguard", "hysteria2", "amneziawg"} {
+		for _, stream := range []string{"", "null", "{}", "{broken"} {
+			t.Run(protocol+"/"+stream, func(t *testing.T) {
+				ibs := []*model.Inbound{
+					natInbound(true, 443, "hysteria2", `{"hysteriaMultiPort":"39640-39649"}`),
+					natInbound(true, 39645, protocol, stream),
+				}
+				if got := BuildUDPHopNatIntentsForNode(ibs); len(got) != 0 {
+					t.Fatalf("NAT would capture the existing %s listener: %v", protocol, got)
+				}
+			})
+		}
+	}
+}
+
 func TestBuildUDPHopNatIntentsForNodeDropsOverlappingRanges(t *testing.T) {
 	ibs := []*model.Inbound{
 		natInbound(true, 443, "hysteria2", `{"network":"hysteria","hysteriaMultiPort":"39640-39649"}`),

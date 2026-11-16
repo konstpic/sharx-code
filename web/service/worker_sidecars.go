@@ -45,20 +45,28 @@ func BuildUDPHopNatIntentsForNode(ibs []*model.Inbound) []finalmask.UDPHopNatInt
 	var intents []finalmask.UDPHopNatIntent
 	var listeners []udpNatListener
 	for _, ib := range ibs {
-		if ib == nil || !ib.Enable || ib.StreamSettings == "" {
+		if ib == nil || !ib.Enable {
 			continue
 		}
 		var stream map[string]any
-		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err != nil || stream == nil {
+		malformed := false
+		if ib.StreamSettings != "" {
+			malformed = json.Unmarshal([]byte(ib.StreamSettings), &stream) != nil
+		}
+		if malformed {
 			logger.Debugf("udphopNat: inbound %d (%s): malformed streamSettings, skipped", ib.Id, ib.Tag)
-			continue
 		}
 		protocol := string(model.NormalizeProtocol(ib.Protocol))
-		intents = append(intents, finalmask.UDPHopNatIntentsForStream(protocol, stream, ib.Port)...)
+		if !malformed {
+			intents = append(intents, finalmask.UDPHopNatIntentsForStream(protocol, stream, ib.Port)...)
+		}
 		// The udphop REDIRECT sits in nat PREROUTING for UDP: any enabled UDP
 		// listener on this node is a potential victim of a range that covers
 		// its port, so conflicts are resolved before shipping the list.
-		if _, udpOK := finalmask.SidesFor(protocol, finalmask.StreamNetwork(stream), finalmask.StreamALPN(stream)); udpOK {
+		// Protocol-owned listeners (including AmneziaWG, which cannot carry
+		// finalmask) exist without streamSettings. A malformed row may also
+		// still have an active listener from the last successful config.
+		if _, udpOK := finalmask.SidesFor(protocol, finalmask.StreamNetwork(stream), finalmask.StreamALPN(stream)); udpOK || protocol == "amneziawg" || malformed {
 			listeners = append(listeners, udpNatListener{port: ib.Port, tag: ib.Tag})
 		}
 	}

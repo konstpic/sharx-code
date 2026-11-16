@@ -1410,15 +1410,18 @@ func applyXhttpTransportExtras(xhttp map[string]any, dst map[string]any) {
 	if n, ok := xhttp["uplinkChunkSize"].(float64); ok && n > 0 {
 		dst["uplinkChunkSize"] = int(n)
 	}
-	// scMinPostsIntervalMs is a client-side pacing setting (Int32Range: number or "from-to").
-	switch v := xhttp["scMinPostsIntervalMs"].(type) {
-	case string:
-		if t := strings.TrimSpace(v); t != "" {
-			dst["scMinPostsIntervalMs"] = t
-		}
-	case float64:
-		if v > 0 {
-			dst["scMinPostsIntervalMs"] = int(v)
+	// Both settings control client packet uploads (Int32Range: number or "from-to").
+	// Header chunking alone does not limit the total payload in one request.
+	for _, field := range []string{"scMinPostsIntervalMs", "scMaxEachPostBytes"} {
+		switch v := xhttp[field].(type) {
+		case string:
+			if t := strings.TrimSpace(v); t != "" {
+				dst[field] = t
+			}
+		case float64:
+			if v > 0 {
+				dst[field] = int(v)
+			}
 		}
 	}
 	if xmux, ok := xhttp["xmux"].(map[string]any); ok && len(xmux) > 0 {
