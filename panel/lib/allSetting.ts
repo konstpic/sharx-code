@@ -21,6 +21,7 @@ export type AllSetting = {
   tgRunTime: string;
   tgBotBackup: boolean;
   tgBotLoginNotify: boolean;
+  tgBotNodeCoreNotify: boolean;
   tgCpu: number;
   tgLang: string;
   timeLocation: string;
@@ -144,6 +145,7 @@ export function normalizeAllSetting(raw: Record<string, unknown>): AllSetting {
     tgRunTime: toStr(raw.tgRunTime, "@daily"),
     tgBotBackup: toBool(raw.tgBotBackup),
     tgBotLoginNotify: toBool(raw.tgBotLoginNotify),
+    tgBotNodeCoreNotify: toBool(raw.tgBotNodeCoreNotify),
     tgCpu: toInt(raw.tgCpu, 80),
     tgLang: toStr(raw.tgLang, "en-US"),
     timeLocation: toStr(raw.timeLocation, "Local"),

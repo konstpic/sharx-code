@@ -7,9 +7,9 @@
  *
  * Facts this file encodes (verified against the kernel, mirrored by
  * `util/finalmask/finalmask.go`):
- *  - tcp[] types: header-custom, fragment, sudoku, xmc, filter
+ *  - tcp[] types: header-custom, fragment, sudoku, xmc
  *  - udp[] types: header-custom, mkcp-legacy, noise, salamander, sudoku,
- *    xdns, xicmp, realm, udphop, filter
+ *    xdns, xicmp, realm, udphop
  *  - the first array element is the outermost layer
  *  - xicmp/udphop must be the last udp[] entry (socket-replacing masks)
  *  - `type` is case-insensitive; unknown settings keys are ignored by the core
@@ -134,16 +134,6 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
       },
     ],
     preset: { hostname: "", password: "", profiles: [{ username: "", uuid: "" }] },
-  },
-  {
-    side: "tcp",
-    type: "filter",
-    label: "filter",
-    serverOnly: true,
-    linkSupported: false,
-    hint: "Server-side only; never emitted to clients.",
-    fields: [],
-    preset: {},
   },
 
   // ---- UDP -----------------------------------------------------------------
@@ -272,16 +262,6 @@ export const FINALMASK_TYPES: readonly FinalmaskTypeDef[] = [
       { name: "remotePorts", label: "remotePorts", kind: "string", required: true, placeholder: "20000-30000" },
     ],
     preset: { mode: "intervalremote", interval: 30, remoteIPs: [], remotePorts: "" },
-  },
-  {
-    side: "udp",
-    type: "filter",
-    label: "filter",
-    serverOnly: true,
-    linkSupported: false,
-    hint: "Server-side only; never emitted to clients.",
-    fields: [],
-    preset: {},
   },
 ];
 

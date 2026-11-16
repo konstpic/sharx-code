@@ -425,6 +425,7 @@ var ignoredPanelSettings = map[string]bool{
 	"tgRunTime":                   true,
 	"tgBotBackup":                 true,
 	"tgBotLoginNotify":            true,
+	"tgBotNodeCoreNotify":         true,
 	"tgCpu":                       true,
 	"tgLang":                      true,
 	"timeLocation":                true,
@@ -850,7 +851,7 @@ func (s *MigrationService) migrateInboundClientIps(sqliteDB *sql.DB, tx *gorm.DB
 			// Create new
 			inboundClientIps := model.InboundClientIps{
 				ClientName: clientEmail.String,
-				Ips:         ips.String,
+				Ips:        ips.String,
 			}
 			if err := tx.Create(&inboundClientIps).Error; err != nil {
 				logger.Warningf("Failed to migrate inbound_client_ips for %s: %v", clientEmail.String, err)

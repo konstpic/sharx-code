@@ -366,6 +366,7 @@ func (s *NodeService) DeleteNode(id int) error {
 		return err
 	}
 	resetNodeHealthTgHysteresis(id)
+	nodeCoreAlerts.resetNode(id)
 	return nil
 }
 
@@ -917,6 +918,7 @@ func (s *NodeService) TriggerDockerUpdaterOnAllNodes(ctx context.Context) []stri
 func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 	if node != nil && !node.Enable {
 		resetNodeHealthTgHysteresis(node.Id)
+		nodeCoreAlerts.resetNode(node.Id)
 		_ = s.SetNodeXrayState(node.Id, model.NodeXrayStopped)
 		_ = s.SetNodeXrayVersion(node.Id, "")
 		_ = s.SetNodeWorkerVersion(node.Id, "")
@@ -930,6 +932,7 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 	status, responseTime, err := s.CheckNodeStatus(node)
 	if err != nil {
 		node.Status = "error"
+		nodeCoreAlerts.suspendNode(node.Id)
 		node.ResponseTime = 0 // Set to 0 on error
 		node.LastCheck = time.Now().Unix()
 		if updateErr := s.UpdateNode(node); updateErr != nil {
@@ -967,6 +970,11 @@ func (s *NodeService) CheckNodeHealth(node *model.Node) error {
 		_ = s.RefreshNodeXrayStateFromWorker(fresh)
 		_ = s.RefreshNodeTelemtStateFromWorker(fresh)
 		_ = s.RefreshNodeAmneziaWgStateFromWorker(fresh)
+		if observed, obsErr := s.GetNode(node.Id); obsErr == nil {
+			s.maybeNotifyNodeCoreHealth(observed)
+		} else {
+			nodeCoreAlerts.suspendNode(node.Id)
+		}
 		s.MaybePushWorkerConfigIfCoresDown(fresh)
 		if reconciled, rErr := s.GetNode(node.Id); rErr == nil {
 			s.MaybeReinstallPinnedCoreVersions(reconciled)

@@ -1714,6 +1714,13 @@ export function SettingsPage() {
                 ariaLabel={t("pages.settings.tgNotifyLogin")}
               />
             </Row>
+            <Row label={t("pages.settings.tgNotifyNodeCore")} hint={t("pages.settings.tgNotifyNodeCoreDesc")}>
+              <Switch
+                checked={form.tgBotNodeCoreNotify}
+                onChange={(v) => patch("tgBotNodeCoreNotify", v)}
+                ariaLabel={t("pages.settings.tgNotifyNodeCore")}
+              />
+            </Row>
             <Row label={t("pages.settings.tgNotifyCpu")} hint={t("pages.settings.tgNotifyCpuDesc")}>
               <Input
                 type="number"

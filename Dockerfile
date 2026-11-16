@@ -17,7 +17,7 @@ RUN npm run build && cp -R out /webpanel
 # ========================================================
 # Stage: Builder
 # ========================================================
-FROM golang:1.27-alpine AS builder
+FROM golang:1.27.4-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 ARG BUILDKIT_INLINE_CACHE=1
@@ -109,7 +109,7 @@ FROM alpine:3.20
 ENV TZ=Asia/Tehran
 WORKDIR /app
 
-RUN apk add --no-cache --update \
+RUN apk upgrade --no-cache && apk add --no-cache --update \
   ca-certificates \
   tzdata \
   fail2ban \
