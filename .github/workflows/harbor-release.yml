@@ -18,12 +18,24 @@ jobs:
   # Release gates: preserve the tests and dependency audit before any image build.
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+      - name: Test explicit inbound listen address with PostgreSQL
+        env:
+          SHARX_TEST_DB: host=127.0.0.1 port=${{ job.services.postgres.ports[5432] }} user=postgres password=postgres dbname=postgres sslmode=disable
+        run: go test ./web/service -run '^TestInboundExplicitListenPortConflict$' -count=1
       - run: go test ./...
 
   audit:

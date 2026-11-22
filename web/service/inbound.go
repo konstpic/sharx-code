@@ -270,17 +270,7 @@ func (s *InboundService) checkPortExist(listen string, port int, protocol model.
 	} else {
 		db = db.Model(model.Inbound{}).
 			Where("port = ?", port).
-			Where(
-				db.Model(model.Inbound{}).Where(
-					"listen = ?", listen,
-				).Or(
-					"listen = \"\"",
-				).Or(
-					"listen = \"0.0.0.0\"",
-				).Or(
-					"listen = \"::\"",
-				).Or(
-					"listen = \"::0\""))
+			Where("listen IN ?", []string{listen, "", "0.0.0.0", "::", "::0"})
 	}
 	if ignoreId > 0 {
 		db = db.Where("id != ?", ignoreId)
