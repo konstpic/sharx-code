@@ -185,10 +185,12 @@ func (s *ClientService) GetClientIDsForDailyOrWeeklyTrafficReset(cadence string,
 func (s *ClientService) GetClientIDsForMonthlyTrafficReset(monthDay, lastDayOfMonth int) ([]int, error) {
 	db := database.GetDB()
 	var ids []int
-	q := db.Model(&model.ClientEntity{}).
-		Where("traffic_reset_cadence = ?", "monthly").
-		Where("traffic_reset_day = ? OR (? = ? AND traffic_reset_day > ?)",
-			monthDay, monthDay, lastDayOfMonth, monthDay)
+	q := db.Model(&model.ClientEntity{}).Where("traffic_reset_cadence = ?", "monthly")
+	if monthDay == lastDayOfMonth {
+		q = q.Where("traffic_reset_day >= ?", monthDay)
+	} else {
+		q = q.Where("traffic_reset_day = ?", monthDay)
+	}
 	if err := q.Pluck("id", &ids).Error; err != nil {
 		return nil, err
 	}

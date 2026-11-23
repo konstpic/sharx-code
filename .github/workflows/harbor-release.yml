@@ -32,10 +32,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Test explicit inbound listen address with PostgreSQL
+      - name: Run PostgreSQL regression tests
         env:
           SHARX_TEST_DB: host=127.0.0.1 port=${{ job.services.postgres.ports[5432] }} user=postgres password=postgres dbname=postgres sslmode=disable
-        run: go test ./web/service -run '^TestInboundExplicitListenPortConflict$' -count=1
+        run: go test ./web/service -run '^Test(InboundExplicitListenPortConflict|MonthlyTrafficResetSelection)$' -count=1
       - run: go test ./...
 
   audit:
