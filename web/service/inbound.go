@@ -1611,60 +1611,32 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 }
 
 func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (error, bool) {
-	var err error
-	db := database.GetDB()
-	tx := db.Begin()
-
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		} else {
-			if commitErr := tx.Commit().Error; commitErr == nil {
-				if trafficHistoryMinuteRetentionDays > 0 {
-					go pruneTrafficHistory()
-				}
-			} else {
-				logger.Warningf("Failed to commit traffic accounting: %v", commitErr)
-			}
-		}
-	}()
-	// Client traffic is now handled by ClientService
-	// Inbound traffic will be synchronized as sum of all its clients' traffic
+	var clientsToDisable map[string]string
+	var needRestart bool
 	clientService := ClientService{}
-	clientsToDisable, _, err := clientService.AddClientTraffic(tx, clientTraffics, s)
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var err error
+		clientsToDisable, _, err = clientService.AddClientTraffic(tx, clientTraffics, s)
+		if err != nil {
+			return err
+		}
+		if err = s.addInboundTraffic(tx, inboundTraffics); err != nil {
+			return err
+		}
+		var count int64
+		needRestart, count, err = s.autoRenewClients(tx)
+		if count > 0 && err == nil {
+			logger.Debugf("%v clients renewed", count)
+		}
+		return err
+	})
 	if err != nil {
 		return err, false
 	}
-	// Keep inbound counters based on real Xray inbound>>>tag traffic, not sums of assigned clients.
-	// This avoids double counting when one client is attached to multiple inbounds.
-	if err = s.addInboundTraffic(tx, inboundTraffics); err != nil {
-		return err, false
+	if trafficHistoryMinuteRetentionDays > 0 {
+		go pruneTrafficHistory()
 	}
-
-	needRestart0, count, err := s.autoRenewClients(tx)
-	if err != nil {
-		logger.Warning("Error in renew clients:", err)
-	} else if count > 0 {
-		logger.Debugf("%v clients renewed", count)
-	}
-
-	// NOTE: disableInvalidClients is no longer needed - client disabling is handled by ClientService.AddClientTraffic
-	// which updates ClientEntity.Enable and client_traffics.enable, and then DisableClientsByName handles Xray API removal
-	// and Settings update. This ensures proper separation: clients are managed individually, not as part of inbound.
-
-	// NOTE: disableInvalidInbounds is disabled - inbound should NOT be blocked by traffic limits.
-	// Inbound is only a container for clients and should show statistics (sum of all clients' traffic).
-	// Traffic limits are managed at the client level only.
-	// If inbound needs to be disabled, it should be done manually via Enable flag, not automatically by traffic.
-	needRestart1 := false
-	needRestart2 := false
-
-	// Disable clients in new architecture (ClientEntity) after transaction commits
-	// This is done outside the transaction to avoid nested transactions
-	// The client_traffics.enable has already been updated in addClientTraffic
-	// Now we need to sync ClientEntity.Enable and remove from Xray API
-	// IMPORTANT: Only process if we have clients to disable AND transaction was successful
-	if len(clientsToDisable) > 0 && err == nil {
+	if len(clientsToDisable) > 0 {
 		logger.Debugf("AddTraffic: %d clients need to be disabled: %v", len(clientsToDisable), clientsToDisable)
 		// Run in goroutine to avoid blocking traffic updates
 		go func() {
@@ -1686,11 +1658,8 @@ func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraff
 				}
 			}
 		}()
-	} else if len(clientsToDisable) > 0 {
-		logger.Debugf("AddTraffic: %d clients to disable but transaction failed, skipping", len(clientsToDisable))
 	}
-
-	return nil, (needRestart0 || needRestart1 || needRestart2)
+	return nil, needRestart
 }
 
 // ApplyHysteriaFallbackFromCumulative applies Hysteria fallback accounting using reset=false

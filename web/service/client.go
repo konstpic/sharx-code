@@ -103,58 +103,73 @@ func (s *ClientService) GetClients(userId int) ([]*model.ClientEntity, error) {
 		return nil, err
 	}
 
-	// Load inbound assignments, traffic statistics, and HWIDs for each client
+	if len(clients) == 0 {
+		return clients, nil
+	}
+	// Scope both relationship queries to this user's clients without a parameter per client.
+	owned := db.Model(&model.ClientEntity{}).Select("id").Where("user_id = ?", userId)
+	var mappings []model.ClientInboundMapping
+	mappingErr := db.Select("client_id", "inbound_id").Where("client_id IN (?)", owned).Order("sort_order ASC, id ASC").Find(&mappings).Error
+	var devices []*model.ClientHWID
+	deviceErr := db.Where("client_id IN (?)", owned).Order("last_seen_at DESC").Find(&devices).Error
+	if deviceErr != nil {
+		logger.Warningf("Failed to load HWIDs for user %d: %v", userId, deviceErr)
+	}
+	byID := make(map[int]*model.ClientEntity, len(clients))
 	for _, client := range clients {
-		// Load inbound assignments
-		inboundIds, err := s.GetInboundIdsForClient(client.Id)
-		if err == nil {
-			client.InboundIds = inboundIds
+		byID[client.Id] = client
+		if mappingErr == nil {
+			client.InboundIds = []int{}
 		}
-
-		// Traffic statistics are now stored directly in ClientEntity table
-		// No need to load from client_traffics - fields are already loaded from DB
+		if deviceErr == nil {
+			client.HWIDs = []*model.ClientHWID{}
+		}
 		MergePanelClientLastConnectedNodeInto(client)
-
-		// Check if client exceeded limits and update status if needed (but keep Enable = true)
-		now := time.Now().Unix() * 1000
-		totalUsed := client.Up + client.Down
-		trafficLimit := int64(client.TotalGB * 1024 * 1024 * 1024)
-		trafficExceeded := client.TotalGB > 0 && totalUsed >= trafficLimit
-		timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= now
-
-		// Update status if expired, but don't change Enable
-		if trafficExceeded || timeExpired {
-			status := "expired_traffic"
-			if timeExpired {
-				status = "expired_time"
-			}
-			// Only update if status changed
-			if client.Status != status {
-				oldClientForNotify := *client
-				client.Status = status
-				err = db.Model(&model.ClientEntity{}).Where("id = ?", client.Id).Update("status", status).Error
-				if err != nil {
-					logger.Warningf("Failed to update status for client %s: %v", client.Name, err)
-				}
-				tgbotService := Tgbot{}
-				if tgbotService.IsRunning() {
-					tgbotService.NotifyClientStateChanged(&oldClientForNotify, client)
-				}
-				// Xray/node sync is handled by XrayTrafficJob → DisableClientsByName (inbound rebuild).
-			}
-		}
-
-		// Load HWIDs for this client
-		hwidService := ClientHWIDService{}
-		hwids, err := hwidService.GetHWIDsForClient(client.Id)
-		if err == nil {
-			client.HWIDs = hwids
-		} else {
-			logger.Warningf("Failed to load HWIDs for client %d: %v", client.Id, err)
+		refreshClientExpiry(db, client)
+	}
+	for _, m := range mappings {
+		if client := byID[m.ClientId]; client != nil {
+			client.InboundIds = append(client.InboundIds, m.InboundId)
 		}
 	}
-
+	for _, h := range devices {
+		if client := byID[h.ClientId]; client != nil {
+			h.Blocked = h.BlockedAt != nil && *h.BlockedAt > 0
+			client.HWIDs = append(client.HWIDs, h)
+		}
+	}
 	return clients, nil
+}
+
+func refreshClientExpiry(db *gorm.DB, client *model.ClientEntity) {
+	// Check if client exceeded limits and update status if needed (but keep Enable = true)
+	now := time.Now().Unix() * 1000
+	totalUsed := client.Up + client.Down
+	trafficLimit := int64(client.TotalGB * 1024 * 1024 * 1024)
+	trafficExceeded := client.TotalGB > 0 && totalUsed >= trafficLimit
+	timeExpired := client.ExpiryTime > 0 && client.ExpiryTime <= now
+
+	// Update status if expired, but don't change Enable
+	if trafficExceeded || timeExpired {
+		status := "expired_traffic"
+		if timeExpired {
+			status = "expired_time"
+		}
+		// Only update if status changed
+		if client.Status != status {
+			oldClientForNotify := *client
+			client.Status = status
+			err := db.Model(&model.ClientEntity{}).Where("id = ?", client.Id).Update("status", status).Error
+			if err != nil {
+				logger.Warningf("Failed to update status for client %s: %v", client.Name, err)
+			}
+			tgbotService := Tgbot{}
+			if tgbotService.IsRunning() {
+				tgbotService.NotifyClientStateChanged(&oldClientForNotify, client)
+			}
+			// Xray/node sync is handled by XrayTrafficJob → DisableClientsByName (inbound rebuild).
+		}
+	}
 }
 
 // GetClientIDsForDailyOrWeeklyTrafficReset returns ids of clients on the "daily" cadence

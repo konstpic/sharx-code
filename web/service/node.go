@@ -1768,87 +1768,41 @@ const localTrafficColumnName = "Local"
 
 // GetClientTrafficPerNodeMatrix returns per-user traffic per node (live worker /stats, reset=false) or a single Local column in single-node mode.
 func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficPerNodeResponse, error) {
-	clientSvc := &ClientService{}
-	clients, err := clientSvc.GetClients(userId)
+	snapshot, err := s.ClientTrafficSnapshot()
 	if err != nil {
 		return nil, err
 	}
+	return snapshot.ForUser(userId)
+}
 
-	settingSvc := SettingService{}
-	multi, err := settingSvc.GetMultiNodeMode()
+// ClientTrafficSnapshot contains a single cycle of live worker readings.
+// ForUser applies account ownership when building rows, including fallback traffic.
+type ClientTrafficSnapshot struct {
+	multi bool
+	cols  []ClientTrafficPerNodeColumn
+	aggs  map[int]*nodeAgg
+}
+
+type nodeAgg struct {
+	traffic map[string]*struct{ up, down int64 }
+	online  map[string]bool
+	fetch   string
+	errMsg  string
+}
+
+func (s *NodeService) ClientTrafficSnapshot() (*ClientTrafficSnapshot, error) {
+	multi, err := (&SettingService{}).GetMultiNodeMode()
 	if err != nil {
 		return nil, err
 	}
-
-	onlineGlobal := make(map[string]bool)
-	for _, e := range getPanelOnlineClients() {
-		if e != "" {
-			onlineGlobal[strings.ToLower(e)] = true
-		}
-	}
-
 	if !multi {
-		out := &ClientTrafficPerNodeResponse{
-			MultiNode: false,
-			Nodes: []ClientTrafficPerNodeColumn{{
-				Id:     0,
-				Name:   localTrafficColumnName,
-				Status: "ok",
-				Fetch:  "ok",
-			}},
-			Rows: make([]ClientTrafficPerNodeRow, 0, len(clients)),
-		}
-		for _, c := range clients {
-			if c == nil {
-				continue
-			}
-			out.Rows = append(out.Rows, ClientTrafficPerNodeRow{
-				Email: c.Name,
-				Values: []ClientTrafficPerNodeCell{{
-					Up:     c.Up,
-					Down:   c.Down,
-					Online: onlineGlobal[strings.ToLower(c.Name)],
-					OK:     true,
-				}},
-			})
-		}
-		totals := make(map[string]int64, len(clients))
-		for _, cl := range clients {
-			if cl != nil {
-				totals[strings.ToLower(cl.Name)] = cl.Up + cl.Down
-			}
-		}
-		sort.Slice(out.Rows, func(i, j int) bool {
-			return totals[strings.ToLower(out.Rows[i].Email)] > totals[strings.ToLower(out.Rows[j].Email)]
-		})
-		return out, nil
+		return &ClientTrafficSnapshot{}, nil
 	}
-
-	nodes, err := s.GetAllNodes()
+	var nodesWithInbounds []*model.Node
+	err = database.GetDB().Where("enable = ? AND EXISTS (SELECT 1 FROM inbound_node_mappings m JOIN inbounds i ON i.id=m.inbound_id WHERE m.node_id=nodes.id)", true).Order("id ASC").Find(&nodesWithInbounds).Error
 	if err != nil {
 		return nil, err
 	}
-	nodesWithInbounds := make([]*model.Node, 0)
-	for _, node := range nodes {
-		if node == nil || !node.Enable {
-			continue
-		}
-		inbounds, e2 := s.GetInboundsForNode(node.Id)
-		if e2 == nil && len(inbounds) > 0 {
-			nodesWithInbounds = append(nodesWithInbounds, node)
-		}
-	}
-	sort.Slice(nodesWithInbounds, func(i, j int) bool { return nodesWithInbounds[i].Id < nodesWithInbounds[j].Id })
-
-	if len(nodesWithInbounds) == 0 {
-		return &ClientTrafficPerNodeResponse{MultiNode: true, Nodes: nil, Rows: nil}, nil
-	}
-
-	dbTraffic, dbErr := loadClientNodeTrafficForUser(userId)
-	if dbErr != nil {
-		logger.Warningf("GetClientTrafficPerNodeMatrix: loadClientNodeTrafficForUser: %v", dbErr)
-	}
-
 	type fetchResult struct {
 		node  *model.Node
 		stats *NodeStatsResponse
@@ -1869,12 +1823,6 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 	}
 
 	// per node: email -> up/down; email -> online
-	type nodeAgg struct {
-		traffic map[string]*struct{ up, down int64 }
-		online  map[string]bool
-		fetch   string
-		errMsg  string
-	}
 	aggs := make(map[int]*nodeAgg, len(nodesWithInbounds))
 
 	for i := 0; i < len(nodesWithInbounds); i++ {
@@ -1939,14 +1887,78 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 		})
 	}
 
+	return &ClientTrafficSnapshot{multi: true, cols: cols, aggs: aggs}, nil
+}
+
+func (snap *ClientTrafficSnapshot) ForUser(userId int) (*ClientTrafficPerNodeResponse, error) {
+	db := database.GetDB()
+	var clients []*model.ClientEntity
+	if err := db.Select("id", "name", "up", "down", "total_gb", "expiry_time", "status", "enable", "comment").Where("user_id = ?", userId).Find(&clients).Error; err != nil {
+		return nil, err
+	}
+	for _, client := range clients {
+		refreshClientExpiry(db, client)
+	}
+	if !snap.multi {
+		onlineGlobal := make(map[string]bool)
+		for _, e := range getPanelOnlineClients() {
+			if e != "" {
+				onlineGlobal[strings.ToLower(e)] = true
+			}
+		}
+
+		out := &ClientTrafficPerNodeResponse{
+			MultiNode: false,
+			Nodes: []ClientTrafficPerNodeColumn{{
+				Id:     0,
+				Name:   localTrafficColumnName,
+				Status: "ok",
+				Fetch:  "ok",
+			}},
+			Rows: make([]ClientTrafficPerNodeRow, 0, len(clients)),
+		}
+		for _, c := range clients {
+			if c == nil {
+				continue
+			}
+			out.Rows = append(out.Rows, ClientTrafficPerNodeRow{
+				Email: c.Name,
+				Values: []ClientTrafficPerNodeCell{{
+					Up:     c.Up,
+					Down:   c.Down,
+					Online: onlineGlobal[strings.ToLower(c.Name)],
+					OK:     true,
+				}},
+			})
+		}
+		totals := make(map[string]int64, len(clients))
+		for _, cl := range clients {
+			if cl != nil {
+				totals[strings.ToLower(cl.Name)] = cl.Up + cl.Down
+			}
+		}
+		sort.Slice(out.Rows, func(i, j int) bool {
+			return totals[strings.ToLower(out.Rows[i].Email)] > totals[strings.ToLower(out.Rows[j].Email)]
+		})
+		return out, nil
+	}
+
+	cols, aggs := snap.cols, snap.aggs
+	if len(cols) == 0 {
+		return &ClientTrafficPerNodeResponse{MultiNode: true}, nil
+	}
+	dbTraffic, dbErr := loadClientNodeTrafficForUser(userId)
+	if dbErr != nil {
+		logger.Warningf("GetClientTrafficPerNodeMatrix: loadClientNodeTrafficForUser: %v", dbErr)
+	}
 	rows := make([]ClientTrafficPerNodeRow, 0, len(clients))
 	for _, c := range clients {
 		if c == nil {
 			continue
 		}
 		el := strings.ToLower(c.Name)
-		vals := make([]ClientTrafficPerNodeCell, len(nodesWithInbounds))
-		for i, n := range nodesWithInbounds {
+		vals := make([]ClientTrafficPerNodeCell, len(cols))
+		for i, n := range cols {
 			a := aggs[n.Id]
 			if a == nil || a.fetch != "ok" {
 				vals[i] = ClientTrafficPerNodeCell{OK: false}
@@ -1984,7 +1996,7 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 			return t
 		}
 		var t int64
-		for _, n := range nodesWithInbounds {
+		for _, n := range cols {
 			a := aggs[n.Id]
 			if a == nil || a.fetch != "ok" {
 				continue
@@ -1995,8 +2007,12 @@ func (s *NodeService) GetClientTrafficPerNodeMatrix(userId int) (*ClientTrafficP
 		}
 		return t
 	}
+	totals := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		totals[r.Email] = nodeTrafficSum(r.Email)
+	}
 	sort.Slice(rows, func(i, j int) bool {
-		return nodeTrafficSum(rows[i].Email) > nodeTrafficSum(rows[j].Email)
+		return totals[rows[i].Email] > totals[rows[j].Email]
 	})
 
 	return &ClientTrafficPerNodeResponse{

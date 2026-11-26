@@ -566,8 +566,10 @@ func Probe(ctx context.Context, q ProbeRequest) (map[string]map[string]PathResul
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 16)
-	for n, d := range q.Exits {
+	for n := range q.Exits {
 		out[n] = map[string]PathResult{}
+	}
+	for n, d := range q.Exits {
 		for _, kind := range []string{"direct", "wg"} {
 			wg.Add(1)
 			go func(n, kind string, d protocol.Node) {

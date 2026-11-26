@@ -100,6 +100,7 @@ func (j *CollectNodeStatsJob) Run() {
 	// Per-user client×node traffic matrix for statistics UI (only if someone is connected; ~1s per user; heavy in multi-node).
 	if h := websocket.GetHub(); h != nil {
 		now := time.Now()
+		var snapshot *service.ClientTrafficSnapshot
 		for _, uid := range h.ConnectedUserIds() {
 			clientMatrixWSMu.Lock()
 			if t, ok := lastClientMatrixWSAt[uid]; ok && now.Sub(t) < minClientTrafficMatrixWSInterval {
@@ -109,7 +110,15 @@ func (j *CollectNodeStatsJob) Run() {
 			lastClientMatrixWSAt[uid] = time.Now()
 			clientMatrixWSMu.Unlock()
 
-			mat, mErr := j.nodeService.GetClientTrafficPerNodeMatrix(uid)
+			if snapshot == nil {
+				var err error
+				snapshot, err = j.nodeService.ClientTrafficSnapshot()
+				if err != nil {
+					logger.Debugf("client traffic snapshot: %v", err)
+					break
+				}
+			}
+			mat, mErr := snapshot.ForUser(uid)
 			if mErr != nil || mat == nil {
 				if mErr != nil {
 					logger.Debugf("client traffic matrix for WS (user %d): %v", uid, mErr)

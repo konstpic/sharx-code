@@ -116,3 +116,21 @@ func TestSysctlDoesNotRewriteSuitableDockerDefaults(t *testing.T) {
 		t.Fatal("strict unsuitable defaults were silently accepted")
 	}
 }
+
+func TestProbeRetainsBothPathsForEveryExit(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	exits := map[string]protocol.Node{"n1": {Underlay: "192.0.2.1", Overlay: "10.203.0.1", Pubkey: key}, "n2": {Underlay: "192.0.2.2", Overlay: "10.203.0.2", Pubkey: key}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := Probe(ctx, ProbeRequest{SNI: "fixture.example", Ports: []int{443, 8443}, Exits: exits})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("results=%v err=%v", got, err)
+	}
+	for name := range exits {
+		for _, kind := range []string{"direct", "wg"} {
+			if r := got[name][kind]; r.Total != 6 || r.OK != 0 {
+				t.Errorf("%s/%s: %+v", name, kind, r)
+			}
+		}
+	}
+}

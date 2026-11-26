@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,15 +84,32 @@ func NewCompatSubService(showInfo bool, remarkModel string) *SubService {
 // ClientShareLinks builds share URLs for a client for each assigned inbound (newline-separated if multiple addresses).
 func (s *SubService) ClientShareLinks(client *model.ClientEntity, inboundIDs []int) []model.ClientInboundShareLink {
 	out := make([]model.ClientInboundShareLink, 0, len(inboundIDs))
+	db := database.GetDB()
+	if len(inboundIDs) == 0 || db == nil {
+		return out
+	}
+	byID := make(map[int]*model.Inbound, len(inboundIDs))
+	var inbounds []*model.Inbound
+	// Bound each IN list for PostgreSQL even on unusually large accounts.
+	for batch := range slices.Chunk(inboundIDs, 1000) {
+		var rows []*model.Inbound
+		if err := db.Preload("ClientStats").Where("id IN ?", batch).Find(&rows).Error; err != nil {
+			logger.Warningf("Load share-link inbounds: %v", err)
+			continue
+		}
+		for _, row := range rows {
+			inbounds = append(inbounds, row)
+			byID[row.Id] = row
+		}
+	}
+	if len(inbounds) > 0 {
+		s.attachBundleHosts(client, inbounds)
+	}
 	for _, id := range inboundIDs {
-		if id <= 0 {
+		inbound := byID[id]
+		if id <= 0 || inbound == nil {
 			continue
 		}
-		inbound, err := s.inboundService.GetInbound(id)
-		if err != nil || inbound == nil {
-			continue
-		}
-		s.attachBundleHosts(client, []*model.Inbound{inbound})
 		prepared := s.prepareInboundForSubscription(inbound)
 		link := s.getLinkWithClient(prepared, client)
 		if link == "" && client != nil && strings.TrimSpace(client.Name) != "" {
