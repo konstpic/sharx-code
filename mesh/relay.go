@@ -13,14 +13,18 @@ import (
 )
 
 type Host struct {
-	UUID       string   `json:"uuid"`
-	Address    string   `json:"address"`
-	Port       int      `json:"port"`
-	RawPort    int      `json:"raw_port"`
-	Customized bool     `json:"customized"`
-	Nodes      []string `json:"nodes"`
-	Enabled    bool     `json:"enabled"`
-	Eligible   bool     `json:"mesh_eligible"`
+	UUID    string `json:"uuid"`
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+	RawPort int    `json:"raw_port"`
+	// InboundPort is the port of the inbound the host belongs to. A host
+	// that does not set a port itself takes the port of its inbound, so the
+	// port of the host follows the inbound and can change at any time.
+	InboundPort int      `json:"inbound_port"`
+	Customized  bool     `json:"customized"`
+	Nodes       []string `json:"nodes"`
+	Enabled     bool     `json:"enabled"`
+	Eligible    bool     `json:"mesh_eligible"`
 }
 type HostPlan struct {
 	UUID       string `json:"uuid"`
@@ -44,10 +48,29 @@ type RelayState struct {
 	Reason    string          `json:"reason"`
 }
 
+// PlanPorts calculates the relay port of a connection. Every port of the mesh
+// has a stable number and an exit node publishes it as
+// 55000 + 100 * slot + number.
+type PlanPorts struct {
+	Slot  int
+	Ports map[string]int
+}
+
+// RelayPort returns the relay port of a connection that listens on the given
+// port.
+func (p PlanPorts) RelayPort(port int) (int, bool) {
+	idx, ok := p.Ports[strconv.Itoa(port)]
+	if !ok || idx < 0 || idx >= 100 {
+		return 0, false
+	}
+	return 55000 + 100*p.Slot + idx, true
+}
+
 func PlanEnable(hosts []Host, d Enrolled, address string, ports map[string]int, saved []HostPlan) ([]HostPlan, []HostPlan, error) {
 	if d.Slot == nil {
 		return nil, nil, errors.New("exit has no relay slot")
 	}
+	pp := PlanPorts{Slot: *d.Slot, Ports: ports}
 	plans := []HostPlan{}
 	originals := append([]HostPlan{}, saved...)
 	known := map[string]bool{}
@@ -58,19 +81,97 @@ func PlanEnable(hosts []Host, d Enrolled, address string, ports map[string]int, 
 		if !h.Enabled || !h.Eligible || !contains(h.Nodes, d.Node) || h.Address == address {
 			continue
 		}
-		idx, ok := ports[strconv.Itoa(h.Port)]
+		newPort, ok := pp.RelayPort(h.Port)
 		if !ok {
 			continue
 		}
 		if known[h.UUID] {
 			return nil, nil, fmt.Errorf("host %s was changed outside the relay plan", h.UUID)
 		}
-		p := HostPlan{h.UUID, h.Address, h.Port, h.RawPort, h.Customized, address, 55000 + 100**d.Slot + idx}
+		p := HostPlan{h.UUID, h.Address, h.Port, h.RawPort, h.Customized, address, newPort}
 		plans = append(plans, p)
 		originals = append(originals, p)
 	}
 	return plans, originals, nil
 }
+
+// HostPlanRefresh aligns a stored relay plan with the current state of the
+// connections. A connection takes the port of its inbound, so the port can
+// change at any time (the inbound is edited in the panel). A plan that still
+// describes the old port does not match the host any more: the relay
+// operation never finishes and the mesh reports a manual change. The
+// refreshed plan keeps the address of the connection and recalculates the
+// relay port from the current one.
+func HostPlanRefresh(plans []HostPlan, hosts []Host, pp PlanPorts) []HostPlan {
+	live := map[string]Host{}
+	for _, h := range hosts {
+		live[h.UUID] = h
+	}
+	out := append([]HostPlan{}, plans...)
+	for i := range out {
+		p := &out[i]
+		h, ok := live[p.UUID]
+		if !ok {
+			continue
+		}
+		if p.RawPort != 0 {
+			// the host sets the port itself, it cannot drift away
+			continue
+		}
+		var connPort int
+		switch h.Address {
+		case p.Address:
+			connPort = h.Port
+		case p.NewAddress:
+			connPort = h.InboundPort
+		default:
+			continue
+		}
+		if connPort <= 0 || connPort == p.Port {
+			continue
+		}
+		newPort, known := pp.RelayPort(connPort)
+		if !known {
+			continue
+		}
+		p.Port = connPort
+		p.NewPort = newPort
+	}
+	return out
+}
+
+// RelayDrift returns the hosts of a running relay that have to be published
+// again: the connection changed its port while the relay was on and the host
+// still points to the relay port of the old connection. Only a connection
+// with a known relay port is reported, so the relay cannot run into a loop.
+func RelayDrift(plans []HostPlan, hosts []Host, pp PlanPorts) []HostPlan {
+	live := map[string]Host{}
+	for _, h := range hosts {
+		live[h.UUID] = h
+	}
+	out := []HostPlan{}
+	for _, p := range plans {
+		h, ok := live[p.UUID]
+		if !ok || h.Address != p.NewAddress {
+			continue
+		}
+		refreshed := HostPlanRefresh([]HostPlan{p}, hosts, pp)
+		if len(refreshed) != 1 {
+			continue
+		}
+		r := refreshed[0]
+		if r.Port == p.Port || r.NewPort == p.NewPort || r.NewPort == h.Port {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// HostPatches computes the host patches of a relay operation. The address
+// identifies a host: a connection that takes the port of its inbound may
+// change it at any time, so the port is only a part of the identity when the
+// host sets the port itself.
 func HostPatches(plans []HostPlan, hosts []Host, on bool) ([]map[string]any, error) {
 	live := map[string]Host{}
 	for _, h := range hosts {
@@ -82,19 +183,23 @@ func HostPatches(plans []HostPlan, hosts []Host, on bool) ([]map[string]any, err
 		if !ok {
 			continue
 		}
-		original := h.Address == p.Address && h.Port == p.Port
-		relayed := h.Address == p.NewAddress && h.Port == p.NewPort
+		byPort := p.RawPort != 0
+		original := h.Address == p.Address && (!byPort || h.Port == p.Port)
+		relayed := h.Address == p.NewAddress && (!byPort || h.Port == p.NewPort)
 		if !original && !relayed {
 			return nil, fmt.Errorf("host %s изменён вручную; согласуйте адрес перед повтором", p.UUID)
 		}
-		if (on && relayed) || (!on && original) {
+		if on {
+			if relayed && h.Port == p.NewPort {
+				continue
+			}
+			out = append(out, map[string]any{"uuid": p.UUID, "address": p.NewAddress, "port": p.NewPort, "expectedAddress": h.Address, "expectedPort": h.Port, "restore": false, "originalPort": p.RawPort, "originalCustomized": p.Customized})
 			continue
 		}
-		address, port := p.Address, p.Port
-		if on {
-			address, port = p.NewAddress, p.NewPort
+		if original {
+			continue
 		}
-		out = append(out, map[string]any{"uuid": p.UUID, "address": address, "port": port, "expectedAddress": h.Address, "expectedPort": h.Port, "restore": !on, "originalPort": p.RawPort, "originalCustomized": p.Customized})
+		out = append(out, map[string]any{"uuid": p.UUID, "address": p.Address, "port": p.Port, "expectedAddress": h.Address, "expectedPort": h.Port, "restore": true, "originalPort": p.RawPort, "originalCustomized": p.Customized})
 	}
 	return out, nil
 }
@@ -171,10 +276,24 @@ func (c *Controller) pushForwards(extra string, on bool) error {
 	}
 	return nil
 }
+
+// planPorts returns the port map of an exit node: the stable number of every
+// port of the mesh and the slot of the node.
+func (c *Controller) planPorts(name string) (PlanPorts, error) {
+	d, ok := c.enrolled[name]
+	if !ok || d.Slot == nil {
+		return PlanPorts{}, errors.New("нужна установленная выходная нода")
+	}
+	return PlanPorts{Slot: *d.Slot, Ports: c.ports}, nil
+}
 func (c *Controller) finishRelay(name string, s *RelayState) error {
 	op := s.Operation
 	if op == nil {
 		return nil
+	}
+	pp, e := c.planPorts(name)
+	if e != nil {
+		return e
 	}
 	if op.Target {
 		if e := c.pushForwards(name, true); e != nil {
@@ -185,7 +304,11 @@ func (c *Controller) finishRelay(name string, s *RelayState) error {
 	if e := c.rpc("hosts", nil, &hosts); e != nil {
 		return e
 	}
-	patches, e := HostPatches(op.Hosts, hosts, op.Target)
+	// The plan describes the ports of the connections. A connection can change
+	// its port while the operation waits, the plan has to follow it.
+	plans := HostPlanRefresh(op.Hosts, hosts, pp)
+	saved := HostPlanRefresh(s.Saved, hosts, pp)
+	patches, e := HostPatches(plans, hosts, op.Target)
 	if e != nil {
 		return e
 	}
@@ -197,7 +320,9 @@ func (c *Controller) finishRelay(name string, s *RelayState) error {
 	if e = c.rpc("hosts", nil, &hosts); e != nil {
 		return e
 	}
-	patches, e = HostPatches(op.Hosts, hosts, op.Target)
+	plans = HostPlanRefresh(plans, hosts, pp)
+	saved = HostPlanRefresh(saved, hosts, pp)
+	patches, e = HostPatches(plans, hosts, op.Target)
 	if e != nil {
 		return e
 	}
@@ -210,6 +335,7 @@ func (c *Controller) finishRelay(name string, s *RelayState) error {
 		}
 	}
 	old := *s
+	s.Saved = saved
 	s.On = op.Target
 	s.Since = time.Now().Unix()
 	s.Reason = op.Reason
@@ -501,9 +627,34 @@ func (c *Controller) reconcileRelays() error {
 			if e = c.finishRelay(n, s); e != nil {
 				return e
 			}
+			continue
+		}
+		if e = c.repairRelay(n, s, hosts); e != nil {
+			return e
 		}
 	}
 	return nil
+}
+
+// repairRelay republishes the hosts of a running relay that do not match the
+// plan any more. A connection can change its port while the relay is on, the
+// published host then points to the relay port of the old connection.
+func (c *Controller) repairRelay(name string, s *RelayState, hosts []Host) error {
+	pp, e := c.planPorts(name)
+	if e != nil {
+		return e
+	}
+	drifted := RelayDrift(s.Saved, hosts, pp)
+	if len(drifted) == 0 {
+		return nil
+	}
+	old := *s
+	s.Operation = &RelayOperation{Target: true, Hosts: drifted, Reason: "порт подключения изменился"}
+	if e = c.saveRelays(); e != nil {
+		*s = old
+		return e
+	}
+	return c.finishRelay(name, s)
 }
 
 // Pending journals live on the panel's persistent volume; never in the image.

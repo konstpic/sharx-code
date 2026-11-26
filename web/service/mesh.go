@@ -778,14 +778,17 @@ func meshNodeURL(address, newIP string) (string, error) {
 }
 
 type meshHost struct {
-	UUID       string   `json:"uuid"`
-	Address    string   `json:"address"`
-	Port       int      `json:"port"`
-	RawPort    int      `json:"raw_port"`
-	Customized bool     `json:"customized"`
-	Nodes      []string `json:"nodes"`
-	Enabled    bool     `json:"enabled"`
-	Eligible   bool     `json:"mesh_eligible"`
+	UUID    string `json:"uuid"`
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+	RawPort int    `json:"raw_port"`
+	// InboundPort is the port of the inbound the host belongs to. A host
+	// that does not set a port itself follows the port of its inbound.
+	InboundPort int      `json:"inbound_port"`
+	Customized  bool     `json:"customized"`
+	Nodes       []string `json:"nodes"`
+	Enabled     bool     `json:"enabled"`
+	Eligible    bool     `json:"mesh_eligible"`
 }
 
 func meshHosts(db *gorm.DB) ([]meshHost, error) {
@@ -803,7 +806,7 @@ func meshHosts(db *gorm.DB) ([]meshHost, error) {
 		if port == 0 {
 			port = ib.Port
 		}
-		out = append(out, meshHost{fmt.Sprint("host-", h.Id), h.Address, port, h.Port, h.Customized, []string{fmt.Sprint("node-", *h.NodeId)}, h.Enable, h.Port == 0 || h.Port == ib.Port})
+		out = append(out, meshHost{fmt.Sprint("host-", h.Id), h.Address, port, h.Port, ib.Port, h.Customized, []string{fmt.Sprint("node-", *h.NodeId)}, h.Enable, h.Port == 0 || h.Port == ib.Port})
 	}
 	return out, nil
 }
