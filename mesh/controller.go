@@ -24,13 +24,24 @@ import (
 	"time"
 )
 
+// ProbeTarget describes a single TLS probe from an entry node to an exit node.
+// Node is optional: when set the target applies only to that exit. This lets
+// one entry probe different client-facing ports with the SNI each inbound
+// actually serves, instead of using a single global SNI for every port.
+type ProbeTarget struct {
+	Node string `json:"node,omitempty"`
+	Port int    `json:"port"`
+	SNI  string `json:"sni"`
+}
+
 type Settings struct {
-	Enabled      bool   `json:"enabled"`
-	RelayAddress string `json:"relay_address"`
-	Ports        []int  `json:"probe_ports"`
-	SNI          string `json:"sni"`
-	Balancer     string `json:"balancer_uuid"`
-	Interval     int    `json:"interval"`
+	Enabled      bool          `json:"enabled"`
+	RelayAddress string        `json:"relay_address"`
+	Ports        []int         `json:"probe_ports"`
+	SNI          string        `json:"sni"`
+	Probes       []ProbeTarget `json:"probes,omitempty"`
+	Balancer     string        `json:"balancer_uuid"`
+	Interval     int           `json:"interval"`
 }
 type Member struct {
 	Name      string `json:"name"`
@@ -108,6 +119,7 @@ type Controller struct {
 	observations  map[string]protocol.Observation
 	routes        map[string]map[string]string
 	matrix        map[string]map[string]map[string]agent.PathResult
+	targets       map[string]map[string]map[string]agent.PathResult
 	health        map[string]*ExitHealth
 	ipSeen        map[string]string
 	ipCount       map[string]int
@@ -127,9 +139,57 @@ type Controller struct {
 	wake          chan struct{}
 }
 
+// ProbeTargetResult is the live result of one configured check.
+type ProbeTargetResult struct {
+	Node   string            `json:"node"`
+	Port   int               `json:"port"`
+	SNI    string            `json:"sni"`
+	Direct *agent.PathResult `json:"direct,omitempty"`
+	WG     *agent.PathResult `json:"wg,omitempty"`
+}
+
+// targetView lists the result of every configured check per exit node.
+func (c *Controller) targetView() []ProbeTargetResult {
+	out := []ProbeTargetResult{}
+	exits := make([]string, 0, len(c.targets))
+	for exit := range c.targets {
+		exits = append(exits, exit)
+	}
+	sort.Strings(exits)
+	for _, exit := range exits {
+		m := c.targets[exit]
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts := strings.SplitN(key, "|", 3)
+			if len(parts) != 3 {
+				continue
+			}
+			port, e := strconv.Atoi(parts[1])
+			if e != nil {
+				continue
+			}
+			r := ProbeTargetResult{Node: parts[0], Port: port, SNI: parts[2]}
+			if v, ok := m[key]["direct"]; ok {
+				cp := v
+				r.Direct = &cp
+			}
+			if v, ok := m[key]["wg"]; ok {
+				cp := v
+				r.WG = &cp
+			}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func NewController(ctx context.Context, dir string, bridge Bridge) (*Controller, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Controller{dir: dir, ctx: ctx, cancel: cancel, bridge: bridge, enrolled: map[string]Enrolled{}, ports: map[string]int{}, relays: map[string]*RelayState{}, observations: map[string]protocol.Observation{}, routes: map[string]map[string]string{}, matrix: map[string]map[string]map[string]agent.PathResult{}, health: map[string]*ExitHealth{}, ipSeen: map[string]string{}, ipCount: map[string]int{}, ipTS: map[string]int64{}, wake: make(chan struct{}, 1)}
+	c := &Controller{dir: dir, ctx: ctx, cancel: cancel, bridge: bridge, enrolled: map[string]Enrolled{}, ports: map[string]int{}, relays: map[string]*RelayState{}, observations: map[string]protocol.Observation{}, routes: map[string]map[string]string{}, matrix: map[string]map[string]map[string]agent.PathResult{}, targets: map[string]map[string]map[string]agent.PathResult{}, health: map[string]*ExitHealth{}, ipSeen: map[string]string{}, ipCount: map[string]int{}, ipTS: map[string]int64{}, wake: make(chan struct{}, 1)}
 	fail := func(e error) (*Controller, error) { cancel(); return nil, e }
 	if e := readJSON(filepath.Join(dir, "settings.json"), &c.settings); e != nil {
 		return fail(e)
@@ -345,7 +405,7 @@ func (c *Controller) publish() {
 	sort.Slice(top, func(i, j int) bool {
 		return top[i].(map[string]any)["name"].(string) < top[j].(map[string]any)["name"].(string)
 	})
-	view := map[string]any{"snapshot_at": time.Now().Unix(), "settings": c.settings, "implementation": "go", "enrolled": inventory, "inventory": inventory, "quorum": quorum, "etcd_mtls": true, "topology": map[string]any{"nodes": top}, "overlay": map[string]any{"nodes": c.seed(), "obs": obs, "route": routes, "etcd_up": c.storeHealthy()}, "relay_modes": modes, "relays": relay, "auto_relay": c.flags.AutoRelay, "auto_balancer": c.flags.AutoBalancer, "auto_ip_update": c.flags.AutoIP, "pinned_disabled": c.flags.Pinned, "exits": exits, "events": c.events, "cycles": c.cycles, "last_cycle": c.lastCycle, "probe_matrix": c.matrix, "balancer_error": c.balancerError, "bootstrap_pending": bootstrapErr == nil, "etcd_operation": c.operation}
+	view := map[string]any{"snapshot_at": time.Now().Unix(), "settings": c.settings, "implementation": "go", "enrolled": inventory, "inventory": inventory, "quorum": quorum, "etcd_mtls": true, "topology": map[string]any{"nodes": top}, "overlay": map[string]any{"nodes": c.seed(), "obs": obs, "route": routes, "etcd_up": c.storeHealthy()}, "relay_modes": modes, "relays": relay, "auto_relay": c.flags.AutoRelay, "auto_balancer": c.flags.AutoBalancer, "auto_ip_update": c.flags.AutoIP, "pinned_disabled": c.flags.Pinned, "exits": exits, "events": c.events, "cycles": c.cycles, "last_cycle": c.lastCycle, "probe_matrix": c.matrix, "probe_targets": c.targetView(), "balancer_error": c.balancerError, "bootstrap_pending": bootstrapErr == nil, "etcd_operation": c.operation}
 	b, _ := json.Marshal(view)
 	c.view.Store(b)
 }

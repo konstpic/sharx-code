@@ -28,6 +28,27 @@ func NewMeshController(g *gin.RouterGroup) {
 		out, e := service.MeshAction(c.Request.Context(), "status", nil)
 		jsonObj(c, out, e)
 	})
+	g.GET("/probe-presets", func(c *gin.Context) {
+		out, e := service.MeshProbePresets(c.Request.Context())
+		if e != nil {
+			jsonMsg(c, e.Error(), e)
+			return
+		}
+		jsonObj(c, out, nil)
+	})
+	g.POST("/inbound/create", func(c *gin.Context) {
+		var req service.MeshInboundRequest
+		if e := c.ShouldBindJSON(&req); e != nil {
+			jsonMsg(c, "Неверные параметры", e)
+			return
+		}
+		out, e := service.MeshCreateInbound(c.Request.Context(), req)
+		if e != nil {
+			jsonMsg(c, e.Error(), e)
+			return
+		}
+		jsonObj(c, out, nil)
+	})
 	g.POST("/settings", func(c *gin.Context) {
 		var settings service.MeshSettings
 		if e := c.ShouldBindJSON(&settings); e != nil {

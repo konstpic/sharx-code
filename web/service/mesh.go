@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,12 +28,544 @@ import (
 )
 
 type MeshSettings struct {
-	Enabled      bool   `json:"enabled"`
-	RelayAddress string `json:"relay_address"`
-	ProbePorts   []int  `json:"probe_ports"`
-	SNI          string `json:"sni"`
-	BalancerUUID string `json:"balancer_uuid"`
-	Interval     int    `json:"interval"`
+	Enabled      bool               `json:"enabled"`
+	RelayAddress string             `json:"relay_address"`
+	ProbePorts   []int              `json:"probe_ports"`
+	SNI          string             `json:"sni"`
+	Probes       []mesh.ProbeTarget `json:"probes,omitempty"`
+	BalancerUUID string             `json:"balancer_uuid"`
+	Interval     int                `json:"interval"`
+}
+
+// enrolledEntry mirrors a row in mesh/enrolled.json. The Mesh controller
+// persists it on enroll; we read it here to resolve exit nodes by mesh
+// name and their public underlay host so we can match them against the
+// panel's row in `nodes`.
+type enrolledEntry struct {
+	Transport string `json:"transport"`
+	Role      string `json:"role"`
+	Host      string `json:"host"`
+	Overlay   string `json:"overlay"`
+}
+
+// ProbeInbound is one client-facing endpoint of a node: the port a client
+// connects to and the TLS SNI (reality/tls serverName) the server answers
+// with. Those are exactly the two values a TLS probe needs.
+type ProbeInbound struct {
+	ID       int    `json:"id"`
+	Port     int    `json:"port"`
+	SNI      string `json:"sni"`
+	Protocol string `json:"protocol,omitempty"`
+	Remark   string `json:"remark,omitempty"`
+	Address  string `json:"address,omitempty"`
+	// Universal marks an inbound that is published on every exit node.
+	Universal bool `json:"universal,omitempty"`
+	// Probeable tells whether the endpoint can answer a TLS probe at all:
+	// only TLS/reality endpoints with a server name can.
+	Probeable bool `json:"probeable"`
+}
+
+// ProbeNode is a mesh node together with the inbounds it publishes to
+// clients. The Mesh settings page renders one card per node and lets the
+// operator toggle which of its inbounds are probed.
+type ProbeNode struct {
+	Name     string         `json:"name"`
+	Label    string         `json:"label,omitempty"`
+	Role     string         `json:"role"`
+	Host     string         `json:"host"`
+	Overlay  string         `json:"overlay"`
+	Inbounds []ProbeInbound `json:"inbounds"`
+}
+
+// ProbePresetSet is the payload of GET /panel/mesh/probe-presets.
+type ProbePresetSet struct {
+	Nodes []ProbeNode `json:"nodes"`
+}
+
+// inboundSNI extracts the TLS server name a client has to send for the
+// given inbound (reality first, then plain TLS).
+func inboundSNI(inb *model.Inbound) string {
+	var ss map[string]any
+	if err := json.Unmarshal([]byte(inb.StreamSettings), &ss); err != nil {
+		return ""
+	}
+	switch ss["security"] {
+	case "reality":
+		if rs, ok := ss["realitySettings"].(map[string]any); ok {
+			if rsset, ok := rs["settings"].(map[string]any); ok {
+				if s, ok := rsset["serverName"].(string); ok {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+	case "tls":
+		if ts, ok := ss["tlsSettings"].(map[string]any); ok {
+			if s, ok := ts["serverName"].(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+// MeshProbePresets inspects the panel database for every mesh node and
+// returns the client-facing inbounds (port + TLS SNI) of each of them, so
+// the operator can pick probe targets with switches instead of typing
+// values by hand.
+func MeshProbePresets(_ context.Context) (*ProbePresetSet, error) {
+	out := &ProbePresetSet{Nodes: []ProbeNode{}}
+	enrolledPath := filepath.Join(meshDirectory(), "enrolled.json")
+	b, e := os.ReadFile(enrolledPath)
+	if e != nil {
+		return out, nil
+	}
+	var enrolled map[string]enrolledEntry
+	if e = json.Unmarshal(b, &enrolled); e != nil {
+		return out, nil
+	}
+	db := database.GetDB()
+
+	// mesh node name -> panel node id (the mesh agent runs on the panel node
+	// with the same public address).
+	type panelNode struct {
+		id    int
+		label string
+	}
+	meshToPanel := map[string]panelNode{}
+	for name, en := range enrolled {
+		var nodes []model.Node
+		if err := db.Model(&model.Node{}).Where("address LIKE ?", "%"+en.Host+"%").Find(&nodes).Error; err != nil || len(nodes) == 0 {
+			continue
+		}
+		meshToPanel[name] = panelNode{id: nodes[0].Id, label: nodes[0].Name}
+	}
+
+	// inbound -> nodes it is published on, plus the published port/address.
+	var mappings []model.InboundNodeMapping
+	if err := db.Find(&mappings).Error; err != nil {
+		return out, nil
+	}
+	type inboundRef struct {
+		inboundID int
+		port      int
+		address   string
+	}
+	byNode := map[int][]inboundRef{}
+	for _, mp := range mappings {
+		ref := inboundRef{inboundID: mp.InboundId}
+		if mp.PublishedPort > 0 {
+			ref.port = mp.PublishedPort
+		}
+		ref.address = strings.TrimSpace(mp.PublishedAddress)
+		byNode[mp.NodeId] = append(byNode[mp.NodeId], ref)
+	}
+	// count how many distinct nodes publish each inbound
+	inboundNodes := map[int]map[int]bool{}
+	for _, mp := range mappings {
+		if inboundNodes[mp.InboundId] == nil {
+			inboundNodes[mp.InboundId] = map[int]bool{}
+		}
+		inboundNodes[mp.InboundId][mp.NodeId] = true
+	}
+	// exit node ids: an inbound published on every exit is a shared check
+	exitIDs := map[int]bool{}
+	for name, en := range enrolled {
+		if en.Role != "exit" {
+			continue
+		}
+		if pn, ok := meshToPanel[name]; ok {
+			exitIDs[pn.id] = true
+		}
+	}
+
+	names := make([]string, 0, len(enrolled))
+	for name := range enrolled {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		en := enrolled[name]
+		pn, ok := meshToPanel[name]
+		if !ok {
+			out.Nodes = append(out.Nodes, ProbeNode{
+				Name: name, Role: en.Role, Host: en.Host, Overlay: en.Overlay,
+				Inbounds: []ProbeInbound{},
+			})
+			continue
+		}
+		pnNode := ProbeNode{
+			Name: name, Label: pn.label, Role: en.Role,
+			Host: en.Host, Overlay: en.Overlay, Inbounds: []ProbeInbound{},
+		}
+		seen := map[string]bool{}
+		for _, ref := range byNode[pn.id] {
+			var inb model.Inbound
+			if err := db.Model(&model.Inbound{}).Where("id = ?", ref.inboundID).First(&inb).Error; err != nil {
+				continue
+			}
+			if !inb.Enable {
+				continue
+			}
+			sni := inboundSNI(&inb)
+			port := ref.port
+			if port <= 0 {
+				port = int(inb.Port)
+			}
+			if port <= 0 || port > 65535 {
+				continue
+			}
+			key := fmt.Sprintf("%d|%s", port, sni)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			universal := len(exitIDs) > 0
+			for id := range exitIDs {
+				if !inboundNodes[inb.Id][id] {
+					universal = false
+					break
+				}
+			}
+			pnNode.Inbounds = append(pnNode.Inbounds, ProbeInbound{
+				ID:        inb.Id,
+				Port:      port,
+				SNI:       sni,
+				Protocol:  string(inb.Protocol),
+				Remark:    inb.Remark,
+				Address:   ref.address,
+				Universal: universal,
+				Probeable: sni != "",
+			})
+		}
+		sort.Slice(pnNode.Inbounds, func(i, j int) bool {
+			if pnNode.Inbounds[i].Port != pnNode.Inbounds[j].Port {
+				return pnNode.Inbounds[i].Port < pnNode.Inbounds[j].Port
+			}
+			return pnNode.Inbounds[i].SNI < pnNode.Inbounds[j].SNI
+		})
+		out.Nodes = append(out.Nodes, pnNode)
+	}
+	return out, nil
+}
+
+// MeshInboundRequest describes the bulk "create one inbound for the mesh
+// nodes" action: one inbound, published on every selected mesh node, with
+// the port and SNI the clients use.
+type MeshInboundRequest struct {
+	Port     int      `json:"port"`
+	SNI      string   `json:"sni"`
+	Protocol string   `json:"protocol"`
+	Security string   `json:"security"`
+	Remark   string   `json:"remark"`
+	Nodes    []string `json:"nodes"`
+	AddProbe bool     `json:"add_probe"`
+}
+
+// MeshInboundResult reports what the bulk creation did.
+type MeshInboundResult struct {
+	InboundID int                `json:"inboundId"`
+	Tag       string             `json:"tag"`
+	Port      int                `json:"port"`
+	SNI       string             `json:"sni"`
+	Protocol  string             `json:"protocol"`
+	Security  string             `json:"security"`
+	Client    string             `json:"client"`
+	Nodes     []string           `json:"nodes"`
+	Probes    []mesh.ProbeTarget `json:"probes,omitempty"`
+}
+
+// meshPanelTarget is a mesh node together with the panel node it runs on.
+type meshPanelTarget struct {
+	Name    string
+	Label   string
+	Role    string
+	Host    string
+	Overlay string
+	NodeID  int
+}
+
+// meshPanelTargets resolves every enrolled mesh node to its panel node.
+func meshPanelTargets() ([]meshPanelTarget, error) {
+	out := []meshPanelTarget{}
+	b, e := os.ReadFile(filepath.Join(meshDirectory(), "enrolled.json"))
+	if e != nil {
+		return out, e
+	}
+	var enrolled map[string]enrolledEntry
+	if e = json.Unmarshal(b, &enrolled); e != nil {
+		return out, e
+	}
+	db := database.GetDB()
+	names := make([]string, 0, len(enrolled))
+	for name := range enrolled {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		en := enrolled[name]
+		t := meshPanelTarget{Name: name, Role: en.Role, Host: en.Host, Overlay: en.Overlay}
+		var nodes []model.Node
+		if err := db.Model(&model.Node{}).Where("address LIKE ?", "%"+en.Host+"%").Find(&nodes).Error; err == nil && len(nodes) > 0 {
+			t.NodeID = nodes[0].Id
+			t.Label = nodes[0].Name
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// randomShortIds generates a few reality short ids for a new inbound.
+func randomShortIds() []string {
+	out := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
+		b := make([]byte, 4)
+		if _, e := rand.Read(b); e != nil {
+			continue
+		}
+		out = append(out, hex.EncodeToString(b))
+	}
+	if len(out) == 0 {
+		out = append(out, "00000000")
+	}
+	return out
+}
+
+// MeshCreateInbound creates one inbound and publishes it on the selected
+// mesh nodes in a single step: the inbound is bound to every node, the
+// placement hosts appear automatically, and (optionally) a TLS probe target
+// is registered for every node.
+func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundResult, error) {
+	if req.Port < 1 || req.Port > 65535 {
+		return nil, errors.New("неверный порт")
+	}
+	sni := strings.TrimSpace(req.SNI)
+	if sni == "" || !meshDNS.MatchString(sni) {
+		return nil, errors.New("SNI должен быть именем хоста")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
+	if protocol == "" {
+		protocol = "vless"
+	}
+	if protocol != "vless" && protocol != "trojan" {
+		return nil, errors.New("поддерживаются только протоколы vless и trojan")
+	}
+	security := strings.ToLower(strings.TrimSpace(req.Security))
+	if security == "" {
+		security = "reality"
+	}
+	if security != "reality" && security != "tls" {
+		return nil, errors.New("поддерживаются только reality и tls")
+	}
+
+	targets, e := meshPanelTargets()
+	if e != nil {
+		return nil, e
+	}
+	want := map[string]bool{}
+	for _, n := range req.Nodes {
+		if n != "" {
+			want[n] = true
+		}
+	}
+	selected := []meshPanelTarget{}
+	for _, t := range targets {
+		if t.NodeID == 0 {
+			continue
+		}
+		if len(want) > 0 && !want[t.Name] {
+			continue
+		}
+		selected = append(selected, t)
+	}
+	if len(selected) == 0 {
+		return nil, errors.New("нет нод mesh для публикации")
+	}
+
+	stream := map[string]any{
+		"network":  "tcp",
+		"security": security,
+		"tcpSettings": map[string]any{
+			"acceptProxyProtocol": false,
+			"header":              map[string]any{"type": "none"},
+		},
+	}
+	switch security {
+	case "reality":
+		kp, ke := (&ServerService{}).GetNewX25519Cert()
+		if ke != nil {
+			return nil, errors.New("не удалось сгенерировать ключ reality: " + ke.Error())
+		}
+		km, _ := kp.(map[string]any)
+		priv, _ := km["privateKey"].(string)
+		pub, _ := km["publicKey"].(string)
+		stream["realitySettings"] = map[string]any{
+			"show":        false,
+			"xver":        0,
+			"target":      sni + ":443",
+			"serverNames": []string{sni},
+			"privateKey":  priv,
+			"shortIds":    randomShortIds(),
+			"settings": map[string]any{
+				"publicKey":   pub,
+				"fingerprint": "chrome",
+				"serverName":  sni,
+				"spiderX":     "/",
+			},
+		}
+	case "tls":
+		cert, ce := GenerateSelfSignedServerTLS(SelfSignedTLSParams{
+			CommonName: sni, DNSNames: []string{sni}, ValidityDays: 365,
+		})
+		if ce != nil {
+			return nil, errors.New("не удалось создать сертификат: " + ce.Error())
+		}
+		stream["tlsSettings"] = map[string]any{
+			"serverName":               sni,
+			"alpn":                     []string{"h2", "http/1.1"},
+			"minVersion":               "1.2",
+			"cipherSuites":             "",
+			"preferServerCipherSuites": false,
+			"certificates": []any{map[string]any{
+				"certificate": []string{cert.CertPEM},
+				"key":         []string{cert.KeyPEM},
+			}},
+		}
+	}
+	streamJSON, e := json.Marshal(stream)
+	if e != nil {
+		return nil, e
+	}
+
+	settings := map[string]any{"clients": []any{}}
+	if protocol == "vless" {
+		settings["decryption"] = "none"
+		settings["encryption"] = "none"
+	}
+	settingsJSON, e := json.Marshal(settings)
+	if e != nil {
+		return nil, e
+	}
+
+	remark := strings.TrimSpace(req.Remark)
+	if remark == "" {
+		remark = "Mesh " + sni
+	}
+	inbound := &model.Inbound{
+		UserId:         1,
+		Remark:         remark,
+		Enable:         true,
+		Port:           req.Port,
+		Protocol:       model.Protocol(protocol),
+		Settings:       string(settingsJSON),
+		StreamSettings: string(streamJSON),
+		Sniffing:       "{\"enabled\":true,\"destOverride\":[\"http\",\"tls\",\"quic\"],\"routeOnly\":false}",
+	}
+	inboundSvc := &InboundService{}
+	inb, _, e := inboundSvc.AddInbound(inbound)
+	if e != nil {
+		return nil, e
+	}
+
+	// one client so the new endpoint is usable right away
+	clientName := fmt.Sprintf("mesh-%d-%d", req.Port, time.Now().Unix()%100000)
+	entity := &model.ClientEntity{
+		UserId:     1,
+		Name:       clientName,
+		Enable:     true,
+		TotalGB:    0,
+		ExpiryTime: 0,
+		InboundIds: []int{inb.Id},
+	}
+	if protocol == "trojan" {
+		pw := make([]byte, 16)
+		if _, e = rand.Read(pw); e == nil {
+			entity.Password = hex.EncodeToString(pw)
+		}
+	}
+	clientSvc := ClientService{}
+	if _, e = clientSvc.AddClient(1, entity); e != nil {
+		return nil, errors.New("инбаунд создан, но клиент не добавился: " + e.Error())
+	}
+
+	// publish on every selected node
+	nodeIds := make([]int, 0, len(selected))
+	names := make([]string, 0, len(selected))
+	for _, t := range selected {
+		nodeIds = append(nodeIds, t.NodeID)
+		names = append(names, t.Name)
+	}
+	nodeSvc := &NodeService{}
+	if e = nodeSvc.AssignInboundToNodes(inb.Id, nodeIds); e != nil {
+		return nil, e
+	}
+	// push the new inbound to the workers
+	(&XrayService{}).SyncWorkerXrayForInboundsAsync([]int{inb.Id})
+
+	res := &MeshInboundResult{
+		InboundID: inb.Id,
+		Tag:       inb.Tag,
+		Port:      req.Port,
+		SNI:       sni,
+		Protocol:  protocol,
+		Security:  security,
+		Client:    clientName,
+		Nodes:     names,
+	}
+
+	if req.AddProbe {
+		cfg, ce := MeshConfig()
+		if ce != nil {
+			return res, ce
+		}
+		added := []mesh.ProbeTarget{}
+		// a connection that is published on every exit node is checked once
+		// for the whole mesh, not once per node
+		exitNames := map[string]bool{}
+		exitCount := 0
+		for _, t := range targets {
+			if t.Role == "exit" && t.NodeID != 0 {
+				exitCount++
+				exitNames[t.Name] = true
+			}
+		}
+		selectedExit := 0
+		for _, t := range selected {
+			if exitNames[t.Name] {
+				selectedExit++
+			}
+		}
+		universal := exitCount > 0 && selectedExit == exitCount
+		targets := []mesh.ProbeTarget{}
+		if universal {
+			targets = append(targets, mesh.ProbeTarget{Node: "", Port: req.Port, SNI: sni})
+		} else {
+			for _, t := range selected {
+				targets = append(targets, mesh.ProbeTarget{Node: t.Name, Port: req.Port, SNI: sni})
+			}
+		}
+		for _, target := range targets {
+			dup := false
+			for _, p := range cfg.Probes {
+				if p.Node == target.Node && p.Port == target.Port && p.SNI == target.SNI {
+					dup = true
+					break
+				}
+			}
+			if dup {
+				continue
+			}
+			cfg.Probes = append(cfg.Probes, target)
+			added = append(added, target)
+		}
+		if len(added) > 0 {
+			if se := SaveMeshConfig(cfg); se != nil {
+				return res, se
+			}
+			res.Probes = added
+		}
+	}
+	return res, nil
 }
 
 var meshMu sync.Mutex
@@ -101,6 +636,14 @@ func ValidateMeshSettings(c MeshSettings) error {
 	if len(c.ProbePorts) > 0 && c.SNI == "" {
 		return errors.New("для TLS-проверок укажите SNI")
 	}
+	for _, p := range c.Probes {
+		if p.Port < 1 || p.Port > 65535 {
+			return errors.New("неверный порт проверки")
+		}
+		if p.SNI == "" {
+			return errors.New("для TLS-проверки укажите SNI")
+		}
+	}
 	if c.BalancerUUID != "" {
 		if _, e := meshID(c.BalancerUUID, "pool-"); e != nil {
 			return e
@@ -124,6 +667,11 @@ func SaveMeshConfig(c MeshSettings) error {
 	old, e := MeshConfig()
 	if e != nil {
 		return e
+	}
+	// The stock web UI does not know about per-node probes yet; a save from it
+	// must not wipe profiles configured through the API.
+	if c.Probes == nil {
+		c.Probes = old.Probes
 	}
 	if old.Enabled {
 		r := getMeshRuntime()

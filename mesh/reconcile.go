@@ -7,6 +7,8 @@ import (
 	"github.com/konstpic/sharx-code/v2/mesh/agent"
 	"github.com/konstpic/sharx-code/v2/mesh/protocol"
 	"net"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,10 +94,119 @@ func (c *Controller) cycle() {
 		c.balancerError = ""
 	}
 }
-func (c *Controller) probe() {
+
+type probeGroup struct {
+	SNI   string
+	Ports []int
+	Exits map[string]protocol.Node
+	// Node/Port identify the single configured check this group probes.
+	// Node is empty for a check that applies to every exit node.
+	Node string
+	Port int
+}
+
+// probeGroups builds the requests sent to entry agents. With explicit probes
+// configured each exit is probed with the ports and SNI that belong to it;
+// legacy probe_ports/sni are used as a fallback for old installations.
+func (c *Controller) probeGroups(exits map[string]protocol.Node) []probeGroup {
+	seed := c.seed()
+	if len(c.settings.Probes) > 0 {
+		var groups []probeGroup
+		names := make([]string, 0, len(exits))
+		for n := range exits {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			seen := map[string]bool{}
+			for _, p := range c.settings.Probes {
+				if p.Node != "" && p.Node != n {
+					continue
+				}
+				if p.Port < 1 || p.Port > 65535 || p.SNI == "" {
+					continue
+				}
+				key := probeTargetKey(p.Node, p.Port, p.SNI)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				groups = append(groups, probeGroup{
+					SNI:   p.SNI,
+					Ports: []int{p.Port},
+					Exits: map[string]protocol.Node{n: seed[n]},
+					Node:  p.Node,
+					Port:  p.Port,
+				})
+			}
+		}
+		return groups
+	}
 	if len(c.settings.Ports) == 0 || c.settings.SNI == "" {
+		return nil
+	}
+	return []probeGroup{{SNI: c.settings.SNI, Ports: c.settings.Ports, Exits: exits}}
+}
+
+// mergeProbeResults combines partial results from several probe requests into
+// one per-entry matrix so the existing health logic keeps working unchanged.
+func mergeProbeResults(results map[string]map[string]map[string]agent.PathResult, entry string, in map[string]map[string]agent.PathResult) {
+	if results[entry] == nil {
+		results[entry] = map[string]map[string]agent.PathResult{}
+	}
+	for exit, kinds := range in {
+		if results[entry][exit] == nil {
+			results[entry][exit] = map[string]agent.PathResult{}
+		}
+		for kind, r := range kinds {
+			old := results[entry][exit][kind]
+			old.Total += r.Total
+			old.OK += r.OK
+			if old.Total == r.Total && r.MS > 0 {
+				old.MS = r.MS
+			} else if r.MS > 0 {
+				old.MS = (old.MS + r.MS) / 2
+			}
+			results[entry][exit][kind] = old
+		}
+	}
+}
+
+// probeTargetKey identifies one configured check: the node scope (empty for a
+// check that applies to every exit), the port and the SNI.
+func probeTargetKey(node string, port int, sni string) string {
+	return node + "|" + strconv.Itoa(port) + "|" + sni
+}
+
+// mergeTargetResults stores the result of a single check per exit node so the
+// panel can show which connection answers and which one does not.
+func mergeTargetResults(targets map[string]map[string]map[string]agent.PathResult, group probeGroup, in map[string]map[string]agent.PathResult) {
+	if len(group.Ports) != 1 || group.SNI == "" {
 		return
 	}
+	key := probeTargetKey(group.Node, group.Ports[0], group.SNI)
+	for exit, kinds := range in {
+		if targets[exit] == nil {
+			targets[exit] = map[string]map[string]agent.PathResult{}
+		}
+		if targets[exit][key] == nil {
+			targets[exit][key] = map[string]agent.PathResult{}
+		}
+		for kind, r := range kinds {
+			old := targets[exit][key][kind]
+			old.Total += r.Total
+			old.OK += r.OK
+			if old.Total == r.Total && r.MS > 0 {
+				old.MS = r.MS
+			} else if r.MS > 0 {
+				old.MS = (old.MS + r.MS) / 2
+			}
+			targets[exit][key][kind] = old
+		}
+	}
+}
+
+func (c *Controller) probe() {
 	exits := map[string]protocol.Node{}
 	for n, d := range c.enrolled {
 		if d.Role == "exit" {
@@ -105,40 +216,49 @@ func (c *Controller) probe() {
 	if len(exits) == 0 {
 		return
 	}
-	b, _ := json.Marshal(agent.ProbeRequest{SNI: c.settings.SNI, Ports: c.settings.Ports, Exits: exits})
+	groups := c.probeGroups(exits)
+	if len(groups) == 0 {
+		return
+	}
 	results := map[string]map[string]map[string]agent.PathResult{}
+	targets := map[string]map[string]map[string]agent.PathResult{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for n, d := range c.enrolled {
 		if d.Role != "entry" {
 			continue
 		}
-		wg.Add(1)
-		go func(n string) {
-			defer wg.Done()
-			var out []byte
-			var e error
-			if c.enrolled[n].Transport == "embedded" {
-				var raw json.RawMessage
-				e = c.agentCall(n, "probe", json.RawMessage(b), &raw)
-				out = raw
-			} else {
-				out, e = c.remote(n, "/usr/local/lib/sharx-mesh/sharx-mesh-agent probe", b, 90*time.Second)
-			}
-			if e != nil {
-				return
-			}
-			var v map[string]map[string]agent.PathResult
-			if json.Unmarshal(out, &v) != nil {
-				return
-			}
-			mu.Lock()
-			results[n] = v
-			mu.Unlock()
-		}(n)
+		for _, g := range groups {
+			wg.Add(1)
+			go func(entry string, group probeGroup) {
+				defer wg.Done()
+				b, _ := json.Marshal(agent.ProbeRequest{SNI: group.SNI, Ports: group.Ports, Exits: group.Exits})
+				var out []byte
+				var e error
+				if c.enrolled[entry].Transport == "embedded" {
+					var raw json.RawMessage
+					e = c.agentCall(entry, "probe", json.RawMessage(b), &raw)
+					out = raw
+				} else {
+					out, e = c.remote(entry, "/usr/local/lib/sharx-mesh/sharx-mesh-agent probe", b, 90*time.Second)
+				}
+				if e != nil {
+					return
+				}
+				var v map[string]map[string]agent.PathResult
+				if json.Unmarshal(out, &v) != nil {
+					return
+				}
+				mu.Lock()
+				mergeProbeResults(results, entry, v)
+				mergeTargetResults(targets, group, v)
+				mu.Unlock()
+			}(n, g)
+		}
 	}
 	wg.Wait()
 	c.matrix = results
+	c.targets = targets
 	for n := range exits {
 		h := c.health[n]
 		if h == nil {

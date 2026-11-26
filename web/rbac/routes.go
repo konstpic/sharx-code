@@ -163,6 +163,8 @@ var routes = map[string][]string{
 
 	// ----- infrastructure: nodes, balancers -----
 	"GET /panel/mesh/status":                       {MeshRead},
+	"GET /panel/mesh/probe-presets":                {MeshRead},
+	"POST /panel/mesh/inbound/create":              {MeshOperate},
 	"POST /panel/mesh/settings":                    {MeshOperate},
 	"POST /panel/mesh/ssh-hostkey":                 {MeshOperate},
 	"POST /panel/mesh/action/:action":              {MeshOperate},
