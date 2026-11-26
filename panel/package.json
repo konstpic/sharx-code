@@ -8,7 +8,8 @@
     "sync-toml": "node scripts/sync-toml-from-en.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -18,7 +19,7 @@
     "framer-motion": "^12.38.0",
     "i18next": "^26.0.6",
     "lucide-react": "^0.474.0",
-    "next": "15.5.28",
+    "next": "15.5.29",
     "qrcode.react": "^4.2.0",
     "qs": "^6.15.1",
     "react": "19.3.0-canary-561ed529-20260423",
@@ -45,7 +46,8 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.15",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "3.2.6"
   },
   "overrides": {
     "postcss": "^8.5.28",

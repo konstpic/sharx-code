@@ -42,6 +42,7 @@ type MeshSettings struct {
 // name and their public underlay host so we can match them against the
 // panel's row in `nodes`.
 type enrolledEntry struct {
+	Node      string `json:"rw_node"`
 	Transport string `json:"transport"`
 	Role      string `json:"role"`
 	Host      string `json:"host"`
@@ -114,31 +115,14 @@ func inboundSNI(inb *model.Inbound) string {
 // values by hand.
 func MeshProbePresets(_ context.Context) (*ProbePresetSet, error) {
 	out := &ProbePresetSet{Nodes: []ProbeNode{}}
-	enrolledPath := filepath.Join(meshDirectory(), "enrolled.json")
-	b, e := os.ReadFile(enrolledPath)
-	if e != nil {
+	targets, err := meshPanelTargets()
+	if os.IsNotExist(err) {
 		return out, nil
 	}
-	var enrolled map[string]enrolledEntry
-	if e = json.Unmarshal(b, &enrolled); e != nil {
-		return out, nil
+	if err != nil {
+		return nil, err
 	}
 	db := database.GetDB()
-
-	// mesh node name -> panel node id (the mesh agent runs on the panel node
-	// with the same public address).
-	type panelNode struct {
-		id    int
-		label string
-	}
-	meshToPanel := map[string]panelNode{}
-	for name, en := range enrolled {
-		var nodes []model.Node
-		if err := db.Model(&model.Node{}).Where("address LIKE ?", "%"+en.Host+"%").Find(&nodes).Error; err != nil || len(nodes) == 0 {
-			continue
-		}
-		meshToPanel[name] = panelNode{id: nodes[0].Id, label: nodes[0].Name}
-	}
 
 	// inbound -> nodes it is published on, plus the published port/address.
 	var mappings []model.InboundNodeMapping
@@ -160,46 +144,28 @@ func MeshProbePresets(_ context.Context) (*ProbePresetSet, error) {
 		byNode[mp.NodeId] = append(byNode[mp.NodeId], ref)
 	}
 	// count how many distinct nodes publish each inbound
-	inboundNodes := map[int]map[int]bool{}
+	inboundNodes := map[int]map[int]int{}
 	for _, mp := range mappings {
 		if inboundNodes[mp.InboundId] == nil {
-			inboundNodes[mp.InboundId] = map[int]bool{}
+			inboundNodes[mp.InboundId] = map[int]int{}
 		}
-		inboundNodes[mp.InboundId][mp.NodeId] = true
+		inboundNodes[mp.InboundId][mp.NodeId] = mp.PublishedPort
 	}
 	// exit node ids: an inbound published on every exit is a shared check
 	exitIDs := map[int]bool{}
-	for name, en := range enrolled {
-		if en.Role != "exit" {
-			continue
-		}
-		if pn, ok := meshToPanel[name]; ok {
-			exitIDs[pn.id] = true
+	allExitsResolved := true
+	for _, t := range targets {
+		if t.Role == "exit" {
+			if t.NodeID == 0 {
+				allExitsResolved = false
+			}
+			exitIDs[t.NodeID] = true
 		}
 	}
-
-	names := make([]string, 0, len(enrolled))
-	for name := range enrolled {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		en := enrolled[name]
-		pn, ok := meshToPanel[name]
-		if !ok {
-			out.Nodes = append(out.Nodes, ProbeNode{
-				Name: name, Role: en.Role, Host: en.Host, Overlay: en.Overlay,
-				Inbounds: []ProbeInbound{},
-			})
-			continue
-		}
-		pnNode := ProbeNode{
-			Name: name, Label: pn.label, Role: en.Role,
-			Host: en.Host, Overlay: en.Overlay, Inbounds: []ProbeInbound{},
-		}
+	for _, t := range targets {
+		pnNode := ProbeNode{Name: t.Name, Label: t.Label, Role: t.Role, Host: t.Host, Overlay: t.Overlay, Inbounds: []ProbeInbound{}}
 		seen := map[string]bool{}
-		for _, ref := range byNode[pn.id] {
+		for _, ref := range byNode[t.NodeID] {
 			var inb model.Inbound
 			if err := db.Model(&model.Inbound{}).Where("id = ?", ref.inboundID).First(&inb).Error; err != nil {
 				continue
@@ -220,9 +186,13 @@ func MeshProbePresets(_ context.Context) (*ProbePresetSet, error) {
 				continue
 			}
 			seen[key] = true
-			universal := len(exitIDs) > 0
+			universal := allExitsResolved && len(exitIDs) > 0
 			for id := range exitIDs {
-				if !inboundNodes[inb.Id][id] {
+				published, ok := inboundNodes[inb.Id][id]
+				if published == 0 {
+					published = inb.Port
+				}
+				if !ok || published != port {
 					universal = false
 					break
 				}
@@ -296,7 +266,10 @@ func meshPanelTargets() ([]meshPanelTarget, error) {
 	if e = json.Unmarshal(b, &enrolled); e != nil {
 		return out, e
 	}
-	db := database.GetDB()
+	var nodes []model.Node
+	if e := database.GetDB().Select("id", "address", "name").Find(&nodes).Error; e != nil {
+		return nil, e
+	}
 	names := make([]string, 0, len(enrolled))
 	for name := range enrolled {
 		names = append(names, name)
@@ -305,14 +278,33 @@ func meshPanelTargets() ([]meshPanelTarget, error) {
 	for _, name := range names {
 		en := enrolled[name]
 		t := meshPanelTarget{Name: name, Role: en.Role, Host: en.Host, Overlay: en.Overlay}
-		var nodes []model.Node
-		if err := db.Model(&model.Node{}).Where("address LIKE ?", "%"+en.Host+"%").Find(&nodes).Error; err == nil && len(nodes) > 0 {
-			t.NodeID = nodes[0].Id
-			t.Label = nodes[0].Name
+		if node := resolveMeshPanelNode(en, nodes); node != nil {
+			t.NodeID, t.Label = node.Id, node.Name
 		}
 		out = append(out, t)
 	}
 	return out, nil
+}
+
+// Modern enrollment records identify the panel resource even after an IP change.
+func resolveMeshPanelNode(en enrolledEntry, nodes []model.Node) *model.Node {
+	var match *model.Node
+	for i := range nodes {
+		n := &nodes[i]
+		if en.Node != "" {
+			if en.Node == fmt.Sprintf("node-%d", n.Id) {
+				return n
+			}
+			continue
+		}
+		if en.Host != "" && strings.EqualFold(hostNodeAddress(n.Address), en.Host) {
+			if match != nil {
+				return nil
+			}
+			match = n
+		}
+	}
+	return match
 }
 
 // randomShortIds generates a few reality short ids for a new inbound.
@@ -335,7 +327,12 @@ func randomShortIds() []string {
 // mesh nodes in a single step: the inbound is bound to every node, the
 // placement hosts appear automatically, and (optionally) a TLS probe target
 // is registered for every node.
-func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundResult, error) {
+func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (_ *MeshInboundResult, err error) {
+	meshOperationsMu.Lock()
+	defer meshOperationsMu.Unlock()
+	if !meshMulti() {
+		return nil, errors.New("mesh доступен только в multi-node режиме")
+	}
 	if req.Port < 1 || req.Port > 65535 {
 		return nil, errors.New("неверный порт")
 	}
@@ -371,12 +368,18 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 	selected := []meshPanelTarget{}
 	for _, t := range targets {
 		if t.NodeID == 0 {
+			if want[t.Name] || (len(want) == 0 && t.Role == "exit") {
+				return nil, fmt.Errorf("не удалось определить ноду панели для %s", t.Name)
+			}
 			continue
 		}
 		if len(want) > 0 && !want[t.Name] {
 			continue
 		}
 		selected = append(selected, t)
+	}
+	if len(want) > 0 && len(selected) != len(want) {
+		return nil, errors.New("выбрана неизвестная нода mesh")
 	}
 	if len(selected) == 0 {
 		return nil, errors.New("нет нод mesh для публикации")
@@ -468,7 +471,7 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 	}
 
 	// one client so the new endpoint is usable right away
-	clientName := fmt.Sprintf("mesh-%d-%d", req.Port, time.Now().Unix()%100000)
+	clientName := fmt.Sprintf("mesh-%d-%d", req.Port, inb.Id)
 	entity := &model.ClientEntity{
 		UserId:     1,
 		Name:       clientName,
@@ -477,15 +480,26 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 		ExpiryTime: 0,
 		InboundIds: []int{inb.Id},
 	}
+	clientSvc := ClientService{}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if entity.Id != 0 {
+			_, cleanup := clientSvc.DeleteClient(1, entity.Id)
+			err = errors.Join(err, cleanup)
+		}
+		_, cleanup := inboundSvc.DelInbound(inb.Id)
+		err = errors.Join(err, cleanup)
+	}()
 	if protocol == "trojan" {
 		pw := make([]byte, 16)
 		if _, e = rand.Read(pw); e == nil {
 			entity.Password = hex.EncodeToString(pw)
 		}
 	}
-	clientSvc := ClientService{}
 	if _, e = clientSvc.AddClient(1, entity); e != nil {
-		return nil, errors.New("инбаунд создан, но клиент не добавился: " + e.Error())
+		return nil, fmt.Errorf("ошибка создания клиента: %w", e)
 	}
 
 	// publish on every selected node
@@ -524,7 +538,7 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 		exitNames := map[string]bool{}
 		exitCount := 0
 		for _, t := range targets {
-			if t.Role == "exit" && t.NodeID != 0 {
+			if t.Role == "exit" {
 				exitCount++
 				exitNames[t.Name] = true
 			}
@@ -541,6 +555,9 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 			targets = append(targets, mesh.ProbeTarget{Node: "", Port: req.Port, SNI: sni})
 		} else {
 			for _, t := range selected {
+				if t.Role != "exit" {
+					continue
+				}
 				targets = append(targets, mesh.ProbeTarget{Node: t.Name, Port: req.Port, SNI: sni})
 			}
 		}
@@ -559,7 +576,7 @@ func MeshCreateInbound(_ context.Context, req MeshInboundRequest) (*MeshInboundR
 			added = append(added, target)
 		}
 		if len(added) > 0 {
-			if se := SaveMeshConfig(cfg); se != nil {
+			if se := saveMeshConfigLocked(cfg); se != nil {
 				return res, se
 			}
 			res.Probes = added
@@ -654,6 +671,10 @@ func ValidateMeshSettings(c MeshSettings) error {
 func SaveMeshConfig(c MeshSettings) error {
 	meshOperationsMu.Lock()
 	defer meshOperationsMu.Unlock()
+	return saveMeshConfigLocked(c)
+}
+
+func saveMeshConfigLocked(c MeshSettings) error {
 	if c.ProbePorts == nil {
 		c.ProbePorts = []int{}
 	}

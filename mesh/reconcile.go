@@ -109,7 +109,6 @@ type probeGroup struct {
 // configured each exit is probed with the ports and SNI that belong to it;
 // legacy probe_ports/sni are used as a fallback for old installations.
 func (c *Controller) probeGroups(exits map[string]protocol.Node) []probeGroup {
-	seed := c.seed()
 	if len(c.settings.Probes) > 0 {
 		var groups []probeGroup
 		names := make([]string, 0, len(exits))
@@ -134,7 +133,7 @@ func (c *Controller) probeGroups(exits map[string]protocol.Node) []probeGroup {
 				groups = append(groups, probeGroup{
 					SNI:   p.SNI,
 					Ports: []int{p.Port},
-					Exits: map[string]protocol.Node{n: seed[n]},
+					Exits: map[string]protocol.Node{n: exits[n]},
 					Node:  p.Node,
 					Port:  p.Port,
 				})
@@ -222,6 +221,7 @@ func (c *Controller) probe() {
 	}
 	results := map[string]map[string]map[string]agent.PathResult{}
 	targets := map[string]map[string]map[string]agent.PathResult{}
+	healthy := map[string]map[string]bool{}
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for n, d := range c.enrolled {
@@ -250,6 +250,16 @@ func (c *Controller) probe() {
 					return
 				}
 				mu.Lock()
+				for exit, kinds := range v {
+					if healthy[exit] == nil {
+						healthy[exit] = map[string]bool{}
+					}
+					for kind, path := range kinds {
+						if path.Total > 0 && path.Ratio() >= .67 {
+							healthy[exit][kind] = true
+						}
+					}
+				}
 				mergeProbeResults(results, entry, v)
 				mergeTargetResults(targets, group, v)
 				mu.Unlock()
@@ -267,20 +277,16 @@ func (c *Controller) probe() {
 		}
 		for _, kind := range []string{"direct", "wg"} {
 			known := false
-			ok := false
 			for _, r := range results {
 				if p, exists := r[n][kind]; exists && p.Total > 0 {
 					known = true
-					if p.Ratio() >= .67 {
-						ok = true
-					}
 				}
 			}
 			if known {
 				if kind == "direct" {
-					h.Direct.observe(ok)
+					h.Direct.observe(healthy[n][kind])
 				} else {
-					h.WG.observe(ok)
+					h.WG.observe(healthy[n][kind])
 				}
 			}
 		}

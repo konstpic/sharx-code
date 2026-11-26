@@ -8,10 +8,10 @@ const nativeRequire=createRequire(path.resolve('panel/package.json'));
 const cache=new Map();
 function load(file) {
  const target=path.resolve(file);if(cache.has(target))return cache.get(target);
- const module={exports:{}};cache.set(target,module.exports);
+ const loaded={exports:{}};cache.set(target,loaded.exports);
  const js=ts.transpileModule(readFileSync(target,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
- new Function('module','exports','require',js)(module,module.exports,name=>name.startsWith('.')?load(path.resolve(path.dirname(target),name+'.ts')):name.startsWith('@/')?load(path.resolve('panel',name.slice(2)+'.ts')):nativeRequire(name));
- return module.exports;
+ new Function('module','exports','require',js)(loaded,loaded.exports,name=>name.startsWith('.')?load(path.resolve(path.dirname(target),name+'.ts')):name.startsWith('@/')?load(path.resolve('panel',name.slice(2)+'.ts')):nativeRequire(name));
+ return loaded.exports;
 }
 const {matchesColumnFilter:match}=load('panel/lib/columnFilters.ts');
 const {parseLayout,defaultLayout,parseWorkspace,saveActiveBoard}=load('panel/lib/dashboardBuilder.ts');
@@ -34,36 +34,38 @@ test('date comparisons include the selected whole local day',()=>{
  assert.equal(match(noon,'2026-10-11..2026-10-12','date'),true);
  assert.equal(match(null,'нет','date'),true);
 });
-test('dashboard layout survives serialization, sanitizes bounds and fills new widgets',()=>{
- const parsed=parseLayout(JSON.stringify({version:1,order:['net_speed','net_speed','unknown','resources'],tiles:{net_speed:{width:99,height:-5,view:'table',title:'Network'}}}));
- assert.deepEqual(parsed.order.slice(0,2),['net_speed','resources']);
- assert.equal(new Set(parsed.order).size,parsed.order.length);
- assert.equal(parsed.tiles.net_speed.width,12);assert.equal(parsed.tiles.net_speed.height,3);
- assert.equal(parsed.tiles.net_speed.view,'table');assert.deepEqual(parseLayout(JSON.stringify(parsed)),parsed);
+test('saved panel layouts round-trip and reject unknown tiles',()=>{
+ const {gridVersion}=defaultLayout();
+ const input={version:1,gridVersion,order:['custom-test','unknown','custom-test'],
+  tiles:{'custom-test':{width:99,height:-5,title:'Network',view:'table'}},
+  panels:[{id:'custom-test',title:'Network',kind:'metric',metrics:['cpu'],code:'',text:'',url:''}]};
+ const layout=parseLayout(JSON.stringify(input));
+ assert.deepEqual(layout.order,['custom-test']);
+ assert.equal(layout.tiles['custom-test'].width,12);
+ assert.equal(layout.tiles['custom-test'].height,3);
+ assert.deepEqual(parseLayout(JSON.stringify(layout)),layout);
  assert.deepEqual(parseLayout('corrupted'),defaultLayout());
 });
 
-test('widgets that were split into several tiles keep every successor, in place',()=>{
- const {expandLegacyWidgetIds,parseDashboardWidgets,DASHBOARD_WIDGET_ORDER}=load('panel/lib/dashboardLayout.ts');
- assert.deepEqual(expandLegacyWidgetIds(['resources','quick_actions','uptime','network']),['resources','logs','core_versions','backup','uptime','net_speed','net_traffic','net_sockets','server_ip']);
- assert.deepEqual(expandLegacyWidgetIds(['logs','quick_actions']),['logs','core_versions','backup']);
- assert.deepEqual(parseDashboardWidgets(JSON.stringify(['quick_actions','network'])),['logs','core_versions','backup','net_speed','net_traffic','net_sockets','server_ip']);
- // old saved order: the successors take the place of the old id, new widgets are appended
- const layout=parseLayout(JSON.stringify({version:1,order:['resources','quick_actions','uptime','network']}));
- assert.deepEqual(layout.order.slice(0,9),['resources','logs','core_versions','backup','uptime','net_speed','net_traffic','net_sockets','server_ip']);
- assert.equal(new Set(layout.order).size,DASHBOARD_WIDGET_ORDER.length);
- assert.equal(layout.order.includes('quick_actions')||layout.order.includes('network'),false);
+test('legacy network and quick actions expand into independent tiles',()=>{
+ const {expandLegacyWidgetIds,parseDashboardWidgets}=load('panel/lib/dashboardLayout.ts');
+ const network=['net_up','net_down','net_total_sent','net_total_received','net_tcp','net_udp','server_ip'];
+ const actions=['logs','xray_version','telemt_version','core_update','core_controls','backup_export','backup_import','backup_config'];
+ assert.deepEqual(expandLegacyWidgetIds(['network','logs','quick_actions']),[...network,...actions]);
+ assert.deepEqual(new Set(parseDashboardWidgets(JSON.stringify(['network','quick_actions']))),new Set([...network,...actions]));
 });
 
-test('legacy dashboard migrates without losing order, size, or visibility; boards stay independent',()=>{
- const old={version:1,order:['net_speed','resources'],tiles:{net_speed:{width:8,height:7,view:'table',title:'Network'}},enabled:['network','quick_actions']};
+test('legacy visibility migrates to panels and a second board stays independent',()=>{
+ const old={version:1,order:['net_speed','logs'],enabled:['net_speed','logs']};
  const workspace=parseWorkspace(JSON.stringify(old),['resources']);
- assert.deepEqual(workspace.boards[0].enabled,['net_speed','net_traffic','net_sockets','server_ip','logs','core_versions','backup','telemt_dc']);
- assert.equal(workspace.boards[0].layout.tiles.net_speed.width,8);
- workspace.boards.push({id:'second',name:'Second',layout:defaultLayout(),enabled:[]});
- const changed=saveActiveBoard(workspace,{...workspace.boards[0].layout,panels:[{id:'custom-test',title:'Test',kind:'metric',metrics:['cpu'],code:'',text:'',url:''}]},['net_speed']);
- const restored=parseWorkspace(JSON.stringify(changed),['resources']);
- assert.equal(restored.boards[0].layout.panels.length,1);assert.equal(restored.boards[1].layout.panels.length,0);assert.deepEqual(restored.boards[1].enabled,[]);
+ const first=workspace.boards[0];
+ assert.deepEqual(new Set(first.layout.order),new Set(['custom-net-up','custom-net-down','custom-logs','custom-telemt-dc']));
+ const second={id:'second',name:'Second',layout:defaultLayout(),enabled:[]};
+ workspace.boards.push(second);
+ const changed=saveActiveBoard(workspace,second.layout);
+ assert.deepEqual(changed.boards[0].layout,second.layout);
+ assert.equal(changed.boards[1],second);
+ assert.deepEqual(parseWorkspace(JSON.stringify(changed),[]).boards.map(b=>b.layout.order),changed.boards.map(b=>b.layout.order));
 });
 test('dashboard reuses valid subscription layouts and template variables without exposing credentials',()=>{
  const {dashboardForm,DASHBOARD_FORMS,metricContext}=load('panel/lib/dashboardDesign.ts');
