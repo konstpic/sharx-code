@@ -16,7 +16,7 @@ require (
 	github.com/goccy/go-yaml v1.19.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/joho/godotenv v1.5.1
 	github.com/mymmrac/telego v1.4.0
 	github.com/nicksnyder/go-i18n/v2 v2.6.1
@@ -29,7 +29,7 @@ require (
 	github.com/xlzd/gotp v0.1.0
 	github.com/xtls/xray-core v1.260327.1-0.20260908222543-52a412d9e2f5
 	go.uber.org/atomic v1.11.0
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
 	golang.org/x/mod v0.41.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/text v0.43.0
