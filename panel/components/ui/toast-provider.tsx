@@ -10,12 +10,18 @@ import {
   useState,
 } from "react";
 
-type ToastItem = { id: number; type: "success" | "error" | "info"; message: string };
+type ToastItem = {
+  id: number;
+  type: "success" | "error" | "info";
+  message: string;
+  /** Optional second line: a hint the user should not miss. */
+  note?: string;
+};
 
 type ToastApi = {
-  success: (message: string) => void;
-  error: (message: string) => void;
-  info: (message: string) => void;
+  success: (message: string, note?: string) => void;
+  error: (message: string, note?: string) => void;
+  info: (message: string, note?: string) => void;
 };
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -25,19 +31,22 @@ const DURATION = 4000;
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
 
-  const push = useCallback((type: ToastItem["type"], message: string) => {
-    const id = Date.now() + Math.random();
-    setItems((prev) => [...prev, { id, type, message }]);
-    window.setTimeout(() => {
-      setItems((prev) => prev.filter((x) => x.id !== id));
-    }, DURATION);
-  }, []);
+  const push = useCallback(
+    (type: ToastItem["type"], message: string, note?: string) => {
+      const id = Date.now() + Math.random();
+      setItems((prev) => [...prev, { id, type, message, note }]);
+      window.setTimeout(() => {
+        setItems((prev) => prev.filter((x) => x.id !== id));
+      }, DURATION);
+    },
+    [],
+  );
 
   const value = useMemo<ToastApi>(
     () => ({
-      success: (m) => push("success", m),
-      error: (m) => push("error", m),
-      info: (m) => push("info", m),
+      success: (m, note) => push("success", m, note),
+      error: (m, note) => push("error", m, note),
+      info: (m, note) => push("info", m, note),
     }),
     [push],
   );
@@ -87,7 +96,12 @@ function Toast({ item }: { item: ToastItem }) {
       }
     >
       <Icon className="mt-0.5 size-4 shrink-0 opacity-85" aria-hidden />
-      <span className="min-w-0 flex-1">{item.message}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block">{item.message}</span>
+        {item.note ? (
+          <span className="mt-1 block text-xs opacity-80">{item.note}</span>
+        ) : null}
+      </span>
     </motion.div>
   );
 }

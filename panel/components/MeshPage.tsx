@@ -34,6 +34,8 @@ import {
 } from "@/components/xray/configurator/fields";
 import { MeshHelp } from "@/components/mesh/MeshHelp";
 import { MeshOverview } from "@/components/mesh/MeshOverview";
+import { MeshInboundCreate } from "@/components/mesh/MeshInboundCreate";
+import { MeshProbes, type MeshProbeTarget } from "@/components/mesh/MeshProbes";
 import { type MeshView } from "@/components/mesh/model";
 import { LogExplorer, type LogEntry } from "@/components/LogExplorer";
 
@@ -44,6 +46,8 @@ type Settings = {
   sni: string;
   balancer_uuid: string;
   interval: number;
+  /** Checks per connection: one entry per node (empty node = all exit nodes). */
+  probes?: MeshProbeTarget[];
 };
 type Worker = { id: number; name: string; enable: boolean };
 type Balancer = {
@@ -84,6 +88,7 @@ const defaults: Settings = {
   sni: "",
   balancer_uuid: "",
   interval: 30,
+  probes: [],
 };
 function Field({
   title,
@@ -117,6 +122,10 @@ export function MeshPage() {
   const [ports, setPorts] = useState(""),
     [nodes, setNodes] = useState<Worker[]>([]),
     [balancers, setBalancers] = useState<Balancer[]>([]);
+  /** Checks per connection: an empty node means "all exit nodes". */
+  const probes = settings.probes || [];
+  const setProbes = (next: MeshProbeTarget[]) =>
+    setSettings((s) => ({ ...s, probes: next }));
   const [error, setError] = useState(""),
     [pending, setPending] = useState(false),
     [nodeId, setNodeId] = useState(0),
@@ -130,6 +139,8 @@ export function MeshPage() {
     body: object;
   } | null>(null);
   const [tab, setTab] = useState("network");
+  /** Bumped to reload the list of published connections. */
+  const [probeReload, setProbeReload] = useState(0);
   const initialized = useRef(false),
     alive = useRef(true);
   const load = useCallback(async () => {
@@ -417,7 +428,7 @@ export function MeshPage() {
                 </Field>
                 <Field title={tr("sni", "TLS probe SNI")}>
                   <Input
-                    disabled={!operate}
+                    disabled={!operate || probes.length > 0}
                     value={settings.sni}
                     onChange={(e) =>
                       setSettings((s) => ({ ...s, sni: e.target.value }))
@@ -427,38 +438,150 @@ export function MeshPage() {
                 </Field>
                 <Field title={tr("ports", "TLS probe ports (comma-separated)")}>
                   <Input
-                    disabled={!operate}
+                    disabled={!operate || probes.length > 0}
                     value={ports}
                     onChange={(e) => setPorts(e.target.value)}
                   />
                 </Field>
               </div>
-              <p className="mt-3 text-sm text-[var(--fg-muted)]">
-                {tr(
-                  "probeHelp",
-                  "Use ports that answer HTTPS with this SNI on every exit. Leave empty for overlay monitoring only. TCP connect alone does not prove a working path.",
-                )}
-              </p>
-              {operate && (
-                <Button
-                  className="mt-4 min-h-11"
-                  variant="primary"
-                  loading={pending}
-                  disabled={busy}
-                  onClick={() =>
-                    void mutate("settings", {
-                      ...settings,
-                      probe_ports: ports
-                        .split(",")
-                        .filter((p) => p.trim())
-                        .map(Number),
-                    })
-                  }
-                >
-                  {tr("save", "Save configuration")}
-                </Button>
+              {probes.length === 0 && (
+                <p className="mt-3 text-sm text-[var(--fg-muted)]">
+                  {tr(
+                    "probeHelp",
+                    "Use ports that answer HTTPS with this SNI on every exit. Leave empty for overlay monitoring only. TCP connect alone does not prove a working path.",
+                  )}
+                </p>
               )}
             </Surface>
+          )}
+          {tab === "settings" && (
+            <>
+              <Surface>
+                <h2 className="font-semibold">
+                  {tr("probesSharedTitle", "Checks for all nodes")}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  {tr(
+                    "probesSharedTitleHint",
+                    "Pick a connection that is published on every exit node - one check validates the whole mesh.",
+                  )}
+                </p>
+                <div className="mt-4">
+                  <MeshProbes
+                    probes={probes}
+                    setProbes={setProbes}
+                    targets={status?.probe_targets}
+                    snapshotAt={status?.snapshot_at}
+                    reload={probeReload}
+                    mode="shared"
+                    operate={operate}
+                    tr={tr}
+                    onCreateAll={() => {
+                      const el = document.getElementById(
+                        "mesh-create-all",
+                      ) as HTMLDetailsElement | null;
+                      if (el) {
+                        el.open = true;
+                        el.scrollIntoView({
+                          behavior: "smooth",
+                          block: "center",
+                        });
+                      }
+                    }}
+                  />
+                </div>
+                <div className="mt-3">
+                  <details
+                    id="mesh-create-all"
+                    className="rounded-xl border border-[var(--border)] px-3 py-2"
+                  >
+                    <summary className="cursor-pointer select-none text-sm font-medium">
+                      {tr("inboundTitle", "Create a connection for all mesh nodes")}
+                    </summary>
+                    <p className="mt-1 text-xs text-[var(--fg-muted)]">
+                      {tr(
+                        "inboundHint",
+                        "One connection is created and published on every mesh node; the client placements appear automatically.",
+                      )}
+                    </p>
+                    <div className="mt-3">
+                      <MeshInboundCreate
+                        operate={operate}
+                        tr={tr}
+                        onDone={() => {
+                          setProbeReload((v) => v + 1);
+                          void getJson<Status>(panel("mesh/status")).then((r) => {
+                            if (!r.success) return;
+                            setStatus(r.obj);
+                            setSettings((s) => ({
+                              ...s,
+                              probes: r.obj.settings.probes || [],
+                            }));
+                          });
+                        }}
+                      />
+                    </div>
+                  </details>
+                </div>
+              </Surface>
+              <Surface>
+                <h2 className="font-semibold">
+                  {tr("probesByNodeTitle", "Checks by node and connection")}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--fg-muted)]">
+                  {tr(
+                    "probesByNodeHint",
+                    "Pick a node and one of its connections, then add the check.",
+                  )}
+                </p>
+                <div className="mt-4">
+                  <MeshProbes
+                    probes={probes}
+                    setProbes={setProbes}
+                    targets={status?.probe_targets}
+                    snapshotAt={status?.snapshot_at}
+                    reload={probeReload}
+                    mode="nodes"
+                    operate={operate}
+                    tr={tr}
+                  />
+                </div>
+              </Surface>
+              <Surface>
+                <p className="text-sm text-[var(--fg-muted)]">
+                  {tr(
+                    "probesHowTo",
+                    'How to add a check: 1) connect a node with the "Connect a participant to mesh" button (Mesh nodes tab); 2) create a connection for the mesh above - it appears in the list automatically; 3) pick the node and one of its connections and press "Add to check"; 4) turn the switch on and press Save.',
+                  )}
+                </p>
+                {operate && (
+                  <Button
+                    className="mt-4 min-h-11"
+                    variant="primary"
+                    loading={pending}
+                    disabled={busy}
+                    onClick={() =>
+                      void mutate("settings", {
+                        ...settings,
+                        probe_ports: ports
+                          .split(",")
+                          .filter((p) => p.trim())
+                          .map(Number),
+                        probes: probes
+                          .filter((p) => p && p.port && p.sni && p.on !== false)
+                          .map((p) => ({
+                            node: p.node || "",
+                            port: Number(p.port),
+                            sni: p.sni,
+                          })),
+                      })
+                    }
+                  >
+                    {tr("save", "Save configuration")}
+                  </Button>
+                )}
+              </Surface>
+            </>
           )}
           {status?.running && (
             <>

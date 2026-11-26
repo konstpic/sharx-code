@@ -45,6 +45,14 @@ export type MeshView = {
     string,
     Record<string, Record<string, { ok: number; total: number; ms: number }>>
   >;
+  /** Live result of every configured check, per exit node. */
+  probe_targets?: {
+    node: string;
+    port: number;
+    sni: string;
+    direct?: { ok: number; total: number; ms: number };
+    wg?: { ok: number; total: number; ms: number };
+  }[];
   relays?: Record<string, { on: boolean; pending: boolean; reason?: string }>;
   relay_modes?: Record<string, string>;
   exits?: Record<
