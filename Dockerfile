@@ -105,7 +105,7 @@ RUN ARCH="" && case "${TARGETARCH}" in amd64) ARCH=linux-amd64 ;; arm64) ARCH=li
 # version it doesn't recognize; on mismatch GetDb() silently falls back to a lossy GORM-based
 # export (no primary keys/FKs/sequences — see exportDbViaGORM in web/service/server.go), which
 # corrupts the schema on the next restore. Bump both together when moving to a new Postgres major.
-FROM alpine:3.20
+FROM alpine:3.22
 ENV TZ=Asia/Tehran
 WORKDIR /app
 

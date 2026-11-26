@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/g
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/sharx-balancer ./balancer
 
 FROM alpine:3.22
-RUN apk --no-cache add ca-certificates tzdata haproxy nginx nginx-mod-stream iproute2-ss && \
+RUN apk --no-cache upgrade && apk --no-cache add ca-certificates tzdata "libcrypto3>=3.5.9-r2" "libssl3>=3.5.9-r2" haproxy nginx nginx-mod-stream iproute2-ss && \
     mkdir -p /app/data /var/run && rm -f /etc/nginx/http.d/default.conf
 COPY --from=mesh-etcd /out/etcd /usr/local/bin/etcd
 COPY --from=mesh-wireguard /out/wireguard-go /usr/local/bin/wireguard-go
