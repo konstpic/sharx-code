@@ -117,6 +117,7 @@ type Agent struct {
 	hops         map[string]string
 	loads        map[string]float64
 	endpoints    map[string]string
+	sources      map[string]string
 }
 
 func validPaths(path string, cfg Config) bool {
@@ -149,7 +150,7 @@ func New(path string) (*Agent, error) {
 	if nodes[cfg.Name].Overlay != cfg.Overlay {
 		return nil, errors.New("agent not present in registry")
 	}
-	a := &Agent{cfg: cfg, path: path, nodes: nodes, trackers: map[string]*protocol.Tracker{}, graph: protocol.Graph{}, hops: map[string]string{}, loads: map[string]float64{}, endpoints: map[string]string{}}
+	a := &Agent{cfg: cfg, path: path, nodes: nodes, trackers: map[string]*protocol.Tracker{}, graph: protocol.Graph{}, hops: map[string]string{}, loads: map[string]float64{}, endpoints: map[string]string{}, sources: map[string]string{}}
 	if len(cfg.Etcd) > 0 {
 		c, e := TLSClient(cfg.TLS)
 		if e != nil {
@@ -224,6 +225,21 @@ func EnsureInterface(ctx context.Context, name string) error {
 	return must(ctx, "wireguard-go", name)
 }
 func dev(n string) string { return "sxm-" + n }
+
+// sourceFor returns the local IPv4 address the kernel picks to reach addr.
+func sourceFor(ctx context.Context, addr string) string {
+	out, e := command(ctx, "ip", "-4", "route", "get", addr)
+	if e != nil {
+		return ""
+	}
+	f := strings.Fields(out)
+	for i := 0; i+1 < len(f); i++ {
+		if f[i] == "src" {
+			return f[i+1]
+		}
+	}
+	return ""
+}
 func link(mine, theirs string) string {
 	return fmt.Sprintf("10.204.%d.%d", protocol.Octet(mine), protocol.Octet(theirs))
 }
@@ -265,13 +281,25 @@ func (a *Agent) links(ctx context.Context) error {
 		}
 		ep := net.JoinHostPort(n.Underlay, strconv.Itoa(53000+protocol.Octet(a.cfg.Overlay)))
 		args := []string{"set", d, "private-key", a.cfg.KeyFile, "listen-port", strconv.Itoa(53000 + protocol.Octet(n.Overlay)), "peer", n.Pubkey, "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "25"}
-		if a.endpoints[p] != ep || exists != nil {
+		// WireGuard caches the resolved route per peer endpoint and invalidates
+		// that cache only when the endpoint is (re)applied. A change of the local
+		// source address is invisible to the peer configuration, so packets keep
+		// leaving with the old source IP until the endpoint is set again. The
+		// peer answers to the new address only, the old-source replies look
+		// INVALID to conntrack and get dropped, and the overlay link degrades
+		// to a few percent of loss. Re-apply the endpoint whenever the local
+		// source address for this peer changes.
+		src := sourceFor(ctx, n.Underlay)
+		if a.endpoints[p] != ep || exists != nil || (src != "" && a.sources[p] != src) {
 			args = append(args, "endpoint", ep)
 		}
 		if e := must(ctx, "wg", args...); e != nil {
 			return e
 		}
 		a.endpoints[p] = ep
+		if src != "" {
+			a.sources[p] = src
+		}
 		for _, args := range [][]string{{"link", "set", d, "mtu", "1280", "up"}, {"addr", "replace", link(a.cfg.Overlay, n.Overlay), "peer", link(n.Overlay, a.cfg.Overlay), "dev", d}} {
 			if e := must(ctx, "ip", args...); e != nil {
 				return e
