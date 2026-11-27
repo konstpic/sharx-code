@@ -398,10 +398,3 @@ func pruneTrafficHistory() {
 	}
 	trafficHistoryLastPrune = now
 }
-
-func recordIdleNodeTrafficPoll(id int, at int64) {
-	err := saveHistoryRows(database.GetDB(), nil, nil, []model.TrafficHistoryCoverage{{Kind: "node", EntityID: id, Bucket: at / trafficHistoryMinute * trafficHistoryMinute}})
-	if err != nil {
-		logger.Warningf("node traffic history coverage: %v", err)
-	}
-}

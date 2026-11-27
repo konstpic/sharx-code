@@ -431,10 +431,11 @@ type Node struct {
 	XrayState      string `json:"xrayState" gorm:"column:xray_state;default:unknown"`                      // running | stopped | error | unknown (worker Xray)
 	XrayVersion    string `json:"xrayVersion" gorm:"column:xray_version;default:''"`                       // cached Xray version from worker (e.g. "26.5.3"), empty when unknown
 	XrayBuild      string `json:"xrayBuild" gorm:"column:xray_build;default:''"`                           // cached Xray release the worker says it installed ("26.10.29", "26.10.29-sharx.1"), "bundled" for the image's own binary, empty when the worker does not report it
-	WorkerVersion  string `json:"workerVersion" gorm:"column:worker_version;default:''"`                   // cached SharX worker build/version from node API (sharxVersion)
-	TelemtState    string `json:"telemtState" gorm:"column:telemt_state;default:unknown"`                  // running | stopped | unknown (worker Telemt sidecars)
-	TelemtVersion  string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`                   // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown
-	AmneziaWgState string `json:"amneziawgState" gorm:"column:amneziawg_state;default:unknown"`            // running | stopped | unknown (worker AmneziaWG sidecars)
+	StatsBatchID   string `json:"-" gorm:"column:stats_batch_id;->"`
+	WorkerVersion  string `json:"workerVersion" gorm:"column:worker_version;default:''"`        // cached SharX worker build/version from node API (sharxVersion)
+	TelemtState    string `json:"telemtState" gorm:"column:telemt_state;default:unknown"`       // running | stopped | unknown (worker Telemt sidecars)
+	TelemtVersion  string `json:"telemtVersion" gorm:"column:telemt_version;default:''"`        // cached Telemt version from worker (e.g. "3.4.13"), empty when unknown
+	AmneziaWgState string `json:"amneziawgState" gorm:"column:amneziawg_state;default:unknown"` // running | stopped | unknown (worker AmneziaWG sidecars)
 
 	// Admin-selected core versions (empty = not pinned, worker keeps whatever it already has).
 	// Set when the admin explicitly installs a version via the panel; re-asserted on health

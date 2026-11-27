@@ -25,8 +25,8 @@ type bpsPair struct {
 var (
 	// panelLiveSpeed is the latest per-client speeds from the traffic collector (replaced each tick).
 	// Merged into HTTP list/get and WebSocket client payloads so the Speed column is not always empty.
-	panelLiveSpeedMu     sync.RWMutex
-	panelLiveSpeed       map[int]bpsPair
+	panelLiveSpeedMu sync.RWMutex
+	panelLiveSpeed   map[int]bpsPair
 
 	hysteriaInboundCumulativeMap = make(map[string]struct {
 		up   int64
@@ -108,6 +108,10 @@ func saveClientTrafficFields(tx *gorm.DB, clients []*model.ClientEntity, statusB
 }
 
 func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic, _ *InboundService, history ...*trafficHistoryBatch) (map[string]string, map[int]bool, error) {
+	return s.addMappedClientTraffic(tx, s.remapWireGuardStatEmailsToClientNames(traffics), history...)
+}
+
+func (s *ClientService) addMappedClientTraffic(tx *gorm.DB, traffics []*xray.ClientTraffic, history ...*trafficHistoryBatch) (map[string]string, map[int]bool, error) {
 	clientsToDisable := make(map[string]string) // map[email]tag
 	affectedInboundIds := make(map[int]bool)    // Track affected inbounds for traffic sync
 
@@ -142,8 +146,6 @@ func (s *ClientService) AddClientTraffic(tx *gorm.DB, traffics []*xray.ClientTra
 		Down       int64
 		InboundIds []int
 	})
-
-	traffics = s.remapWireGuardStatEmailsToClientNames(traffics)
 
 	for _, traffic := range traffics {
 		email := strings.ToLower(traffic.Email)

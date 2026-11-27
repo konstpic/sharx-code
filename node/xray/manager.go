@@ -92,6 +92,7 @@ func asLoglevelString(v any) string {
 
 // NodeStats represents traffic and online clients statistics from a node.
 type NodeStats struct {
+	BatchID       string                `json:"batchId,omitempty"`
 	Traffic       []*xray.Traffic       `json:"traffic"`
 	ClientTraffic []*xray.ClientTraffic `json:"clientTraffic"`
 	OnlineClients []string              `json:"onlineClients"`

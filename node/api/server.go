@@ -53,6 +53,7 @@ func try(fn func()) {
 
 // Server provides REST API for managing the node.
 type Server struct {
+	statsDelivery    statsDelivery
 	mesh             *embedded.Service
 	port             int
 	xrayManager      *xray.Manager
@@ -727,42 +728,37 @@ func (s *Server) dockerUpdaterTrigger(c *gin.Context) {
 
 // stats returns traffic and online clients statistics from XRAY.
 func (s *Server) stats(c *gin.Context) {
-	logger.Debugf("Stats request received")
-
-	// Get reset parameter (default: false)
-	reset := c.DefaultQuery("reset", "false") == "true"
-	logger.Debugf("Getting stats (reset=%v)", reset)
-
-	stats, err := s.xrayManager.GetStats(reset)
+	reset := c.Query("reset") == "true"
+	var stats *xray.NodeStats
+	var err error
+	if reset && c.Query("delivery") == "replay" {
+		stats, err = s.statsDelivery.next(c.Query("ack"), func() (*xray.NodeStats, error) { return s.collectStats(true) })
+	} else {
+		stats, err = s.collectStats(reset)
+	}
 	if err != nil {
-		if errors.Is(err, xray.ErrXrayNotReady) {
-			logXrayNotReadyThrottled("stats")
-			// Telemt runs outside Xray. Returning 503 here hid all MTProto counters/online in the panel
-			// whenever the core was stopped or not ready, even though Telegram still worked.
-			stats = &xray.NodeStats{}
-			if s.telemtManager != nil {
-				s.telemtManager.MergeTelemtIntoNodeStats(&stats.Traffic, &stats.ClientTraffic, &stats.OnlineClients)
-			}
-			if s.amneziawgManager != nil {
-				s.amneziawgManager.MergeAmneziaWgIntoNodeStats(&stats.Traffic, &stats.ClientTraffic, &stats.OnlineClients)
-			}
-			c.JSON(http.StatusOK, stats)
-			return
-		}
 		logger.Errorf("Failed to get stats: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.JSON(http.StatusOK, stats)
+}
 
-	logger.Debugf("Stats retrieved successfully, sending response")
+func (s *Server) collectStats(reset bool) (*xray.NodeStats, error) {
+	stats, err := s.xrayManager.GetStats(reset)
+	if errors.Is(err, xray.ErrXrayNotReady) {
+		logXrayNotReadyThrottled("stats")
+		stats = &xray.NodeStats{}
+	} else if err != nil {
+		return nil, err
+	}
 	if s.telemtManager != nil {
 		s.telemtManager.MergeTelemtIntoNodeStats(&stats.Traffic, &stats.ClientTraffic, &stats.OnlineClients)
 	}
 	if s.amneziawgManager != nil {
 		s.amneziawgManager.MergeAmneziaWgIntoNodeStats(&stats.Traffic, &stats.ClientTraffic, &stats.OnlineClients)
 	}
-	c.JSON(http.StatusOK, stats)
-	logger.Debugf("Stats response sent")
+	return stats, nil
 }
 
 // userOnlineSessions returns per-IP online data from Xray stats (user>>>email>>>online) plus Telemt MTProto IPs.

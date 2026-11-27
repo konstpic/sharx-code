@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/konstpic/sharx-code/v2/database"
 	"github.com/konstpic/sharx-code/v2/database/model"
 	"github.com/konstpic/sharx-code/v2/logger"
@@ -1374,6 +1375,7 @@ func (s *NodeService) GetInboundsForNode(nodeId int) ([]*model.Inbound, error) {
 
 // NodeStatsResponse represents the response from node stats API.
 type NodeStatsResponse struct {
+	BatchID       string               `json:"batchId,omitempty"`
 	Traffic       []*NodeTraffic       `json:"traffic"`
 	ClientTraffic []*NodeClientTraffic `json:"clientTraffic"`
 	OnlineClients []string             `json:"onlineClients"`
@@ -1509,7 +1511,7 @@ func (s *NodeService) GetNodeStats(node *model.Node, reset bool) (*NodeStatsResp
 
 	url := fmt.Sprintf("%s/api/v1/stats", nodeRequestBaseURL(node))
 	if reset {
-		url += "?reset=true"
+		url += "?reset=true&delivery=replay&ack=" + node.StatsBatchID
 	}
 
 	logger.Debugf("[Node: %s] Getting stats from %s (reset=%v, timeout=%v, highLoad=%v)",
@@ -1729,7 +1731,10 @@ func applyClientNodeTrafficDeltas(tx *gorm.DB, deltas []perNodeClientDelta, hist
 			continue
 		}
 		clientId, err := resolveClientIdOnNode(tx, d.NodeId, d.Email)
-		if err != nil || clientId == 0 {
+		if err != nil {
+			return err
+		}
+		if clientId == 0 {
 			continue
 		}
 		var row model.ClientNodeTraffic
@@ -2146,28 +2151,35 @@ func (s *NodeService) PostDropIPsToNode(node *model.Node, ips []string) error {
 // UpdateNodeTraffic updates traffic statistics for a node and checks traffic limit.
 // Returns true if traffic limit is exceeded.
 func (s *NodeService) UpdateNodeTraffic(nodeId int, up int64, down int64, sampleAt ...int64) (bool, error) {
-	trafficExceeded := false
+	at := time.Now().UnixMilli()
+	if len(sampleAt) > 0 {
+		at = sampleAt[0]
+	}
+	var exceeded bool
 	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
-		var node model.Node
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&node, nodeId).Error; err != nil {
-			return fmt.Errorf("failed to get node: %w", err)
-		}
-		beforeUp, beforeDown := node.Up, node.Down
-		newUp, newDown := node.Up+up, node.Down+down
-		if node.TrafficLimitGB > 0 && newUp+newDown >= int64(node.TrafficLimitGB*1024*1024*1024) {
-			trafficExceeded = true
-			logger.Warningf("[Node: %s] Traffic limit exceeded", node.Name)
-		}
-		if err := tx.Model(&node).Updates(map[string]interface{}{"up": newUp, "down": newDown, "all_time": node.AllTime + up + down}).Error; err != nil {
-			return fmt.Errorf("failed to update node traffic: %w", err)
-		}
-		at := time.Now().UnixMilli()
-		if len(sampleAt) > 0 {
-			at = sampleAt[0]
-		}
-		return saveHistoryRows(tx, []model.TrafficHistoryOrigin{{Kind: "node", EntityID: nodeId, NodeID: -1, Up: beforeUp, Down: beforeDown, StartedAt: at}}, trafficBuckets("node", nodeId, -1, at, up, down), []model.TrafficHistoryCoverage{{Kind: "node", EntityID: nodeId, Bucket: at / trafficHistoryMinute * trafficHistoryMinute}})
+		var err error
+		exceeded, err = updateNodeTraffic(tx, nodeId, up, down, at)
+		return err
 	})
-	return trafficExceeded, err
+	return exceeded, err
+}
+
+func updateNodeTraffic(tx *gorm.DB, nodeId int, up, down, at int64) (bool, error) {
+	trafficExceeded := false
+	var node model.Node
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&node, nodeId).Error; err != nil {
+		return false, fmt.Errorf("failed to get node: %w", err)
+	}
+	beforeUp, beforeDown := node.Up, node.Down
+	newUp, newDown := node.Up+up, node.Down+down
+	if node.TrafficLimitGB > 0 && newUp+newDown >= int64(node.TrafficLimitGB*1024*1024*1024) {
+		trafficExceeded = true
+		logger.Warningf("[Node: %s] Traffic limit exceeded", node.Name)
+	}
+	if err := tx.Model(&node).Updates(map[string]interface{}{"up": newUp, "down": newDown, "all_time": node.AllTime + up + down}).Error; err != nil {
+		return false, fmt.Errorf("failed to update node traffic: %w", err)
+	}
+	return trafficExceeded, saveHistoryRows(tx, []model.TrafficHistoryOrigin{{Kind: "node", EntityID: nodeId, NodeID: -1, Up: beforeUp, Down: beforeDown, StartedAt: at}}, trafficBuckets("node", nodeId, -1, at, up, down), []model.TrafficHistoryCoverage{{Kind: "node", EntityID: nodeId, Bucket: at / trafficHistoryMinute * trafficHistoryMinute}})
 }
 
 // ResetNodeTraffic resets traffic statistics for a node.
@@ -2296,8 +2308,29 @@ func (s *NodeService) CollectNodeStats() error {
 	failureCount := 0
 	perNodeDeltas := make([]perNodeClientDelta, 0, 256)
 
-	for i := 0; i < len(nodesWithInbounds); i++ {
-		result := <-results
+	// Take checkpoint locks in a consistent order across panel replicas.
+	polls := make([]nodeStatsResult, 0, len(nodesWithInbounds))
+	for range nodesWithInbounds {
+		polls = append(polls, <-results)
+	}
+	sort.Slice(polls, func(i, j int) bool { return polls[i].node.Id < polls[j].node.Id })
+	telemtNames := telemtAliases()
+	clientName := func(raw string) string {
+		name := strings.TrimSpace(raw)
+		if alias := telemtNames[strings.ToLower(name)]; alias != "" {
+			name = alias
+		}
+		if wg := wireGuardNames[strings.ToLower(name)]; wg != "" {
+			return wg
+		}
+		return name
+	}
+	tx := db.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer tx.Rollback()
+	for _, result := range polls {
 		if result.skip {
 			continue
 		}
@@ -2319,23 +2352,45 @@ func (s *NodeService) CollectNodeStats() error {
 			continue
 		}
 
+		// Collect online clients
+		for _, email := range result.stats.OnlineClients {
+			email = clientName(email)
+			if email == "" {
+				continue
+			}
+			k := strings.ToLower(email)
+			onlineClientsMap[k] = true
+			if onlineByNode[result.node.Id] == nil {
+				onlineByNode[result.node.Id] = make(map[string]struct{})
+			}
+			if _, dup := onlineByNode[result.node.Id][k]; !dup {
+				onlineByNode[result.node.Id][k] = struct{}{}
+				onlineNodesByEmail[k] = append(onlineNodesByEmail[k], result.node.Id)
+			}
+		}
+		if batch := result.stats.BatchID; batch != "" {
+			if _, err := uuid.Parse(batch); err != nil {
+				return fmt.Errorf("node %d returned invalid stats batch ID", result.node.Id)
+			}
+			if batch == result.node.StatsBatchID {
+				continue
+			}
+			claim := tx.Table("nodes").Where("id = ? AND stats_batch_id = ?", result.node.Id, result.node.StatsBatchID).UpdateColumn("stats_batch_id", batch)
+			if claim.Error != nil {
+				return claim.Error
+			}
+			if claim.RowsAffected == 0 {
+				continue
+			}
+		}
 		successCount++
-
-		if result.stats == nil {
-			continue
+		var mappings []model.InboundNodeMapping
+		if err := tx.Select("inbound_id").Where("node_id = ?", result.node.Id).Find(&mappings).Error; err != nil {
+			return err
 		}
-
-		// Get inbounds assigned to this node
-		nodeInbounds, err := s.GetInboundsForNode(result.node.Id)
-		if err != nil {
-			logger.Warningf("[Node: %s] Failed to get inbounds: %v", result.node.Name, err)
-			continue
-		}
-
-		// Build set of inbound IDs for this node
-		nodeInboundIds := make(map[int]bool)
-		for _, inbound := range nodeInbounds {
-			nodeInboundIds[inbound.Id] = true
+		nodeInboundIds := make(map[int]bool, len(mappings))
+		for _, m := range mappings {
+			nodeInboundIds[m.InboundId] = true
 		}
 		hasNodeInboundMappings := len(nodeInboundIds) > 0
 
@@ -2385,13 +2440,13 @@ func (s *NodeService) CollectNodeStats() error {
 		// Process client traffic: aggregate by email across all nodes
 		// API returns client traffic by email (sum of all inbounds on this node for that client)
 		for _, nct := range result.stats.ClientTraffic {
-			nct.Email = RemapTelemtUsername(nct.Email)
-			email := strings.ToLower(nct.Email)
+			name := clientName(nct.Email)
+			email := strings.ToLower(name)
 
 			// Initialize or update client traffic map
 			if clientTrafficMap[email] == nil {
 				clientTrafficMap[email] = &xray.ClientTraffic{
-					Email: nct.Email,
+					Email: name,
 					Up:    0,
 					Down:  0,
 				}
@@ -2407,153 +2462,80 @@ func (s *NodeService) CollectNodeStats() error {
 			clientTrafficMap[email].Down += nct.Down
 
 			if nct.Up > 0 || nct.Down > 0 {
-				historyEmail := nct.Email
-				if name := wireGuardNames[strings.ToLower(strings.TrimSpace(historyEmail))]; name != "" {
-					historyEmail = name
-				}
 				perNodeDeltas = append(perNodeDeltas, perNodeClientDelta{
 					NodeId: result.node.Id,
-					Email:  historyEmail,
+					Email:  name,
 					Up:     nct.Up,
 					Down:   nct.Down,
 				})
 			}
 		}
 
-		// Collect online clients
-		for _, email := range result.stats.OnlineClients {
-			email = strings.TrimSpace(RemapTelemtUsername(email))
-			if email == "" {
-				continue
-			}
-			for _, mapped := range RemapWireGuardStatEmailsList([]string{email}) {
-				k := strings.ToLower(strings.TrimSpace(mapped))
-				if k == "" {
-					continue
-				}
-				onlineClientsMap[k] = true
-				if onlineByNode[result.node.Id] == nil {
-					onlineByNode[result.node.Id] = make(map[string]struct{})
-				}
-				if _, dup := onlineByNode[result.node.Id][k]; !dup {
-					onlineByNode[result.node.Id][k] = struct{}{}
-					onlineNodesByEmail[k] = append(onlineNodesByEmail[k], result.node.Id)
-				}
-			}
-		}
 	}
 
 	sampleAt := time.Now().UnixMilli()
-	// Update node traffic in database
 	for nodeId, traffic := range nodeTrafficMap {
 		if traffic.Up == 0 && traffic.Down == 0 {
-			recordIdleNodeTrafficPoll(nodeId, sampleAt)
+			if err := saveHistoryRows(tx, nil, nil, []model.TrafficHistoryCoverage{{Kind: "node", EntityID: nodeId, Bucket: sampleAt / trafficHistoryMinute * trafficHistoryMinute}}); err != nil {
+				return err
+			}
 			continue
 		}
-		trafficExceeded, err := s.UpdateNodeTraffic(nodeId, traffic.Up, traffic.Down, sampleAt)
-		if err != nil {
-			logger.Warningf("Failed to update traffic for node %d: %v", nodeId, err)
-		} else if trafficExceeded {
-			logger.Warningf("Node %d traffic limit exceeded", nodeId)
-			// TODO: Handle traffic limit exceeded (disable node or inbounds)
+		if _, err := updateNodeTraffic(tx, nodeId, traffic.Up, traffic.Down, sampleAt); err != nil {
+			return err
 		}
 	}
-	// Update inbound traffic in database from per-inbound deltas.
-	// This keeps inbound counters current in multi-node mode even when per-client stats
-	// do not include inbound IDs.
 	for inboundId, traffic := range inboundTrafficMap {
 		if traffic.Up == 0 && traffic.Down == 0 {
 			continue
 		}
-		err := db.Model(&model.Inbound{}).Where("id = ?", inboundId).
-			Updates(map[string]interface{}{
-				"up":       gorm.Expr("up + ?", traffic.Up),
-				"down":     gorm.Expr("down + ?", traffic.Down),
-				"all_time": gorm.Expr("all_time + ?", traffic.Up+traffic.Down),
-			}).Error
-		if err != nil {
-			logger.Warningf("Failed to update traffic for inbound %d: %v", inboundId, err)
+		res := tx.Model(&model.Inbound{}).Where("id = ?", inboundId).Updates(map[string]any{
+			"up":       gorm.Expr("up + ?", traffic.Up),
+			"down":     gorm.Expr("down + ?", traffic.Down),
+			"all_time": gorm.Expr("all_time + ?", traffic.Up+traffic.Down),
+		})
+		if res.Error != nil {
+			return fmt.Errorf("update traffic for inbound %d: %w", inboundId, res.Error)
+		}
+		if res.RowsAffected != 1 {
+			return fmt.Errorf("inbound %d disappeared during stats collection", inboundId)
 		}
 	}
-
-	// Convert client traffic map to slice
+	for email := range onlineClientsMap {
+		traffic := clientTrafficMap[email]
+		if traffic == nil {
+			traffic = &xray.ClientTraffic{Email: email}
+			clientTrafficMap[email] = traffic
+		}
+		traffic.LastOnline = sampleAt
+	}
 	allClientTraffics := make([]*xray.ClientTraffic, 0, len(clientTrafficMap))
-	currentTime := time.Now().UnixMilli()
 	for _, traffic := range clientTrafficMap {
 		allClientTraffics = append(allClientTraffics, traffic)
 	}
-
-	// Also add online clients that don't have traffic yet (to update lastOnline)
-	// This ensures that clients who just came online get their lastOnline updated
-	for email := range onlineClientsMap {
-		// Check if this client already has traffic data
-		found := false
-		for _, traffic := range allClientTraffics {
-			if strings.ToLower(traffic.Email) == email {
-				found = true
-				break
-			}
-		}
-		// If client is online but has no traffic data, add empty traffic entry to update lastOnline
-		if !found {
-			allClientTraffics = append(allClientTraffics, &xray.ClientTraffic{
-				Email:      email,
-				Up:         0,
-				Down:       0,
-				LastOnline: currentTime, // Update lastOnline for online clients
-			})
-		} else {
-			// Update lastOnline for clients with traffic
-			for _, traffic := range allClientTraffics {
-				if strings.ToLower(traffic.Email) == email {
-					traffic.LastOnline = currentTime
-					break
-				}
-			}
-		}
-	}
-
-	if successCount > 0 && len(allClientTraffics) == 0 {
-		recordIdleClientTrafficPoll(sampleAt)
-	}
-
-	// Update client traffic in database
+	var clientsToDisable map[string]string
 	if len(allClientTraffics) > 0 {
-		db := database.GetDB()
-		tx := db.Begin()
-		defer func() {
-			if r := recover(); r != nil {
-				tx.Rollback()
-			}
-		}()
-
 		historyBatch := newTrafficHistoryBatch(sampleAt)
 		if err := applyClientNodeTrafficDeltas(tx, perNodeDeltas, historyBatch); err != nil {
-			tx.Rollback()
-			logger.Warningf("Failed to apply per-node client traffic: %v", err)
-		} else {
-			clientsToDisable, _, err := clientService.AddClientTraffic(tx, allClientTraffics, inboundService, historyBatch)
-			if err != nil {
-				tx.Rollback()
-				logger.Warningf("Failed to add client traffic: %v", err)
-			} else {
-				if err := tx.Commit().Error; err != nil {
-					logger.Warningf("Failed to commit client traffic: %v", err)
-				} else {
-					// Handle clients that need to be disabled - remove them from Xray API (both local and nodes)
-					if len(clientsToDisable) > 0 {
-						logger.Infof("Traffic limit exceeded for %d clients, removing from Xray via API", len(clientsToDisable))
-						// Remove expired clients from Xray API asynchronously (don't block traffic processing)
-						go func() {
-							_, err := clientService.DisableClientsByName(clientsToDisable, inboundService)
-							if err != nil {
-								logger.Warningf("Failed to disable expired clients via API: %v", err)
-							}
-						}()
-					}
-				}
-			}
+			return err
 		}
+		clientsToDisable, _, err = clientService.addMappedClientTraffic(tx, allClientTraffics, historyBatch)
+		if err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	if len(clientsToDisable) > 0 {
+		go func() {
+			if _, err := clientService.DisableClientsByName(clientsToDisable, inboundService); err != nil {
+				logger.Warningf("Failed to disable expired clients: %v", err)
+			}
+		}()
+	}
+	if successCount > 0 && len(allClientTraffics) == 0 {
+		recordIdleClientTrafficPoll(sampleAt)
 	}
 
 	// Update online clients in process for GetOnlineClients() to work in multi-node mode
